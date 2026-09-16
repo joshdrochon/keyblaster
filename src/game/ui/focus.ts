@@ -49,11 +49,6 @@ export function setUiSound(hook: UiSound | null): void {
   uiSound = hook;
 }
 
-/** The hook currently installed. Read by the wiring evidence. */
-export function currentUiSound(): UiSound | null {
-  return uiSound;
-}
-
 /**
  * Make the UI blip, if anything is listening.
  *
@@ -71,8 +66,6 @@ export function uiSoundBlip(kind: UiSoundKind): void {
     // A sound that throws must never take a menu down with it.
   }
 }
-
-const blip = uiSoundBlip;
 
 export class FocusList {
   private items: Focusable[] = [];
@@ -115,7 +108,7 @@ export class FocusList {
     const moved = i !== this.index;
     this.index = i;
     this.paint();
-    if (moved) blip("nav");
+    if (moved) uiSoundBlip("nav");
     return true;
   }
 
@@ -133,7 +126,7 @@ export class FocusList {
     const n = this.items.length;
     this.index = (((this.index + step) % n) + n) % n;
     this.paint();
-    blip("nav");
+    uiSoundBlip("nav");
   }
 
   activate(): void {
@@ -141,7 +134,7 @@ export class FocusList {
     if (c && !c.locked) {
       c.activate();
       this.listener();
-      blip("activate");
+      uiSoundBlip("activate");
     }
   }
 
@@ -153,7 +146,7 @@ export class FocusList {
       this.listener();
       // A slider step is an interaction too - and it is the one a child
       // dragging the SFX volume is listening to while they drag it.
-      blip("nav");
+      uiSoundBlip("nav");
     } else {
       this.move(delta);
     }

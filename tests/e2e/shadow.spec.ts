@@ -104,7 +104,14 @@ test("R-shadow / AC-25.2 renders all six poses and writes shadow-render.png", as
             });
           },
           update(time: number) {
-            for (const f of figures) f.update(time);
+            // FROZEN_AT is set by the test before the screenshot. Shadow's
+            // hover bob and face-plate pulse are clock-driven, so a capture
+            // taken at wall-clock "whenever" lands on an arbitrary phase and
+            // the render differs every run. That made the judge verdict go
+            // stale on renders where the ART had not changed at all - which
+            // trains a judge to re-approve without looking.
+            const frozen = (window as unknown as Record<string, unknown>)["__kbFrozenAt"];
+            for (const f of figures) f.update(typeof frozen === "number" ? frozen : time);
           },
         },
       });
@@ -127,8 +134,21 @@ test("R-shadow / AC-25.2 renders all six poses and writes shadow-render.png", as
 
   const canvas = page.locator("#shadow-sheet canvas");
   await canvas.waitFor({ state: "visible", timeout: 20_000 });
-  // Let the hover bob and the face-plate pulse settle somewhere flattering.
-  await page.waitForTimeout(900);
+
+  // Pin the animation phase before capturing. A reference compare should be a
+  // controlled still, not a live frame: the verdict in judge-verdicts.json is
+  // bound to this file, so a phase-dependent capture expires the verdict on
+  // every run whether or not the art moved.
+  //
+  // 1400 is an arbitrary but FIXED point in the bob/pulse cycle, chosen once.
+  const FROZEN_AT = 1400;
+  await page.evaluate((t) => {
+    (window as unknown as Record<string, unknown>)["__kbFrozenAt"] = t;
+  }, FROZEN_AT);
+  // Two rendered frames so the frozen phase is definitely what is on screen.
+  await page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+  );
 
   mkdirSync(EVIDENCE, { recursive: true });
   await canvas.screenshot({

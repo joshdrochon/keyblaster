@@ -85,7 +85,7 @@ interface WiringSnapshot {
     via: string;
   }[];
   sfxPlays: number;
-  tonesteps: number;
+  toneSteps: number;
   ambientStops: string[];
   ambientCrossfades: number;
   musicIndices: number[];
@@ -193,7 +193,7 @@ async function typeText(page: Page, text: string): Promise<void> {
 // 1. A real boot produces an audio system
 // ---------------------------------------------------------------------------
 
-test("a real game boot produces a live audio system on a real AudioContext", async ({
+test("D62 / audit.md 1.2: a real game boot produces a live audio system on a real AudioContext", async ({
   page,
 }) => {
   await bootReal(page);
@@ -343,7 +343,7 @@ test("AC-21.3 uiNav: menu movement is audible, and the master bus moves air", as
 // 3. Flight cues
 // ---------------------------------------------------------------------------
 
-test("a real flight cue produces a scheduled sound on the live graph", async ({
+test("AC-6e.2 / AC-21.1 / AC-21.2 / AC-21.3: a real flight cue produces a scheduled sound on the live graph", async ({
   page,
 }) => {
   await bootReal(page);
@@ -460,7 +460,7 @@ test("a real flight cue produces a scheduled sound on the live graph", async ({
     sfxPlaysAfter: after.sfxPlays,
     keystrokeCues,
     keystrokePlays: after.played["keystroke"],
-    toneSteps: after.tonesteps,
+    toneSteps: after.toneSteps,
     // Each entry is a sound that was scheduled on the real context, with the
     // values that went to the nodes and the clock it went at.
     scheduled: after.recent.slice(-12),
@@ -638,19 +638,63 @@ test("AC-21.4 / AC-21.5: Shadow's pre-flight line ducks the live music bus", asy
     }, active);
   };
 
-  // Let anything Shadow is saying finish, so the resting level is the real one.
+  /**
+   * Stop the ritual before measuring.
+   *
+   * The pre-flight sequence says a NEW line every few seconds, and each one
+   * ducks again. Sampling a bus that a scene is still talking over measures the
+   * overlap of two ducks, not the duck - and it does it differently depending
+   * on which frame the ritual's timer happened to land on, which is a flake
+   * that would eventually be "fixed" by loosening the threshold. The graph is
+   * the live one either way; only the second talker goes.
+   */
   await page.evaluate(() => {
-    (window as unknown as { __kb: { audio: { cancelVoice(): void } } }).__kb.audio.cancelVoice();
+    const kb = (window as unknown as {
+      __kb: {
+        game: { scene: { stop(key: string): void } };
+        audio: { cancelVoice(): void };
+      };
+    }).__kb;
+    kb.game.scene.stop("Preflight");
+    kb.audio.cancelVoice();
   });
-  await page.waitForTimeout(900);
+
+  const settled = (): Promise<void> =>
+    page
+      .waitForFunction(
+        () => {
+          const graph = (window as unknown as {
+            __kb: {
+              audio: {
+                graph: {
+                  buses: Record<string, GainNode>;
+                  ducker: { ducking: boolean };
+                };
+              };
+            };
+          }).__kb.audio.graph;
+          if (graph.ducker.ducking) return false;
+          // The release ramp has finished when the bus stops moving.
+          const bag = window as unknown as Record<string, number>;
+          const now = graph.buses["music"]!.gain.value;
+          const was = bag["__kbLastMusicGain"];
+          bag["__kbLastMusicGain"] = now;
+          return was !== undefined && Math.abs(now - was) < 1e-6;
+        },
+        null,
+        { timeout: 20_000, polling: 120 },
+      )
+      .then(() => undefined);
+
+  await settled();
   const resting = await read();
 
   await duck(true);
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(500);
   const ducked = await read();
 
   await duck(false);
-  await page.waitForTimeout(900);
+  await settled();
   const released = await read();
 
   const db = (a: number, b: number): number =>
@@ -787,7 +831,7 @@ test("AC-19.1: the settings volume sliders move the live bus gains", async ({ pa
 // 8. Degrading silently
 // ---------------------------------------------------------------------------
 
-test("the game boots, plays and stays up with no AudioContext at all", async ({ page }) => {
+test("D88: the game boots, plays and stays up with no AudioContext at all", async ({ page }) => {
   await muteHmr(page);
   // Take Web Audio away before anything loads. `createAudioSystem` must fall
   // back to the null context, and every call site must keep working.

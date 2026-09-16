@@ -37,7 +37,7 @@ import {
   createProfileStore,
   type ProfileStore,
 } from "../engine/persistence/index.js";
-import { STOP_IDS, isLang, type Lang, type StopId } from "../engine/types.js";
+import { DEFAULT_SETTINGS, STOP_IDS, isLang, type Lang, type StopId } from "../engine/types.js";
 import {
   AUDIO_REGISTRY_KEY,
   createAudioSystem,
@@ -318,13 +318,11 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
       },
     });
 
-  // The audio is built here, once, before any scene exists - see `GameServices.audio`.
-  // `?mute=1` is a test seam only: it opens both volumes at zero so an e2e can
-  // prove the muted path does not crash. It is not a product feature (the
-  // sliders in Settings are), and it never suppresses the graph itself: a game
-  // with no graph cannot demonstrate that silence is survivable.
+  // The audio is built here, once, before any scene exists - see
+  // `GameServices.audio`. The profile's saved volumes open it, so a child who
+  // muted the music last session is muted before the first bed starts rather
+  // than a second later, once Settings happens to be opened.
   const openingSettings = store.activeProfile()?.settings;
-  const muted = params.get("mute") !== null && params.get("mute") !== "0";
   let audioService: AudioService | null = null;
 
   const bundle: GameServices = {
@@ -377,6 +375,12 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
   game.registry.set("kb.lang", bundle.t.lang);
 
   audioService = installAudio({
+    // The voice language is fixed at construction. `setLang` does NOT rebuild
+    // it: rebuilding the graph mid-session would drop the ambient bed and the
+    // music with it, and the honest fix is a `setLang` on the voice transport
+    // rather than a new graph. Known limitation, noted rather than hidden - a
+    // child who switches language mid-run keeps the voice they booted with
+    // until the next reload.
     graph: createAudioSystem({ lang: bundle.t.lang }),
     events: game.events,
     registry: game.registry,
@@ -384,17 +388,19 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
     // drift apart into a silent game that still passes its own tests.
     cueEvent: FLIGHT_EVENTS.cue,
     hudEvent: FLIGHT_EVENTS.hud,
-    volumes: muted
-      ? { music: 0, sfx: 0 }
-      : {
-          music: openingSettings?.musicVolume ?? 0.7,
-          sfx: openingSettings?.sfxVolume ?? 0.8,
-        },
+    volumes: {
+      music: openingSettings?.musicVolume ?? DEFAULT_SETTINGS.musicVolume,
+      sfx: openingSettings?.sfxVolume ?? DEFAULT_SETTINGS.sfxVolume,
+    },
   });
   // `SettingsScene` has read this key since long before anything wrote it.
   game.registry.set(AUDIO_REGISTRY_KEY, audioService);
-  // Architecture 6: UI sounds are on the SFX bus, and the UI kit's focus list
-  // is the one place every menu movement in the game goes through (ui/focus.ts).
+  // Architecture 6: "UI sounds on SFX bus". D62 asks for a sound on every
+  // interaction, and this game has three keyboard menus - the UI kit's
+  // `FocusList`, the story lane's `createKeyboardMenu`, and the title screen's
+  // own list. All three call `uiSoundBlip` from ui/focus.ts, so installing the
+  // hook once here makes every menu in the game audible, including any built
+  // after this line runs.
   setUiSound(() => audioService?.uiNav());
   wireAudioToFrames(game, audioService, context);
 

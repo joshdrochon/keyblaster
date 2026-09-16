@@ -11,11 +11,11 @@
   },
   "R-shadow": {
     "verdict": "pass",
-    "round": 4,
-    "judgedAt": "2026-09-16T04:20:00Z",
+    "round": 5,
+    "judgedAt": "2026-09-16T05:45:00Z",
     "render": "gauntlet/evidence/shadow-render.png",
-    "renderBytes": 117938,
-    "basis": "Measured against design-reference/refs/shadow-sheet.png. Round 1's three findings are all closed: eyes are now large rounded pills filling the plate, the plate spans most of the head inside its cream rim, and the body is a lifted charcoal with a rim highlight rather than flat near-black. Ear pods enlarged with their blue ring, arms chunkier and angled out, raised arms drawn in front so gestures read. All six poses present and correct (idle, pointing, cheering, worried, asleep, saluting), rendered large on transparency. Bottom-row colourways correctly unused - Shadow has one look (D91). Re-judged at round 3 after a 2.1% re-render: the ear pods and flank port are now muted to match the reference, which closes the round-2 residual. Re-judged at round 4: art unchanged. The 3.1% drift is ANIMATION PHASE, not a redraw - the glow pulse and hover bob are now driven from the scene clock, so each capture samples a different frame.",
-    "residual": "The evidence capture is not deterministic: an animated subject samples a different frame each run, so this verdict will go stale on every re-render regardless of whether the art changed. Fix is to pin the animation phase for the reference capture, not to widen the tolerance."
+    "renderBytes": 115640,
+    "basis": "Measured against design-reference/refs/shadow-sheet.png. Round 1's three findings are all closed: eyes are now large rounded pills filling the plate, the plate spans most of the head inside its cream rim, and the body is a lifted charcoal with a rim highlight rather than flat near-black. Ear pods enlarged with their blue ring, arms chunkier and angled out, raised arms drawn in front so gestures read. All six poses present and correct (idle, pointing, cheering, worried, asleep, saluting), rendered large on transparency. Bottom-row colourways correctly unused - Shadow has one look (D91). Re-judged at round 3 after a 2.1% re-render: the ear pods and flank port are now muted to match the reference, which closes the round-2 residual. Re-judged at round 4: art unchanged. The 3.1% drift is ANIMATION PHASE, not a redraw - the glow pulse and hover bob are now driven from the scene clock, so each capture samples a different frame. Round 5: art unchanged; the capture is now PHASE-PINNED (shadow.spec.ts freezes the bob/pulse at a fixed t before screenshot), verified byte-identical across three consecutive runs. Earlier staleness was animation phase, never a redraw.",
+    "residual": "None. The non-deterministic capture that caused repeated staleness is fixed at the source."
   }
 }

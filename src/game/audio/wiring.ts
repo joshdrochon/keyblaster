@@ -189,7 +189,7 @@ export interface WiringSnapshot {
   readonly recent: readonly RoutedPlay[];
   readonly sfxPlays: number;
   /** Keystroke-tone (D75) steps taken, and the pitch index reached. */
-  readonly tonesteps: number;
+  readonly toneSteps: number;
   /** Stops whose ambient bed the running game started or faded to, in order. */
   readonly ambientStops: readonly string[];
   readonly ambientCrossfades: number;
@@ -267,6 +267,21 @@ export interface InstallAudioOptions {
 
 const RECENT_DEFAULT = 64;
 
+/**
+ * Ceiling on the two unbounded evidence lists (`cuesRouted`, `spoken`).
+ *
+ * These are diagnostics on a hot path - one entry per keystroke - and this
+ * object lives for the whole session. A cap well above any evidence run keeps
+ * the artifact complete while stopping a long afternoon of play from growing a
+ * list nobody reads. The oldest entries go first; the COUNTS never do.
+ */
+const LOG_CAP = 1024;
+
+function push<T>(list: T[], value: T, cap = LOG_CAP): void {
+  list.push(value);
+  if (list.length > cap) list.shift();
+}
+
 function contextKindOf(graph: AudioGraph): string {
   const ctx = graph.ctx;
   if (ctx instanceof NullAudioContext) return "NullAudioContext";
@@ -316,15 +331,18 @@ export function installAudio(options: InstallAudioOptions): AudioService {
     const seen = reachedVia[event];
     if (seen && !seen.includes(via)) seen.push(via);
     sfxPlays += 1;
-    recent.push({
-      event,
-      variant: result.variant.id,
-      peakGain: result.peakGain,
-      startHz: result.startHz,
-      ctxTime: graph.ctx.currentTime,
-      via,
-    });
-    if (recent.length > recentLimit) recent.shift();
+    push(
+      recent,
+      {
+        event,
+        variant: result.variant.id,
+        peakGain: result.peakGain,
+        startHz: result.startHz,
+        ctxTime: graph.ctx.currentTime,
+        via,
+      },
+      recentLimit,
+    );
   };
 
   const service: AudioService = {
@@ -341,7 +359,7 @@ export function installAudio(options: InstallAudioOptions): AudioService {
       if (typeof cue !== "string") return null;
       if (!FLIGHT_CUE_NAMES.includes(cue as FlightCueName)) return null;
       const name = cue as FlightCueName;
-      cuesRouted.push(name);
+      push(cuesRouted, name);
 
       // D75: the pitched layer rides the same keystroke stream. `ignored`
       // touches neither the step nor the reset - see the header.
@@ -413,14 +431,14 @@ export function installAudio(options: InstallAudioOptions): AudioService {
 
     speak(line): void {
       if (!line || typeof line.text !== "string" || line.text.trim().length === 0) return;
-      spoken.push({ id: line.id, kind: line.kind });
+      push(spoken, { id: line.id, kind: line.kind });
       graph.voice.speak(line);
     },
 
     speakNote(note, render, lineId): CoachNoteSpeechResult {
       const result = speakCoachNote(note, render, graph.voice, lineId);
       coachNoteOrder = result.order;
-      if (result.spoke) spoken.push({ id: lineId ?? "coach.note", kind: "coachNote" });
+      if (result.spoke) push(spoken, { id: lineId ?? "coach.note", kind: "coachNote" });
       return result;
     },
 
@@ -448,7 +466,7 @@ export function installAudio(options: InstallAudioOptions): AudioService {
         cuesRouted: [...cuesRouted],
         recent: [...recent],
         sfxPlays,
-        tonesteps: toneSteps,
+        toneSteps,
         ambientStops: [...ambientStops],
         ambientCrossfades,
         musicIndices: [...musicIndices].sort((a, b) => a - b),

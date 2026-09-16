@@ -196,3 +196,30 @@ A reference compare should be a controlled still, not a live frame. Logged as a
 follow-up for the lane that owns the capture harness.
 
 Passed at attempt 4 of 8.
+
+---
+
+## R-shadow — round 5 — PASS, and the staleness cause is fixed at source
+
+Art unchanged. The repeated staleness was never the art: `shadow.spec.ts` ended
+with `await page.waitForTimeout(900)` and the comment *"let the hover bob and the
+face-plate pulse settle somewhere flattering"* — a wall-clock wait on a
+clock-driven animation. Every capture landed on a different phase, so the verdict
+expired on runs where nothing had been redrawn.
+
+That is the failure I warned about when I loosened the tolerance: **a judge asked
+to re-approve unchanged art learns to stop looking.** Widening the tolerance
+again would have hidden a real redraw; the fix had to be at the source.
+
+The capture now freezes the animation at a fixed `t` before screenshotting.
+Verified byte-identical across three consecutive runs on three different ports:
+
+```
+390bc3e011e63bad808e491ddc503acb
+390bc3e011e63bad808e491ddc503acb
+390bc3e011e63bad808e491ddc503acb
+```
+
+A reference compare is a controlled still, not a live frame.
+
+Passed at attempt 5 of 8.

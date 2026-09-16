@@ -722,3 +722,131 @@ change. Saturn and Pluto need a closer look.
 
 NOT PASSED. Shipped as-is; the feature exists and is tested, it just cannot be
 reached at three stops.
+
+---
+
+## Audio wiring — four sound-design calls made without you (audit.md 1.2)
+
+- **Escalated:** 2026-09-16 (audio wiring)
+- **Source:** D62, D63, D31, D75, D88 / AC-21.1..21.6, AC-6e.2, AC-19.1
+- **Attempts:** n/a — these are taste decisions, not failures. Every one is
+  IMPLEMENTED as leaned below and shipped; they are here because they are yours
+  to overrule, and a run that stopped at 3am to ask would have failed (D94).
+- **Evidence:** `gauntlet/evidence/audio-wiring.json`, `tests/unit/audio/wiring.test.ts`.
+
+The audio package was complete, tested and connected to nothing. Connecting it
+forced four choices the decision log does not settle.
+
+### 1. What `ignored` sounds like
+
+`FlightScene` emits an `ignored` cue for a keystroke that matched no rock. It is
+the one cue that sits between two hard rules: AC-6e.2 says every keystroke gets
+an audio answer, D31 says nothing may read as failure.
+
+| # | Option | Cost |
+|---|---|---|
+| A | The neutral keystroke tick, without advancing or resetting the D75 pitched layer | Honours both rules. A child cannot hear the difference between "this key did nothing" and "this key did something", which is arguably information withheld. |
+| B | The gentle typo tick | Distinguishable, but tells a child who brushed a key that they were wrong. Straight into D31. |
+| C | Silence | Cleanest reading of D31 and a direct breach of AC-6e.2. |
+
+**Lean and shipped: A.** The visual answer to `ignored` is already an
+acknowledgement rather than a correction (`FlightScene.onIgnored`: "a lens blip …
+it is an acknowledgement, not a correction"), and the sound matching the picture
+is the consistent call.
+
+### 2. `park` and `stall` are silent
+
+`park` (the word is armed and will fire shortly) gets no sound: the blast that
+follows within a few hundred milliseconds is the sound of that moment, and two
+cues that close together mush. `stall` (the engines go quiet, D29) gets no sound
+because the one moment in this game that could read as failure is the last place
+to put a noise. Both are decisions, not gaps, and both are pinned by tests.
+
+**Alternative if you disagree:** give `park` the `lock` sound as a second
+confirm. It is one line in `CUE_SFX`.
+
+### 3. Shadow's pre-flight lines are spoken, all of them
+
+`PreflightScene.say()` now hands each line to the voice bus, so the ship's
+startup ritual is narrated and the music ducks under it (AC-21.4). D88 asks for
+the voice path to be exercised against the system voice; it does not say how
+talkative Shadow is. Six lines across a 5-20 second ritual may be too much.
+`VoiceBus.speak` cancels the previous line, so they never overlap.
+
+**Alternative:** speak only `preflight.line.opening` and `preflight.line.done`.
+
+### 4. Spoken coach notes vs D63's wording
+
+D63 says coach notes "display as text with a short Shadow chirp, never live
+TTS". AC-21.6 and the revised D88 say they are SPOKEN via the system voice after
+the text renders. These only look like a collision: D63's concern is a runtime
+network dependency (D32), and Web Speech is local — the wiring evidence records
+zero external requests across a whole session. Implemented as AC-21.6 requires,
+with the text always the source of truth. Logged here rather than as a Cxx
+because C09 already records that D88 supersedes the voice portion of D63.
+
+### Status
+
+All four SHIPPED as leaned. None blocks a rubric item; all four are one-line
+reversals if you want a different sound.
+
+---
+
+## The e2e suite's verdict is load-dependent at three workers
+
+- **Escalated:** 2026-09-16 (audio wiring)
+- **Source:** playwright.config.ts (`workers` note), CLAUDE.md gauntlet loop, G-e2e-whole
+- **Attempts:** n/a — this is a harness property, not a product defect. Nothing is fixed here.
+- **Evidence:** two separate investigations, hours apart, both of which chased a
+  regression that did not exist.
+
+### What happened, twice
+
+`pause.spec.ts`, `profile.spec.ts` and `settings.spec.ts` fail at three workers
+when anything else is using the machine, and pass at one worker. The failures are
+always `Test timeout of 30000ms exceeded` on `page.keyboard.press` or
+`page.evaluate` — never an assertion about the product — so they read exactly
+like a page that has stopped responding.
+
+That is a dangerous shape. In this session it produced a false positive twice:
+
+1. Six failures concentrated in the three specs that use the menu kit's
+   `FocusList`, immediately after a change that added a sound to `FocusList`.
+   The correlation was perfect and wrong.
+2. A follow-up "uncontended" run that was not uncontended, and a plausible
+   mechanism (`boot.ts` pulling `@game/flight/stage` → `scenes/lib/content`'s
+   eager seven-bundle `import.meta.glob` into the entry graph) that would have
+   explained it. A change was written against that theory and reverted when the
+   lead produced a clean 172/172 at three workers with the audio wiring in.
+
+Both times the evidence pointed at a real change, the mechanism was nameable,
+and the answer was still "the box was busy".
+
+### Why this is worth an entry rather than a shrug
+
+The config already pins `workers` to 3 rather than Playwright's CPU/2 default,
+and its comment says why: "a suite whose verdict depends on machine load is not
+measuring the product". That is still true at 3, on this hardware, with software
+GL. The headroom is gone. The cost is not flaky CI — it is that the next person
+to touch the menu kit will be handed a failure that looks exactly like theirs.
+
+| # | Option | Cost |
+|---|---|---|
+| A | Raise the per-test timeout for the three menu specs (they are keystroke-walk tests, not animation tests, so a longer budget measures the same thing) | Smallest change. Hides nothing: the assertions are unchanged, only the patience is. |
+| B | Drop `workers` to 2 | Suite gets slower for everyone, every run. Buys headroom without explaining where it went. |
+| C | Make `menus.ts` `press()` wait on the DOM mirror instead of `waitForTimeout(25)` | Removes fixed sleeps from the hot path, so a slow frame costs nothing. Most work, best result. |
+| D | Leave it | Free until the next false positive, which has now cost two investigations. |
+
+**Lean: A now, C when someone is next in that file.** A is one `test.describe.configure({ timeout })` per spec and removes the failure mode that actually bites; C removes the cause.
+
+### Also fixed in passing
+
+`npx playwright test --reporter=line` REPLACES the config's reporter array,
+including the JSON reporter that writes `gauntlet/evidence/e2e-report.json`.
+Three green whole-suite runs therefore produced no artifact and `G-e2e-whole`
+correctly read `not-implemented` — which was then reasonably misread as "the
+suite has never been run". The lead has documented this in `playwright.config.ts`.
+
+### Status
+
+NOT FIXED. Product unaffected. Logged so the third investigation does not happen.

@@ -12,7 +12,7 @@
  * muting one event.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NullAudioContext } from "../../../src/game/audio/nullContext.js";
@@ -33,6 +33,12 @@ import {
   type ChannelHandler,
 } from "../../../src/game/audio/wiring.js";
 import { STOP_IDS } from "../../../src/engine/types.js";
+import {
+  FocusList,
+  setUiSound,
+  uiSoundBlip,
+  type Focusable,
+} from "../../../src/game/ui/focus.js";
 import { fakeVoiceEnvironment } from "./fakes.js";
 
 const CUE_EVENT = "kb:flight:cue";
@@ -471,12 +477,102 @@ describe("the wiring snapshot describes what happened, not what was configured",
     expect(audio.snapshot().buses).toEqual(["master", "music", "ambient", "sfx", "voice"]);
   });
 
-  it("keeps the recent list bounded", () => {
+  it("keeps its lists bounded while the counts stay exact", () => {
+    // The service lives for the whole session and these lists take an entry per
+    // keystroke. The COUNTS are what the rubric reads, and they never drop.
     const { audio, channel } = harness();
-    for (let i = 0; i < 300; i++) channel.emit(CUE_EVENT, { cue: "keystroke" });
+    for (let i = 0; i < 2000; i++) channel.emit(CUE_EVENT, { cue: "keystroke" });
     const snap = audio.snapshot();
-    expect(snap.sfxPlays).toBe(300);
+    expect(snap.sfxPlays).toBe(2000);
+    expect(snap.played["keystroke"]).toBe(2000);
     expect(snap.recent.length).toBeLessThanOrEqual(64);
+    expect(snap.cuesRouted.length).toBeLessThanOrEqual(1024);
+    expect(snap.cuesRouted.every((c) => c === "keystroke")).toBe(true);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// The UI kit's sound hook (D62 "UI sounds for every interaction")
+// ---------------------------------------------------------------------------
+
+function fakeRow(id: string, overrides: Partial<Focusable> = {}): Focusable {
+  return {
+    id,
+    locked: false,
+    adjustable: false,
+    setFocused: () => undefined,
+    activate: () => undefined,
+    adjust: () => undefined,
+    toMirror: () => ({ id }) as ReturnType<Focusable["toMirror"]>,
+    ...overrides,
+  };
+}
+
+describe("AC-21.3 uiNav: the menu kit's sound hook", () => {
+  afterEach(() => setUiSound(null));
+
+  it("is silent until boot installs it, and needs no stub in a test", () => {
+    setUiSound(null);
+    const list = new FocusList();
+    list.setItems([fakeRow("a"), fakeRow("b")]);
+    expect(() => list.move(1)).not.toThrow();
+  });
+
+  it("blips on a move, on an activate and on a slider step - but not on setup", () => {
+    const heard: string[] = [];
+    setUiSound((kind) => heard.push(kind));
+    const list = new FocusList();
+    // Building the screen is not an interaction.
+    list.setItems([fakeRow("a"), fakeRow("b", { adjustable: true })]);
+    expect(heard).toEqual([]);
+
+    list.move(1);
+    list.activate();
+    list.adjust(1);
+    expect(heard).toEqual(["nav", "activate", "nav"]);
+  });
+
+  it("restoring the caret to where it already is stays silent", () => {
+    const heard: string[] = [];
+    setUiSound((kind) => heard.push(kind));
+    const list = new FocusList();
+    list.setItems([fakeRow("a"), fakeRow("b")]);
+    expect(list.focus("a")).toBe(true);
+    expect(heard).toEqual([]);
+    expect(list.focus("b")).toBe(true);
+    expect(heard).toEqual(["nav"]);
+  });
+
+  it("a locked row cannot be activated, so it makes no sound", () => {
+    const heard: string[] = [];
+    setUiSound((kind) => heard.push(kind));
+    const list = new FocusList();
+    list.setItems([fakeRow("locked", { locked: true })]);
+    list.activate();
+    expect(heard).toEqual([]);
+  });
+
+  it("a hook that throws never takes the menu down with it", () => {
+    setUiSound(() => {
+      throw new Error("no audio today");
+    });
+    const list = new FocusList();
+    list.setItems([fakeRow("a"), fakeRow("b")]);
+    expect(() => list.move(1)).not.toThrow();
+    expect(list.focusId).toBe("b");
+    expect(() => uiSoundBlip("activate")).not.toThrow();
+  });
+
+  it("routes to the audio service's uiNav, on the SFX bus", () => {
+    const { audio } = harness();
+    setUiSound(() => audio.uiNav());
+    const list = new FocusList();
+    list.setItems([fakeRow("a"), fakeRow("b")]);
+    list.move(1);
+    const snap = audio.snapshot();
+    expect(snap.played["uiNav"]).toBe(1);
+    expect(snap.reachedVia["uiNav"]).toEqual(["ui:nav"]);
   });
 });
 

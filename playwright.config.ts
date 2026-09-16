@@ -42,6 +42,12 @@ export default defineConfig({
     // I hand-typed that evidence file once, which is exactly the defect this
     // rubric spends its time catching in other people's work: a number with no
     // producer is an assertion, not evidence.
+    //
+    // FOOTGUN: passing --reporter on the CLI REPLACES this whole array, so
+    // `npx playwright test --reporter=line` writes no JSON and G-e2e-whole
+    // stays not-implemented however green the run was. Run the suite with no
+    // --reporter flag, or add json explicitly. Three full green runs produced
+    // no artifact before this was noticed.
     ["json", { outputFile: "gauntlet/evidence/e2e-report.json" }],
   ],
   use: {

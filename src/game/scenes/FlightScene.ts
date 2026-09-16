@@ -95,6 +95,7 @@ import {
 } from "@game/flight/shield.js";
 import { HudScene } from "./HudScene.js";
 import { StallScene } from "./StallScene.js";
+import { audioFrom } from "@game/audio/wiring.js";
 
 /**
  * SCREEN 6 - FLIGHT. The core loop (design-brief-v2.md section 6, PRD 3.1).
@@ -330,6 +331,10 @@ export class FlightScene extends Phaser.Scene {
     });
 
     if (this.cfg.debug) window.__kbFlight = this.debugApi();
+    // D75: a new stage starts the pitched keystroke layer at the root of the
+    // scale. Carrying a warp's worth of climb into the next belt would open it
+    // two octaves up for no reason the player did anything to earn.
+    audioFrom(this.registry)?.resetTone();
     this.publishHud(true);
   }
 
