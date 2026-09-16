@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+gauntlet/*.png
+gauntlet/report.md
+gauntlet/summary.md
+.env
+.env.*
+.vercel/
+playwright-report/
+test-results/
