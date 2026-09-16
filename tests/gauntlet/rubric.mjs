@@ -767,6 +767,48 @@ const loop = [
 
 const reference = [
   {
+    id: "R-world",
+    source: "D59 / D60 / art-direction.md section 0",
+    title: "The flight screen has a named visual reference to be judged against",
+    kind: "reference",
+    referenceImage: "design-reference/refs/world-bar.png",
+    renderEvidence: "flight-frame.png",
+    run: async ({ repo, evidence }) => {
+      // WHY THIS ITEM EXISTS. D59 names Alto's Odyssey as the visual bar, and
+      // nothing in this rubric ever compared a screenshot to it. The
+      // reference-compare step iterates over files PRESENT in
+      // design-reference/refs/, so a missing reference meant a missing check -
+      // silently. R-lantern and R-shadow exist only because the user supplied
+      // those two PNGs, and they are the two things in the game that look
+      // right. That is not a coincidence.
+      //
+      // The world art was therefore judged only against proxies - five layers
+      // at distinct speeds, a gradient that shifts, a contour count - every one
+      // of which passes on a flat brown screen. A rubric can falsify ugliness.
+      // It cannot certify beauty. Only a side-by-side can.
+      const ref = join(repo, "design-reference/refs/world-bar.png");
+      if (!existsSync(ref)) {
+        return bad(
+          "no world reference image. D59 names Alto's Odyssey as the bar; put one or more screenshots at design-reference/refs/world-bar.png so the flight screen can be judged against it the way the Lantern and Shadow were.",
+        );
+      }
+      if (!evidence.has("flight-frame.png")) {
+        return todo("world reference present; no flight-frame.png render to compare yet");
+      }
+      const v = judgeVerdict(repo, "R-world", "gauntlet/evidence/flight-frame.png");
+      if (!v) {
+        return bad(
+          "flight frame and reference both exist but no judge verdict recorded - a reference compare is never auto-passed (D85)",
+          "gauntlet/evidence/flight-frame.png",
+        );
+      }
+      if (v.stale) {
+        return bad(`judge verdict is stale (${(v.drift * 100).toFixed(1)}% drift). Re-judge.`, "gauntlet/evidence/flight-frame.png");
+      }
+      return ok(`judged round ${v.round}: ${v.basis}`, "gauntlet/judge-notes.md");
+    },
+  },
+  {
     id: "R-lantern",
     source: "D90 / art-direction.md section 5",
     title: "Vector Lantern matches design-reference/refs/lantern-topdown.png",
