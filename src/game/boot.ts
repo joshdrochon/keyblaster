@@ -382,8 +382,7 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
     registry: game.registry,
     // Read from the flight lane rather than restated, so the two can never
     // drift apart into a silent game that still passes its own tests.
-    // DISCONNECTION DRILL - temporarily severed
-    // cueEvent: FLIGHT_EVENTS.cue,
+    cueEvent: FLIGHT_EVENTS.cue,
     hudEvent: FLIGHT_EVENTS.hud,
     volumes: muted
       ? { music: 0, sfx: 0 }

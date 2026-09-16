@@ -766,3 +766,53 @@ said instead.
 sound, 13 measuring something other than their claim, 1 correctly escalated; 4 open
 collisions; 11 untested ACs; 4 citation misstatements; 3 subsystems (audio, live
 coach, graded allowlist) built but not connected.*
+
+---
+
+# ADDENDUM — what changed after the audit ran
+
+The audit above is a snapshot of the tree at `91a29ee` and its findings are left
+untouched. This section records only what has been closed since, so the two are
+never confused.
+
+## Closed
+
+| # | Finding | Now |
+|---|---|---|
+| 3 | **D09 — warp sentence not built from blasted words** | **FIXED.** Flight spawns from the real bundle and records an ordered blast history; Warp highlights that, with no pool fallback. The e2e deliberately breaches a word that is in both the pool and the sentence and asserts it is not highlighted — pool-membership highlighting cannot pass it. The old D30 test, which asserted the pool against itself, is rewritten. |
+| 4 | **No live AI path** | **FIXED.** `chooseTransport` wired; mock is the explicit default and is pinned for automated runs per D87; endpoints forced same-origin. DirectCoach absence re-verified against a real `vite build`. |
+| 13 | **e2e artifact typed by hand** | **FIXED.** `G-e2e-whole` now reads Playwright's own JSON reporter and rejects a run of under 100 tests. |
+| 14 | **Secrets scan ran on a stale scaffold `dist/`** | **FIXED.** `dist/` rebuilt, and `G-secrets` now fails if `dist/` is older than the newest file in `src/` or `api/`. |
+| 16 | **Colourblind typed letters at 1.02:1** | **FIXED.** Every palette gains `colorblind.plateAccent` clearing 4.5:1; worst case now 10.97:1 in colourblind mode. V-22.8 measures three pairs per palette — body, typed, typed-colourblind — instead of only the body pair it was reporting 18.08 from. |
+| 2 | **L-6e.1 is per-frame work wearing a latency label** | **CHECK FIXED, MEASUREMENT STILL OWED.** It now rejects headless capture and requires the frame interval alongside. Like P-22.9 it needs a headed run. |
+
+## Found after the audit, not in it
+
+**`allowlist/normalize.ts` destroyed most Hindi words.** The edge-strip class
+`[^\p{L}\p{N}]` deletes trailing Unicode Marks, and every Devanagari matra,
+anusvara, chandrabindu, nukta and virama is a Mark. `गुलाबी`→`गुलाब`,
+`है`→`ह` — 91 of 143 Hindi sight words. The allowlist gate never broke because
+construction and lookup truncated identically, which is exactly why it survived;
+every downstream consumer got a mutilated string. Found only by building real
+Hindi content. Fixed, with a regression test.
+
+**D25's parked-word tier is unreachable at Mars, Saturn and Pluto** — the real
+pools contain no word that is a prefix of another, and the AC-2.2 e2e passes
+because it debug-spawns the pair. Escalated; the fix needs a story edit.
+
+## Still open, and why
+
+- **Audio wiring** (finding 5, 6) — a lane is connecting it now.
+- **60 fps and input latency** (1, 2) — need a headed capture on target hardware.
+  A human-present action; cannot be closed by the overnight loop.
+- **Citations** (7–10) — retraction or rework is a judgement call about what the
+  submission claims. User decision.
+- **`src/game` has no coverage gate** (12) — architecture §10.1's "game 70%"
+  exists in no config, and two thirds of the source is measured at nothing.
+- **11 ACs with no live test** (11) — listed in §4.
+- **PII nuance** (17) — no PII *field*, but the pilot name is unvalidated free
+  text and a corrupt-storage event leaves the old profile in a quarantine key.
+- **Four open collisions** (C10–C13).
+
+Nothing in the "What I would not claim" list should be treated as cleared unless
+it appears in the Closed table above.
