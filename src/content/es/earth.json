@@ -1,0 +1,23 @@
+{
+  "stopId": "earth",
+  "lang": "es",
+  "planetName": "Tierra",
+  "chapterTitle": "El despegue",
+  "briefing": [
+    "Todas las naves vuelan igual: despacio y un poco perdidas.",
+    "Nadie ha dibujado el camino y nadie ha dejado una luz.",
+    "Hoy eso cambia.",
+    "Tu nave es la {shipName} y tu trabajo es volar más allá del último planeta y dejar un faro en cada parada.",
+    "La Tierra ya tiene un faro; solo hay que encenderlo."
+  ],
+  "pool": [],
+  "properNouns": [
+    "Tierra"
+  ],
+  "preflightLine": "Casco, listo. Blaster, listo. Piloto... ese eres tú.",
+  "activationWord": "despegue",
+  "warpSentence": null,
+  "beaconHeadline": "FARO TIERRA",
+  "beaconState": "EN LÍNEA",
+  "beaconFlavor": "Todo mapa empieza en casa."
+}

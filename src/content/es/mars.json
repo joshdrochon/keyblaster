@@ -1,0 +1,47 @@
+{
+  "stopId": "mars",
+  "lang": "es",
+  "planetName": "Marte",
+  "chapterTitle": "El planeta rojo",
+  "briefing": [
+    "Marte es el planeta rojo.",
+    "Es rojo porque su polvo está lleno de óxido.",
+    "Marte es frío y seco, y de día su cielo se ve rosa.",
+    "Dos lunas pequeñas giran a su alrededor, y hace mucho tiempo corrían ríos por su superficie.",
+    "Ahora el suelo está vacío y tú eres el primer piloto que deja un faro aquí."
+  ],
+  "pool": [
+    "marte",
+    "planeta",
+    "rojo",
+    "polvo",
+    "óxido",
+    "frío",
+    "seco",
+    "cielo",
+    "rosa",
+    "día",
+    "lunas",
+    "pequeñas",
+    "giran",
+    "alrededor",
+    "tiempo",
+    "corrían",
+    "ríos",
+    "superficie",
+    "suelo",
+    "vacío",
+    "primer",
+    "piloto",
+    "faro"
+  ],
+  "properNouns": [
+    "Marte"
+  ],
+  "preflightLine": "Cinturón adelante. Rocas con palabras. Escribe la palabra y el blaster hace el resto. Cuando quieras.",
+  "activationWord": null,
+  "warpSentence": "Marte es el planeta rojo.",
+  "beaconHeadline": "FARO MARTE",
+  "beaconState": "COLOCADO",
+  "beaconFlavor": "Óxido y ríos. Alguien volverá por ellos."
+}

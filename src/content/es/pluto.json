@@ -1,0 +1,45 @@
+{
+  "stopId": "pluto",
+  "lang": "es",
+  "planetName": "Plutón",
+  "chapterTitle": "La última parada",
+  "briefing": [
+    "Plutón es pequeño, frío y está muy lejos.",
+    "Algunos dicen que Plutón ya no es un planeta, pero vinimos igual.",
+    "Plutón tiene un corazón gigante en su superficie, hecho de hielo de nitrógeno.",
+    "Tiene cinco lunas, y la más grande, Caronte, mide casi la mitad que él.",
+    "Nadie ha dejado un faro tan lejos; enciéndelo."
+  ],
+  "pool": [
+    "plutón",
+    "pequeño",
+    "frío",
+    "lejos",
+    "dicen",
+    "planeta",
+    "vinimos",
+    "corazón",
+    "gigante",
+    "superficie",
+    "hecho",
+    "hielo",
+    "nitrógeno",
+    "cinco",
+    "lunas",
+    "grande",
+    "mide",
+    "mitad",
+    "faro",
+    "enciéndelo"
+  ],
+  "properNouns": [
+    "Plutón",
+    "Caronte"
+  ],
+  "preflightLine": "Último cinturón. Último faro. Todo lo que escribiste nos trajo aquí. Uno más.",
+  "activationWord": null,
+  "warpSentence": "Plutón es pequeño, frío y está muy lejos.",
+  "beaconHeadline": "FARO PLUTÓN",
+  "beaconState": "COLOCADO",
+  "beaconFlavor": "No es un planeta. Sigue en el mapa. El camino está encendido desde la Tierra."
+}

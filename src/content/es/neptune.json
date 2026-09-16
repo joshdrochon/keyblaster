@@ -1,0 +1,51 @@
+{
+  "stopId": "neptune",
+  "lang": "es",
+  "planetName": "Neptuno",
+  "chapterTitle": "El azul con viento",
+  "briefing": [
+    "Neptuno es azul oscuro y está muy lejos del sol.",
+    "Es el lugar más ventoso del sistema solar, y sus vientos vuelan más rápido que un avión.",
+    "Hay tormentas oscuras que van y vienen, y su luna más grande, Tritón, gira al revés.",
+    "La luz del sol tarda unas cuatro horas en llegar.",
+    "Desde aquí, el sol es solo una estrella brillante."
+  ],
+  "pool": [
+    "neptuno",
+    "azul",
+    "oscuro",
+    "lejos",
+    "sol",
+    "lugar",
+    "ventoso",
+    "sistema",
+    "solar",
+    "vientos",
+    "vuelan",
+    "rápido",
+    "avión",
+    "tormentas",
+    "oscuras",
+    "luna",
+    "grande",
+    "gira",
+    "revés",
+    "luz",
+    "tarda",
+    "cuatro",
+    "horas",
+    "llegar",
+    "estrella",
+    "brillante"
+  ],
+  "properNouns": [
+    "Neptuno",
+    "Tritón"
+  ],
+  "preflightLine": "El viento no nos toca en el espacio. Las rocas sí. Manos firmes.",
+  "activationWord": null,
+  "warpSentence": "Neptuno es azul oscuro y está muy lejos del sol.",
+  "beaconHeadline": "FARO NEPTUNO",
+  "beaconState": "COLOCADO",
+  "beaconFlavor": "Desde aquí el sol es una estrella. Sigue siendo el sol."
+}

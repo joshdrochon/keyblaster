@@ -35,7 +35,15 @@ export default defineConfig({
   workers: Number(process.env["PW_WORKERS"] ?? 3),
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  reporter: [["list"], ["html", { open: "never" }]],
+  reporter: [
+    ["list"],
+    ["html", { open: "never" }],
+    // Machine-readable run summary. G-e2e-whole reads this. It exists because
+    // I hand-typed that evidence file once, which is exactly the defect this
+    // rubric spends its time catching in other people's work: a number with no
+    // producer is an assertion, not evidence.
+    ["json", { outputFile: "gauntlet/evidence/e2e-report.json" }],
+  ],
   use: {
     baseURL: `http://localhost:${port}`,
     trace: "retain-on-failure",

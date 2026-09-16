@@ -46,6 +46,23 @@ describe("normalizeWord", () => {
     expect(normalizeWord(precomposed, "hi")).toBe(normalizeWord(decomposed, "hi"));
   });
 
+  it("keeps Devanagari combining marks, which are Marks and not Letters", () => {
+    // The original edge-strip class was [^\p{L}\p{N}], which deletes every
+    // trailing matra, anusvara, chandrabindu, nukta and virama - so गुलाबी
+    // became गुलाब and है became ह. The allowlist GATE never broke, because
+    // construction and lookup truncated identically; what broke was every
+    // consumer of the normalised string.
+    for (const w of ["\u0917\u0941\u0932\u093E\u092C\u0940", "\u0939\u0948", "\u092A\u094D\u0932\u0942\u091F\u094B", "\u092C\u0921\u093C\u093E"]) {
+      expect(normalizeWord(w, "hi"), w).toBe(w);
+    }
+  });
+
+  it("still strips punctuation when it sits next to a mark", () => {
+    // The fix must not turn into "keep everything".
+    expect(normalizeWord("\u0939\u0948.", "hi")).toBe("\u0939\u0948");
+    expect(normalizeWord("\u201C\u0939\u0948\u201D", "hi")).toBe("\u0939\u0948");
+  });
+
   it("returns empty string for punctuation-only input", () => {
     expect(normalizeWord("---")).toBe("");
   });

@@ -395,11 +395,28 @@ const loop = [
     title: "Input-to-visual latency <= 16.7 ms (one frame)",
     kind: "perf",
     needsBrowser: true,
-    run: async ({ evidence }) =>
-      evidence.has("input-latency.json")
-        ? evidence.assertNumber("input-latency.json", "p95Ms", (v) => v <= 16.7,
-            "p95 keydown-to-render latency")
-        : todo("Flight scene not built; no input-latency.json evidence"),
+    run: async ({ evidence }) => {
+      if (!evidence.has("input-latency.json")) {
+        return todo("Flight scene not built; no input-latency.json evidence");
+      }
+      const d = evidence.read("input-latency.json");
+      const ev = "gauntlet/evidence/input-latency.json";
+      const method = String(d["method"] ?? "");
+      // THE SAME DISEASE P-22.9 HAD, shipped one item further down the file.
+      // "keydown to the first postrender that follows" measures how long the
+      // RENDER took, not how long the player waited. The player waits for the
+      // next frame. In a harness whose p95 frame interval is 144.7 ms, a 5.1 ms
+      // answer is measuring the wrong clock - and AC-6e.1 is a claim about what
+      // the child perceives (D77: "responsive = input-to-visual <= 1 frame").
+      if (/headless/i.test(method)) {
+        return bad("captured headless - at a 144.7ms p95 frame interval, keydown-to-postrender measures render cost, not perceived latency. Re-capture headed, and report the keydown-to-next-presented-frame delta.", ev);
+      }
+      if (typeof d["p95FrameIntervalMs"] !== "number") {
+        return bad("must report p95FrameIntervalMs alongside p95Ms: a latency figure smaller than the frame interval is measuring the render, not the wait", ev);
+      }
+      return evidence.assertNumber("input-latency.json", "p95Ms", (v) => v <= 16.7,
+        "p95 keydown-to-presented-frame latency");
+    },
   },
   {
     id: "L-6e.3",
@@ -479,6 +496,18 @@ const guardrails = [
     run: async ({ repo }) => {
       const dist = join(repo, "dist");
       if (!existsSync(dist)) return todo("dist/ not built yet (run npm run build)");
+      // A secrets scan of a STALE bundle is worse than no scan: it reports
+      // clean for a build that predates the code it claims to have checked.
+      // This dist/ was a 12KB scaffold from before the game existed, and the
+      // check had been passing on it all night.
+      const newestSrc = Math.max(
+        ...walk(join(repo, "src")).map((f) => statSync(f).mtimeMs),
+        ...(existsSync(join(repo, "api")) ? walk(join(repo, "api")).map((f) => statSync(f).mtimeMs) : [0]),
+      );
+      const newestDist = Math.max(...walk(dist).map((f) => statSync(f).mtimeMs), 0);
+      if (newestDist < newestSrc) {
+        return bad(`dist/ is older than src/ (built ${new Date(newestDist).toISOString()}, newest source ${new Date(newestSrc).toISOString()}) - scanning a stale bundle. Run npm run build.`);
+      }
       const files = walk(dist).filter((f) => [".js", ".mjs", ".html", ".json", ".css"].includes(extname(f)));
       const patterns = [
         [/sk-ant-[A-Za-z0-9_-]{16,}/g, "Anthropic key"],
@@ -687,17 +716,28 @@ const guardrails = [
     title: "The whole e2e suite passes in ONE run, under the repo config",
     kind: "trace",
     run: async ({ repo }) => {
-      const p = join(repo, "gauntlet/evidence/e2e-suite.json");
+      // Read Playwright's OWN json reporter output, never a hand-written file.
+      const p = join(repo, "gauntlet/evidence/e2e-report.json");
       if (!existsSync(p)) {
         return todo("no whole-suite run recorded yet (PW_PORT=<free> npx playwright test)");
       }
-      const d = JSON.parse(readFileSync(p, "utf8"));
-      const failed = d.failed ?? -1;
-      const passed = d.passed ?? 0;
-      if (failed !== 0) {
-        return bad(`${failed} of ${passed + failed} e2e tests failing in a whole-suite run`, "gauntlet/evidence/e2e-suite.json");
+      let report;
+      try {
+        report = JSON.parse(readFileSync(p, "utf8"));
+      } catch (e) {
+        return bad(`e2e-report.json is not valid JSON: ${e.message}`);
       }
-      return ok(`${passed} e2e tests pass in one run under the repo config`, "gauntlet/evidence/e2e-suite.json");
+      const stats = report.stats ?? {};
+      const failed = (stats.unexpected ?? 0) + (stats.flaky ?? 0);
+      const passed = stats.expected ?? 0;
+      // A run that skipped most of the suite is not a whole-suite run.
+      if (passed + failed < 100) {
+        return bad(`only ${passed + failed} tests in the recorded run; that is not the whole suite`, "gauntlet/evidence/e2e-report.json");
+      }
+      if (failed !== 0) {
+        return bad(`${failed} of ${passed + failed} e2e tests failing or flaky in a whole-suite run`, "gauntlet/evidence/e2e-report.json");
+      }
+      return ok(`${passed} e2e tests pass in one run under the repo config`, "gauntlet/evidence/e2e-report.json");
     },
   },
   {

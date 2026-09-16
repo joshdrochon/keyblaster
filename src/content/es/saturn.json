@@ -1,0 +1,48 @@
+{
+  "stopId": "saturn",
+  "lang": "es",
+  "planetName": "Saturno",
+  "chapterTitle": "El mundo de los anillos",
+  "briefing": [
+    "Saturno lleva anillos.",
+    "De lejos parecen sólidos, pero de cerca son hielo y roca, desde granos de polvo hasta trozos del tamaño de una casa.",
+    "Saturno es tan ligero que flotaría en una bañera enorme.",
+    "Su luna Titán tiene lagos, pero no son de agua.",
+    "Vuela entre los anillos, no por dentro."
+  ],
+  "pool": [
+    "saturno",
+    "lleva",
+    "anillos",
+    "lejos",
+    "parecen",
+    "sólidos",
+    "cerca",
+    "hielo",
+    "roca",
+    "granos",
+    "polvo",
+    "trozos",
+    "tamaño",
+    "casa",
+    "ligero",
+    "flotaría",
+    "bañera",
+    "enorme",
+    "luna",
+    "lagos",
+    "agua",
+    "vuela",
+    "dentro"
+  ],
+  "properNouns": [
+    "Saturno",
+    "Titán"
+  ],
+  "preflightLine": "Los anillos son bonitos. También son rocas. La misma regla: escríbela antes de que llegue.",
+  "activationWord": null,
+  "warpSentence": "Saturno lleva anillos de hielo y roca.",
+  "beaconHeadline": "FARO SATURNO",
+  "beaconState": "COLOCADO",
+  "beaconFlavor": "Pasamos entre los anillos. La próxima nave no tendrá que hacerlo."
+}

@@ -1,0 +1,50 @@
+{
+  "stopId": "uranus",
+  "lang": "es",
+  "planetName": "Urano",
+  "chapterTitle": "El planeta de lado",
+  "briefing": [
+    "Urano es un planeta que gira de lado.",
+    "Casi todos los planetas giran como un trompo, pero Urano rueda como una pelota.",
+    "Por eso sus estaciones duran años: un polo mira al sol mucho tiempo mientras el otro queda a oscuras.",
+    "Urano es azul pálido y muy frío.",
+    "Sus anillos son finos y oscuros, y difíciles de ver."
+  ],
+  "pool": [
+    "urano",
+    "planeta",
+    "gira",
+    "lado",
+    "planetas",
+    "giran",
+    "trompo",
+    "rueda",
+    "pelota",
+    "estaciones",
+    "duran",
+    "años",
+    "polo",
+    "mira",
+    "sol",
+    "tiempo",
+    "queda",
+    "oscuras",
+    "azul",
+    "pálido",
+    "frío",
+    "anillos",
+    "finos",
+    "oscuros",
+    "difíciles",
+    "ver"
+  ],
+  "properNouns": [
+    "Urano"
+  ],
+  "preflightLine": "Aquí todo está torcido. No pienses en dónde queda arriba. Solo lee.",
+  "activationWord": null,
+  "warpSentence": "Urano es un planeta que gira de lado.",
+  "beaconHeadline": "FARO URANO",
+  "beaconState": "COLOCADO",
+  "beaconFlavor": "De lado también es una dirección."
+}

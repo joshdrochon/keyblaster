@@ -1,0 +1,48 @@
+{
+  "stopId": "jupiter",
+  "lang": "es",
+  "planetName": "Júpiter",
+  "chapterTitle": "El gigante",
+  "briefing": [
+    "Júpiter es el planeta más grande de todos.",
+    "Dentro de él caben todos los demás planetas.",
+    "No tiene suelo; solo nubes en franjas naranjas, blancas y marrones.",
+    "Una tormenta gigante, la gran mancha roja, gira desde hace siglos.",
+    "Júpiter tiene tantas lunas que aún las contamos, y su gravedad es enorme."
+  ],
+  "pool": [
+    "júpiter",
+    "planeta",
+    "grande",
+    "dentro",
+    "caben",
+    "demás",
+    "planetas",
+    "suelo",
+    "nubes",
+    "franjas",
+    "naranjas",
+    "blancas",
+    "marrones",
+    "tormenta",
+    "gigante",
+    "gran",
+    "mancha",
+    "roja",
+    "gira",
+    "siglos",
+    "lunas",
+    "contamos",
+    "gravedad",
+    "enorme"
+  ],
+  "properNouns": [
+    "Júpiter"
+  ],
+  "preflightLine": "Júpiter tira fuerte. Más rocas y más rápidas. Mira las palabras, no la tormenta.",
+  "activationWord": null,
+  "warpSentence": "Júpiter es el planeta más grande de todos.",
+  "beaconHeadline": "FARO JÚPITER",
+  "beaconState": "COLOCADO",
+  "beaconFlavor": "Tan grande que tapa el mapa. Lo encontramos igual."
+}
