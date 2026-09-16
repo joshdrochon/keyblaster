@@ -12,5 +12,5 @@
     "baseUrl": ".",
     "paths": { "@engine/*": ["src/engine/*"], "@game/*": ["src/game/*"], "@content/*": ["src/content/*"] }
   },
-  "include": ["src", "tests", "scripts", "api"]
+  "include": ["src", "tests", "scripts", "api", "vite.config.ts", "playwright.config.ts"]
 }
