@@ -50,12 +50,44 @@ interface KbWindow {
   };
 }
 
+/**
+ * Vite's HMR client is stubbed out before the first navigation.
+ *
+ * Several lanes edit this repo while the suite runs, and every save makes the
+ * dev server push a full reload. Mid-test that destroys the execution context
+ * and the failure surfaces as "Execution context was destroyed" or a silent
+ * navigation back to the same URL - which reads as flake and invites weakening
+ * whichever assertion happened to be in flight. HMR is an authoring
+ * convenience, never a behaviour under test, so it is replaced with no-ops.
+ * `src/main.ts` is deliberately NOT stubbed: these tests need the real boot.
+ */
+const HMR_MUTED = new WeakSet<Page>();
+
+async function muteHmr(page: Page): Promise<void> {
+  if (HMR_MUTED.has(page)) return;
+  HMR_MUTED.add(page);
+  await page.route("**/@vite/client", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/javascript",
+      body: [
+        "export const createHotContext = () => ({ accept(){}, acceptExports(){}, dispose(){}, prune(){}, decline(){}, invalidate(){}, on(){}, off(){}, send(){}, data:{} });",
+        "export const updateStyle = () => {};",
+        "export const removeStyle = () => {};",
+        "export const injectQuery = (url) => url;",
+        "export const ErrorOverlay = class {};",
+      ].join("\n"),
+    }),
+  );
+}
+
 /** Boot the game straight into one scene. `?scene=` is boot.ts's own hook. */
 export async function open(
   page: Page,
   scene: string,
   query = "",
 ): Promise<void> {
+  await muteHmr(page);
   await page.goto(`/?scene=${scene}${query}`);
   await page.waitForFunction(
     () => (window as unknown as KbWindow).__kb?.game !== undefined,

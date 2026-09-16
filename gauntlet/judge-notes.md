@@ -170,3 +170,29 @@ against.
 1% sits comfortably above observed encoder noise and far below anything a
 person would call a redraw. Both real changes tonight (Lantern round 1->2->3,
 Shadow round 1->2->3) were well over it.
+
+---
+
+## R-shadow — round 4 — PASS, and a flaw in my own staleness rule
+
+Art unchanged from round 3. The 3.1% drift that tripped the guard is **animation
+phase**, not a redraw: the consolidation moved Shadow's glow pulse and hover bob
+onto the scene clock (correctly — without it he renders once and stops
+breathing, which would fail rubric item 2 on four screens). So every capture now
+samples a different frame.
+
+**This breaks the staleness mechanism for any animated subject.** A reference
+capture of something that moves is never byte-stable, so the verdict will expire
+on every run whether or not the art changed — which is the rubber-stamp failure
+I loosened the tolerance to avoid, arriving by a different road.
+
+The fix is NOT to widen the tolerance again. 1% already sits between encoder
+noise (0.005%) and a real redraw (2%+); pushing it past 3% to swallow animation
+phase would let a genuine change hide under it.
+
+The fix is to make the capture **deterministic**: pin the animation phase for
+the reference render — freeze the pulse and bob at a fixed t before screenshot.
+A reference compare should be a controlled still, not a live frame. Logged as a
+follow-up for the lane that owns the capture harness.
+
+Passed at attempt 4 of 8.

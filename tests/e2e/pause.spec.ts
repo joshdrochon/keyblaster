@@ -5,6 +5,7 @@ import {
   dialog,
   focusItem,
   item,
+  open,
   press,
   screen,
   seed,
@@ -53,6 +54,8 @@ test.describe("row 13 - pause", () => {
     page,
   }) => {
     test.slow();
+    // Boot the real game once so the HMR client is muted, then go to Flight.
+    await open(page, BELOW);
     await page.goto("/?scene=Flight");
     await page.waitForFunction(
       () => (window as any).__kb?.game?.scene.isActive("Flight") === true,

@@ -20,6 +20,19 @@ export default defineConfig({
   testDir: "tests/e2e",
   outputDir: path.join("test-results", runId),
   fullyParallel: true,
+  /**
+   * Every test boots its own Phaser WebGL game. Headless Chromium rasterises in
+   * software, so N workers means N software renderers competing for the same
+   * cores, and Phaser's clock then steps at a fraction of wall time - the map
+   * lane measured roughly a quarter. Tests that wait on game state start timing
+   * out for reasons that have nothing to do with the product.
+   *
+   * Three specs passed 23/23 alone and failed inside a 159-test run purely on
+   * worker count. A suite whose verdict depends on machine load is not
+   * measuring the product, so the worker count is pinned rather than left to
+   * Playwright's CPU/2 default. Slower, and it means something.
+   */
+  workers: Number(process.env["PW_WORKERS"] ?? 3),
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: [["list"], ["html", { open: "never" }]],
