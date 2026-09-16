@@ -201,11 +201,19 @@ export async function assertVisibleFocus(
   expect(snap["focusId"]).toBeTruthy();
 }
 
-/** Press a key and let Phaser's next frame republish the mirror. */
+/**
+ * Press a key.
+ *
+ * The mirror is republished SYNCHRONOUSLY inside the game's keydown handler, so
+ * no frame wait is needed for a value or a focus move to appear in the DOM. The
+ * short settle is for the cases that do cross a frame - a scene restart after a
+ * typography setting changes - and everything after it is an auto-retrying
+ * Playwright assertion anyway.
+ */
 export async function press(page: Page, key: string, times = 1): Promise<void> {
   for (let i = 0; i < times; i += 1) {
     await page.keyboard.press(key);
-    await page.waitForTimeout(60);
+    await page.waitForTimeout(25);
   }
 }
 
@@ -237,10 +245,7 @@ export async function focusItem(
   if (down <= up) await press(page, "ArrowDown", down);
   else await press(page, "ArrowUp", up);
 
-  const landed = await screen(page, scene).getAttribute("data-focus");
-  if (landed !== id) {
-    throw new Error(
-      `keyboard navigation landed on "${landed}" instead of "${id}" on ${scene}`,
-    );
-  }
+  // Auto-retrying, so a mirror republish that lands a frame late is not a
+  // failure - but landing on the wrong control still is.
+  await expect(screen(page, scene)).toHaveAttribute("data-focus", id);
 }

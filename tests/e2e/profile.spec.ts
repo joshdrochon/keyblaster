@@ -151,6 +151,9 @@ test.describe("row 2 - profile create", () => {
   test("D72 keyboard only: name, mark, ship and ship name, then take off", async ({
     page,
   }) => {
+    // Three beats, two name fields and a gallery: the longest keyboard journey
+    // in the game, and slow on a throttled headless frame rate.
+    test.slow();
     await seed(page, [], CREATE);
 
     // Beat 1: the name field has focus on arrival, so typing just works.

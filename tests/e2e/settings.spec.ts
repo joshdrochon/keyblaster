@@ -231,6 +231,9 @@ test.describe("row 11 - settings", () => {
   });
 
   test("AC-19.1 every setting survives a reload", async ({ page }) => {
+    // Two of these three restart the scene in place before the next one is
+    // touched, which costs a frame each at headless frame rates.
+    test.slow();
     await seed(page, [{ name: "Ana" }], SETTINGS);
     await adjust(page, "settings.letterCase", "ArrowRight");
     await adjust(page, "settings.reducedMotion", "ArrowRight");
