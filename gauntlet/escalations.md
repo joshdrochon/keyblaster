@@ -448,14 +448,28 @@ found headless Chromium drives this game at **~12 real fps** while Phaser's own
 `actualFps` reports ~47, because Phaser computes it from a smoothed delta — so
 **the shortfall is invisible from inside the game**.
 
-### Why the instrument is wrong, not the game
+### Why the instrument is wrong — with one correction
 
-Headless Chromium uses software rasterisation (SwiftShader). It cannot produce
-60fps for a WebGL game no matter how cheap the frame is. So a headless capture
-measures the harness, and:
+Headless Chromium rasterises in software (SwiftShader), so the first reading of
+this was "the harness cannot produce 60fps, therefore a headless capture is
+meaningless in both directions."
 
-- a **pass** is meaningless (it can only pass by measuring the wrong quantity)
-- a **fail** is also meaningless (it condemns the game for the harness)
+**That was overstated, and a third lane produced the number that corrects it:**
+a bare WebGL clear at 1920x1080 *does* hold 16.7 ms in this same headless
+harness. So headless is not incapable of 60fps — it is capable for a trivial
+frame. Which means the 92 ms p95 interval measured on the real Flight scene is
+**not purely environmental**, and the scene may genuinely be heavy.
+
+Three things are tangled in that 92 ms and they have not been separated:
+
+1. software rasterisation,
+2. a load average of 20-70 from six build lanes running concurrently,
+3. the actual cost of the Flight scene.
+
+Only (3) is the game's problem, and no measurement taken so far isolates it. A
+headless **pass** is still meaningless (it can only pass by reading per-frame
+work instead of interval), but a headless **fail** is now *suggestive* rather
+than dismissible.
 
 The rubric now rejects any `frametime.json` whose `method` says headless, and
 requires `p95FrameIntervalMs` and `observedFps` alongside `p95Ms`. P-22.9 is
@@ -470,6 +484,12 @@ correctly FAILING rather than falsely passing.
 **Lean: C, with A as the minimum.** The 60fps claim is on the submission
 write-up and in D60's rubric; it should be measured on real hardware at least
 once. A cheap per-frame work budget in CI catches regressions between those runs.
+
+**Do this before concluding anything about the game:** re-run the 60 s scripted
+flight headed, on an idle machine, with no build lanes running. Until then the
+only defensible statements are that per-frame work is 2.6 ms p95 and that the
+frame-rate claim is unmeasured. Do not put "60 fps" in the submission write-up
+on the strength of the numbers captured tonight.
 
 ### Status
 

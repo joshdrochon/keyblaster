@@ -344,10 +344,18 @@ export class FlightScene extends Phaser.Scene {
     });
     this.controller = createController({ knobs: this.cfg.knobs });
 
-    // D46: matching is the i18n lane's job, not the lock's. The matcher is
-    // injected so a romanized Hindi speller ("paani" as well as "pani") is
-    // accepted; `canonicalRomanization` is display-only and is deliberately NOT
-    // used to pre-flatten the word on the asteroid.
+    // D46: what "matches" means is i18n's job, not the lock's, so the matcher
+    // built from the profile's input method is injected here. A romanized Hindi
+    // speller must be able to type "paani" OR "pani"; `canonicalRomanization`
+    // is display-only and is deliberately NOT used to pre-flatten the word on
+    // the asteroid, because a lock that accepts one canonical spelling tells a
+    // child they are wrong when the table is (D31).
+    //
+    // OPEN SEAM, flagged to the lead: `@engine/i18n` exports the port, but
+    // `LockOptions` does not carry it yet, so `createLockState` ignores this
+    // field today and Devanagari content will match exactly rather than by
+    // variant set. The cast is the marker: when lock/ adds
+    // `matcher?: WordMatcher` the cast comes off and nothing else here moves.
     const options = {
       layout: this.cfg.keyboardLayout,
       parkGraceMs: 1.5 * this.cfg.calibration.ikiMs,
