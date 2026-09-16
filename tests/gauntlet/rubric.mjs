@@ -87,8 +87,18 @@ function judgeVerdict(repo, id, renderPath) {
   const abs = join(repo, renderPath);
   if (!existsSync(abs)) return null;
   const bytes = statSync(abs).size;
-  if (typeof v.renderBytes === "number" && v.renderBytes !== bytes) {
-    return { stale: true, judgedBytes: v.renderBytes, currentBytes: bytes };
+  // Tolerance, not equality. PNG encoding is not byte-deterministic: the same
+  // art re-rendered moved 8 bytes on 167KB (0.005%), which is an encoder
+  // hiccup, while a genuine redraw moved 2.1%. A byte-exact rule cannot tell
+  // those apart and would force a re-judge on every run, which trains the
+  // judge to rubber-stamp. 1% is comfortably above observed encoder noise and
+  // far below any change a person would call a redraw.
+  const STALE_TOLERANCE = 0.01;
+  if (typeof v.renderBytes === "number") {
+    const drift = Math.abs(bytes - v.renderBytes) / v.renderBytes;
+    if (drift > STALE_TOLERANCE) {
+      return { stale: true, judgedBytes: v.renderBytes, currentBytes: bytes, drift };
+    }
   }
   return { ...v, bytes };
 }
@@ -433,7 +443,7 @@ const reference = [
       if (!evidence.has("lantern-render.png")) return todo("Lantern vector not drawn yet; no lantern-render.png");
       const v = judgeVerdict(repo, "R-lantern", "gauntlet/evidence/lantern-render.png");
       if (!v) return { status: STATUS.FAIL, detail: "render exists but no judge verdict recorded; a reference compare is never auto-passed (D85)", evidence: "gauntlet/evidence/lantern-render.png" };
-      if (v.stale) return { status: STATUS.FAIL, detail: `judge verdict is stale: it approved a ${v.judgedBytes}-byte render, current is ${v.currentBytes}. Re-judge.`, evidence: "gauntlet/evidence/lantern-render.png" };
+      if (v.stale) return { status: STATUS.FAIL, detail: `judge verdict is stale: approved a ${v.judgedBytes}-byte render, current is ${v.currentBytes} (${(v.drift * 100).toFixed(1)}% drift). Re-judge.`, evidence: "gauntlet/evidence/lantern-render.png" };
       return ok(`judged round ${v.round}: ${v.basis}${v.residual ? " | residual: " + v.residual : ""}`, "gauntlet/judge-notes.md");
     },
   },
@@ -450,7 +460,7 @@ const reference = [
       if (!evidence.has("shadow-render.png")) return todo("Shadow vector not drawn yet; no shadow-render.png");
       const v = judgeVerdict(repo, "R-shadow", "gauntlet/evidence/shadow-render.png");
       if (!v) return { status: STATUS.FAIL, detail: "render exists but no judge verdict recorded; a reference compare is never auto-passed (D85)", evidence: "gauntlet/evidence/shadow-render.png" };
-      if (v.stale) return { status: STATUS.FAIL, detail: `judge verdict is stale: it approved a ${v.judgedBytes}-byte render, current is ${v.currentBytes}. Re-judge.`, evidence: "gauntlet/evidence/shadow-render.png" };
+      if (v.stale) return { status: STATUS.FAIL, detail: `judge verdict is stale: approved a ${v.judgedBytes}-byte render, current is ${v.currentBytes} (${(v.drift * 100).toFixed(1)}% drift). Re-judge.`, evidence: "gauntlet/evidence/shadow-render.png" };
       return ok(`judged round ${v.round}: ${v.basis}${v.residual ? " | residual: " + v.residual : ""}`, "gauntlet/judge-notes.md");
     },
   },
@@ -640,6 +650,25 @@ const guardrails = [
       const scenes = sceneFiles(repo);
       if (scenes.length === 0) return todo("src/game/scenes is empty (FIRST TASK 4)");
       return ok(`${scenes.length} scenes present; row-matching is enforced by trace-check (G-trace)`);
+    },
+  },
+  {
+    id: "G-e2e-whole",
+    source: "CLAUDE.md gauntlet loop / D93",
+    title: "The whole e2e suite passes in ONE run, under the repo config",
+    kind: "trace",
+    run: async ({ repo }) => {
+      const p = join(repo, "gauntlet/evidence/e2e-suite.json");
+      if (!existsSync(p)) {
+        return todo("no whole-suite run recorded yet (PW_PORT=<free> npx playwright test)");
+      }
+      const d = JSON.parse(readFileSync(p, "utf8"));
+      const failed = d.failed ?? -1;
+      const passed = d.passed ?? 0;
+      if (failed !== 0) {
+        return bad(`${failed} of ${passed + failed} e2e tests failing in a whole-suite run`, "gauntlet/evidence/e2e-suite.json");
+      }
+      return ok(`${passed} e2e tests pass in one run under the repo config`, "gauntlet/evidence/e2e-suite.json");
     },
   },
   {
