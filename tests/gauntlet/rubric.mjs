@@ -55,6 +55,18 @@ function walk(dir, out = []) {
  * so a waiver is a visible claim someone has to defend, not a way to make a
  * check quietly stop meaning anything.
  */
+
+/**
+ * Strip comments so a vocabulary check reads code, not prose about code.
+ * A doc comment that says "no birthday, no contact field of any kind" is a
+ * PROMISE not to store PII; flagging it as PII inverts the check's meaning and
+ * trains people to ignore it. String literals are deliberately KEPT: a literal
+ * "email" in code usually is a field name.
+ */
+function stripComments(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+}
+
 function waives(src, checkId) {
   return new RegExp(`@gauntlet-allow\\s+${checkId}\\b`).test(src);
 }
@@ -434,7 +446,8 @@ const guardrails = [
         const src = readFileSync(f, "utf8");
         const rel = f.replace(repo + "/", "");
         if (waives(src, "G-pii")) { waived.push(rel); continue; }
-        for (const [re, label] of banned) if (re.test(src)) hits.push(`${label} in ${rel}`);
+        const code = stripComments(src);
+        for (const [re, label] of banned) if (re.test(code)) hits.push(`${label} in ${rel}`);
       }
       const note = waived.length ? ` (waived: ${waived.join(", ")})` : "";
       return hits.length === 0
@@ -461,7 +474,8 @@ const guardrails = [
         const src = readFileSync(f, "utf8");
         const rel = f.replace(repo + "/", "");
         if (waives(src, "G-nored")) { waived.push(rel); continue; }
-        for (const [re, label] of banned) if (re.test(src)) hits.push(`${label} in ${rel}`);
+        const code = stripComments(src);
+        for (const [re, label] of banned) if (re.test(code)) hits.push(`${label} in ${rel}`);
       }
       const note = waived.length ? ` (waived: ${waived.join(", ")})` : "";
       return hits.length === 0
