@@ -495,3 +495,39 @@ on the strength of the numbers captured tonight.
 
 NOT PASSED. The false pass is closed. Re-capture is blocked on a headed run,
 which is a human-present action.
+
+## Devanagari word-plate progress has no glyph index (open seam, not a blocker)
+
+- **Logged:** 2026-09-16 (build night 1)
+- **Source:** D46, AC-14.2, art-direction §7 ("typed letters light to the accent colour")
+- **Found by:** the lock lane, after wiring the transliteration matcher port
+
+`AdvancedEmit.index` is the position in the **typed buffer**. Under the exact
+matcher that is also the index of the letter to light on the word plate, so the
+two have been interchangeable everywhere so far.
+
+Under the transliterating matcher they are different quantities. `"ghar"` is
+four keystrokes spanning **two aksharas** (घ + र). So a plate that lights
+`index` characters of the displayed Devanagari word will light the wrong number
+of glyphs — and there is no fixed mapping, because a romanization has several
+legal spellings of different lengths for the same word.
+
+The lock cannot compute the glyph index: it would have to know how the plate
+renders. `@engine/i18n` exports `segmentDevanagari`, which is the piece that
+maps between them.
+
+| # | Option | Cost |
+|---|---|---|
+| A | The word plate calls `segmentDevanagari` and maps typed-buffer position to akshara position itself | Right layer — rendering concern in the renderer. Needs the plate to know the content language. |
+| B | The lock emits a second index | The lock would have to model glyph rendering, which it has no business knowing. Rejected by the lane, and I agree. |
+| C | Devanagari plates light per-akshara only when a whole akshara completes | Simplest, and arguably the best *feel* — a child typing `gh` sees घ light up as a unit. |
+
+**Lean: C, implemented via A.** Per-akshara lighting is closer to how a Hindi
+reader thinks about the word than per-keystroke lighting would be, and it avoids
+a half-lit glyph having no meaning.
+
+### Status
+
+Not blocking: English and Spanish are unaffected, and Hindi still plays
+correctly — only the per-letter highlight is wrong. Documented on the field
+rather than papered over with an index the lock cannot honestly produce.

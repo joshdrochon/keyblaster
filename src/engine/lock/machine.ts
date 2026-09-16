@@ -1,4 +1,5 @@
 import { normalizeWord } from "../allowlist/normalize.js";
+import { EXACT_MATCHER, type WordMatcher } from "../i18n/index.js";
 import { DEFAULT_CALIBRATION, type KeyboardLayout } from "../types.js";
 import { type KeyInput, resolveChar } from "./layouts.js";
 
@@ -13,10 +14,11 @@ export interface LiveAsteroid {
   /** The word on the plate, and the key words/ stores the WordRecord under. */
   readonly word: string;
   /**
-   * What the player actually types, when that differs from what is displayed:
-   * D46's default Hindi mode shows घर and is typed "ghar". Choosing the one
-   * canonical romanization (or folding the variant spellings before they get
-   * here) is i18n/'s job; the lock matches one string per asteroid.
+   * A literal override of what must be typed, for content whose plate text is
+   * not its spelling. Romanized Hindi does NOT use this: `translit` mode goes
+   * through the injected `WordMatcher`, which accepts every legal spelling of
+   * the word (घर takes both "ghar" and "ghara"). Pinning one romanization here
+   * would be the single-spelling failure the variant sets exist to prevent.
    */
   readonly typedAs?: string;
   /** Epoch-ish ms the word became visible; first-key latency is measured from here. */
@@ -55,7 +57,11 @@ export interface AdvancedEmit {
   readonly candidateIds: readonly string[];
   readonly char: string;
   readonly typed: string;
-  /** 0-based position of `char` in the word. */
+  /**
+   * 0-based position of `char` in the TYPED buffer. Under a transliterating
+   * matcher (D46) that is not an index into the displayed word: "ghar" is four
+   * keystrokes over two aksharas. i18n/'s segmentation maps one to the other.
+   */
   readonly index: number;
   /** Set only on the first keystroke of an unambiguous target. */
   readonly fkLatencyMs: number | null;
@@ -182,6 +188,12 @@ export type LockEvent =
 export interface LockState {
   readonly layout: KeyboardLayout;
   readonly parkGraceMs: number;
+  /**
+   * What "matches" means (D46). Injected, so the lock owns candidate narrowing
+   * and auto-lock while i18n/ owns the transliteration table — and so these
+   * tests stay synthetic.
+   */
+  readonly matcher: WordMatcher;
   readonly live: readonly LiveAsteroid[];
   /** Characters accepted so far on this attempt. Empty means idle. */
   readonly typed: string;
@@ -221,12 +233,15 @@ export interface LockOptions {
   readonly layout?: KeyboardLayout;
   /** FR-8 keystroke budget: 1.5 x the player's median inter-key interval. */
   readonly parkGraceMs?: number;
+  /** `createWordMatcher(settings.inputMethod)`. Defaults to exact matching. */
+  readonly matcher?: WordMatcher;
 }
 
 export function createLockState(options: LockOptions = {}): LockState {
   return {
     layout: options.layout ?? "qwerty",
     parkGraceMs: options.parkGraceMs ?? DEFAULT_PARK_GRACE_MS,
+    matcher: options.matcher ?? EXACT_MATCHER,
     live: [],
     typed: "",
     candidateIds: [],
@@ -249,6 +264,7 @@ export function createLockState(options: LockOptions = {}): LockState {
 interface Draft {
   layout: KeyboardLayout;
   parkGraceMs: number;
+  matcher: WordMatcher;
   live: LiveAsteroid[];
   typed: string;
   candidateIds: string[];
@@ -363,15 +379,20 @@ function refreshPark(d: Draft, nowMs: number): void {
 function resolveCompletion(d: Draft, nowMs: number): void {
   // Only ever reached mid-attempt, so `typed` is non-empty and every candidate
   // carries it as a prefix.
-  const typedLen = chars(d.typed).length;
   const cands = candidatesOf(d);
-  const exact = cands.find((c) => chars(typedFormOf(c)).length === typedLen);
+  const exact = cands.find((c) => d.matcher.isComplete(d.typed, typedFormOf(c)));
   if (exact === undefined) {
     d.pendingExactId = null;
     d.parkedAtMs = null;
     return;
   }
-  const rivals = cands.filter((c) => chars(typedFormOf(c)).length > typedLen);
+  // Every candidate still carries `typed` as a legal prefix, so a rival is any
+  // candidate that is not yet finished. Length cannot be used for this: under a
+  // transliterating matcher a spelling can complete one target and still be a
+  // prefix of another without the code-point counts lining up (D46).
+  const rivals = cands.filter(
+    (c) => !d.matcher.isComplete(d.typed, typedFormOf(c)),
+  );
   if (rivals.length === 0) {
     blast(d, exact, nowMs);
     return;
@@ -392,6 +413,30 @@ function resolveCompletion(d: Draft, nowMs: number): void {
   });
 }
 
+const PROBE_ALPHABET = [..."abcdefghijklmnopqrstuvwxyz"];
+
+/**
+ * The characters that would have advanced this candidate — what the scene
+ * highlights after a typo.
+ *
+ * There is no "next letter" to read off a word once matching goes through the
+ * port: a romanization has several legal spellings and no fixed length (D46).
+ * So the matcher is asked instead, over the target's own characters plus ASCII
+ * lowercase, which covers exact matching in any script and romanized input.
+ * Only a typo reaches this, so the probe cost is paid at human error rates.
+ */
+function advancingChars(
+  matcher: WordMatcher,
+  typed: string,
+  target: string,
+): string[] {
+  const out: string[] = [];
+  for (const c of new Set([...chars(target), ...PROBE_ALPHABET])) {
+    if (matcher.isPrefix(typed + c, target)) out.push(c);
+  }
+  return out;
+}
+
 /**
  * Apply one resolved character.
  *
@@ -402,7 +447,9 @@ function resolveCompletion(d: Draft, nowMs: number): void {
 function applyChar(d: Draft, ch: string, nowMs: number, timed: boolean): void {
   if (d.typed.length === 0) {
     // AC-3.1: the first keystroke picks every live word starting with it.
-    const starters = d.live.filter((a) => chars(typedFormOf(a))[0] === ch);
+    const starters = d.live.filter((a) =>
+      d.matcher.isPrefix(ch, typedFormOf(a)),
+    );
     if (starters.length === 0) {
       // Nothing on screen to be wrong against, so this is not a typo: it does
       // not count and (via scoring/) does not break the combo — D31. It still
@@ -444,7 +491,10 @@ function applyChar(d: Draft, ch: string, nowMs: number, timed: boolean): void {
   }
 
   const index = chars(d.typed).length;
-  const next = candidatesOf(d).filter((a) => chars(typedFormOf(a))[index] === ch);
+  const grown = d.typed + ch;
+  const next = candidatesOf(d).filter((a) =>
+    d.matcher.isPrefix(grown, typedFormOf(a)),
+  );
 
   if (next.length > 0) {
     d.candidateIds = next.map((a) => a.id);
@@ -498,11 +548,9 @@ function applyChar(d: Draft, ch: string, nowMs: number, timed: boolean): void {
     d.typos += 1;
     const expected = [
       ...new Set(
-        candidatesOf(d)
-          .map((a) => chars(typedFormOf(a))[index])
-          // A parked candidate has no next character — it is finished and
-          // waiting — so it contributes nothing to highlight.
-          .filter((c): c is string => c !== undefined),
+        candidatesOf(d).flatMap((a) =>
+          advancingChars(d.matcher, d.typed, typedFormOf(a)),
+        ),
       ),
     ];
     d.emitted.push({
@@ -578,6 +626,7 @@ export function reduce(state: LockState, event: LockEvent): LockState {
   const d: Draft = {
     layout: state.layout,
     parkGraceMs: state.parkGraceMs,
+    matcher: state.matcher,
     live: [...state.live],
     typed: state.typed,
     candidateIds: [...state.candidateIds],
@@ -598,6 +647,7 @@ export function reduce(state: LockState, event: LockEvent): LockState {
       return createLockState({
         layout: d.layout,
         parkGraceMs: d.parkGraceMs,
+        matcher: d.matcher,
       });
     case "layout":
       // AC-19.1: a settings change takes effect without a reload.
@@ -636,6 +686,7 @@ export function reduce(state: LockState, event: LockEvent): LockState {
   return {
     layout: d.layout,
     parkGraceMs: d.parkGraceMs,
+    matcher: d.matcher,
     live: d.live,
     typed: d.typed,
     candidateIds: d.candidateIds,

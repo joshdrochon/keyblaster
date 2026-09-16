@@ -197,16 +197,17 @@ test.describe("row 13 - unlock toasts", () => {
     await seed(page, [{ name: "Ana" }], BELOW);
     const focusBefore = await screen(page, BELOW).getAttribute("data-focus");
 
-    // A short hold: the toast's real dwell is ~3.2 s of SCENE time, and a
-    // throttled headless frame rate makes scene time run far behind the wall
-    // clock. The dismissal mechanism is what is under test, not the number.
+    // A shortened hold. The toast's real dwell is ~3.2 s of SCENE time, and a
+    // throttled headless frame rate makes scene time run several times behind
+    // the wall clock; the dismissal MECHANISM is what is under test, not the
+    // number. Not shortened to nothing either - a toast that vanishes between
+    // two assertions would pass this test for the wrong reason.
     await page.evaluate(() => {
       (window as any).__kb.game.scene
         .getScene("BeaconLog")
-        .raiseToast("trophy earned — first light", 40);
+        .raiseToast("trophy earned — first light", 400);
     });
-    await expect(toasts(page)).toHaveCount(1);
-    await expect(toasts(page).first()).toContainText("first light");
+    await expect(toasts(page)).toHaveText([/first light/]);
 
     // Non-blocking: focus did not move, no dialog opened, the screen still works.
     expect(await screen(page, BELOW).getAttribute("data-focus")).toBe(focusBefore);

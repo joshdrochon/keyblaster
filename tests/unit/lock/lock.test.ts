@@ -18,6 +18,11 @@ import {
   reduce,
   reduceAll,
 } from "@engine/lock/index.js";
+import {
+  EXACT_MATCHER,
+  TRANSLIT_MATCHER,
+  createWordMatcher,
+} from "@engine/i18n/index.js";
 import type { KeyboardLayout } from "@engine/types.js";
 
 // ---------------------------------------------------------------------------
@@ -732,9 +737,14 @@ describe("timing samples for words/ and calibration/", () => {
 describe("registry and reducer hygiene", () => {
   it("reduce never mutates the state it was given", () => {
     const before = reduce(createLockState(), spawn(rock("a1", "red")));
-    const snapshot = structuredClone(before);
+    // The matcher is a pair of functions, which structuredClone refuses; it is
+    // injected config and is compared by identity instead.
+    const { matcher, ...data } = before;
+    const snapshot = structuredClone(data);
     reduce(before, press("r", 100));
-    expect(before).toEqual(snapshot);
+    const { matcher: after, ...afterData } = before;
+    expect(afterData).toEqual(snapshot);
+    expect(after).toBe(matcher);
   });
 
   it("emitted holds only the last step's emissions", () => {
@@ -803,6 +813,10 @@ describe("registry and reducer hygiene", () => {
     expect(state).toEqual(createLockState(options));
   });
 
+  it("D46: the default matcher is exact, so Latin content is unchanged", () => {
+    expect(createLockState().matcher).toBe(EXACT_MATCHER);
+  });
+
   it("the park grace window defaults to FR-8's keystroke budget", () => {
     // 1.5 x the default median inter-key interval (350 ms).
     expect(DEFAULT_PARK_GRACE_MS).toBe(525);
@@ -832,6 +846,121 @@ describe("registry and reducer hygiene", () => {
       "locked", "advanced", "blast",
     ]);
     expect(result.state.live).toEqual([]);
+  });
+});
+
+describe("D46: the injected WordMatcher decides what counts as the word", () => {
+  const translit = () =>
+    createLockState({ matcher: createWordMatcher("translit"), parkGraceMs: 500 });
+
+  it("D46: createWordMatcher('translit') is the port the lock takes", () => {
+    expect(translit().matcher).toBe(TRANSLIT_MATCHER);
+  });
+
+  it.each([["ghar"], ["ghara"]])(
+    "D46: '%s' blasts घर — every legal spelling is accepted, not one canonical",
+    (romanization) => {
+      // canonicalRomanization("घर") is "ghara", but D46's own example types
+      // "ghar". Pinning either one is the failure the variant sets prevent.
+      const { state, emitted } = run(
+        [
+          spawn(rock("a1", "घर", 0)),
+          ...[...romanization].map((ch, i) => press(ch, 500 + i * 100)),
+        ],
+        translit(),
+      );
+      const blast = only(emitted, "blast")[0] as BlastEmit;
+      expect(blast).toMatchObject({ asteroidId: "a1", word: "घर", typos: 0 });
+      expect(blast.fkLatencyMs).toBe(500);
+      expect(state.live).toEqual([]);
+    },
+  );
+
+  it("D46: the first romanized keystroke auto-locks the Devanagari word", () => {
+    const { state, emitted } = run(
+      [spawn(rock("a1", "घर", 0)), press("g", 400)],
+      translit(),
+    );
+    expect(emitted.map((e) => e.type)).toEqual(["locked", "advanced"]);
+    expect((emitted[0] as LockedEmit).word).toBe("घर");
+    expect(state.lockedId).toBe("a1");
+  });
+
+  it("AC-2.2 / D46: a romanized prefix parks the shorter word", () => {
+    // "kal" completes कल and is still a prefix of कलम ("kalam"), so the
+    // ambiguity is real on romanized input even though the Devanagari strings
+    // are different lengths. Code-point length cannot detect this.
+    const { state, emitted } = run(
+      [
+        spawn(rock("a1", "कल", 0)),
+        spawn(rock("a2", "कलम", 0)),
+        ...[..."kal"].map((ch, i) => press(ch, 500 + i * 100)),
+      ],
+      translit(),
+    );
+    expect(only(emitted, "blast")).toHaveLength(0);
+    expect(only(emitted, "parked")[0] as ParkedEmit).toMatchObject({
+      asteroidId: "a1",
+      word: "कल",
+      typed: "kal",
+      rivalIds: ["a2"],
+    });
+    expect(phaseOf(state)).toBe("parked");
+  });
+
+  it("AC-2.2 / D46: typing on locks the longer Devanagari word", () => {
+    const { state, emitted } = run(
+      [
+        spawn(rock("a1", "कल", 0)),
+        spawn(rock("a2", "कलम", 0)),
+        ...[..."kalam"].map((ch, i) => press(ch, 500 + i * 100)),
+      ],
+      translit(),
+    );
+    expect((only(emitted, "locked")[0] as LockedEmit).asteroidId).toBe("a2");
+    expect((only(emitted, "blast")[0] as BlastEmit).word).toBe("कलम");
+    expect(state.live.map((a) => a.id)).toEqual(["a1"]);
+  });
+
+  it("AC-2.2 / D46: stopping after 'kal' fires कल on the tick", () => {
+    const parked = run(
+      [
+        spawn(rock("a1", "कल", 0)),
+        spawn(rock("a2", "कलम", 0)),
+        ...[..."kal"].map((ch, i) => press(ch, 500 + i * 100)),
+      ],
+      translit(),
+    );
+    const fired = reduce(parked.state, { type: "tick", nowMs: 700 + 500 });
+    expect((only(fired.emitted, "blast")[0] as BlastEmit).word).toBe("कल");
+    expect(fired.live.map((a) => a.id)).toEqual(["a2"]);
+  });
+
+  it("AC-3.2 / D46: a typo highlights the romanized characters that would advance", () => {
+    // There is no "next letter" of कलम to read off the word; the expected set
+    // is obtained from the matcher.
+    const { state, emitted } = run(
+      [
+        spawn(rock("a1", "कल", 0)),
+        spawn(rock("a2", "कलम", 0)),
+        ...[..."ka"].map((ch, i) => press(ch, 500 + i * 100)),
+        press("z", 800),
+      ],
+      translit(),
+    );
+    const typo = only(emitted, "typo")[0] as TypoEmit;
+    expect(typo.expected).toEqual(["l"]);
+    expect(typo.typos).toBe(1);
+    expect(state.typed).toBe("ka");
+    expect(state.candidateIds).toEqual(["a1", "a2"]);
+  });
+
+  it("D46: typedAs still pins a literal spelling under the exact matcher", () => {
+    const { emitted } = run([
+      spawn(rock("a1", "घर", 0, "ghar")),
+      ...typeWord("ghar", 400),
+    ]);
+    expect((only(emitted, "blast")[0] as BlastEmit).word).toBe("घर");
   });
 });
 
