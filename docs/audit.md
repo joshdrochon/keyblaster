@@ -785,6 +785,8 @@ never confused.
 | 14 | **Secrets scan ran on a stale scaffold `dist/`** | **FIXED.** `dist/` rebuilt, and `G-secrets` now fails if `dist/` is older than the newest file in `src/` or `api/`. |
 | 16 | **Colourblind typed letters at 1.02:1** | **FIXED.** Every palette gains `colorblind.plateAccent` clearing 4.5:1; worst case now 10.97:1 in colourblind mode. V-22.8 measures three pairs per palette — body, typed, typed-colourblind — instead of only the body pair it was reporting 18.08 from. |
 | 2 | **L-6e.1 is per-frame work wearing a latency label** | **CHECK FIXED, MEASUREMENT STILL OWED.** It now rejects headless capture and requires the frame interval alongside. Like P-22.9 it needs a headed run. |
+| 5, 6 | **§1.2 — no audio reaches the player; Shadow does not speak** | **FIXED.** `createAudioSystem()` is constructed in `bootGame()` and published on the services bundle. Flight cues route to SFX plus the D75 pitched layer, the HUD stream drives music intensity, ambient beds crossfade per stop, menus sound `uiNav`, settings sliders move real gains, and Shadow speaks the pre-flight lines and the coach note (text first, then speech, per AC-21.6). A second artifact, `audio-wiring.json`, is emitted from a real `bootGame()` in Chromium — real `AudioContext`, ten events tagged by their calling game code, master-bus RMS off an AnalyserNode, −6 dB duck sampled from the real `AudioParam`, zero external requests. A-21.1…A-21.5 now require **both** artifacts; every original predicate is verbatim and the wiring predicate is an added gate. Two disconnection drills, both pinned as unit tests: delete the artifact → all seven go `not-implemented`; comment out one line of boot wiring → the evidence run *fails*, so it can never be regenerated green. |
+| — | **R-shadow staleness (not an audit finding; found while closing them)** | **FIXED AT SOURCE.** The verdict kept expiring because `shadow.spec.ts` ended with `waitForTimeout(900)` and the note "let the hover bob and the face-plate pulse settle somewhere flattering" — a wall-clock wait on a clock-driven animation, so every capture landed on a different phase. Widening the byte tolerance would have hidden a real redraw, so the capture now freezes the animation at a fixed `t`. Byte-identical across three consecutive runs. A reference compare is a controlled still, not a live frame. |
 
 ## Found after the audit, not in it
 
@@ -802,7 +804,8 @@ because it debug-spawns the pair. Escalated; the fix needs a story edit.
 
 ## Still open, and why
 
-- **Audio wiring** (finding 5, 6) — a lane is connecting it now.
+Audio (5, 6) moved to Closed above.
+
 - **60 fps and input latency** (1, 2) — need a headed capture on target hardware.
   A human-present action; cannot be closed by the overnight loop.
 - **Citations** (7–10) — retraction or rework is a judgement call about what the
