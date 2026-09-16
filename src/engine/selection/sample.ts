@@ -41,16 +41,19 @@ export function weightedPick<T>(
   if (total <= 0) return uniformPick(items, rng);
 
   let threshold = rng() * total;
-  for (let i = 0; i < items.length; i += 1) {
-    threshold -= weights[i] ?? 0;
+  // Default to the LAST item so floating-point residue - or an out-of-contract
+  // rng() that returns exactly 1 - lands on a real word instead of undefined.
+  let index = items.length - 1;
+  let i = 0;
+  for (const weight of weights) {
+    threshold -= weight;
     if (threshold < 0) {
-      const hit = items[i];
-      if (hit !== undefined) return hit;
+      index = i;
+      break;
     }
+    i += 1;
   }
-  // Floating-point residue (rng() returning a value that rounds to `total`).
-  // Fall through to the last item rather than return undefined.
-  return items[items.length - 1];
+  return items[index];
 }
 
 /** Uniform pick. Same contract: `undefined` only for an empty list. */

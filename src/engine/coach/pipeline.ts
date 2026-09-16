@@ -129,7 +129,7 @@ export async function postJson(options: PostOptions): Promise<PostOutcome> {
   ]);
   deadline.cancel();
 
-  if (outcome === timedOut) {
+  if (typeof outcome === "symbol") {
     // Cancel the wire: a request we are no longer listening to must not keep a
     // socket open behind the game loop.
     abort?.abort();

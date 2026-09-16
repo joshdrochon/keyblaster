@@ -20,3 +20,16 @@ export function mulberry32(seed: number): () => number {
 /** Integer in [0, n). */
 export const randInt = (rng: () => number, n: number): number =>
   Math.min(n - 1, Math.floor(rng() * n));
+
+/** Fisher-Yates on a copy, driven by the injected stream. */
+export function shuffled<T>(items: readonly T[], rng: () => number): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = randInt(rng, i + 1);
+    const a = out[i] as T;
+    const b = out[j] as T;
+    out[i] = b;
+    out[j] = a;
+  }
+  return out;
+}

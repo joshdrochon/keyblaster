@@ -135,6 +135,13 @@ export function createProfileStore(options: ProfileStoreOptions): ProfileStore {
     }
   }
 
+  // A repaired, migrated or freshly created state differs from the bytes on
+  // disk. Schedule the write-back immediately rather than waiting for the first
+  // gameplay mutation: a child who opens the game and closes the tab should
+  // still end up with a migrated save, not a v1 payload that migrates again
+  // every launch.
+  if (dirty) schedule();
+
   function indexOf(id: string): number {
     return state.profiles.findIndex((p) => p.id === id);
   }

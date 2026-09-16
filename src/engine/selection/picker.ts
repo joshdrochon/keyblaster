@@ -375,12 +375,17 @@ function commit(
   const pool = source === "stage" ? state.stagePool : state.retentionPool;
   const wasUsed = usedSet.has(word);
 
-  // AC-9.1: refill the bag the moment it is empty, carrying the word we just
-  // served into the new cycle so it cannot come back-to-back with itself.
+  // AC-9.1: the bag refills the moment it is empty, so consecutive blocks of
+  // `pool.length` spawns are each a permutation of the pool - every word is
+  // served once before any is served twice, which is what "no repeats until
+  // the pool is exhausted" means. The bag is NOT seeded with the word just
+  // served: a back-to-back repeat is already impossible because a live word is
+  // never re-spawned and (tier locked) its own first letter is blocked, and
+  // seeding it would make that one word appear less often than the rest.
   const nextUsed = new Set(usedSet);
   nextUsed.add(word);
   const cycled = nextUsed.size >= pool.length;
-  const nextUsedList = cycled ? [word] : [...nextUsed];
+  const nextUsedList = cycled ? [] : [...nextUsed];
 
   const guaranteedCatch = isGuaranteedCatch(word, recordFor(context.book, word));
 
