@@ -43,8 +43,7 @@ export function starsForHullHits(hullHits: number): Stars {
  * instead of inferring it from a 0 that would look like a score.
  */
 export function isClearableHullHits(hullHits: number): boolean {
-  return (
-    Number.isFinite(hullHits) &&
-    Math.floor(Math.max(0, hullHits)) < HULL_HITS_PER_STAGE
-  );
+  // Defined in terms of starsForHullHits so the two can never disagree about
+  // what counts as a stall, including on junk input.
+  return starsForHullHits(hullHits) !== 0;
 }

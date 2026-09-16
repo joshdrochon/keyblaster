@@ -17,13 +17,11 @@ export function medianOf(samples: readonly number[]): number | null {
   if (samples.length === 0) return null;
   const sorted = [...samples].sort((a, b) => a - b);
   const mid = sorted.length >> 1;
-  if (sorted.length % 2 === 1) {
-    // noUncheckedIndexedAccess: mid is in range because length > 0.
-    return sorted[mid] ?? null;
-  }
-  const lo = sorted[mid - 1];
-  const hi = sorted[mid];
-  if (lo === undefined || hi === undefined) return null;
+  // Both lookups are in range because length > 0; the assertions exist only to
+  // satisfy noUncheckedIndexedAccess, not to paper over a real miss.
+  const hi = sorted[mid] as number;
+  if (sorted.length % 2 === 1) return hi;
+  const lo = sorted[mid - 1] as number;
   return (lo + hi) / 2;
 }
 

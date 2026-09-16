@@ -129,17 +129,13 @@ export function previousStageProgress(
   const byStop = new Map<StopId, StopProgress>();
   for (const p of profile.progress) byStop.set(p.stopId, p);
   for (let i = index - 1; i >= 0; i--) {
-    const earlier = indexToStop(i);
-    if (earlier === null) continue;
+    // 0 <= i < index <= STOP_IDS.length - 1, so this lookup always lands;
+    // the assertion is only to satisfy noUncheckedIndexedAccess.
+    const earlier = STOP_IDS[i] as StopId;
     const progress = byStop.get(earlier);
     if (progress && progress.cleared) return progress;
   }
   return null;
-}
-
-/** Inverse of stageIndexOf. noUncheckedIndexedAccess makes the miss explicit. */
-function indexToStop(index: number): StopId | null {
-  return STOP_IDS[index] ?? null;
 }
 
 /**
