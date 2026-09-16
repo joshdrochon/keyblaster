@@ -23,12 +23,18 @@ export const KEPLER_TOLERANCE_RAD = 1e-6;
  */
 export const KEPLER_MAX_ITERATIONS = 30;
 
-/** Wrap an angle in degrees to [0, 360). */
+/**
+ * Wrap an angle in degrees to [0, 360), which is the range AC-17.1 states for
+ * λ.
+ *
+ * The second `% 360` is not redundant. A hair-below-zero input such as
+ * −1e−15 - exactly what `atan2` hands back for a point a whisker clockwise of
+ * the vernal equinox - rounds to exactly 360 after `+ 360`, and the trailing
+ * modulus is what folds that back to 0 instead of returning an out-of-range
+ * 360.
+ */
 export function wrapDeg360(deg: number): number {
-  const wrapped = ((deg % 360) + 360) % 360;
-  // Floating point can round a hair-below-zero input up to exactly 360, which
-  // would break the half-open range AC-17.1 states. Fold that back to 0.
-  return wrapped >= 360 ? 0 : wrapped;
+  return ((deg % 360) + 360) % 360;
 }
 
 /**

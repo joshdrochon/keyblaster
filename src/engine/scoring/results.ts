@@ -1,5 +1,5 @@
 import type { Profile, StopId, StopProgress, Stars, WordRecord } from "../types.js";
-import { stageIndexOf } from "../types.js";
+import { STOP_IDS, stageIndexOf } from "../types.js";
 import { accuracy, wpm } from "./rates.js";
 import { meanOf, medianOf } from "./stats.js";
 import { starsForHullHits } from "./stars.js";
@@ -137,18 +137,9 @@ export function previousStageProgress(
   return null;
 }
 
-/** Inverse of stageIndexOf, without re-exporting the STOP_IDS table. */
+/** Inverse of stageIndexOf. noUncheckedIndexedAccess makes the miss explicit. */
 function indexToStop(index: number): StopId | null {
-  const all: StopId[] = [
-    "earth",
-    "mars",
-    "jupiter",
-    "saturn",
-    "uranus",
-    "neptune",
-    "pluto",
-  ];
-  return all[index] ?? null;
+  return STOP_IDS[index] ?? null;
 }
 
 /**

@@ -1,0 +1,113 @@
+{
+  "2451545": {
+    "earth": {
+      "lambdaDeg": 100.3794,
+      "betaDeg": -0.0001,
+      "rAu": 0.98331
+    },
+    "mars": {
+      "lambdaDeg": 359.4473,
+      "betaDeg": -1.4197,
+      "rAu": 1.391208
+    },
+    "jupiter": {
+      "lambdaDeg": 36.2946,
+      "betaDeg": -1.1746,
+      "rAu": 4.965381
+    },
+    "saturn": {
+      "lambdaDeg": 45.7222,
+      "betaDeg": -2.3032,
+      "rAu": 9.183848
+    },
+    "uranus": {
+      "lambdaDeg": 316.4186,
+      "betaDeg": -0.6848,
+      "rAu": 19.924025
+    },
+    "neptune": {
+      "lambdaDeg": 303.9289,
+      "betaDeg": 0.242,
+      "rAu": 30.12058
+    },
+    "pluto": {
+      "lambdaDeg": 250.5462,
+      "betaDeg": 11.1615,
+      "rAu": 30.223246
+    }
+  },
+  "2460310.5": {
+    "earth": {
+      "lambdaDeg": 99.7118,
+      "betaDeg": -0.0031,
+      "rAu": 0.983337
+    },
+    "mars": {
+      "lambdaDeg": 258.5711,
+      "betaDeg": -0.8984,
+      "rAu": 1.480661
+    },
+    "jupiter": {
+      "lambdaDeg": 45.503,
+      "betaDeg": -1.0681,
+      "rAu": 4.984897
+    },
+    "saturn": {
+      "lambdaDeg": 337.5551,
+      "betaDeg": -1.7266,
+      "rAu": 9.737826
+    },
+    "uranus": {
+      "lambdaDeg": 51.27,
+      "betaDeg": -0.2987,
+      "rAu": 19.613432
+    },
+    "neptune": {
+      "lambdaDeg": 356.5657,
+      "betaDeg": -1.2471,
+      "rAu": 29.903754
+    },
+    "pluto": {
+      "lambdaDeg": 299.5646,
+      "betaDeg": -2.8384,
+      "rAu": 34.922868
+    }
+  },
+  "2469807.5": {
+    "earth": {
+      "lambdaDeg": 100.0488,
+      "betaDeg": -0.0063,
+      "rAu": 0.983354
+    },
+    "mars": {
+      "lambdaDeg": 198.0726,
+      "betaDeg": 0.96,
+      "rAu": 1.623547
+    },
+    "jupiter": {
+      "lambdaDeg": 117.142,
+      "betaDeg": 0.3713,
+      "rAu": 5.241359
+    },
+    "saturn": {
+      "lambdaDeg": 298.5125,
+      "betaDeg": -0.2173,
+      "rAu": 9.984814
+    },
+    "uranus": {
+      "lambdaDeg": 167.1323,
+      "betaDeg": 0.7704,
+      "rAu": 18.284014
+    },
+    "neptune": {
+      "lambdaDeg": 54.2839,
+      "betaDeg": -1.7282,
+      "rAu": 29.816752
+    },
+    "pluto": {
+      "lambdaDeg": 337.9999,
+      "betaDeg": -12.8497,
+      "rAu": 41.434132
+    }
+  }
+}
