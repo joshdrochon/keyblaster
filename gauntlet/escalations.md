@@ -126,3 +126,34 @@ guardrails written as deny rules so they cannot be relaxed by accident.
 Nothing about the two decisions already taken changes — private repo, `main`
 as the default branch, `/loop` as the mechanism. They are recorded here only so
 the interruption itself is in the review queue.
+
+## C10 — AC-3.3 "ignored" vs typo (collision, user decision)
+
+- **Logged:** 2026-09-16 (build night 1)
+- **Source:** PRD AC-3.3, AC-3.2, AC-6e.2; D24, D31; architecture §4.1
+- **Found by:** independent critic review of `src/engine/lock`
+
+AC-3.3: "No switching: keystrokes matching other asteroids are ignored while
+locked." The lock lane implemented "ignored" as a typo.
+
+That is not a cosmetic difference. A typo has two downstream consequences:
+`scoring/combo.ts` resets the combo to zero, and architecture §4.1 raises the
+word's ease by 5%, which makes it fall faster next time. So under the shipped
+reading, brushing a key that belongs to a rock the child is **not** typing costs
+them their score multiplier and makes their current word harder. D31 forbids
+exactly that direction.
+
+| # | Option | Cost |
+|---|---|---|
+| A | Literal AC-3.3: shake, no count, no combo break, no ease change | Chosen for now. AC-6e.2 still satisfied — every keystroke gets visible feedback. Slightly inflates the FR-7 accuracy statistic, because a real mis-keystroke goes unrecorded. |
+| B | Count it as a typo, as first built | Accurate statistics; punishes the child for a key that was never part of their word. |
+| C | Count it in the FR-7 word record but do NOT break the combo or raise ease | Keeps the statistic honest and the felt experience kind. More state to thread; a third category of keystroke to explain. |
+
+**Lean: C**, with A shipping until decided. C is the only option that serves both
+the engine's need for an honest signal and D31's requirement that nothing read as
+punishment. A is shipping now because it is what AC-3.3 literally says, and the
+collision rule forbids silently overwriting a decided AC.
+
+### Status
+
+NOT PASSED. Build proceeds on A. C10 stays open in the decision log.

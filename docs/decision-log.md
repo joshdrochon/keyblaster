@@ -145,6 +145,8 @@ Last updated: Art direction v1 issued; roadmap set (D82). Next: build.
 
 ## Collisions (unresolved until user picks)
 
+- **C10 · AC-3.3 "ignored" vs typo.** AC-3.3 says a keystroke matching a *different* live asteroid while locked is "ignored". The lock lane implemented it as a typo (shake + count). These are not cosmetically different: `scoring/combo.ts` resets the combo to zero on a typo and architecture §4.1 raises `ease *= 1.05`, so brushing a key belonging to a rock the child is not typing costs them their multiplier and makes their current word fall faster next time — the direction D31 forbids. Counter-argument for counting it: not counting inflates the FR-7 accuracy statistic. **Status: unresolved.** Build proceeds on AC-3.3 as literally written — shake (AC-6e.2 requires visible feedback for every keystroke) but no typo count, no combo break, no ease change. Logged per the collision rule; the user picks.
+
 - **C09 · Voice source.** D63 (ElevenLabs pre-rendered voice) vs user: use system voice, it's free. **Status: resolved, D88 supersedes the voice portion of D63.** Ambient beds and procedural SFX in D63 unchanged.
 
 - **C07 · Ship name.** Story v1 fixes the ship as the *Lantern*; D72 lets the player name the ship. Options: (a) player names ship, default "Lantern", story uses `{shipName}`; (b) Lantern stays fixed, player names a callsign instead. **Status: resolved, (a). Story v2 uses `{shipName}`, default "Lantern".**
