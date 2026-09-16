@@ -531,3 +531,57 @@ a half-lit glyph having no meaning.
 Not blocking: English and Spanish are unaffected, and Hindi still plays
 correctly — only the per-letter highlight is wrong. Documented on the field
 rather than papered over with an index the lock cannot honestly produce.
+
+## P-22.9 — 60 fps: p95 frame time <= 16.7 ms over a 60 s scripted flight
+
+- **Escalated:** 2026-09-16T10:09:54.607Z
+- **Source:** D60#9 / AC-22.9 / NFR-1
+- **Attempts:** 8 (cap 8)
+- **Last measurement:** captured headless (6.0 fps observed) - headless Chromium cannot demonstrate 60fps; re-capture headed
+- **Evidence:** gauntlet/evidence/frametime.json
+
+**Proposal:** Needs a human read. The check is measuring the right thing but the implementation has not reached the threshold in 8 attempts.
+
+_Not marked passed. D85: escalated items never ship as green._
+
+## Two Shadows — the reference-compare pass did not cover what menus draw
+
+- **Logged:** 2026-09-16 (build night 1)
+- **Source:** D91, AC-25.1, D83
+- **Found by:** the menus lane, reporting its own duplicate rather than hiding it
+
+`R-shadow` was judged against `gauntlet/evidence/shadow-render.png`, which is
+produced by `src/game/render/shadow.ts` (618 lines). That module draws Shadow on
+the eight story screens.
+
+Four menu screens — Profile Picker, Profile Create, Beacon Log, Pause — draw a
+**different** Shadow from `src/game/ui/shadowPortrait.ts` (193 lines, its own
+implementation, not a delegation).
+
+So a passing reference-compare covered two thirds of the screens Shadow appears
+on, and nothing in the rubric noticed. **That is the more important finding than
+the duplicate itself:** a reference compare is only worth what it covers, and
+coverage was unchecked. `G-one-shadow` now fails on any second implementation of
+`drawShadow` or `drawLantern`.
+
+The cause is honest and was predicted in the file's own header: when the menus
+lane started, `render/` held only layers and particles, so per the brief's
+anti-collision rule it wrote a local version rather than import a file that did
+not exist. The header says *"if the render lane lands a shadow module, delete
+this file and re-point the three imports."* It landed.
+
+The same applies to `src/game/ui/palette.ts` versus `src/game/render/palette.ts`,
+with the same cause and the same instruction in its header.
+
+| # | Option | Cost |
+|---|---|---|
+| A | Delete both `ui/` copies, re-point the four menu scenes at `render/` | What both file headers instruct. Signatures differ slightly, so it is a real edit across 4 scenes + 52 e2e tests, not a rename. |
+| B | Keep `ui/shadowPortrait` as a portrait-specific variant and judge it separately | Two Shadows is two Shadows. D91 says he has one look. |
+
+**Lean: A.** D91 is explicit that Shadow has one look, and a second
+implementation will drift from the judged one the moment either is touched.
+
+### Status
+
+NOT PASSED. Sent back to the menus lane, which owns the four scenes and wrote
+the file that says to delete it.

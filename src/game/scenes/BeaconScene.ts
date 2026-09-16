@@ -20,7 +20,14 @@ import {
   type KeyboardMenu,
   type SceneSnapshot,
 } from "./lib/kit";
-import { laneInit, publishBag, textStyles, type LaneInit } from "./support/laneInit";
+import {
+  laneInit,
+  latchOnRender,
+  publishBag,
+  textStyles,
+  type DrawLatch,
+  type LaneInit,
+} from "./support/laneInit";
 
 /**
  * SCREEN 8 - BEACON PLACEMENT (design-brief-v2.md "8. Beacon placement";
@@ -73,6 +80,8 @@ export class BeaconScene extends Phaser.Scene {
   private flavourLabel!: Phaser.GameObjects.Text;
   private mast!: Phaser.GameObjects.Container;
   private lit = false;
+  /** Latched on a render pass; see `latchOnRender`. Never sampled. */
+  private focusRingDrawn!: DrawLatch;
 
   constructor() {
     super(SCENE_KEYS.beacon);
@@ -121,6 +130,7 @@ export class BeaconScene extends Phaser.Scene {
     };
     hud.add(this.buildButton());
     this.menu = createKeyboardMenu(this, this.ring, [target]);
+    this.focusRingDrawn = latchOnRender(this, () => this.ring.graphics.visible);
 
     this.publish();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -410,7 +420,7 @@ export class BeaconScene extends Phaser.Scene {
       beaconY: this.mast.y,
       focusIndex: this.menu.index,
       focusId: this.menu.targets[this.menu.index]?.id ?? null,
-      focusRingVisible: this.ring.graphics.visible,
+      focusRingVisible: this.focusRingDrawn.drawn,
       reducedMotion: this.lane.reducedMotion,
       nextScene: this.stopId === "pluto" ? SCENE_KEYS.ending : SCENE_KEYS.results,
     };

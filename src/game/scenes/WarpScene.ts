@@ -19,7 +19,14 @@ import { DUR, INK, TYPE } from "@game/ui/theme";
 import { hasStageBundle, stageBundle } from "./lib/content";
 import { goTo, type StoryInit } from "./lib/init";
 import { label, plate, createFocusRing, visibleText, type FocusRing, type SceneSnapshot } from "./lib/kit";
-import { laneInit, publishBag, textStyles, type LaneInit } from "./support/laneInit";
+import {
+  laneInit,
+  latchOnRender,
+  publishBag,
+  textStyles,
+  type DrawLatch,
+  type LaneInit,
+} from "./support/laneInit";
 import { coachAllowlist } from "./support/vocab";
 import {
   cells,
@@ -121,12 +128,13 @@ export class WarpScene extends Phaser.Scene {
   private multiplier = 0;
   private warping = false;
   /**
-   * Latched when the "charged" line goes up. The Text's own `visible` flag is
-   * the truth while the scene is alive, but it reads false again once the cut
-   * to Beacon destroys it - so a test that samples a moment too late would see
-   * a line that was shown as a line that never was.
+   * "Was it drawn", latched on a real render pass (see `latchOnRender`). The
+   * Text's own `visible` flag is the truth only while the scene is alive: it
+   * reads false again once the cut to Beacon destroys the object, so sampling
+   * it is a race nothing can win.
    */
-  private chargedShown = false;
+  private chargedDrawn!: DrawLatch;
+  private focusRingDrawn!: DrawLatch;
   private debrisCount = 0;
   private debrisSignature = "";
   private debrisMoved = false;
@@ -143,7 +151,6 @@ export class WarpScene extends Phaser.Scene {
     this.coachCalls = 0;
     this.multiplier = 0;
     this.warping = false;
-    this.chargedShown = false;
     this.debrisMoved = false;
     this.debrisSignature = "";
   }
@@ -187,6 +194,9 @@ export class WarpScene extends Phaser.Scene {
       w: PANEL.w,
       h: PANEL.h,
     });
+
+    this.chargedDrawn = latchOnRender(this, () => this.chargedLabel.visible);
+    this.focusRingDrawn = latchOnRender(this, () => this.ring.graphics.visible);
 
     this.input.keyboard?.addCapture(["TAB", "SPACE", "ENTER"]);
     this.input.keyboard?.on("keydown", this.onKey, this);
@@ -582,7 +592,6 @@ export class WarpScene extends Phaser.Scene {
     if (this.warping) return;
     this.warping = true;
     this.chargedLabel.setVisible(true);
-    this.chargedShown = true;
     this.shadow.setPose("cheering");
     this.lantern.setIris(1);
 
@@ -703,8 +712,10 @@ export class WarpScene extends Phaser.Scene {
       chargeFraction: chargeFraction(this.sentence),
       chargePercent: chargePercent(this.sentence),
       percentLabel: this.percentLabel.text,
-      chargedLabelVisible: this.chargedLabel.visible,
-      chargedShown: this.chargedShown,
+      // Latched on a render pass and never cleared: "the charged line was
+      // drawn", which is the claim, rather than "it is drawn right now", which
+      // stops being true the moment the warp cuts to Beacon.
+      chargedLabelVisible: this.chargedDrawn.drawn,
       highlights: this.sentence.highlights.map(([a, b]) => [a, b]),
       highlightedText: this.sentence.highlights.map(([a, b]) =>
         this.sentence.text.slice(a, b),
@@ -714,7 +725,7 @@ export class WarpScene extends Phaser.Scene {
       warping: this.warping,
       multiplier: this.multiplier,
       focusId: "warp-sentence",
-      focusRingVisible: this.ring.graphics.visible,
+      focusRingVisible: this.focusRingDrawn.drawn,
       layerSpeeds: Object.fromEntries(
         LAYERS.map((spec) => [spec.id, spec.speed * this.multiplier]),
       ),

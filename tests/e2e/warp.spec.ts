@@ -59,7 +59,6 @@ type WarpSnapshot = {
   chargePercent: number;
   percentLabel: string;
   chargedLabelVisible: boolean;
-  chargedShown: boolean;
   focusId: string;
   focusRingVisible: boolean;
   highlightedText: string[];
@@ -205,10 +204,11 @@ test("AC-16.3 the charge meter reaches exactly 100% on the final character", asy
 
   await page.keyboard.press(last === "." ? "Period" : last);
   await waitForSnapshot(page, "warp", "charged", true);
-  // The "charged" line goes up in the same frame the warp starts. Waiting on
-  // the rendered flag is the assertion that it was really drawn; the latched
-  // flag is what the snapshot below can still see once the cut to Beacon has
-  // destroyed the Text.
+  // `chargedLabelVisible` is LATCHED on a real render pass and never cleared
+  // (see `support/laneInit.ts`), so this asks "was the charged line drawn",
+  // which is what the AC claims. Sampling `label.visible` instead would be a
+  // race against the cut to Beacon that destroys the Text - a window a poll
+  // cannot be made to hit by waiting longer.
   await waitForSnapshot(page, "warp", "chargedLabelVisible", true);
 
   const done = await snap<WarpSnapshot>(page, "warp");
@@ -217,7 +217,7 @@ test("AC-16.3 the charge meter reaches exactly 100% on the final character", asy
   expect(done.chargeFraction).toBe(1);
   expect(done.chargePercent).toBe(100);
   expect(done.percentLabel).toContain("100");
-  expect(done.chargedShown).toBe(true);
+  expect(done.chargedLabelVisible).toBe(true);
 });
 
 test("AC-16.3 a typo on the way does not cost the player 100%", async ({ page }) => {

@@ -1,4 +1,4 @@
-import type Phaser from "phaser";
+import Phaser from "phaser";
 import { isStopId, type StopId } from "@engine/types";
 import type { SceneContext } from "@game/sceneKeys";
 import { paletteAt, type StopPalette } from "@game/render/palette";
@@ -83,6 +83,57 @@ export function laneInit(
     reducedMotion,
     copy: createLaneText({ lang: resolved.lang, shipName: resolved.shipName }),
     params,
+  };
+}
+
+/**
+ * A one-way latch on "this object was actually drawn".
+ *
+ * WHY THIS EXISTS. A snapshot field like `label.visible` is a SAMPLE, and an
+ * e2e poll can only ever read it at the instant it happens to look. The warp
+ * screen makes that unobservable by construction: the "charged" line goes up in
+ * the same frame that starts the warp, and ~1.2 s of scene time later the cut to
+ * Beacon destroys the Text, at which point `visible` reads false again. Headless
+ * software WebGL steps Phaser's clock at roughly a quarter of wall time, and
+ * variably, so the window a poll has to hit is both short and unpredictable. A
+ * longer timeout does not widen it - the sample either lands inside it or it
+ * does not - so waiting harder only makes the flake rarer and harder to read.
+ *
+ * So the flag is LATCHED instead of sampled. `Phaser.Scenes.Events.RENDER` is
+ * emitted by `Systems.render` immediately AFTER `cameras.render(displayList)`,
+ * which means the frame really did draw the display list; if the object was
+ * visible on that pass, it was on screen. The latch is then never cleared, and
+ * because it is a plain boolean it stays readable through scene shutdown - so a
+ * test can assert "this was drawn", which is what the AC claims, rather than
+ * "this is drawn at the instant I looked", which nothing can promise.
+ *
+ * The listener removes itself once it fires, and on shutdown if it never did.
+ */
+export interface DrawLatch {
+  readonly drawn: boolean;
+}
+
+export function latchOnRender(
+  scene: Phaser.Scene,
+  wasVisible: () => boolean,
+): DrawLatch {
+  let drawn = false;
+
+  const onRender = (): void => {
+    if (drawn || !wasVisible()) return;
+    drawn = true;
+    scene.events.off(Phaser.Scenes.Events.RENDER, onRender);
+  };
+
+  scene.events.on(Phaser.Scenes.Events.RENDER, onRender);
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    scene.events.off(Phaser.Scenes.Events.RENDER, onRender);
+  });
+
+  return {
+    get drawn() {
+      return drawn;
+    },
   };
 }
 

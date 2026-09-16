@@ -18,7 +18,14 @@ import {
   type KeyboardMenu,
   type SceneSnapshot,
 } from "./lib/kit";
-import { laneInit, publishBag, textStyles, type LaneInit } from "./support/laneInit";
+import {
+  laneInit,
+  latchOnRender,
+  publishBag,
+  textStyles,
+  type DrawLatch,
+  type LaneInit,
+} from "./support/laneInit";
 
 /**
  * SCREEN 12 - ENDING CARD (design-brief-v2.md "12. Ending card";
@@ -64,6 +71,9 @@ export class EndingScene extends Phaser.Scene {
   private lampAlpha = new Map<StopId, Phaser.GameObjects.Graphics>();
   private litOrder: StopId[] = [];
   private shadowLine!: Phaser.GameObjects.Text;
+  /** Latched on a render pass; see `latchOnRender`. Never sampled. */
+  private shadowLineDrawn!: DrawLatch;
+  private focusRingDrawn!: DrawLatch;
 
   constructor() {
     super(SCENE_KEYS.ending);
@@ -104,6 +114,11 @@ export class EndingScene extends Phaser.Scene {
       activate: () => this.toResults(),
     };
     this.menu = createKeyboardMenu(this, this.ring, [target]);
+    this.shadowLineDrawn = latchOnRender(
+      this,
+      () => this.shadowLine.visible && this.shadowLine.alpha > 0.02,
+    );
+    this.focusRingDrawn = latchOnRender(this, () => this.ring.graphics.visible);
 
     this.playCard();
     this.publish();
@@ -311,9 +326,10 @@ export class EndingScene extends Phaser.Scene {
       litOrder: [...this.litOrder],
       litCount: this.litOrder.length,
       shadowLine: this.shadowLine.text,
-      shadowLineVisible: this.shadowLine.alpha > 0.02,
+      shadowLineVisible: this.shadowLineDrawn.drawn,
       zoom: this.cameras.main.zoom,
       focusId: this.menu.targets[this.menu.index]?.id ?? null,
+      focusRingVisible: this.focusRingDrawn.drawn,
       reducedMotion: this.lane.reducedMotion,
       nextScene: SCENE_KEYS.results,
     };

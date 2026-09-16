@@ -143,7 +143,10 @@ test("AC-17.0 an unusable clock shows the beacon calibrating - never an error, n
   expect(outside.ok).toBe(false);
   expect(outside.reason).toBe("outside-table");
   expect(outside.poisoned).toBe(false);
+  // Asserted on the CONTENT as well as the flag: a destroyed Text also reports
+  // `visible: false`, so the flag alone could pass for the wrong reason.
   expect(outside.pulsarVisible).toBe(false);
+  expect(outside.pulsarLine).toBe("");
   // The plate still says something calm, and the stop's flavour line stays.
   expect(outside.coordsLine.length).toBeGreaterThan(0);
   expect(outside.flavourLine.length).toBeGreaterThan(0);

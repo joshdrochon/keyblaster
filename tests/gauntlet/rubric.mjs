@@ -653,6 +653,35 @@ const guardrails = [
     },
   },
   {
+    id: "G-one-shadow",
+    source: "D91 / AC-25.1 / D83",
+    title: "Exactly one drawShadow and one drawLantern implementation",
+    kind: "static",
+    run: async ({ repo }) => {
+      const files = walk(join(repo, "src/game")).filter((f) => extname(f) === ".ts");
+      if (files.length === 0) return todo("src/game has no sources yet");
+      const problems = [];
+      for (const [fn, what] of [["drawShadow", "Shadow"], ["drawLantern", "Lantern"]]) {
+        const impls = files.filter((f) =>
+          new RegExp(`export\\s+function\\s+${fn}\\b`).test(stripComments(readFileSync(f, "utf8"))),
+        );
+        if (impls.length > 1) {
+          problems.push(
+            `${impls.length} ${what} implementations: ${impls.map((f) => f.replace(repo + "/", "")).join(", ")}`,
+          );
+        }
+      }
+      // WHY THIS CHECK EXISTS. R-shadow judged ONE render and passed it. Four
+      // menu scenes were drawing a second, unjudged Shadow - so the passing
+      // rubric item did not cover what a player sees on Profile, Beacon Log,
+      // Pause or Profile Picker. A reference compare is only worth what it
+      // covers, and nothing was checking that it covered everything.
+      return problems.length === 0
+        ? ok(`one implementation each for Shadow and the Lantern across ${files.length} game files`)
+        : bad(problems.join("; "));
+    },
+  },
+  {
     id: "G-e2e-whole",
     source: "CLAUDE.md gauntlet loop / D93",
     title: "The whole e2e suite passes in ONE run, under the repo config",
