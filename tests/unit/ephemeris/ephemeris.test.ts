@@ -4,6 +4,7 @@ import type { Pulsar } from "@engine/ephemeris/index.js";
 import {
   AU_LIGHT_SECONDS,
   BETA_SIGN,
+  EphemerisError,
   DAYS_PER_JULIAN_CENTURY,
   DEGREE_SIGN,
   DEG_TO_RAD,
@@ -21,9 +22,11 @@ import {
   UNIX_EPOCH_JD,
   beaconReadout,
   centuriesSinceJ2000,
+  classifyJd,
   dateFromJulian,
   elementsAt,
   formatBeaconCoords,
+  formatLongitude,
   formatPulsarFix,
   formatSigned,
   heliocentricEcliptic,
@@ -37,8 +40,15 @@ import {
   wrapDeg360,
 } from "@engine/ephemeris/index.js";
 import {
+  AC_BETA_TOLERANCE_DEG,
+  AC_LAMBDA_TOLERANCE_DEG,
+  AC_R_TOLERANCE_AU,
   BETA_TOLERANCE_DEG,
+  ELEMENT_FIELD_ORDER,
+  EXPECTED_ELEMENT_TABLE,
   LAMBDA_TOLERANCE_DEG,
+  ORBIT_BAND_SLACK,
+  PUBLISHED_ORBITS,
   REFERENCE_EPOCHS,
   R_TOLERANCE_AU,
   angleDeltaDeg,
@@ -139,6 +149,21 @@ describe("element table", () => {
       "omegaDeg",
       "varPiDeg",
     ]);
+  });
+
+  it("AC-17.1/AC-17.2: every one of the 84 element fields matches JPL Table 1", () => {
+    // The DE441 fixture proves the numbers are right; this proves they stay
+    // right. Without it only Pluto's 12 fields were pinned and the other 72
+    // rested entirely on the fixture's tolerance.
+    for (const stop of STOP_IDS) {
+      const expected = EXPECTED_ELEMENT_TABLE[stop];
+      ELEMENT_FIELD_ORDER.forEach((field, column) => {
+        expect(ELEMENTS[stop].at[field]).toBe(expected.at[column]);
+        expect(ELEMENTS[stop].perCentury[field]).toBe(
+          expected.perCentury[column],
+        );
+      });
+    }
   });
 
   it("covers every stop on the route (D57)", () => {
@@ -339,7 +364,7 @@ describe("AC-17.1 heliocentric ecliptic coordinates", () => {
   for (const epoch of REFERENCE_EPOCHS) {
     for (const stop of STOP_IDS) {
       const expected = epoch.bodies[stop];
-      it(`AC-17.1: ${stop} on ${epoch.iso} matches JPL DE441 within 1 deg / 0.05 AU`, () => {
+      it(`AC-17.1: ${stop} on ${epoch.iso} matches JPL DE441 within ${LAMBDA_TOLERANCE_DEG} deg / ${R_TOLERANCE_AU} AU`, () => {
         const got = heliocentricEclipticAtJd(stop, epoch.jd);
         expect(
           Math.abs(angleDeltaDeg(got.lambdaDeg, expected.lambdaDeg)),
@@ -383,20 +408,32 @@ describe("AC-17.1 heliocentric ecliptic coordinates", () => {
     }
   });
 
-  it("AC-17.1: r stays inside each orbit's perihelion/aphelion band", () => {
+  it("AC-17.1: r stays inside each orbit's PUBLISHED perihelion/aphelion band", () => {
+    // Bounds come from the NASA Planetary Fact Sheet, not from ELEMENTS, so
+    // this genuinely constrains a and e rather than restating them.
     const rand = mulberry32(0x1234abcd);
     for (let i = 0; i < 400; i += 1) {
       const jd =
         TABLE_VALID_FROM_JD +
         rand() * (TABLE_VALID_TO_JD - TABLE_VALID_FROM_JD);
       for (const stop of STOP_IDS) {
-        const { at } = ELEMENTS[stop];
+        const orbit = PUBLISHED_ORBITS[stop];
         const coords = heliocentricEclipticAtJd(stop, jd);
-        // 1% slack absorbs the secular drift of a and e across 250 years.
-        expect(coords.rAu).toBeGreaterThan(at.aAu * (1 - at.e) * 0.99);
-        expect(coords.rAu).toBeLessThan(at.aAu * (1 + at.e) * 1.01);
+        expect(coords.rAu).toBeGreaterThan(
+          orbit.perihelionAu * (1 - ORBIT_BAND_SLACK),
+        );
+        expect(coords.rAu).toBeLessThan(
+          orbit.aphelionAu * (1 + ORBIT_BAND_SLACK),
+        );
       }
     }
+  });
+
+  it("AC-17.1: the asserted tolerances are strictly inside the AC's", () => {
+    // Passing at these bounds therefore implies passing AC-17.1 as written.
+    expect(LAMBDA_TOLERANCE_DEG).toBeLessThan(AC_LAMBDA_TOLERANCE_DEG);
+    expect(BETA_TOLERANCE_DEG).toBeLessThan(AC_BETA_TOLERANCE_DEG);
+    expect(R_TOLERANCE_AU).toBeLessThan(AC_R_TOLERANCE_AU);
   });
 
   it("returns a rectangular vector consistent with lambda/beta/r", () => {
@@ -441,7 +478,11 @@ describe("beta sign handling", () => {
     }
   });
 
-  it("keeps |beta| below the orbital inclination for every stop", () => {
+  it("keeps |beta| within each orbit's PUBLISHED inclination", () => {
+    // Deliberately checked against the NASA fact-sheet inclination, not
+    // against elementsAt(...).iDeg. Reading the inclination back out of the
+    // table under test would make this assertion true by construction and
+    // constrain nothing.
     const rand = mulberry32(0x0ddba11);
     for (let i = 0; i < 300; i += 1) {
       const jd =
@@ -449,8 +490,8 @@ describe("beta sign handling", () => {
         rand() * (TABLE_VALID_TO_JD - TABLE_VALID_FROM_JD);
       for (const stop of STOP_IDS) {
         const coords = heliocentricEclipticAtJd(stop, jd);
-        const inclination = Math.abs(elementsAt(stop, centuriesSinceJ2000(jd)).iDeg);
-        expect(Math.abs(coords.betaDeg)).toBeLessThanOrEqual(inclination + 1e-9);
+        const published = PUBLISHED_ORBITS[stop].inclinationDeg;
+        expect(Math.abs(coords.betaDeg)).toBeLessThanOrEqual(published + 0.05);
       }
     }
   });
@@ -578,8 +619,8 @@ describe("AC-17.0 display format", () => {
     expect(formatBeaconCoords(sample(0, 0, 0))).toBe(
       `${LAMBDA_SIGN} 0.0${DEGREE_SIGN}  ${BETA_SIGN} 0.0${DEGREE_SIGN}  r 0.00 AU`,
     );
-    expect(formatBeaconCoords(sample(359.96, 89.99, 39.999))).toBe(
-      `${LAMBDA_SIGN} 360.0${DEGREE_SIGN}  ${BETA_SIGN} 90.0${DEGREE_SIGN}  r 40.00 AU`,
+    expect(formatBeaconCoords(sample(359.94, 89.99, 39.999))).toBe(
+      `${LAMBDA_SIGN} 359.9${DEGREE_SIGN}  ${BETA_SIGN} 90.0${DEGREE_SIGN}  r 40.00 AU`,
     );
   });
 
@@ -630,18 +671,52 @@ describe("AC-17.0 display format", () => {
 // ---------------------------------------------------------------------------
 
 describe("pulsar fix line", () => {
-  it("names the three SEXTANT millisecond pulsars (D15)", () => {
-    expect(NAVIGATION_PULSARS.map((p) => p.name)).toEqual([
-      "B1937+21",
-      "J0437−4715",
-      "B1821−24",
+  it("D15: names the FOUR pulsars NICER/SEXTANT actually tracked in Nov 2017", () => {
+    // The Nov 2017 ISS demonstration used J0218+4232, B1821-24, J0030+0451
+    // and J0437-4715 (NASA Goddard release, 11 Jan 2018). B1937+21 is the
+    // first-discovered millisecond pulsar and a common stand-in in write-ups,
+    // but it was not a SEXTANT target - asserting it here would teach a
+    // grades 2-5 player something false, which D15 exists to prevent.
+    expect([...NAVIGATION_PULSARS].map((p) => p.name).sort()).toEqual([
+      "B1821-24",
+      "J0030+0451",
+      "J0218+4232",
+      "J0437-4715",
     ]);
+    expect(NAVIGATION_PULSARS.map((p) => p.name)).not.toContain("B1937+21");
+  });
+
+  it("D15: carries the ATNF catalogue position and period for each", () => {
+    // ATNF Pulsar Catalogue v2.8.1, RAJD / DECJD / P0. B1821-24 is catalogued
+    // as J1824-2452A; SEXTANT papers use the B-name, so that is what prints.
+    const byName = new Map(NAVIGATION_PULSARS.map((p) => [p.name, p]));
+    expect(byName.get("J0030+0451")).toEqual({
+      name: "J0030+0451",
+      raDeg: 7.61428128,
+      decDeg: 4.861031,
+      periodMs: 4.86545329,
+    });
+    expect(byName.get("J0218+4232")?.raDeg).toBe(34.526494038);
+    expect(byName.get("J0437-4715")?.decDeg).toBe(-47.252783951);
+    expect(byName.get("B1821-24")?.periodMs).toBe(3.05431576);
+  });
+
+  it("D15: every entry is a millisecond pulsar at a real sky position", () => {
     for (const pulsar of NAVIGATION_PULSARS) {
       expect(pulsar.periodMs).toBeGreaterThan(0);
       expect(pulsar.periodMs).toBeLessThan(10);
       expect(pulsar.raDeg).toBeGreaterThanOrEqual(0);
       expect(pulsar.raDeg).toBeLessThan(360);
       expect(Math.abs(pulsar.decDeg)).toBeLessThanOrEqual(90);
+    }
+  });
+
+  it("AC-17.0: catalogue names use an ASCII hyphen, not U+2212", () => {
+    // The hyphen in "B1821-24" is part of the designation, not a minus sign.
+    // D81's U+2212 rule governs the numeric fields only.
+    for (const pulsar of NAVIGATION_PULSARS) {
+      expect(pulsar.name).not.toContain(MINUS_SIGN);
+      expect(pulsar.name).toMatch(/^[BJ]\d{4}[+-]\d{2,4}$/u);
     }
   });
 
@@ -685,9 +760,9 @@ describe("pulsar fix line", () => {
   });
 
   it("accepts an explicit pulsar list", () => {
-    const only = pulsarDelays([1, 0, 0], [pulsarAt(2)]);
+    const only = pulsarDelays([1, 0, 0], [pulsarAt(3)]);
     expect(only).toHaveLength(1);
-    expect(only[0]?.name).toBe("B1821−24");
+    expect(only[0]?.name).toBe("B1821-24");
   });
 
   it("AC-17.0: prints one flavor line with signed delays", () => {
@@ -721,8 +796,6 @@ describe("pulsar fix line", () => {
       keplerIterations: 1,
       keplerConverged: true,
     });
-    // Two of the catalogue names themselves contain U+2212, so the assertion
-    // has to look at the delay tokens, not the whole line.
     const delayTokens = (line: string) => line.match(/[+−]\d+\.\d s/gu);
     expect(delayTokens(negative)).toHaveLength(NAVIGATION_PULSARS.length);
     expect(delayTokens(negative)?.every((t) => t.startsWith(MINUS_SIGN))).toBe(
@@ -742,6 +815,8 @@ describe("beaconReadout", () => {
     const date = new Date("2024-01-01T00:00:00.000Z");
     const readout = beaconReadout("mars", date);
     const coords = heliocentricEcliptic("mars", date);
+    expect(readout.ok).toBe(true);
+    if (!readout.ok) throw new Error("expected a readout");
     expect(readout.coordsLine).toBe(formatBeaconCoords(coords));
     expect(readout.pulsarLine).toBe(formatPulsarFix(coords));
     expect(readout.lambdaDeg).toBe(coords.lambdaDeg);
@@ -753,6 +828,132 @@ describe("beaconReadout", () => {
     const date = new Date("2026-09-16T12:00:00.000Z");
     for (const stop of STOP_IDS) {
       expect(beaconReadout(stop, date)).toEqual(beaconReadout(stop, date));
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bad input never reaches the screen
+// ---------------------------------------------------------------------------
+
+describe("invalid input policy", () => {
+  const INVALID = new Date("oops");
+  const TOO_EARLY = new Date("1700-01-01T00:00:00.000Z");
+  const TOO_LATE = new Date("2200-01-01T00:00:00.000Z");
+
+  it("classifies a bad Julian date", () => {
+    expect(classifyJd(2460310.5)).toBeNull();
+    expect(classifyJd(Number.NaN)).toBe("invalid-date");
+    expect(classifyJd(Number.POSITIVE_INFINITY)).toBe("invalid-date");
+    expect(classifyJd(TABLE_VALID_FROM_JD - 1)).toBe("outside-table");
+    expect(classifyJd(TABLE_VALID_TO_JD + 1)).toBe("outside-table");
+  });
+
+  it("AC-17.0: an Invalid Date never renders as the text \"NaN\"", () => {
+    // new Date("oops").getTime() is NaN; before the guard this produced the
+    // literal line "lambda NaN deg  beta NaN deg  r NaN AU" on screen.
+    const result = beaconReadout("mars", INVALID);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected a failure");
+    expect(result.reason).toBe("invalid-date");
+    expect(result.message).not.toContain("NaN");
+    expect(JSON.stringify(result)).not.toContain("NaN");
+  });
+
+  it("AC-17.0: a date outside 1800-2050 is refused, not silently wrong", () => {
+    for (const date of [TOO_EARLY, TOO_LATE]) {
+      const result = beaconReadout("pluto", date);
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected a failure");
+      expect(result.reason).toBe("outside-table");
+      expect(result.message.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("still succeeds on the play date and at both window edges", () => {
+    expect(beaconReadout("mars", new Date("2026-09-16T00:00:00.000Z")).ok).toBe(
+      true,
+    );
+    expect(beaconReadout("mars", dateFromJulian(TABLE_VALID_FROM_JD)).ok).toBe(
+      true,
+    );
+    expect(beaconReadout("mars", dateFromJulian(TABLE_VALID_TO_JD)).ok).toBe(
+      true,
+    );
+  });
+
+  it("throws EphemerisError from the low-level entry points", () => {
+    expect(() => heliocentricEcliptic("mars", INVALID)).toThrow(EphemerisError);
+    expect(() => heliocentricEclipticAtJd("mars", Number.NaN)).toThrow(
+      /not finite/u,
+    );
+    expect(() => heliocentricEclipticAtJd("mars", 1000000)).toThrow(
+      /outside the 1800-2050 element table/u,
+    );
+    try {
+      heliocentricEclipticAtJd("mars", Number.NaN);
+      throw new Error("unreachable");
+    } catch (error) {
+      expect(error).toBeInstanceOf(EphemerisError);
+      expect((error as EphemerisError).reason).toBe("invalid-date");
+      expect((error as EphemerisError).name).toBe("EphemerisError");
+    }
+  });
+
+  it("surfaces a Kepler divergence instead of using a half-solved anomaly", () => {
+    // Forced through the options seam; unreachable with the real defaults,
+    // which the 250-year sweep asserts.
+    expect(() =>
+      heliocentricEclipticAtJd("pluto", 2460310.5, {
+        toleranceRad: 1e-15,
+        maxIterations: 1,
+      }),
+    ).toThrow(/did not converge/u);
+    try {
+      heliocentricEcliptic("pluto", new Date("2024-01-01T00:00:00.000Z"), {
+        toleranceRad: 1e-15,
+        maxIterations: 1,
+      });
+      throw new Error("unreachable");
+    } catch (error) {
+      expect((error as EphemerisError).reason).toBe("kepler-diverged");
+    }
+  });
+
+  it("refuses to format a non-finite number", () => {
+    expect(() => formatSigned(Number.NaN, 1)).toThrow(EphemerisError);
+    expect(() => formatSigned(Number.POSITIVE_INFINITY, 2)).toThrow(
+      /Cannot format/u,
+    );
+    expect(() => formatLongitude(Number.NaN)).toThrow(EphemerisError);
+  });
+});
+
+describe("AC-17.1: lambda never renders as 360.0", () => {
+  it("wraps a longitude that rounds up to 360 back to 0.0", () => {
+    expect(formatLongitude(359.96)).toBe("0.0");
+    expect(formatLongitude(359.9999)).toBe("0.0");
+    expect(formatLongitude(359.94)).toBe("359.9");
+    expect(formatLongitude(0)).toBe("0.0");
+  });
+
+  it("holds for a real date where Earth sits at lambda 359.96", () => {
+    // jd 2451810.18: Earth's true longitude is 359.957, which rounds to 360.0
+    // and would contradict the [0, 360) range AC-17.1 states.
+    const coords = heliocentricEclipticAtJd("earth", 2451810.18);
+    expect(coords.lambdaDeg).toBeGreaterThan(359.95);
+    expect(coords.lambdaDeg).toBeLessThan(360);
+    const line = formatBeaconCoords(coords);
+    expect(line).not.toContain("360.0");
+    expect(line).toContain(`${LAMBDA_SIGN} 0.0${DEGREE_SIGN}`);
+  });
+
+  it("never prints a longitude of 360.0 over a full Earth year", () => {
+    for (let hour = 0; hour <= 366 * 24; hour += 1) {
+      const line = formatBeaconCoords(
+        heliocentricEclipticAtJd("earth", 2451545.0 + hour / 24),
+      );
+      expect(line).not.toContain(`${LAMBDA_SIGN} 360.0`);
     }
   });
 });

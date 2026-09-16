@@ -53,6 +53,47 @@ export const UNIX_EPOCH_JD = 2440587.5;
 
 const MS_PER_DAY = 86_400_000;
 
+// ---------------------------------------------------------------------------
+// Failure policy
+// ---------------------------------------------------------------------------
+
+/**
+ * Why the ephemeris refused to answer.
+ *
+ * - `invalid-date`   the caller passed an Invalid Date or a non-finite JD.
+ * - `outside-table`  the date is outside the 1800-2050 fit window, where the
+ *                    approximate elements return a confident wrong answer.
+ * - `kepler-diverged` Newton hit its iteration cap.
+ */
+export type EphemerisFailure =
+  | "invalid-date"
+  | "outside-table"
+  | "kepler-diverged"
+  | "non-finite";
+
+export class EphemerisError extends Error {
+  readonly reason: EphemerisFailure;
+  constructor(reason: EphemerisFailure, message: string) {
+    super(message);
+    this.name = "EphemerisError";
+    this.reason = reason;
+  }
+}
+
+/**
+ * Classify a Julian date before it is used. Returns null when the date is
+ * usable.
+ *
+ * `new Date("oops").getTime()` is NaN, which propagates silently all the way
+ * to the screen as the literal text "NaN". A child must never see that, so it
+ * is caught here, at the only place a bad clock can enter the module.
+ */
+export function classifyJd(jd: number): EphemerisFailure | null {
+  if (!Number.isFinite(jd)) return "invalid-date";
+  if (!isWithinTableValidity(jd)) return "outside-table";
+  return null;
+}
+
 /**
  * Julian date for a calendar instant.
  *
@@ -102,10 +143,30 @@ export interface EclipticCoords {
  * Newton to 1e-6 rad, place the body in its own orbital plane, rotate into the
  * J2000 ecliptic, and read off λ, β, r.
  */
+export interface SolveOptions {
+  /** Newton stopping step, radians. Defaults to KEPLER_TOLERANCE_RAD. */
+  readonly toleranceRad?: number;
+  /** Newton iteration cap. Defaults to KEPLER_MAX_ITERATIONS. */
+  readonly maxIterations?: number;
+}
+
 export function heliocentricEclipticAtJd(
   planet: StopId,
   jd: number,
+  options: SolveOptions = {},
 ): EclipticCoords {
+  // Fail loudly rather than returning NaN: every caller inside the engine has
+  // a real date, so a bad one here is a bug, not a state to render.
+  const failure = classifyJd(jd);
+  if (failure) {
+    throw new EphemerisError(
+      failure,
+      failure === "invalid-date"
+        ? `Julian date is not finite (got ${jd})`
+        : `Julian date ${jd} is outside the 1800-2050 element table`,
+    );
+  }
+
   const t = centuriesSinceJ2000(jd);
   const el = elementsAt(planet, t);
 
@@ -113,8 +174,20 @@ export function heliocentricEclipticAtJd(
   // the root no matter how many revolutions L has accumulated.
   const meanAnomalyDeg = wrapDeg180(el.lDeg - el.varPiDeg);
 
-  // Step 3. Kepler's equation.
-  const solution = solveKepler(meanAnomalyDeg * DEG_TO_RAD, el.e);
+  // Step 3. Kepler's equation. The options seam exists so a test can force
+  // divergence; nothing in the game ever passes it.
+  const solution = solveKepler(
+    meanAnomalyDeg * DEG_TO_RAD,
+    el.e,
+    options.toleranceRad ?? KEPLER_TOLERANCE_RAD,
+    options.maxIterations ?? KEPLER_MAX_ITERATIONS,
+  );
+  if (!solution.converged) {
+    throw new EphemerisError(
+      "kepler-diverged",
+      `Kepler solve for ${planet} did not converge in ${solution.iterations} passes`,
+    );
+  }
   const eccentricAnomaly = solution.eccentricAnomalyRad;
 
   // Step 4. Position in the orbital plane, perifocal frame, AU.
@@ -168,8 +241,9 @@ export function heliocentricEclipticAtJd(
 export function heliocentricEcliptic(
   planet: StopId,
   date: Date,
+  options: SolveOptions = {},
 ): EclipticCoords {
-  return heliocentricEclipticAtJd(planet, julianDate(date));
+  return heliocentricEclipticAtJd(planet, julianDate(date), options);
 }
 
 // ---------------------------------------------------------------------------
@@ -193,9 +267,24 @@ export const BETA_SIGN = "β";
  * normalised to unsigned before the sign swap.
  */
 export function formatSigned(value: number, decimals: number): string {
+  // `(NaN).toFixed(1)` is the string "NaN", which would render verbatim on the
+  // Beacon screen. Refuse instead; beaconReadout turns this into a fallback.
+  if (!Number.isFinite(value)) {
+    throw new EphemerisError("non-finite", `Cannot format ${value}`);
+  }
   const rounded = Number(value.toFixed(decimals));
   const normalised = rounded === 0 ? 0 : rounded;
   return normalised.toFixed(decimals).replace("-", MINUS_SIGN);
+}
+
+/**
+ * λ, formatted. Rounding is the catch: λ = 359.97 renders as "360.0", which is
+ * outside the [0, 360) range AC-17.1 states. Since 360.0 and 0.0 name the same
+ * direction, the wrap is applied after rounding rather than before.
+ */
+export function formatLongitude(lambdaDeg: number): string {
+  const text = formatSigned(lambdaDeg, 1);
+  return text === "360.0" ? "0.0" : text;
 }
 
 /**
@@ -204,7 +293,7 @@ export function formatSigned(value: number, decimals: number): string {
  * distance, two spaces between the three fields, U+2212 for negatives.
  */
 export function formatBeaconCoords(coords: EclipticCoords): string {
-  const lambda = formatSigned(coords.lambdaDeg, 1);
+  const lambda = formatLongitude(coords.lambdaDeg);
   const beta = formatSigned(coords.betaDeg, 1);
   const r = formatSigned(coords.rAu, 2);
   return (
@@ -222,8 +311,12 @@ export function formatBeaconCoords(coords: EclipticCoords): string {
  */
 export function formatPulsarFix(coords: EclipticCoords): string {
   const parts = pulsarDelays(coords.xyzAu, NAVIGATION_PULSARS).map((delay) => {
+    // The sign goes through formatSigned so a non-finite delay is refused
+    // here too, and so negatives use U+2212 like the rest of D81. The
+    // catalogue name keeps its ASCII hyphen.
+    const magnitude = formatSigned(Math.abs(delay.seconds), 1);
     const sign = delay.seconds < 0 ? MINUS_SIGN : "+";
-    return `${delay.name} ${sign}${Math.abs(delay.seconds).toFixed(1)} s`;
+    return `${delay.name} ${sign}${magnitude} s`;
   });
   return `pulsar fix  ${parts.join("  ·  ")}`;
 }
@@ -234,12 +327,36 @@ export interface BeaconReadout {
   readonly pulsarLine: string;
 }
 
-export function beaconReadout(
-  planet: StopId,
-  date: Date,
-): BeaconReadout & EclipticCoords {
-  const coords = heliocentricEcliptic(planet, date);
+/**
+ * What the Beacon scene gets back.
+ *
+ * A discriminated union rather than a throw: the scene has to render
+ * *something* even when the device clock is nonsense, and a try/catch around
+ * a render call is the kind of thing that gets dropped. `ok: false` is the
+ * "beacon calibrating" path (AC-17.0 still holds - there is simply no
+ * coordinate line to print).
+ */
+export type BeaconResult =
+  | ({ readonly ok: true } & BeaconReadout & EclipticCoords)
+  | { readonly ok: false; readonly reason: EphemerisFailure; readonly message: string };
+
+export function beaconReadout(planet: StopId, date: Date): BeaconResult {
+  const jd = julianDate(date);
+  const failure = classifyJd(jd);
+  if (failure) {
+    return {
+      ok: false,
+      reason: failure,
+      message:
+        failure === "invalid-date"
+          ? "Beacon clock unreadable"
+          : "Beacon date outside charted range",
+    };
+  }
+
+  const coords = heliocentricEclipticAtJd(planet, jd);
   return {
+    ok: true,
     ...coords,
     coordsLine: formatBeaconCoords(coords),
     pulsarLine: formatPulsarFix(coords),
