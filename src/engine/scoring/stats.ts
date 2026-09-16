@@ -1,34 +1,27 @@
 /**
- * Small numeric helpers shared by the scoring module.
+ * The one statistic this module needs that the word model does not already
+ * provide.
  *
- * These live here rather than inline because every AC-20 computation reads
- * "median first-key latency" and must read it the same way (D50).
+ * Medians come from `words/stats.ts` (exported as `median` from
+ * `words/index.js`) and are NOT re-implemented here. That file is already
+ * NaN-hardened, and two medians in one engine is two places for the definition
+ * of "median first-key latency" to drift.
  */
 
 /**
- * Median of a sample set. Returns null for an empty set rather than 0 or NaN:
- * "no data yet" is a distinct state from "0 ms", and the results screen has to
- * be able to say nothing instead of saying something false (D50).
+ * Arithmetic mean, or null for an empty set. Non-finite samples are discarded
+ * before summing, for the same reason `words/median` discards them: corrupt
+ * storage is a live path (AC-18.4), and one NaN in a sum poisons every number
+ * downstream of it, including one typed `number | null`.
  *
- * Even-sized sets average the two middle samples, which is the conventional
- * definition and keeps `medianOf([a, b])` monotone in both samples.
+ * A mean is the right summary here and a median is not: AC-20.3 asks for the
+ * *mean* latency delta across the retention set, which is an aggregate over
+ * words rather than over one child's noisy keystrokes.
  */
-export function medianOf(samples: readonly number[]): number | null {
-  if (samples.length === 0) return null;
-  const sorted = [...samples].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  // Both lookups are in range because length > 0; the assertions exist only to
-  // satisfy noUncheckedIndexedAccess, not to paper over a real miss.
-  const hi = sorted[mid] as number;
-  if (sorted.length % 2 === 1) return hi;
-  const lo = sorted[mid - 1] as number;
-  return (lo + hi) / 2;
-}
-
-/** Arithmetic mean, or null for an empty set (same "no data" contract). */
 export function meanOf(samples: readonly number[]): number | null {
-  if (samples.length === 0) return null;
+  const clean = samples.filter((v) => Number.isFinite(v));
+  if (clean.length === 0) return null;
   let total = 0;
-  for (const s of samples) total += s;
-  return total / samples.length;
+  for (const s of clean) total += s;
+  return total / clean.length;
 }

@@ -1,7 +1,8 @@
 import type { Profile, StopId, StopProgress, Stars, WordRecord } from "../types.js";
-import { STOP_IDS, stageIndexOf } from "../types.js";
+import { STOP_IDS, isBeltStop, stageIndexOf } from "../types.js";
+import { firstFkLatency, median } from "../words/index.js";
 import { accuracy, wpm } from "./rates.js";
-import { meanOf, medianOf } from "./stats.js";
+import { meanOf } from "./stats.js";
 import { starsForHullHits } from "./stars.js";
 
 /**
@@ -61,7 +62,7 @@ export interface WordProgressMarker {
   readonly faster: boolean;
   /** Median of this stage's samples; null if the word yielded no sample. */
   readonly medianLatencyMs: number | null;
-  /** Median across all prior exposures; null on a word's first exposure. */
+  /** Median across the retained prior window; null on a first exposure. */
   readonly priorMedianLatencyMs: number | null;
   /**
    * Fractional improvement, e.g. 0.2 for 20% faster. Null when either side is
@@ -79,10 +80,10 @@ export interface RetentionLine {
   /** Fraction of those words hit, in [0, 1]. Null when wordCount is 0. */
   readonly hitRate: number | null;
   /**
-   * Mean of (this stage's median latency - first-exposure latency) in ms, over
-   * the retention words that have both. Negative means faster than the first
-   * time the word was ever seen, which is the direction D50 wants to show.
-   * Null when no retention word has a comparable pair.
+   * Mean of (this stage's median latency - FIRST-EVER-exposure latency) in ms,
+   * over the retention words that have both. Negative means faster than the
+   * first time the word was ever seen, which is the direction D50 wants to
+   * show. Null when no retention word has a comparable pair.
    */
   readonly meanLatencyDeltaMs: number | null;
 }
@@ -111,51 +112,80 @@ export interface StageResultsInput {
 }
 
 /**
- * The previous stage of the same profile (AC-20.1).
+ * The previous stage of the same profile (AC-20.1). Two rules, both load-
+ * bearing, both learned the hard way:
  *
- * "Previous" is the nearest *cleared* stop below this one, not literally
- * `index - 1`. Earth is the launchpad and has no belt (D57), so a strict
- * index - 1 would leave Mars permanently without a delta, and a stop replayed
- * out of order would compare against an empty row. Walking down to the nearest
- * cleared stop gives Mars a delta as soon as there is anything to compare to
- * and degrades to null only when the profile genuinely has no earlier stage.
+ * WHICH STOP. "Previous" is the nearest *belt* stop below this one that has
+ * been cleared. Earth is excluded by `isBeltStop` even though it is cleared
+ * first and sits at index 0: Earth is the launchpad, it has no belt (D57), it
+ * is cleared by typing a single word (AC-12.1), and it therefore has no flight,
+ * no WPM and no accuracy. Its stored figures are zeroes. Walking into them
+ * hands the very first results screen a child ever sees a fabricated
+ * "+60 WPM vs Earth", which is not a small cosmetic error - it is the results
+ * screen lying about learning evidence on its first appearance. Mars correctly
+ * has no previous stage, and correctly shows no delta.
+ *
+ * WHICH FIGURES. The delta is against that stop's LAST run (`lastWpm`,
+ * `lastAccuracy`), not its all-time best. A best-based delta punishes normal
+ * variance: a player who hits 70 WPM on Mars once, settles around 50, then runs
+ * Jupiter at 60 is improving and would be shown "-10". Rendering steady
+ * improvement as regression is the D31 failure mode, and it is worse than a
+ * missing delta because it is confidently wrong. Bests still exist on
+ * `StopProgress` and still drive trophies (D80); they are simply not what
+ * "vs previous stage" means.
  */
 export function previousStageProgress(
   profile: Profile,
   stopId: StopId,
 ): StopProgress | null {
   const index = stageIndexOf(stopId);
-  if (index < 0) return null;
   const byStop = new Map<StopId, StopProgress>();
   for (const p of profile.progress) byStop.set(p.stopId, p);
+  // An unknown stop gives index -1, so the loop simply never runs.
   for (let i = index - 1; i >= 0; i--) {
-    // 0 <= i < index <= STOP_IDS.length - 1, so this lookup always lands;
-    // the assertion is only to satisfy noUncheckedIndexedAccess.
+    // 0 <= i < index <= STOP_IDS.length - 1, so this lookup always lands; the
+    // assertion is only to satisfy noUncheckedIndexedAccess.
     const earlier = STOP_IDS[i] as StopId;
+    if (!isBeltStop(earlier)) continue;
     const progress = byStop.get(earlier);
     if (progress && progress.cleared) return progress;
   }
   return null;
 }
 
+/** A latency we are willing to divide by or subtract from. */
+function usableLatency(value: number | null | undefined): number | null {
+  return value !== null && value !== undefined && Number.isFinite(value) && value > 0
+    ? value
+    : null;
+}
+
 /**
  * AC-20.2 for one word.
  *
  * "Median first-key latency vs prior exposure" is read as: the median of the
- * samples taken this stage against the median of every sample taken before it.
- * Medians on both sides is the only reading under which the word "median"
- * does work - comparing a median to a single previous sample would make the
- * marker flicker on ordinary keystroke noise, and D50's marker is supposed to
- * be evidence of learning, not of one lucky keypress.
+ * samples taken this stage against the median of every retained sample taken
+ * before it. Medians on both sides is the only reading under which the word
+ * "median" does work - comparing a median to a single previous sample would
+ * make the marker flicker on ordinary keystroke noise, and D50's marker is
+ * supposed to be evidence of learning, not of one lucky keypress.
  *
- * A word with no prior exposure, or with no sample this stage, is never marked
- * faster: there is nothing to have improved on. It returns nulls rather than
- * zeros so the screen can stay silent (D31).
+ * The rolling window is the right baseline *here*, unlike AC-20.3: "faster than
+ * before" means faster than recent form, and `words/pushCapped` keeps the
+ * window recent on purpose.
+ *
+ * A word with no prior exposure, or with no usable sample this stage, is never
+ * marked faster: there is nothing to have improved on. It returns nulls rather
+ * than zeros so the screen can stay silent (D31).
  */
 export function wordProgressMarker(exposure: WordExposure): WordProgressMarker {
-  const current = medianOf(exposure.fkLatencyMs);
-  const prior = medianOf(exposure.prior?.fkLatencyMs ?? []);
-  if (current === null || prior === null || prior <= 0) {
+  // words/median already discards non-finite samples, so neither side can be
+  // NaN; `usableLatency` additionally rejects a zero or negative baseline
+  // rather than dividing by it (AC-18.4, corrupt storage).
+  const current = median(exposure.fkLatencyMs);
+  const prior = median(exposure.prior?.fkLatencyMs ?? []);
+  const base = usableLatency(prior);
+  if (current === null || base === null) {
     return {
       word: exposure.word,
       faster: false,
@@ -164,7 +194,7 @@ export function wordProgressMarker(exposure: WordExposure): WordProgressMarker {
       improvement: null,
     };
   }
-  const improvement = (prior - current) / prior;
+  const improvement = (base - current) / base;
   return {
     word: exposure.word,
     faster: improvement >= FASTER_IMPROVEMENT_THRESHOLD,
@@ -177,11 +207,16 @@ export function wordProgressMarker(exposure: WordExposure): WordProgressMarker {
 /**
  * AC-20.3.
  *
- * The comparison point is the FIRST ever exposure, not the previous one: the
- * retention line is the delayed-retest evidence (D21, D50, Bjork), and its
- * claim is "these words are faster than when you met them", which only holds
- * against sample zero. `WordRecord.fkLatencyMs` is newest-last, so sample zero
- * is `fkLatencyMs[0]`.
+ * The comparison point is the FIRST EVER exposure, and it comes from
+ * `firstFkLatency(record)` - never from `fkLatencyMs[0]`. The rolling window is
+ * capped at `words/SAMPLE_CAP` and evicts oldest-first, so `fkLatencyMs[0]` is
+ * the 21st-from-last sample once a word passes the cap, not its first exposure.
+ * Retention words are by construction the high-exposure words (D21), so index 0
+ * is wrong on exactly the words this line is about: a word first met at 2000 ms
+ * and now typed at 590 ms reports about -10 ms through the window and about
+ * -1410 ms through `firstFkLatencyMs`. The retention line is the single
+ * headline learning-evidence claim in D50, and the window understates it by two
+ * orders of magnitude.
  */
 export function retentionLine(
   exposures: readonly WordExposure[],
@@ -194,9 +229,11 @@ export function retentionLine(
   const deltas: number[] = [];
   for (const e of retention) {
     if (e.hit) hits++;
-    const current = medianOf(e.fkLatencyMs);
-    const first = e.prior?.fkLatencyMs[0];
-    if (current !== null && first !== undefined) deltas.push(current - first);
+    const current = median(e.fkLatencyMs);
+    const first = usableLatency(
+      e.prior === null ? null : firstFkLatency(e.prior),
+    );
+    if (current !== null && first !== null) deltas.push(current - first);
   }
   return {
     wordCount: retention.length,
@@ -215,9 +252,9 @@ export function computeStageResults(input: StageResultsInput): StageResults {
     stopId,
     wpm: stageWpm,
     accuracy: stageAccuracy,
-    wpmDelta: previous === null ? null : stageWpm - previous.bestWpm,
+    wpmDelta: previous === null ? null : stageWpm - previous.lastWpm,
     accuracyDelta:
-      previous === null ? null : stageAccuracy - previous.bestAccuracy,
+      previous === null ? null : stageAccuracy - previous.lastAccuracy,
     previousStopId: previous?.stopId ?? null,
     stars: starsForHullHits(tally.hullHits),
     words: exposures.map(wordProgressMarker),

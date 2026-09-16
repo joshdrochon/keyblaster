@@ -14,6 +14,7 @@ export function wordRecord(over: Partial<WordRecord> = {}): WordRecord {
     typos: 0,
     fkLatencyMs: [],
     ikiMs: [],
+    firstFkLatencyMs: null,
     ease: EASE_NEW,
     lastSeen: null,
     nextEligibleStage: 0,
@@ -31,6 +32,8 @@ export function stopProgress(
     stars: 3,
     bestWpm: 0,
     bestAccuracy: 0,
+    lastWpm: 0,
+    lastAccuracy: 0,
     beaconPlacedAt: null,
     ...over,
   };

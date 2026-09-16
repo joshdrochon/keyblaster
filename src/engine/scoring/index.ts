@@ -13,7 +13,9 @@
  * to measure them, and accuracy is reported because it is the primary outcome
  * (PRD section 1) - but nothing leaves this module framed as something the
  * player lost. tests/unit/scoring/surface.test.ts asserts that structurally, so
- * the rule survives future edits.
+ * the rule survives future edits. That test is a guard on THIS module's surface
+ * only; it is not AC-22b.1, which is a static scan of `src/game` and is somebody
+ * else's test to write.
  */
 
 export { CHARS_PER_WORD, accuracy, wpm } from "./rates.js";
@@ -24,6 +26,7 @@ export {
   POINTS_PER_LETTER,
   comboReducer,
   comboState,
+  hudMultiplierFor,
   multiplierFor,
   scoreWordWithCombo,
   wordScore,
@@ -53,4 +56,8 @@ export type {
   WordProgressMarker,
 } from "./results.js";
 
-export { meanOf, medianOf } from "./stats.js";
+/**
+ * Medians are NOT re-exported here. `median` lives in words/ and callers should
+ * import it from there; one definition of "median first-key latency" per engine.
+ */
+export { meanOf } from "./stats.js";

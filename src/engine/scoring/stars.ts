@@ -15,6 +15,15 @@ import type { Stars } from "../types.js";
  * here is the point: the alternative (letting 3 hits fall through to whatever
  * the arithmetic produced) would quietly invent a 0-star cleared stage that the
  * PRD never sanctions.
+ *
+ * NON-FINITE INPUT POLICY (shared with combo.ts): a finite number out of range
+ * is clamped and floored into range, so -1 hits is 0 hits and earns 3 stars. A
+ * non-finite number is not a play outcome, so it is unusable and yields the
+ * no-reward value, which here is 0 - "no rating", the same value a stall
+ * produces. Junk data must not mint a perfect score, and because 0 also makes
+ * `isClearableHullHits` false, the results screen declines to render a rating
+ * rather than rendering a bad one. Nothing negative reaches the player either
+ * way (D31).
  */
 
 /** D27: hull capacity, and therefore the hit count that stalls the run (D29). */
@@ -24,13 +33,12 @@ export const HULL_HITS_PER_STAGE = 3;
 export const CLEARED_STAGE_STARS: readonly Stars[] = [3, 2, 1] as const;
 
 /**
- * AC-4.4. `hullHits` at or above the hull capacity returns 0, which the caller
- * must read as "stalled, not cleared" (D29) and never render as a rating.
- * Negative or fractional input is clamped and floored so a bad tally degrades
- * to a rating rather than to NaN.
+ * AC-4.4. Returns 0 for a stall (>= 3 hits) and for unusable input; the caller
+ * must read 0 as "not cleared, no rating" (D29) and never render it.
  */
 export function starsForHullHits(hullHits: number): Stars {
-  if (!Number.isFinite(hullHits) || hullHits <= 0) return 3;
+  if (!Number.isFinite(hullHits)) return 0;
+  if (hullHits <= 0) return 3;
   const hits = Math.floor(hullHits);
   if (hits >= HULL_HITS_PER_STAGE) return 0;
   // hits is 1 or 2 here, so 3 - hits is 2 or 1.

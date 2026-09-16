@@ -3,6 +3,7 @@ import {
   CLEARED_STAGE_STARS,
   HULL_HITS_PER_STAGE,
   isClearableHullHits,
+  multiplierFor,
   starsForHullHits,
 } from "@engine/scoring/index.js";
 
@@ -38,10 +39,20 @@ describe("starsForHullHits (AC-4.4)", () => {
     expect(reachable.has(0)).toBe(false);
   });
 
-  it("clamps negative and non-finite input to a full rating, never NaN", () => {
+  it("clamps a finite out-of-range count into range: -1 hits is 0 hits", () => {
     expect(starsForHullHits(-1)).toBe(3);
-    expect(starsForHullHits(Number.NaN)).toBe(3);
-    expect(starsForHullHits(Number.POSITIVE_INFINITY)).toBe(3);
+  });
+
+  it("non-finite input earns no rating, matching multiplierFor's policy", () => {
+    // One policy across the module: a finite number out of range is clamped to
+    // the nearest valid value; a non-finite number is not a play outcome and
+    // yields the no-reward value. Junk must not mint a perfect score. 0 here
+    // means "no rating", and isClearableHullHits reports false, so the results
+    // screen declines to render rather than rendering something false.
+    expect(starsForHullHits(Number.NaN)).toBe(0);
+    expect(starsForHullHits(Number.POSITIVE_INFINITY)).toBe(0);
+    expect(multiplierFor(Number.NaN)).toBe(0);
+    expect(multiplierFor(Number.POSITIVE_INFINITY)).toBe(0);
   });
 
   it("floors a fractional hit count", () => {
@@ -59,14 +70,9 @@ describe("isClearableHullHits", () => {
     expect(isClearableHullHits(9)).toBe(false);
   });
 
-  it("treats junk input as clearable rather than as a stall", () => {
+  it("clamps a negative count but refuses non-finite input", () => {
     expect(isClearableHullHits(-2)).toBe(true);
-    expect(isClearableHullHits(Number.NaN)).toBe(true);
-  });
-
-  it("never disagrees with starsForHullHits about what is a stall", () => {
-    for (let hits = -2; hits <= 6; hits++) {
-      expect(isClearableHullHits(hits)).toBe(starsForHullHits(hits) !== 0);
-    }
+    expect(isClearableHullHits(Number.NaN)).toBe(false);
+    expect(isClearableHullHits(Number.POSITIVE_INFINITY)).toBe(false);
   });
 });

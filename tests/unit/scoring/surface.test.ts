@@ -6,43 +6,75 @@ import { INITIAL_COMBO_STATE, computeStageResults } from "@engine/scoring/index.
 import { profile, stopProgress, wordRecord } from "./fixtures.js";
 
 /**
- * D31: "The player should always feel like the best typer in the world... No
- * red X's, no lives counter, no 'wrong' sound."
+ * A guard on THIS module's public surface. It is not AC-22b.1.
  *
- * That is usually read as a UI rule, but a UI can only render what the engine
- * hands it. If scoring/ ever exposes a lives count, a failure count or a wrong
- * count, the rule is one careless HUD binding away from being broken. So the
- * constraint is asserted structurally here, against the module's public surface
- * and its source, and it is a test rather than a comment so it survives edits.
+ * AC-22b.1 is a static scan of `src/game` for a red failure state, a lives
+ * counter or a "wrong" label, and it belongs to whoever writes the game layer;
+ * nothing here can discharge it. What this file does is narrower and upstream
+ * of it: D31 ("no red X's, no lives counter, no 'wrong' sound") is usually read
+ * as a UI rule, but a UI can only render what the engine hands it. If scoring/
+ * ever exposes a lives count, a failure count or a wrong count, the rule is one
+ * careless HUD binding away from being broken. So the constraint is asserted
+ * structurally against this module's exports and source, as a test rather than
+ * a comment, so it survives future edits.
  *
  * Typos and hull hits are *inputs* - the engine has to measure them (AC-3.2,
  * AC-4.2) - and accuracy is an output because it is the primary outcome in PRD
  * section 1. Neither is a failure score, so neither is banned.
  */
 
-/** Identifiers that would give the module a failure-shaped concept (D31). */
-const BANNED = [
+/**
+ * Banned WORDS, matched against identifier words rather than raw substrings.
+ *
+ * Substring matching was the first attempt and it was wrong in both directions.
+ * It banned the built-in `Error` (the house style has
+ * `class AllowlistViolation extends Error`), it banned `strike`, which is the
+ * PRD's own word for a hull hit in AC-4.2, and it would have flagged `badge`,
+ * `lifetime` and `deadline`. A ban list that cries wolf gets deleted by the
+ * next person to hit it, which is worse than no ban list.
+ *
+ * `error` and `strike` are deliberately absent: an error is not a failure score
+ * and a strike is the spec's own vocabulary.
+ */
+const BANNED_WORDS: ReadonlySet<string> = new Set([
   "lives",
   "life",
   "fail",
+  "failed",
   "failure",
+  "failures",
   "wrong",
-  "wrongcount",
   "mistake",
-  "error",
-  "penalt",
+  "mistakes",
+  "penalty",
+  "penalties",
   "deduct",
+  "deduction",
+  "loser",
+  "losers",
   "lost",
-  "loss",
   "dead",
-  "strike",
   "bad",
   "worse",
-] as const;
+]);
 
-function offendingToken(name: string): string | null {
-  const lower = name.toLowerCase();
-  return BANNED.find((b) => lower.includes(b)) ?? null;
+/**
+ * Split an identifier into its constituent lowercase words: camelCase,
+ * PascalCase, SCREAMING_SNAKE and kebab all reduce to the same word list, so
+ * `wrongCount` -> ["wrong", "count"] is caught while `badge` -> ["badge"],
+ * `lifetime` -> ["lifetime"] and `deadline` -> ["deadline"] are not.
+ */
+export function identifierWords(identifier: string): string[] {
+  return identifier
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/)
+    .filter((part) => part.length > 0)
+    .map((part) => part.toLowerCase());
+}
+
+function offendingWord(identifier: string): string | null {
+  return identifierWords(identifier).find((w) => BANNED_WORDS.has(w)) ?? null;
 }
 
 /** Every key reachable from a value, so nested result objects are covered. */
@@ -63,10 +95,24 @@ function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 }
 
-describe("D31: the public surface has no failure-shaped concept", () => {
+describe("scoring surface guard (D31)", () => {
+  it("matches identifier words, not substrings", () => {
+    // The matcher itself is the part most likely to be quietly wrong, so it is
+    // tested directly against the false positives that sank the first version.
+    expect(offendingWord("wrongCount")).toBe("wrong");
+    expect(offendingWord("livesRemaining")).toBe("lives");
+    expect(offendingWord("FAILURE_COUNT")).toBe("failure");
+    expect(offendingWord("badge")).toBeNull();
+    expect(offendingWord("lifetime")).toBeNull();
+    expect(offendingWord("deadline")).toBeNull();
+    expect(offendingWord("Error")).toBeNull();
+    expect(offendingWord("strikeCount")).toBeNull();
+    expect(identifierWords("HTTPServerName")).toEqual(["http", "server", "name"]);
+  });
+
   it("D31: no export is named lives, failures, wrongCount or similar", () => {
     const offenders = Object.keys(scoring)
-      .map((name) => [name, offendingToken(name)] as const)
+      .map((name) => [name, offendingWord(name)] as const)
       .filter(([, hit]) => hit !== null);
     expect(offenders).toEqual([]);
   });
@@ -93,12 +139,11 @@ describe("D31: the public surface has no failure-shaped concept", () => {
           fkLatencyMs: [500],
           hit: true,
           retention: true,
-          prior: wordRecord({ fkLatencyMs: [900] }),
+          prior: wordRecord({ firstFkLatencyMs: 900, fkLatencyMs: [900] }),
         },
       ],
       profile: profile([
-        stopProgress("earth", { bestWpm: 10 }),
-        stopProgress("mars", { bestWpm: 40, bestAccuracy: 0.8 }),
+        stopProgress("mars", { lastWpm: 40, lastAccuracy: 0.8 }),
       ]),
     });
 
@@ -108,18 +153,19 @@ describe("D31: the public surface has no failure-shaped concept", () => {
     collectKeys(scoring.scoreWordWithCombo(INITIAL_COMBO_STATE, 4), keys);
 
     expect(keys.size).toBeGreaterThan(10);
-    const offenders = [...keys].filter((k) => offendingToken(k) !== null);
+    const offenders = [...keys].filter((k) => offendingWord(k) !== null);
     expect(offenders).toEqual([]);
   });
 
-  it("D31: no source identifier in the module introduces one either", () => {
+  it("D31: no identifier in the module source introduces one either", () => {
     const files = readdirSync(SCORING_DIR).filter((f) => f.endsWith(".ts"));
     expect(files.length).toBeGreaterThan(0);
     const offenders: string[] = [];
     for (const file of files) {
       const code = stripComments(readFileSync(SCORING_DIR + file, "utf8"));
-      for (const banned of BANNED) {
-        if (new RegExp(banned, "i").test(code)) offenders.push(`${file}:${banned}`);
+      for (const identifier of code.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? []) {
+        const hit = offendingWord(identifier);
+        if (hit !== null) offenders.push(`${file}: ${identifier} (${hit})`);
       }
     }
     expect(offenders).toEqual([]);
