@@ -8,6 +8,7 @@ import {
   overflowingLangs,
   projectedLength,
   widestLength,
+  type StringKey,
 } from "@engine/i18n/index.js";
 
 describe("copy budget (design brief: Spanish +25%)", () => {
@@ -75,9 +76,44 @@ describe("widestLength", () => {
     expect(widestLength("title.play", empty)).toBe(0);
   });
 
-  it("sizing every container to widestLength leaves nothing overflowing", () => {
+});
+
+describe("the design brief's +25% budget against the real translations", () => {
+  /**
+   * Keys whose actual Spanish string is LONGER than English + 25%.
+   *
+   * This is a real regression guard, not a restatement: it measures the
+   * shipped translations against the one number the design brief gives. It is
+   * also evidence that the flat +25% is wrong for short labels - "Locked" ->
+   * "Bloqueado" is +50%, and short strings are exactly where a fixed-width
+   * plate clips. The brief's number is implemented as written; this is the
+   * list of places a renderer must not trust it.
+   */
+  const OVER_BUDGET: readonly StringKey[] = [
+    "map.locked", // Locked -> Bloqueado, +50%
+    "profile.nameShip", // Name your ship -> Ponle nombre a tu nave, +64%
+    "profile.pilotName", // Pilot name -> Nombre del piloto, +70%
+    "title.beaconLog", // Beacon Log -> Registro de balizas, +90%
+    "title.tagline",
+    "warp.heading", // Warp break -> Pausa de salto, +40%
+  ];
+
+  it("the set of Spanish strings exceeding +25% is exactly the known list", () => {
+    const over = STRING_KEYS.filter(
+      (key) => ES[key].length > projectedLength(EN[key], "es"),
+    );
+    expect(over.sort()).toEqual([...OVER_BUDGET].sort());
+  });
+
+  it("every over-budget key is a short label, which is where +25% fails", () => {
+    for (const key of OVER_BUDGET) {
+      expect(EN[key].length, key).toBeLessThanOrEqual(20);
+    }
+  });
+
+  it("no Spanish string exceeds double its English source", () => {
     for (const key of STRING_KEYS) {
-      expect(overflowingLangs(key, widestLength(key)), key).toEqual([]);
+      expect(ES[key].length, key).toBeLessThanOrEqual(EN[key].length * 2);
     }
   });
 });

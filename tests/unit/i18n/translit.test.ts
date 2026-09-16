@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  EXACT_MATCHER,
+  TRANSLIT_MATCHER,
   TRANSLIT_TABLE,
+  canonicalRomanization,
+  createWordMatcher,
+  findAmbiguousPairs,
   hasDevanagari,
   isTransliterationPrefix,
   matchesTransliteration,
@@ -10,22 +15,11 @@ import {
   segmentDevanagari,
 } from "@engine/i18n/index.js";
 
-/** Deterministic PRNG for sampled checks (lane brief: fixed seeds, no Math.random). */
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 /**
  * AC-14.2 table. Kid vocabulary, each row listing romanizations a child
- * plausibly types and romanizations that must NOT match.
- * `feature` records what the row is there to prove.
+ * plausibly types and romanizations that must NOT match. Every string here is
+ * hand-written; nothing is generated from the table it is testing, so the
+ * REJECT column is real evidence rather than a restatement.
  */
 interface Row {
   readonly feature: string;
@@ -54,9 +48,9 @@ const ROWS: readonly Row[] = [
     reject: ["kitap", "kitb", "ktab"],
   },
   {
-    feature: "nukta: ड़ accepts both the r- and d- romanizations",
+    feature: "nukta: ड़ accepts the d-, r- and dh- romanizations",
     target: "लड़का",
-    accept: ["ladka", "larka", "ladkaa", "larkaa"],
+    accept: ["ladka", "larka", "ladkaa", "larkaa", "ladhka"],
     reject: ["laka", "ladki"],
   },
   {
@@ -72,15 +66,38 @@ const ROWS: readonly Row[] = [
     reject: ["von", "fn"],
   },
   {
-    feature: "anusvara before a consonant",
+    feature: "medial anusvara writes a nasal consonant and must be typed",
     target: "हिंदी",
     accept: ["hindi", "hindee", "himdi", "hindii"],
-    reject: ["hidi", "hind"],
+    reject: ["hidi", "hind", "hiddi"],
   },
   {
-    feature: "chandrabindu is optional, because typists drop it",
+    feature: "medial anusvara, second case",
+    target: "अंदर",
+    accept: ["andar", "amdar", "andara", "andr"],
+    reject: ["adar", "amdr ka"],
+  },
+  {
+    feature: "word-final anusvara writes a nasal vowel and may be dropped",
+    target: "नहीं",
+    accept: ["nahin", "nahi", "nahim", "naheen", "nahee"],
+    reject: ["nhi", "nahid"],
+  },
+  {
+    feature: "word-final anusvara on a matra-bearing single akshara",
+    target: "मैं",
+    accept: ["main", "mai", "may", "mayn", "mein", "mei"],
+    reject: ["mn", "man"],
+  },
+  {
+    feature: "word-final anusvara, plural copula",
+    target: "हैं",
+    accept: ["hain", "hai", "hay", "hayn", "hein"],
+    reject: ["hn", "ho"],
+  },
+  {
+    feature: "chandrabindu is optional everywhere",
     target: "चाँद",
-    // "chad" is accepted on purpose: ा -> "a" and the bindu drops.
     accept: ["chaand", "chand", "chaanda", "caand", "chad"],
     reject: ["chaan", "chd", "chandr"],
   },
@@ -89,6 +106,12 @@ const ROWS: readonly Row[] = [
     target: "आँख",
     accept: ["aankh", "ankh", "aakh", "akh", "aankha"],
     reject: ["ank", "kh", "aank"],
+  },
+  {
+    feature: "chandrabindu on a long-u matra",
+    target: "हूँ",
+    accept: ["hoon", "hun", "hoo", "hu", "huun"],
+    reject: ["hn", "ha"],
   },
   {
     feature: "conjunct with virama suppresses the inherent a",
@@ -115,10 +138,82 @@ const ROWS: readonly Row[] = [
     reject: ["aha", "achch"],
   },
   {
-    feature: "geminate च्च",
+    feature: "geminate reduction: च्च",
     target: "बच्चा",
     accept: ["bachcha", "bacha", "baccha", "bachchaa"],
     reject: ["baha", "bcha"],
+  },
+  {
+    feature: "geminate reduction: त्त",
+    target: "कुत्ता",
+    accept: ["kutta", "kuta", "kuttaa", "kutaa"],
+    reject: ["kuda", "ktta"],
+  },
+  {
+    feature: "geminate reduction: ल्ल",
+    target: "बिल्ली",
+    accept: ["billi", "bili", "billee", "bilee"],
+    reject: ["bli", "bilii ki"],
+  },
+  {
+    feature: "geminate reduction: क्क",
+    target: "चक्कर",
+    accept: ["chakkar", "chakar", "cakkar", "chakkara"],
+    reject: ["chkar", "chakka"],
+  },
+  {
+    feature: "geminate reduction: म्म",
+    target: "अम्मा",
+    accept: ["amma", "ama", "ammaa"],
+    reject: ["ma", "amm"],
+  },
+  {
+    feature: "geminate reduction: त्त after an initial akshara",
+    target: "पत्ता",
+    accept: ["patta", "pata", "pattaa"],
+    reject: ["ptta", "pata ki"],
+  },
+  {
+    feature: "e-matra accepts e, ay and the Hinglish ey",
+    target: "नमस्ते",
+    accept: ["namaste", "namastey", "namastay", "namste"],
+    reject: ["namast", "namasti"],
+  },
+  {
+    feature: "e-matra ey in an imperative",
+    target: "खेलो",
+    accept: ["khelo", "kheylo", "khaylo", "khelu"],
+    reject: ["khlo", "kelo"],
+  },
+  {
+    feature: "e-matra ey in a possessive",
+    target: "मेरा",
+    accept: ["mera", "meyra", "mayra", "meraa"],
+    reject: ["mra", "mira"],
+  },
+  {
+    feature: "independent ए accepts ai, because एक is written aik",
+    target: "एक",
+    accept: ["ek", "eyk", "ayk", "aik", "eka"],
+    reject: ["k", "ik"],
+  },
+  {
+    feature: "ai-matra accepts ay, mirroring e-matra",
+    target: "तैयार",
+    accept: ["taiyar", "tayyar", "teiyaar", "taiyaar"],
+    reject: ["tyar", "tayar"],
+  },
+  {
+    feature: "o-matra accepts u, because क्यों is written kyun",
+    target: "क्यों",
+    accept: ["kyon", "kyun", "kyo", "kyu", "kyum"],
+    reject: ["kon", "kyn"],
+  },
+  {
+    feature: "aspirated झ may lose its aspiration word-finally",
+    target: "समझ",
+    accept: ["samajh", "samaj", "samajha", "samjh", "samj"],
+    reject: ["smaj", "samach"],
   },
   {
     feature: "aspirated labial फ accepts ph and f",
@@ -145,15 +240,15 @@ const ROWS: readonly Row[] = [
     reject: ["m", "aan"],
   },
   {
-    feature: "e-matra accepts e and ay",
+    feature: "e-matra plus nukta",
     target: "पेड़",
-    accept: ["ped", "per", "payd", "peda"],
+    accept: ["ped", "per", "pedh", "payd", "peyd", "peda"],
     reject: ["pd", "peer"],
   },
   {
     feature: "sibilant श collapses onto sh and s",
     target: "शेर",
-    accept: ["sher", "ser", "shayr", "shera"],
+    accept: ["sher", "ser", "shayr", "sheyr", "shera"],
     reject: ["shr", "cher"],
   },
   {
@@ -177,13 +272,13 @@ const ROWS: readonly Row[] = [
   {
     feature: "o-matra",
     target: "मोर",
-    accept: ["mor", "mora"],
+    accept: ["mor", "mora", "mur"],
     reject: ["mr", "maur"],
   },
   {
     feature: "ai-matra",
     target: "पैसा",
-    accept: ["paisa", "peisa", "paisaa"],
+    accept: ["paisa", "peisa", "paysa", "paisaa"],
     reject: ["pasa", "pesa"],
   },
   {
@@ -199,10 +294,43 @@ const ROWS: readonly Row[] = [
     reject: ["dkh", "dukhi"],
   },
   {
+    feature: "reph: र + virama before a consonant",
+    target: "कर्म",
+    accept: ["karm", "karma"],
+    // A conjunct is one akshara, so no schwa may be inserted inside it.
+    reject: ["krm", "kama", "karama"],
+  },
+  {
+    feature: "conjunct with ra-phala",
+    target: "मित्र",
+    accept: ["mitra", "mitr"],
+    reject: ["mtr", "mira", "mitara"],
+  },
+  {
+    feature: "reph plus a matra",
+    target: "गर्मी",
+    accept: ["garmi", "garmee", "garmii"],
+    reject: ["grmi", "gami", "garamee"],
+  },
+  {
+    feature: "ya-phala conjunct",
+    target: "सूर्य",
+    accept: ["soorya", "surya", "suurya"],
+    reject: ["srya", "sora", "sooraya"],
+  },
+  {
     feature: "two-word target keeps its space",
     target: "मेरा घर",
     accept: ["mera ghar", "meraa ghar", "mera ghara"],
     reject: ["meraghar", "mera gar"],
+  },
+  {
+    feature: "initial-schwa protection applies per word, not per string",
+    target: "मेरा घर",
+    accept: ["meyra ghar"],
+    // The leak this row exists for: "ghr" is rejected alone, so it must be
+    // rejected as the second word too.
+    reject: ["mera ghr", "mra ghar"],
   },
 ];
 
@@ -226,9 +354,26 @@ describe("AC-14.2: romanized transliteration matches Devanagari targets", () => 
   });
 });
 
+describe("AC-14.2: the anusvara/chandrabindu asymmetry is positional", () => {
+  it("AC-14.2: a word-final anusvara may be dropped", () => {
+    expect(matchesTransliteration("nahi", "नहीं")).toBe(true);
+    expect(matchesTransliteration("mai", "मैं")).toBe(true);
+    expect(matchesTransliteration("hai", "हैं")).toBe(true);
+  });
+
+  it("AC-14.2: a medial anusvara may NOT be dropped", () => {
+    expect(matchesTransliteration("hidi", "हिंदी")).toBe(false);
+    expect(matchesTransliteration("adar", "अंदर")).toBe(false);
+    expect(matchesTransliteration("gaga", "गंगा")).toBe(false);
+  });
+
+  it("AC-14.2: a chandrabindu may be dropped in either position", () => {
+    expect(matchesTransliteration("chand", "चाँद")).toBe(true);
+    expect(matchesTransliteration("hu", "हूँ")).toBe(true);
+  });
+});
+
 describe("AC-14.2: ambiguous romanizations accept all listed variants", () => {
-  // The dental/retroflex and sibilant collapses are the ambiguity the AC names:
-  // one romanization, several legal Devanagari targets.
   it("AC-14.2: 'tamatar' matches a retroflex-initial target", () => {
     expect(matchesTransliteration("tamatar", "टमाटर")).toBe(true);
   });
@@ -238,13 +383,28 @@ describe("AC-14.2: ambiguous romanizations accept all listed variants", () => {
     expect(matchesTransliteration("sat", "शत")).toBe(true);
   });
 
+  it("AC-14.2: 'ek' and 'aik' both reach ए", () => {
+    expect(matchesTransliteration("ek", "एक")).toBe(true);
+    expect(matchesTransliteration("aik", "एक")).toBe(true);
+  });
+
   it("AC-14.2: each ambiguous letter keeps every listed variant", () => {
     expect([...(TRANSLIT_TABLE.consonants["फ"] ?? [])]).toEqual(["ph", "f"]);
     expect([...(TRANSLIT_TABLE.consonants["व"] ?? [])]).toEqual(["v", "w"]);
     expect([...(TRANSLIT_TABLE.matras["ी"] ?? [])]).toEqual([
-      "ee",
       "i",
+      "ee",
       "ii",
+    ]);
+    expect([...(TRANSLIT_TABLE.matras["े"] ?? [])]).toEqual([
+      "e",
+      "ay",
+      "ey",
+    ]);
+    expect([...(TRANSLIT_TABLE.matras["ै"] ?? [])]).toEqual([
+      "ai",
+      "ei",
+      "ay",
     ]);
   });
 });
@@ -264,18 +424,30 @@ describe("AC-14.2: the mapping table itself", () => {
     }
   });
 
+  it("AC-14.2: covers the three precomposed nukta letters NFC produces", () => {
+    for (const ch of "ऩऱऴ") {
+      expect(TRANSLIT_TABLE.consonants[ch], ch).toBeDefined();
+    }
+  });
+
   it("AC-14.2: covers every independent vowel and its matra", () => {
     expect(Object.keys(TRANSLIT_TABLE.vowels).length).toBe(11);
     expect(Object.keys(TRANSLIT_TABLE.matras).length).toBe(10);
   });
 
   it("AC-14.2: covers anusvara, chandrabindu and visarga", () => {
-    expect(TRANSLIT_TABLE.signs["ं"]).toBeDefined();
+    expect(TRANSLIT_TABLE.signs[TRANSLIT_TABLE.anusvara]).toBeDefined();
     expect(TRANSLIT_TABLE.signs["ँ"]).toBeDefined();
     expect(TRANSLIT_TABLE.signs["ः"]).toBeDefined();
   });
 
-  it("AC-14.2: every variant is non-empty except the optional signs", () => {
+  it("AC-14.2: anusvara carries no empty variant; position adds it", () => {
+    // The drop is positional, so it must NOT be baked into the table.
+    expect(TRANSLIT_TABLE.signs[TRANSLIT_TABLE.anusvara]).not.toContain("");
+    expect(TRANSLIT_TABLE.signs["ँ"]).toContain("");
+  });
+
+  it("AC-14.2: every consonant and vowel variant is non-empty", () => {
     for (const [ch, variants] of Object.entries(TRANSLIT_TABLE.consonants)) {
       for (const v of variants) expect(v.length, ch).toBeGreaterThan(0);
     }
@@ -340,11 +512,25 @@ describe("segmentDevanagari", () => {
     expect(segments[0]?.variants).toContain("hin");
   });
 
+  it("a geminate akshara also accepts its single consonant", () => {
+    const segments = segmentDevanagari("कुत्ता");
+    expect(segments[1]?.variants).toContain("tta");
+    expect(segments[1]?.variants).toContain("ta");
+  });
+
   it("word-initial schwa is not deletable", () => {
     const segments = segmentDevanagari("घर");
     expect(segments[0]?.variants).toContain("gha");
     expect(segments[0]?.variants).not.toContain("gh");
     expect(segments[1]?.variants).toContain("r");
+  });
+
+  it("word-initial schwa protection restarts after a space", () => {
+    const segments = segmentDevanagari("मेरा घर");
+    const ghaSegment = segments[3];
+    expect(ghaSegment?.source).toBe("घ");
+    expect(ghaSegment?.variants).toContain("gha");
+    expect(ghaSegment?.variants).not.toContain("gh");
   });
 
   it("a trailing virama leaves a half form with no vowel", () => {
@@ -361,7 +547,7 @@ describe("segmentDevanagari", () => {
     expect(segments[0]?.variants).toContain("pa");
   });
 
-  it("segments the NFC-composed nukta letters न/र + nukta fold into", () => {
+  it("segments the NFC-composed nukta letters न + nukta folds into", () => {
     // ऩ is not a composition exclusion, unlike क़, so NFC produces it.
     expect(`न${TRANSLIT_TABLE.nukta}`.normalize("NFC")).toBe("ऩ");
     expect(segmentDevanagari("ऩ")[0]?.variants).toContain("na");
@@ -419,6 +605,12 @@ describe("matchesTransliteration edge cases", () => {
   it("treats two empty strings as equal", () => {
     expect(matchesTransliteration("", "")).toBe(true);
   });
+
+  it("does not accept a spelling that reorders a nasal (documented limit)", () => {
+    // गाँव -> "gaon" needs metathesis, which this matcher does not do.
+    expect(matchesTransliteration("gaanv", "गाँव")).toBe(true);
+    expect(matchesTransliteration("gaon", "गाँव")).toBe(false);
+  });
 });
 
 describe("isTransliterationPrefix (per-keystroke narrowing)", () => {
@@ -450,11 +642,86 @@ describe("isTransliterationPrefix (per-keystroke narrowing)", () => {
   it("a full match is also a prefix", () => {
     expect(isTransliterationPrefix("ghar", "घर")).toBe(true);
   });
+
+  it("every prefix of every accepted spelling is a prefix (the lock's rule)", () => {
+    // If this failed, narrowing could evict a legal spelling mid-word.
+    for (const row of ROWS) {
+      for (const accepted of row.accept) {
+        const typed = normalizeTyped(accepted);
+        for (let n = 0; n <= typed.length; n += 1) {
+          expect(
+            isTransliterationPrefix(typed.slice(0, n), row.target),
+            `${typed.slice(0, n)} -> ${row.target}`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+});
+
+describe("AC-14.2: canonicalRomanization (D46's own example)", () => {
+  /** Hand-written expectations. Nothing here is derived from the table. */
+  const EXPECTED: readonly [string, string][] = [
+    ["घर", "ghar"],
+    ["कमल", "kamal"],
+    ["लड़का", "ladka"],
+    ["पानी", "pani"],
+    ["किताब", "kitab"],
+    ["हिंदी", "hindi"],
+    ["मित्र", "mitra"],
+    ["कर्म", "karma"],
+    ["टमाटर", "tamatar"],
+    ["एक", "ek"],
+    ["नमस्ते", "namaste"],
+    ["क्यों", "kyon"],
+    ["नहीं", "nahin"],
+    ["मैं", "main"],
+    ["क्षमा", "kshama"],
+    ["ज्ञान", "gyan"],
+    ["स्कूल", "skool"],
+    ["सूरज", "sooraj"],
+    ["समझ", "samajh"],
+    ["मेरा घर", "mera ghar"],
+  ];
+
+  for (const [target, expected] of EXPECTED) {
+    it(`AC-14.2: ${target} -> "${expected}"`, () => {
+      expect(canonicalRomanization(target)).toBe(expected);
+    });
+  }
+
+  it("AC-14.2: D46 requires ghar, and the naive first-variant pick gives ghara", () => {
+    expect(canonicalRomanization("घर")).toBe("ghar");
+    expect(romanizationsOf("घर")[0]).toBe("ghara");
+  });
+
+  it("the canonical form is always one the matcher accepts", () => {
+    for (const row of ROWS) {
+      const canonical = canonicalRomanization(row.target);
+      expect(
+        matchesTransliteration(canonical, row.target),
+        `${canonical} -> ${row.target}`,
+      ).toBe(true);
+    }
+  });
+
+  it("returns non-Devanagari input unchanged", () => {
+    expect(canonicalRomanization("water")).toBe("water");
+  });
+
+  it("is documented as approximate: धड़कन is not yet dhadkan", () => {
+    // Full Hindi schwa deletion is an open problem; matching accepts both.
+    expect(canonicalRomanization("धड़कन")).toBe("dhadakan");
+    expect(matchesTransliteration("dhadkan", "धड़कन")).toBe(true);
+  });
 });
 
 describe("romanizationsOf", () => {
-  it("lists the canonical spelling of the D46 example", () => {
-    expect(romanizationsOf("घर")).toContain("ghar");
+  it("contains hand-written spellings a child would type", () => {
+    const ghar = romanizationsOf("घर");
+    expect(ghar).toContain("ghar");
+    expect(ghar).toContain("ghara");
+    expect(ghar).not.toContain("ghr");
   });
 
   it("returns the word itself for non-Devanagari", () => {
@@ -464,37 +731,111 @@ describe("romanizationsOf", () => {
   it("respects the cap", () => {
     expect(romanizationsOf("अच्छा", 3).length).toBeLessThanOrEqual(3);
   });
+});
 
-  it("AC-14.2: every romanization it produces is one the matcher accepts", () => {
-    // Seeded sample so the assertion is deterministic and cheap.
-    const rand = mulberry32(0x5eed);
-    for (const row of ROWS) {
-      const all = romanizationsOf(row.target, 64);
-      expect(all.length).toBeGreaterThan(0);
-      const sample = all.filter(() => rand() < 0.5).slice(0, 8);
-      for (const candidate of sample.length > 0 ? sample : all.slice(0, 1)) {
-        expect(
-          matchesTransliteration(candidate, row.target),
-          `${candidate} -> ${row.target}`,
-        ).toBe(true);
-      }
+describe("AC-14.2: WordMatcher, the port lock/ injects (D31, D46)", () => {
+  it("translit mode routes through the variant table", () => {
+    const matcher = createWordMatcher("translit");
+    expect(matcher.isComplete("ghar", "घर")).toBe(true);
+    expect(matcher.isComplete("ghara", "घर")).toBe(true);
+    expect(matcher.isPrefix("gha", "घर")).toBe(true);
+    expect(matcher.isPrefix("q", "घर")).toBe(false);
+  });
+
+  it("inscript mode compares the committed string only", () => {
+    const matcher = createWordMatcher("inscript");
+    expect(matcher.isComplete("घर", "घर")).toBe(true);
+    expect(matcher.isComplete("ghar", "घर")).toBe(false);
+    expect(matcher.isPrefix("घ", "घर")).toBe(true);
+  });
+
+  it("latin mode compares the committed string only", () => {
+    const matcher = createWordMatcher("latin");
+    expect(matcher.isComplete("Water", "water")).toBe(true);
+    expect(matcher.isPrefix("wat", "water")).toBe(true);
+    expect(matcher.isPrefix("wet", "water")).toBe(false);
+  });
+
+  it("latin and inscript share one exact matcher", () => {
+    expect(createWordMatcher("latin")).toBe(EXACT_MATCHER);
+    expect(createWordMatcher("inscript")).toBe(EXACT_MATCHER);
+    expect(createWordMatcher("translit")).toBe(TRANSLIT_MATCHER);
+  });
+
+  it("D31: a translit lock accepts more than one spelling of the same word", () => {
+    // This is the regression the port exists to prevent: a lock that compares
+    // against canonicalRomanization alone would reject "ghara" and "ladka".
+    const matcher = createWordMatcher("translit");
+    const accepted = ["ghar", "ghara"].filter((s) =>
+      matcher.isComplete(s, "घर"),
+    );
+    expect(accepted).toHaveLength(2);
+  });
+
+  it("matchesTypedWord agrees with the matcher it wraps", () => {
+    for (const method of ["latin", "translit", "inscript"] as const) {
+      expect(matchesTypedWord("ghar", "घर", method)).toBe(
+        createWordMatcher(method).isComplete("ghar", "घर"),
+      );
     }
   });
 });
 
-describe("matchesTypedWord (D46 input-method routing)", () => {
-  it("translit runs the table", () => {
-    expect(matchesTypedWord("ghar", "घर", "translit")).toBe(true);
+describe("AC-14.2: findAmbiguousPairs guards a stage pool", () => {
+  /** Minimal pairs the collapses in this table genuinely merge. */
+  const COLLIDING: readonly [string, string][] = [
+    ["कल", "काल"],
+    ["बल", "बाल"],
+    ["दिन", "दीन"],
+    ["मल", "माल"],
+    ["तन", "तान"],
+    ["सत", "शत"],
+    ["बच्चा", "बचा"],
+  ];
+
+  for (const [a, b] of COLLIDING) {
+    it(`AC-14.2: reports ${a} / ${b} as indistinguishable`, () => {
+      const pairs = findAmbiguousPairs([a, b]);
+      expect(pairs).toHaveLength(1);
+      expect(pairs[0]?.shared.length).toBeGreaterThan(0);
+    });
+  }
+
+  it("AC-14.2: names the shared spellings", () => {
+    const pairs = findAmbiguousPairs(["कल", "काल"]);
+    expect(pairs[0]?.shared).toContain("kal");
   });
 
-  it("inscript compares the committed string only", () => {
-    expect(matchesTypedWord("घर", "घर", "inscript")).toBe(true);
-    expect(matchesTypedWord("ghar", "घर", "inscript")).toBe(false);
+  it("AC-14.2: a pool of genuinely distinct words is clean", () => {
+    expect(findAmbiguousPairs(["घर", "पानी", "किताब", "फूल", "दूध"])).toEqual(
+      [],
+    );
   });
 
-  it("latin compares the committed string only", () => {
-    expect(matchesTypedWord("Water", "water", "latin")).toBe(true);
-    expect(matchesTypedWord("ghar", "घर", "latin")).toBe(false);
+  it("AC-14.2: one word alone can never collide", () => {
+    expect(findAmbiguousPairs(["घर"])).toEqual([]);
+    expect(findAmbiguousPairs([])).toEqual([]);
+  });
+
+  it("AC-14.2: reports each colliding pair once, deterministically ordered", () => {
+    const pairs = findAmbiguousPairs(["काल", "कल", "बाल", "बल"]);
+    expect(pairs.map((p) => [p.a, p.b])).toEqual([
+      ["कल", "काल"],
+      ["बल", "बाल"],
+    ]);
+  });
+
+  it("AC-14.2: three-way collisions become three pairs", () => {
+    const pairs = findAmbiguousPairs(["सत", "शत", "सात"]);
+    expect(pairs).toHaveLength(3);
+  });
+
+  it("AC-14.2: duplicate entries are not reported against themselves", () => {
+    expect(findAmbiguousPairs(["घर", "घर"])).toEqual([]);
+  });
+
+  it("works on Latin words too, so one guard covers all three languages", () => {
+    expect(findAmbiguousPairs(["cat", "dog"])).toEqual([]);
   });
 });
 

@@ -8,10 +8,11 @@ import type { InputMethod } from "../types.js";
  *
  * SHAPE OF THE PROBLEM. There is no single correct romanization. A child types
  * whatever their phone's keyboard taught them: "pani" or "paani", "ladka" or
- * "larka", "phool" or "fool". So the table is not char -> char. Every
- * Devanagari unit owns a VARIANT SET of acceptable romanizations, an ambiguous
- * romanization is simply a string that appears in more than one set, and
- * matching asks "can the typed string be cut into one variant per unit?".
+ * "larka", "phool" or "fool", "namaste" or "namastey". So the table is not
+ * char -> char. Every Devanagari unit owns a VARIANT SET of acceptable
+ * romanizations, an ambiguous romanization is simply a string that appears in
+ * more than one set, and matching asks "can the typed string be cut into one
+ * variant per unit?".
  *
  * ALGORITHM. Segment the target into aksharas (consonant cluster + optional
  * nukta + optional matra + optional nasal/visarga sign), expand each into its
@@ -24,34 +25,53 @@ import type { InputMethod } from "../types.js";
  * INHERENT 'a'. A bare consonant carries an inherent 'a'. Hindi deletes that
  * schwa word-finally and often medially - घर is "ghar", not "ghara" - so every
  * non-initial consonant akshara accepts both "Ca" and "C". The word-INITIAL
- * schwa is never deleted in Hindi, so the first akshara does not get the empty
- * variant; that one restriction is what stops "ghr" from matching घर.
+ * schwa is never deleted in Hindi, so the first akshara OF EACH WORD does not
+ * get the empty variant; that one restriction is what stops "ghr" matching घर,
+ * and it is applied per word so "mera ghr" fails too.
+ *
+ * ANUSVARA vs CHANDRABINDU. Both are accepted as n/m/ng. Only one of them may
+ * also be dropped entirely, and the split is positional, not by sign:
+ *   - word-finally (नहीं, मैं, हैं, चाँद) the sign writes a nasal VOWEL, which
+ *     a typist routinely omits, so "" is accepted;
+ *   - medially (हिंदी, अंदर, गंगा) it writes a homorganic nasal CONSONANT,
+ *     which is always typed, so "" is not accepted and "hidi" stays rejected.
+ * Chandrabindu accepts "" everywhere, since it only ever writes nasalisation.
+ *
+ * GEMINATES. A doubled consonant accepts its single form: कुत्ता takes "kuta"
+ * as well as "kutta", बिल्ली takes "bili", अम्मा takes "ama". This is applied
+ * by rule to every geminate rather than by hand to a few clusters.
  *
  * DELIBERATE OVER-PERMISSIVENESS. Where the choice is between rejecting a
  * spelling a child might reasonably produce and accepting one they probably
  * would not, this table accepts. A false accept costs a keystroke of leniency;
  * a false reject tells an eight-year-old their own language is wrong. The
- * documented cost is that two pool words could in principle share a
- * romanization; selection/ already keeps the on-screen set small, and the lock
- * module narrows on candidates, so a tie degrades to a normal shared-prefix
- * lock rather than a failure.
+ * documented cost is real and measurable: कल/काल, बल/बाल, दिन/दीन all share a
+ * romanization. `findAmbiguousPairs` exists so the content pipeline and the
+ * selection lane can assert a stage pool has no collisions, rather than
+ * discovering one on a child's screen.
  *
  * NUKTA. NFC does NOT compose U+0915 + U+093C back into U+0958 (क़ is a Unicode
- * composition exclusion), so after normalisation every nukta letter is the two
- * code points base + U+093C. The table is keyed that way and the segmenter
- * always pulls a following nukta into the consonant unit.
+ * composition exclusion), so after normalisation every nukta letter in that
+ * range is the two code points base + U+093C. U+0929/0931/0934 (ऩ ऱ ऴ) are NOT
+ * exclusions and DO compose, so they are listed as single characters.
  *
- * COVERAGE. Kid-vocabulary level, per the brief: all 33 core consonants, the
- * seven nukta letters, independent vowels, all matras, anusvara, chandrabindu,
- * visarga, generic conjuncts, and explicit overrides for the four clusters
- * whose usual romanization is not the sum of their parts (क्ष, ज्ञ, च्छ, च्च).
+ * KNOWN LIMITATION. गाँव -> "gaon" is not accepted. That spelling reorders the
+ * nasal after the vowel of the following letter, and this matcher consumes
+ * aksharas strictly left to right by design; supporting it would mean
+ * metathesis, which would weaken every other guarantee here. "gaanv", "ganv",
+ * "gaav" and "gav" are accepted.
  */
 
 const NUKTA = "़";
 const VIRAMA = "्";
+const ANUSVARA = "ं";
+const DANDA = "।";
+
+/** Ends the current word for the initial-schwa and word-final-nasal rules. */
+const WORD_BREAK = /[\s।]/;
 
 /**
- * Consonant -> acceptable romanizations.
+ * Consonant -> acceptable romanizations, most likely spelling first.
  * Retroflex and dental rows collapse onto the same Latin letters on purpose:
  * no child types ṭ vs t. That is the main source of ambiguity, and it is the
  * ambiguity AC-14.2 asks us to accept all variants of.
@@ -67,7 +87,8 @@ const CONSONANTS: Readonly<Record<string, readonly string[]>> = {
   "च": ["ch", "c"],
   "छ": ["chh", "ch"],
   "ज": ["j"],
-  "झ": ["jh"],
+  // समझ is written "samajh" and also "samaj": the final aspirate is dropped.
+  "झ": ["jh", "j"],
   "ञ": ["ny", "n"],
   // retroflex
   "ट": ["t"],
@@ -107,12 +128,17 @@ const CONSONANTS: Readonly<Record<string, readonly string[]>> = {
   [`ख${NUKTA}`]: ["kh", "x"],
   [`ग${NUKTA}`]: ["gh", "g"],
   [`ज${NUKTA}`]: ["z", "j"],
-  [`ड${NUKTA}`]: ["r", "d"],
+  // "ladka"/"ped" dominate written Hinglish, so "d" leads; "pedh" is also real.
+  [`ड${NUKTA}`]: ["d", "r", "dh"],
   [`ढ${NUKTA}`]: ["rh", "dh"],
   [`फ${NUKTA}`]: ["f", "ph"],
 };
 
-/** Independent vowels (word-initial position). */
+/**
+ * Independent vowels (word-initial position).
+ * ए carries "ai" because एक is written "aik" as often as "ek", which makes
+ * ए and ऐ genuinely ambiguous with each other. That is accepted, not resolved.
+ */
 const VOWELS: Readonly<Record<string, readonly string[]>> = {
   "अ": ["a"],
   "आ": ["aa", "a"],
@@ -121,57 +147,60 @@ const VOWELS: Readonly<Record<string, readonly string[]>> = {
   "उ": ["u"],
   "ऊ": ["oo", "u", "uu"],
   "ऋ": ["ri", "ru"],
-  "ए": ["e", "ay"],
-  "ऐ": ["ai", "ei"],
+  "ए": ["e", "ay", "ey", "ai"],
+  "ऐ": ["ai", "ei", "ay"],
   "ओ": ["o"],
   "औ": ["au", "ou"],
 };
 
-/** Matras (dependent vowel signs). Same variant sets as their vowels. */
+/**
+ * Matras (dependent vowel signs), most likely spelling first.
+ * "ey" on े is the standard Hinglish spelling (namastey, kheylo, meyra) and
+ * "ay" on ै mirrors it (hay, tayyar, paysa). "u" on ो is there for क्यों,
+ * which is written "kyun" far more often than "kyon".
+ */
 const MATRAS: Readonly<Record<string, readonly string[]>> = {
-  "ा": ["aa", "a"], // ा
+  "ा": ["a", "aa"], // ा
   "ि": ["i"], // ि
-  "ी": ["ee", "i", "ii"], // ी
+  "ी": ["i", "ee", "ii"], // ी
   "ु": ["u"], // ु
   "ू": ["oo", "u", "uu"], // ू
   "ृ": ["ri", "ru"], // ृ
-  "े": ["e", "ay"], // े
-  "ै": ["ai", "ei"], // ै
-  "ो": ["o"], // ो
+  "े": ["e", "ay", "ey"], // े
+  "ै": ["ai", "ei", "ay"], // ै
+  "ो": ["o", "u"], // ो
   "ौ": ["au", "ou"], // ौ
 };
 
-/**
- * Nasal and aspiration signs.
- * Chandrabindu accepts "" because nasalisation is the first thing a typist
- * drops: चाँद is far more often typed "chand" than "chaand".
- */
+/** Nasal and aspiration signs. See the ANUSVARA vs CHANDRABINDU note above. */
 const SIGNS: Readonly<Record<string, readonly string[]>> = {
-  "ं": ["n", "m", "ng"], // ं anusvara
+  [ANUSVARA]: ["n", "m", "ng"], // ं - gains "" word-finally only
   "ँ": ["n", "m", ""], // ँ chandrabindu
   "ः": ["h", ""], // ः visarga
 };
 
 /**
  * Clusters whose conventional romanization is not the concatenation of their
- * parts. Keyed by the exact `C + virama + C` source string.
- * These replace the consonant base only; matra and sign still apply.
+ * parts. Keyed by the exact `C + virama + C` source string; the first entry is
+ * the canonical spelling. These replace the consonant base; matra, sign and
+ * the geminate rule still apply.
  */
 const CLUSTER_OVERRIDES: Readonly<Record<string, readonly string[]>> = {
   // क्ष: "ksha" by convention, "x" on phone keyboards.
   [`क${VIRAMA}ष`]: ["ksh", "ks", "x", "chh"],
   // ज्ञ: pronounced "gy" in Hindi; "gn"/"dny" come from Sanskrit and Marathi.
   [`ज${VIRAMA}ञ`]: ["gy", "gn", "dny", "jn"],
-  // च्छ and च्च: the generic product misses the very common single-"ch"
-  // spelling, so अच्छा is typed "achha" or even "acha" as often as "achchha".
-  [`च${VIRAMA}छ`]: ["chchh", "chch", "cchh", "cch", "chh", "ch"],
-  [`च${VIRAMA}च`]: ["chch", "cch", "chc", "cc", "ch"],
+  // च्छ: the generic product misses the single-"ch" spelling, so अच्छा is
+  // typed "achha" or even "acha" as often as "achchha".
+  [`च${VIRAMA}छ`]: ["chch", "chchh", "cchh", "cch", "chh", "ch"],
 };
 
 /** Inherent 'a' on a non-initial consonant: kept or deleted (schwa deletion). */
 const INHERENT_A: readonly string[] = ["a", ""];
 /** Word-initial schwa is never deleted in Hindi. */
 const INHERENT_A_INITIAL: readonly string[] = ["a"];
+/** No vowel at all: a half form, or the absence of a sign. */
+const NONE: readonly string[] = [""];
 
 /** The whole mapping, exposed so AC-14.2's tests can be table-driven. */
 export const TRANSLIT_TABLE = {
@@ -184,6 +213,7 @@ export const TRANSLIT_TABLE = {
   inherentAInitial: INHERENT_A_INITIAL,
   nukta: NUKTA,
   virama: VIRAMA,
+  anusvara: ANUSVARA,
 } as const;
 
 /** One orthographic syllable of the target, with everything it will accept. */
@@ -192,6 +222,25 @@ export interface Akshara {
   readonly source: string;
   /** Every romanization accepted for it, lowercase. */
   readonly variants: readonly string[];
+}
+
+/** Akshara plus what `canonicalRomanization` needs to pick one spelling. */
+interface SegmentedAkshara extends Akshara {
+  /** Canonical consonant or vowel part. */
+  readonly head: string;
+  /** Canonical explicit vowel; "" when the vowel slot is inherent or absent. */
+  readonly vowelText: string;
+  /** Canonical nasal/visarga part. */
+  readonly tail: string;
+  /** True when the vowel slot holds an unwritten inherent 'a'. */
+  readonly inherent: boolean;
+  /** True when this akshara carries a written vowel (matra or independent). */
+  readonly hasWrittenVowel: boolean;
+  /** True when the inherent 'a' is protected: the first akshara of a word. */
+  readonly schwaProtected: boolean;
+  readonly wordFinal: boolean;
+  /** Consonants joined by virama in this akshara; 0 for pass-through. */
+  readonly unitCount: number;
 }
 
 const DEVANAGARI_RANGE = /[ऀ-ॿ]/;
@@ -216,12 +265,15 @@ function dedupe(values: readonly string[]): string[] {
   return [...new Set(values)];
 }
 
+/** First entry, or "" for an empty list. Branch-free so it stays testable. */
+function primary(variants: readonly string[]): string {
+  return variants.slice(0, 1).join("");
+}
+
 /** Normalise anything before it touches the table: NFC, trimmed, lowercased. */
 export function normalizeTyped(text: string): string {
   return text.normalize("NFC").trim().toLowerCase();
 }
-
-const NO_VOWEL: readonly string[] = [""];
 
 interface ConsonantUnit {
   /** The source chars, base or base+nukta. */
@@ -253,28 +305,37 @@ function consonantAt(s: string, i: number): ConsonantUnit | null {
   return null;
 }
 
-/**
- * Cut a Devanagari string into aksharas and expand each into its variant set.
- * Exported so tests can assert the segmentation itself, not just the verdict.
- */
-export function segmentDevanagari(target: string): Akshara[] {
+/** See the ANUSVARA vs CHANDRABINDU note: only a final anusvara may drop. */
+function signVariantsFor(signChar: string, wordFinal: boolean): readonly string[] {
+  const listed = SIGNS[signChar];
+  if (listed === undefined) return NONE;
+  if (signChar === ANUSVARA && wordFinal) return [...listed, ""];
+  return listed;
+}
+
+function segment(target: string): SegmentedAkshara[] {
   const s = target.normalize("NFC");
-  const out: Akshara[] = [];
+  const out: SegmentedAkshara[] = [];
   let i = 0;
+  let atWordStart = true;
 
   while (i < s.length) {
     const ch = s.charAt(i);
     const head = consonantAt(s, i);
 
     if (head !== null) {
-      const isInitial = out.length === 0;
       const unitSources: string[] = [];
       const unitVariants: (readonly string[])[] = [];
+      let firstUnit: string | null = null;
+      let geminate: readonly string[] | null = null;
       let trailingVirama = false;
       let current: ConsonantUnit = head;
 
       // Consonant cluster: C(+nukta) [ virama C(+nukta) ]*
       for (;;) {
+        const isSecond = unitSources.length === 1;
+        if (isSecond && current.unit === firstUnit) geminate = current.variants;
+        if (firstUnit === null) firstUnit = current.unit;
         unitSources.push(current.unit);
         unitVariants.push(current.variants);
         i = current.next;
@@ -299,28 +360,40 @@ export function segmentDevanagari(target: string): Akshara[] {
       }
 
       let signSource = "";
-      let signVariants: readonly string[] = NO_VOWEL;
-      const signHit = SIGNS[s.charAt(i)];
-      if (signHit !== undefined) {
+      if (SIGNS[s.charAt(i)] !== undefined) {
         signSource = s.charAt(i);
-        signVariants = signHit;
         i += 1;
       }
 
+      const wordFinal = i >= s.length || WORD_BREAK.test(s.charAt(i));
+      const signVariants = signVariantsFor(signSource, wordFinal);
+
       const clusterKey = unitSources.join(VIRAMA);
       const override = CLUSTER_OVERRIDES[clusterKey];
-      const base: readonly string[] = override ?? product(unitVariants);
+      const clusterBase = override ?? product(unitVariants);
+      // Geminate reduction: कुत्ता takes "kuta", बिल्ली takes "bili".
+      const base =
+        geminate === null ? clusterBase : [...clusterBase, ...geminate];
 
       let vowel: readonly string[];
-      if (trailingVirama) vowel = NO_VOWEL;
+      if (trailingVirama) vowel = NONE;
       else if (matraVariants !== undefined) vowel = matraVariants;
-      else vowel = isInitial ? INHERENT_A_INITIAL : INHERENT_A;
+      else vowel = atWordStart ? INHERENT_A_INITIAL : INHERENT_A;
 
       out.push({
         source:
           clusterKey + (trailingVirama ? VIRAMA : "") + matraSource + signSource,
         variants: dedupe(product([base, vowel, signVariants])),
+        head: primary(base),
+        vowelText: primary(vowel),
+        tail: primary(signVariants),
+        inherent: !trailingVirama && matraVariants === undefined,
+        hasWrittenVowel: matraVariants !== undefined,
+        schwaProtected: atWordStart,
+        wordFinal,
+        unitCount: unitSources.length,
       });
+      atWordStart = false;
       continue;
     }
 
@@ -328,17 +401,25 @@ export function segmentDevanagari(target: string): Akshara[] {
     if (vowelHit !== undefined) {
       i += 1;
       let signSource = "";
-      let signVariants: readonly string[] = NO_VOWEL;
-      const signHit = SIGNS[s.charAt(i)];
-      if (signHit !== undefined) {
+      if (SIGNS[s.charAt(i)] !== undefined) {
         signSource = s.charAt(i);
-        signVariants = signHit;
         i += 1;
       }
+      const wordFinal = i >= s.length || WORD_BREAK.test(s.charAt(i));
+      const signVariants = signVariantsFor(signSource, wordFinal);
       out.push({
         source: ch + signSource,
         variants: dedupe(product([vowelHit, signVariants])),
+        head: primary(vowelHit),
+        vowelText: "",
+        tail: primary(signVariants),
+        inherent: false,
+        hasWrittenVowel: true,
+        schwaProtected: atWordStart,
+        wordFinal,
+        unitCount: 0,
       });
+      atWordStart = false;
       continue;
     }
 
@@ -346,14 +427,31 @@ export function segmentDevanagari(target: string): Akshara[] {
     // in a mixed string - passes through as itself. Danda also accepts "." and
     // nothing, because no romanized keyboard offers it.
     i += 1;
-    if (ch === "।") {
-      out.push({ source: ch, variants: [ch, ".", ""] });
-    } else {
-      out.push({ source: ch, variants: [ch.toLowerCase()] });
-    }
+    const isBreak = WORD_BREAK.test(ch);
+    out.push({
+      source: ch,
+      variants: ch === DANDA ? [ch, ".", ""] : [ch.toLowerCase()],
+      head: ch === DANDA ? "" : ch.toLowerCase(),
+      vowelText: "",
+      tail: "",
+      inherent: false,
+      hasWrittenVowel: false,
+      schwaProtected: false,
+      wordFinal: false,
+      unitCount: 0,
+    });
+    atWordStart = isBreak;
   }
 
   return out;
+}
+
+/**
+ * Cut a Devanagari string into aksharas and expand each into its variant set.
+ * Exported so tests can assert the segmentation itself, not just the verdict.
+ */
+export function segmentDevanagari(target: string): Akshara[] {
+  return segment(target);
 }
 
 interface Reachable {
@@ -444,9 +542,53 @@ export function isTransliterationPrefix(
 }
 
 /**
+ * ONE spelling of a Devanagari word: the form a child is most likely to type.
+ *
+ * WHAT THIS IS FOR. A consumer that can only hold a single string - an on-screen
+ * typing hint, a debug label, a log line - needs a defensible default. The lock
+ * must NOT use this as its only comparison string: doing that reinstates exactly
+ * the single-spelling failure the variant sets exist to prevent (D31). Use
+ * `createWordMatcher` for matching and this for display.
+ *
+ * SCHWA RULE. The inherent 'a' is written unless:
+ *   - the akshara is the last of its word and is a single consonant (घर ->
+ *     "ghar"), which is why मित्र stays "mitra" - Sanskrit-derived conjunct
+ *     finals keep their vowel in writing; or
+ *   - the next akshara is a SINGLE consonant carrying a written vowel
+ *     (लड़का -> "ladka"). The single-consonant condition is what keeps नमस्ते
+ *     at "namaste": deleting there would leave the cluster "mst", which Hindi
+ *     does not do.
+ * The first akshara of a word is always protected (टमाटर -> "tamatar").
+ *
+ * This is a good approximation, not the full Hindi schwa-deletion rule, which
+ * is an open research problem. धड़कन comes out "dharakan", not "dhadkan".
+ * Matching accepts both; only the displayed default is approximate.
+ */
+export function canonicalRomanization(target: string): string {
+  const g = normalizeTyped(target);
+  if (!hasDevanagari(g)) return g;
+
+  const aksharas = segment(g);
+  let out = "";
+  for (const [k, akshara] of aksharas.entries()) {
+    const next = aksharas[k + 1];
+    let vowel: string;
+    if (!akshara.inherent) vowel = akshara.vowelText;
+    else if (akshara.schwaProtected) vowel = "a";
+    else if (akshara.wordFinal && akshara.unitCount === 1) vowel = "";
+    else if (next?.hasWrittenVowel === true && next.unitCount === 1) vowel = "";
+    else vowel = "a";
+    out += akshara.head + vowel + akshara.tail;
+  }
+  return out;
+}
+
+/**
  * Every romanization this target accepts, capped. Used by the table-driven
- * tests and available to the UI as a typing hint. Capped because the product
- * of variant sets grows with akshara count and no caller needs thousands.
+ * tests, by `findAmbiguousPairs`, and available to the UI as a typing hint.
+ * Capped because the product of variant sets grows with akshara count and no
+ * caller needs thousands. Truncation only ever loses spellings, so a caller
+ * that searches this set is conservative, never wrong.
  */
 export function romanizationsOf(target: string, limit = 256): string[] {
   const g = normalizeTyped(target);
@@ -467,15 +609,112 @@ export function romanizationsOf(target: string, limit = 256): string[] {
   return acc.filter((s) => s.length > 0).slice(0, limit);
 }
 
+// ---------------------------------------------------------------------------
+// The port the lock module consumes (D31, D46, architecture section 4).
+// ---------------------------------------------------------------------------
+
 /**
- * Route a typed word by input method (D46). `latin` and `inscript` compare the
- * committed string directly; only `translit` runs the table.
+ * The narrow interface `lock/` takes by injection. Two predicates, nothing
+ * else: the lock owns candidate narrowing and auto-lock, i18n owns what
+ * "matches" means. Injecting it rather than importing it keeps `lock/` free of
+ * the transliteration table and keeps its tests synthetic.
+ *
+ * `isPrefix` must be true for every proper prefix of every string `isComplete`
+ * accepts, or the lock can narrow its way out of a legal spelling.
+ */
+export interface WordMatcher {
+  /** Could `typed` still grow into `target`? Empty buffer is always true. */
+  isPrefix(typed: string, target: string): boolean;
+  /** Is `typed` a complete, acceptable spelling of `target`? */
+  isComplete(typed: string, target: string): boolean;
+}
+
+/** Committed-string comparison: `latin` layouts and `inscript` IME (D46). */
+export const EXACT_MATCHER: WordMatcher = {
+  isPrefix: (typed, target) =>
+    normalizeTyped(target).startsWith(normalizeTyped(typed)),
+  isComplete: (typed, target) => normalizeTyped(typed) === normalizeTyped(target),
+};
+
+/** Variant-set comparison: `translit` mode (D46). */
+export const TRANSLIT_MATCHER: WordMatcher = {
+  isPrefix: isTransliterationPrefix,
+  isComplete: matchesTransliteration,
+};
+
+/** Pick the matcher for an input method. This is what Settings wires up. */
+export function createWordMatcher(inputMethod: InputMethod): WordMatcher {
+  return inputMethod === "translit" ? TRANSLIT_MATCHER : EXACT_MATCHER;
+}
+
+/**
+ * Route a typed word by input method (D46). Convenience over
+ * `createWordMatcher(...).isComplete`, kept for callers that hold no matcher.
  */
 export function matchesTypedWord(
   typed: string,
   target: string,
   inputMethod: InputMethod,
 ): boolean {
-  if (inputMethod === "translit") return matchesTransliteration(typed, target);
-  return normalizeTyped(typed) === normalizeTyped(target);
+  return createWordMatcher(inputMethod).isComplete(typed, target);
+}
+
+// ---------------------------------------------------------------------------
+// Pool safety.
+// ---------------------------------------------------------------------------
+
+export interface AmbiguousPair {
+  readonly a: string;
+  readonly b: string;
+  /** Romanizations both words accept, sorted. */
+  readonly shared: readonly string[];
+}
+
+/**
+ * Words in this list that cannot be told apart by what a child types.
+ *
+ * The collapses that make the table forgiving also make minimal pairs collide:
+ * ा accepting "a" alongside the inherent 'a' merges every short/long pair
+ * (कल/काल, बल/बाल), and the retroflex/dental collapse merges सत/शत. Two such
+ * words on screen at once is a lock the player cannot resolve, so the content
+ * pipeline and selection/ assert against this rather than trusting the table.
+ *
+ * Conservative by construction: `romanizationsOf` truncates at `limit`, and
+ * truncation can only hide a collision, never invent one.
+ */
+export function findAmbiguousPairs(
+  words: readonly string[],
+  limit = 1024,
+): AmbiguousPair[] {
+  const byRomanization = new Map<string, Set<string>>();
+  for (const word of words) {
+    const normalized = normalizeTyped(word);
+    for (const spelling of romanizationsOf(normalized, limit)) {
+      const bucket = byRomanization.get(spelling);
+      if (bucket === undefined) byRomanization.set(spelling, new Set([normalized]));
+      else bucket.add(normalized);
+    }
+  }
+
+  const shared = new Map<string, string[]>();
+  for (const [spelling, bucket] of byRomanization) {
+    if (bucket.size < 2) continue;
+    const members = [...bucket].sort();
+    for (const [index, a] of members.entries()) {
+      for (const b of members.slice(index + 1)) {
+        const key = `${a} ${b}`;
+        const existing = shared.get(key);
+        if (existing === undefined) shared.set(key, [spelling]);
+        else existing.push(spelling);
+      }
+    }
+  }
+
+  const pairs: AmbiguousPair[] = [];
+  for (const [key, spellings] of shared) {
+    const [a = "", b = ""] = key.split(" ");
+    pairs.push({ a, b, shared: [...spellings].sort() });
+  }
+  pairs.sort((x, y) => (x.a === y.a ? x.b.localeCompare(y.b) : x.a.localeCompare(y.a)));
+  return pairs;
 }

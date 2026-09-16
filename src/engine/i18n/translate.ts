@@ -27,11 +27,20 @@ import {
  * That is the escape hatch for a translator preview build; it is opt-in, so the
  * default stays loud.
  *
- * Placeholders use `{name}` (C07's `{shipName}` is the one that matters). A
- * missing param throws in dev and leaves the placeholder text intact in prod,
- * because "The {shipName} is ready." is readable and "The undefined is ready."
- * is not. Substitution is single-pass: a value containing `{x}` is never
- * re-scanned, so a player-chosen ship name cannot inject another placeholder.
+ * Placeholders use `{name}` (C07's `{shipName}` is the one that matters).
+ * Substitution is single-pass: a value containing `{x}` is never re-scanned, so
+ * a player-chosen ship name cannot inject another placeholder.
+ *
+ * MISSING-PARAM POLICY. Leaving `{shipName}` on screen because a caller forgot
+ * to pass it is a bug we should not be able to ship, and asking every call site
+ * to remember is how it gets shipped. So the translator takes `defaults`: the
+ * app builds one translator per profile with `{ shipName: profile.shipName }`
+ * and no scene ever passes it again. On top of that:
+ *   dev  -> throw MissingParamError, so a new placeholder without a default
+ *           fails in test rather than rendering as literal braces.
+ *   prod -> leave the placeholder text intact. "The {shipName} is ready." is
+ *           readable and greppable; "The undefined is ready." and "The  is
+ *           ready." are neither.
  */
 
 export type InterpolationParams = Readonly<Record<string, string | number>>;
@@ -98,6 +107,11 @@ export interface TranslatorOptions {
   readonly mode: Mode;
   /** Defaults to the shipped tables; injected in tests and by the content pipeline. */
   readonly tables?: Readonly<Record<Lang, StringTable>>;
+  /**
+   * Params every `t()` call gets for free. This is where `{shipName}` belongs
+   * (C07): bind it once per profile, never at a call site.
+   */
+  readonly defaults?: InterpolationParams;
   /** Called for every unresolved key. Its presence suppresses the dev throw. */
   readonly onMissing?: (key: string, lang: Lang) => void;
 }
@@ -114,10 +128,13 @@ export interface Translator {
 }
 
 export function createTranslator(options: TranslatorOptions): Translator {
-  const { lang, mode, tables = TABLES, onMissing } = options;
+  const { lang, mode, tables = TABLES, defaults, onMissing } = options;
 
   const own: StringTable = tables[lang] ?? {};
   const fallback: StringTable = tables[FALLBACK_LANG] ?? {};
+
+  const merge = (params?: InterpolationParams): InterpolationParams =>
+    defaults === undefined ? (params ?? {}) : { ...defaults, ...params };
 
   const raw = (key: StringKey): string | null =>
     own[key] ?? fallback[key] ?? null;
@@ -131,7 +148,7 @@ export function createTranslator(options: TranslatorOptions): Translator {
 
     t(key: StringKey, params?: InterpolationParams): string {
       const mine = own[key];
-      if (mine !== undefined) return interpolate(mine, params, mode);
+      if (mine !== undefined) return interpolate(mine, merge(params), mode);
 
       onMissing?.(key, lang);
       // Loud in dev unless a sink explicitly took responsibility for it.
@@ -139,7 +156,7 @@ export function createTranslator(options: TranslatorOptions): Translator {
         throw new MissingStringError(key, lang);
       }
       const english = fallback[key];
-      if (english !== undefined) return interpolate(english, params, mode);
+      if (english !== undefined) return interpolate(english, merge(params), mode);
       return key;
     },
   };

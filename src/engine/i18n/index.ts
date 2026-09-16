@@ -9,6 +9,13 @@
  *   hardcoded.ts   AC-14.3 - the reusable no-hard-coded-copy checker.
  *   fit.ts         Spanish +25% copy budget from the design brief.
  *
+ * THE PORT lock/ CONSUMES is `WordMatcher` (`createWordMatcher(inputMethod)`):
+ * two predicates, `isPrefix` and `isComplete`. The lock injects it rather than
+ * importing the table, so variant sets reach per-keystroke narrowing without
+ * lock/ knowing any Devanagari. `canonicalRomanization` is for DISPLAY only -
+ * a lock that matches against that one string is back to the single-spelling
+ * failure the variant sets exist to prevent.
+ *
  * Pure TypeScript throughout: no DOM, no clock, no storage (CLAUDE.md).
  */
 
@@ -45,6 +52,10 @@ export {
 } from "./contentLang.js";
 
 export {
+  canonicalRomanization,
+  createWordMatcher,
+  EXACT_MATCHER,
+  findAmbiguousPairs,
   hasDevanagari,
   isTransliterationPrefix,
   matchesTransliteration,
@@ -52,8 +63,11 @@ export {
   normalizeTyped,
   romanizationsOf,
   segmentDevanagari,
+  TRANSLIT_MATCHER,
   TRANSLIT_TABLE,
   type Akshara,
+  type AmbiguousPair,
+  type WordMatcher,
 } from "./translit.js";
 
 export {

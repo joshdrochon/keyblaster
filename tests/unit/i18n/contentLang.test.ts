@@ -43,21 +43,34 @@ describe("AC-14.1: content languages are filtered by input method", () => {
     }
   });
 
-  it("AC-14.1: option order is stable and follows LANGS", () => {
+  /**
+   * The full spec as a literal table. Asserting exact arrays is the point:
+   * comparing availableContentLangs against LANGS.filter(canTypeLang) would
+   * only prove Array.filter works, since that IS the implementation.
+   */
+  const EXPECTED: readonly [InputMethod, readonly Lang[]][] = [
+    ["latin", ["en", "es"]],
+    ["translit", ["en", "es", "hi"]],
+    ["inscript", ["en", "es", "hi"]],
+  ];
+
+  for (const [method, expected] of EXPECTED) {
+    it(`AC-14.1: ${method} offers exactly [${expected.join(", ")}]`, () => {
+      expect(availableContentLangs(method)).toEqual(expected);
+    });
+  }
+
+  it("AC-14.1: the menu never offers a language twice", () => {
     for (const method of ALL_INPUT_METHODS) {
       const offered = availableContentLangs(method);
-      expect(offered).toEqual(LANGS.filter((l) => offered.includes(l)));
+      expect(new Set(offered).size, method).toBe(offered.length);
     }
   });
 
-  it("AC-14.1: canTypeLang agrees with availableContentLangs for every pair", () => {
-    for (const method of ALL_INPUT_METHODS) {
-      for (const lang of LANGS) {
-        expect(canTypeLang(lang, method), `${lang}/${method}`).toBe(
-          availableContentLangs(method).includes(lang),
-        );
-      }
-    }
+  it("AC-14.1: the returned array is a copy the caller may sort in place", () => {
+    const first = availableContentLangs("translit");
+    first.reverse();
+    expect(availableContentLangs("translit")).toEqual(["en", "es", "hi"]);
   });
 
   it("hi is the only Devanagari language", () => {

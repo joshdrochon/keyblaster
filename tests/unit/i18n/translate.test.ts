@@ -146,6 +146,72 @@ describe("createTranslator", () => {
   });
 });
 
+describe("C07: {shipName} is bound once, not at every call site", () => {
+  /** How the app builds a translator: the profile's ship name, bound once. */
+  const forProfile = (shipName: string, lang: Lang = "en") =>
+    createTranslator({ lang, mode: "dev", defaults: { shipName } });
+
+  it("C07: every key that names the ship renders with no placeholder left", () => {
+    // The critic's point: nothing asserted any caller supplies {shipName}.
+    // Binding it on the translator is what makes that unmissable.
+    for (const lang of ["en", "es", "hi"] as const) {
+      const t = forProfile("Faro", lang);
+      for (const key of STRING_KEYS) {
+        // Supply every placeholder EXCEPT shipName; defaults must cover it.
+        const params: Record<string, string> = {};
+        for (const name of placeholdersIn(EN[key])) {
+          if (name !== "shipName") params[name] = "x";
+        }
+        const rendered = t.t(key, params);
+        expect(rendered, `${lang}/${key}`).not.toMatch(/\{[A-Za-z]/);
+      }
+    }
+  });
+
+  it("C07: the bound ship name reaches the copy", () => {
+    expect(forProfile("Faro").t("briefing.shipReady")).toBe(
+      "The Faro is fuelled and ready.",
+    );
+    expect(forProfile("Faro", "es").t("results.shipIntact")).toContain("Faro");
+    expect(forProfile("दीप", "hi").t("briefing.shipReady")).toContain("दीप");
+  });
+
+  it("C07: a call-site param overrides the bound default", () => {
+    expect(
+      forProfile("Faro").t("briefing.shipReady", { shipName: "Lantern" }),
+    ).toBe("The Lantern is fuelled and ready.");
+  });
+
+  it("C07: the default ship name is itself an i18n key, not a literal", () => {
+    const t = createTranslator({ lang: "en", mode: "dev" });
+    expect(t.t("profile.shipNameDefault")).toBe("Lantern");
+  });
+
+  it("dev still throws for a placeholder no default covers", () => {
+    const t = createTranslator({
+      lang: "en",
+      mode: "dev",
+      defaults: { shipName: "Faro" },
+    });
+    expect(() => t.t("map.stars")).toThrow(MissingParamError);
+  });
+
+  it("defaults apply to the English fallback path too", () => {
+    const partial: Readonly<Record<Lang, StringTable>> = {
+      en: EN,
+      es: {},
+      hi: {},
+    };
+    const t = createTranslator({
+      lang: "es",
+      mode: "prod",
+      tables: partial,
+      defaults: { shipName: "Faro" },
+    });
+    expect(t.t("briefing.shipReady")).toBe("The Faro is fuelled and ready.");
+  });
+});
+
 describe("missing-key policy (FR-14)", () => {
   it("dev throws even when English has the key", () => {
     const t = createTranslator({ lang: "es", mode: "dev", tables: PARTIAL });
@@ -205,6 +271,12 @@ describe("missing-key policy (FR-14)", () => {
     const t = createTranslator({ lang: "hi", mode: "prod", tables: empty });
     expect(t.t("title.play")).toBe("title.play");
     expect(t.raw("title.play")).toBeNull();
+  });
+
+  it("prod leaves an unsupplied placeholder readable, not 'undefined'", () => {
+    const t = createTranslator({ lang: "en", mode: "prod" });
+    expect(t.t("briefing.shipReady")).toContain("{shipName}");
+    expect(t.t("briefing.shipReady")).not.toContain("undefined");
   });
 
   it("the English fallback is still interpolated", () => {

@@ -245,3 +245,45 @@ shipped as written.
 
 NOT PASSED. `COACH_MODEL` carries D92's string verbatim; `options.model`
 overrides it, so adopting A is a one-line change in one place.
+
+## Design brief's flat "+25% Spanish" is wrong for short labels
+
+- **Logged:** 2026-09-16 (build night 1)
+- **Source:** docs/design-brief-v2.md "Languages"; D45
+- **Found by:** the i18n lane, measuring real translations instead of trusting the number
+- **Attempts:** n/a — a layout constant, not a bug. Implemented as written.
+
+The brief tells designers to "design text containers for Spanish length (+25%)".
+Measured against the 31 real UI strings now in the string tables, **6 exceed it**:
+
+| Key | English | Spanish | Growth |
+|---|---|---|---|
+| Locked | `Locked` | `Bloqueado` | +50% |
+| Pilot name | `Pilot name` | `Nombre del piloto` | +70% |
+| Beacon Log | `Beacon Log` | `Registro de balizas` | +90% |
+
+The pattern is the problem: growth is **inversely** related to length. Long
+sentences average well under +25%; short labels blow past it, because Spanish
+pays a fixed cost in articles and prepositions that a two-word English label
+cannot amortise. Short labels are exactly where a fixed-width plate clips.
+
+### Why it is time-sensitive
+
+Five scene lanes are building UI against the +25% figure right now. A container
+sized on it will clip `Registro de balizas` in Spanish and will not be caught by
+an English-only screenshot.
+
+| # | Option | Cost |
+|---|---|---|
+| A | Per-length budget: +90% under 12 chars, +50% to 25 chars, +25% above | Matches the measured data. Three numbers instead of one. |
+| B | Containers size to content with a min width, never fixed-width labels | Most robust; more layout work per screen. |
+| C | Keep +25% and shorten the Spanish strings | Cheapest, but distorts the translation to fit the box. |
+
+**Lean: B, with A as the sizing sanity-check in tests.** `fit.test.ts` now pins
+the exact over-budget list as a regression guard, so whichever is chosen the
+list cannot silently grow.
+
+### Status
+
+NOT PASSED. Brief's number shipped as written; the scene lanes have been told to
+size to content rather than to the constant.
