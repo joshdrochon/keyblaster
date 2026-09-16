@@ -419,3 +419,59 @@ Triton, Charon — remain readable-only, so note 4's actual intent is preserved.
 ### Status
 
 Shipped as A. C13 open in the decision log.
+
+## AC-22.9 — the PRD names an instrument that cannot measure the claim
+
+- **Logged:** 2026-09-16 (build night 1)
+- **Source:** PRD AC-22.9, NFR-1, D60 item 9
+- **Found by:** two independent lanes, measuring rather than assuming
+- **Severity:** this was a FALSE PASS in the gauntlet until it was caught
+
+### What happened
+
+AC-22.9 reads: *"60 fps: p95 frame time ≤ 16.7 ms over a 60 s scripted flight in
+headless Chromium."*
+
+The first capture produced:
+
+```json
+{ "p95Ms": 3.5, "p95FrameIntervalMs": 416.2, "observedFps": 3.4, "frames": 204 }
+```
+
+The rubric read `p95Ms` and passed it. That number is **per-frame work** — how
+long the game spends inside one frame. The claim is about **frame rate**, which
+is the interval *between* frames. The game rendered 204 frames in 60 seconds and
+the check called it 60fps.
+
+Separately, the warp lane measured the same thing from a different angle and
+found headless Chromium drives this game at **~12 real fps** while Phaser's own
+`actualFps` reports ~47, because Phaser computes it from a smoothed delta — so
+**the shortfall is invisible from inside the game**.
+
+### Why the instrument is wrong, not the game
+
+Headless Chromium uses software rasterisation (SwiftShader). It cannot produce
+60fps for a WebGL game no matter how cheap the frame is. So a headless capture
+measures the harness, and:
+
+- a **pass** is meaningless (it can only pass by measuring the wrong quantity)
+- a **fail** is also meaningless (it condemns the game for the harness)
+
+The rubric now rejects any `frametime.json` whose `method` says headless, and
+requires `p95FrameIntervalMs` and `observedFps` alongside `p95Ms`. P-22.9 is
+correctly FAILING rather than falsely passing.
+
+| # | Option | Cost |
+|---|---|---|
+| A | Re-capture headed, with a real GPU, on the machine that will run the demo | Matches NFR-1 ("a 2019 laptop-class GPU"). Cannot run in a headless CI. Needs a human-present run, which is fine — the demo is recorded on this machine anyway. |
+| B | Keep headless but change the claim to a per-frame WORK budget | Honest and CI-runnable, but it is no longer the 60fps claim D60 makes, and it would need AC-22.9 reworded. |
+| C | Both: work budget in CI, frame-rate check headed before submission | Most work, strongest evidence. |
+
+**Lean: C, with A as the minimum.** The 60fps claim is on the submission
+write-up and in D60's rubric; it should be measured on real hardware at least
+once. A cheap per-frame work budget in CI catches regressions between those runs.
+
+### Status
+
+NOT PASSED. The false pass is closed. Re-capture is blocked on a headed run,
+which is a human-present action.

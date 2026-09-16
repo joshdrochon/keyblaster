@@ -18,6 +18,18 @@ import type { FlightDebugState } from "../../src/game/scenes/FlightScene.js";
  * until its artifact exists, so producing them is part of the feature.
  */
 
+/**
+ * Tracing off for this lane's specs.
+ *
+ * Playwright's trace recorder screenshots every action, and against a
+ * full-resolution WebGL canvas that costs more than the game does: with it on,
+ * this file runs about four times slower and the rocks - which fall on the wall
+ * clock, because the learning engine's fall time is real seconds - reach the
+ * breach line before the assertions do. The failures that produces are the
+ * recorder's, not the game's. Failure screenshots are still captured.
+ */
+test.use({ trace: "off" });
+
 const EVIDENCE_DIR = resolve(process.cwd(), "gauntlet/evidence");
 
 function writeEvidence(file: string, data: Record<string, unknown>): void {

@@ -269,11 +269,39 @@ const visual = [
     title: "60 fps: p95 frame time <= 16.7 ms over a 60 s scripted flight",
     kind: "perf",
     needsBrowser: true,
-    run: async ({ evidence }) =>
-      evidence.has("frametime.json")
-        ? evidence.assertNumber("frametime.json", "p95Ms", (v) => v <= 16.7,
-            "p95 frame time in headless Chromium over a 60 s scripted flight")
-        : todo("Flight scene not built; no frametime.json evidence"),
+    run: async ({ evidence }) => {
+      if (!evidence.has("frametime.json")) {
+        return todo("Flight scene not built; no frametime.json evidence");
+      }
+      const d = evidence.read("frametime.json");
+      // AC-22.9 is a claim about FRAME RATE, so the measurement that settles it
+      // is the frame INTERVAL, not the work done inside a frame. Those diverge
+      // badly: a first capture reported p95Ms 3.5 (per-frame work) alongside
+      // observedFps 3.4 and a p95 interval of 416ms. Reading only p95Ms passed
+      // a game rendering 204 frames in 60 seconds as 60fps.
+      const work = d["p95Ms"];
+      const interval = d["p95FrameIntervalMs"];
+      const fps = d["observedFps"];
+      const method = String(d["method"] ?? "");
+      const ev = "gauntlet/evidence/frametime.json";
+
+      if (typeof interval !== "number" || typeof fps !== "number") {
+        return bad("frametime.json must report p95FrameIntervalMs and observedFps; per-frame work alone cannot settle a frame-rate claim", ev);
+      }
+      // A headless capture cannot demonstrate 60fps: headless Chromium has been
+      // measured driving this game at ~3-12fps regardless of how cheap the
+      // frame is, so it measures the harness. See escalations.md "AC-22.9".
+      if (/headless/i.test(method)) {
+        return bad(`captured headless (${fps.toFixed(1)} fps observed) - headless Chromium cannot demonstrate 60fps; re-capture headed`, ev);
+      }
+      if (interval > 16.7) {
+        return bad(`p95 frame interval ${interval.toFixed(1)}ms exceeds 16.7ms (observed ${fps.toFixed(1)} fps)`, ev);
+      }
+      if (typeof work === "number" && work > 16.7) {
+        return bad(`p95 per-frame work ${work.toFixed(1)}ms exceeds 16.7ms`, ev);
+      }
+      return ok(`p95 frame interval ${interval.toFixed(1)}ms at ${fps.toFixed(1)} fps; per-frame work ${typeof work === "number" ? work.toFixed(1) : "n/a"}ms`, ev);
+    },
   },
 ];
 
