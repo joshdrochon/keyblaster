@@ -209,20 +209,38 @@ export async function press(page: Page, key: string, times = 1): Promise<void> {
   }
 }
 
-/** Walk focus to a control by id using only the keyboard (D37). */
+/**
+ * Walk focus to a control by id using ONLY the keyboard (D37).
+ *
+ * Takes the shortest way round the list rather than stepping blindly: the
+ * Beacon Log has nineteen rows, and a blind two-lap walk is slow enough to eat
+ * a test timeout without telling you anything about the game.
+ */
 export async function focusItem(
   page: Page,
   scene: string,
   id: string,
 ): Promise<void> {
   await item(page, scene, id).waitFor({ state: "attached" });
-  const count = await items(page, scene).count();
-  // Two laps plus slack: the list wraps, so one lap is enough in principle, and
-  // the extra lap absorbs a mirror republish landing between two presses.
-  for (let i = 0; i < count * 2 + 2; i += 1) {
-    const current = await screen(page, scene).getAttribute("data-focus");
-    if (current === id) return;
-    await press(page, "ArrowDown");
+  const ids = await items(page, scene).evaluateAll((nodes) =>
+    nodes.map((n) => n.getAttribute("data-id") ?? ""),
+  );
+  const target = ids.indexOf(id);
+  if (target < 0) {
+    throw new Error(`"${id}" is not on ${scene}`);
   }
-  throw new Error(`could not reach "${id}" on ${scene} with the keyboard alone`);
+  const current = await screen(page, scene).getAttribute("data-focus");
+  const from = current === null ? 0 : Math.max(0, ids.indexOf(current));
+  const n = ids.length;
+  const down = (target - from + n) % n;
+  const up = (from - target + n) % n;
+  if (down <= up) await press(page, "ArrowDown", down);
+  else await press(page, "ArrowUp", up);
+
+  const landed = await screen(page, scene).getAttribute("data-focus");
+  if (landed !== id) {
+    throw new Error(
+      `keyboard navigation landed on "${landed}" instead of "${id}" on ${scene}`,
+    );
+  }
 }

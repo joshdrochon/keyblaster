@@ -73,13 +73,13 @@ const BAND_THIN: readonly [number, number] = [0.04, 0.1];
 const BAND_THICK: readonly [number, number] = [0.17, 0.3];
 
 const NOZZLE_BOTTOM = 178;
-const FIN_TIP = { x: 130, y: 178 };
+const FIN_TIP = { x: 123, y: 150 };
 
 /** The emitter pivots here, at the top of the fixed collar. */
 const PIVOT = { x: 0, y: -160 };
 /** Lens centre relative to PIVOT. */
-const LENS_LOCAL = { x: 0, y: -45 };
-const LENS_R = 35;
+const LENS_LOCAL = { x: 0, y: -50 };
+const LENS_R = 37;
 
 /** Top of the beam head to the bottom of the nozzle bell, in design units. */
 export const LANTERN_DESIGN_HEIGHT = NOZZLE_BOTTOM - (PIVOT.y + LENS_LOCAL.y - LENS_R);
@@ -178,7 +178,7 @@ export function drawLantern(
     exhaust.add(
       scene.add
         .image(0, 236, TEX.glow)
-        .setDisplaySize(210, 300)
+        .setDisplaySize(250, 340)
         .setTint(hexToNum(LENS_GOLD))
         .setAlpha(0.32)
         .setBlendMode(Phaser.BlendModes.ADD),
@@ -195,12 +195,12 @@ export function drawLantern(
         16,
       );
     flame.fillStyle(hexToNum(LENS_GOLD), 0.9);
-    fillShape(flame, plume(27, 128));
+    fillShape(flame, plume(34, 152));
     // Warm, not near-white: an almost-white core vanishes against a light
     // background (and against the transparent reference-compare render), which
     // leaves only the plume's two gold edges and reads as a broken V.
-    flame.fillStyle(hexToNum(mixHex(LENS_GOLD, LENS_HOT, 0.55)), 0.95);
-    fillShape(flame, plume(12, 76));
+    flame.fillStyle(hexToNum(mixHex(LENS_GOLD, LENS_HOT, 0.7)), 0.97);
+    fillShape(flame, plume(17, 98));
     exhaust.add(flame);
     scene.tweens.add({
       targets: flame,
@@ -391,18 +391,18 @@ export function drawLantern(
  * A fin that tapers to a point reads as a dart; the reference ship is friendly.
  */
 const FIN_POINTS: readonly Pt[] = [
-  { x: 44, y: -34 },
-  { x: 78, y: -2 },
-  { x: 96, y: 46 },
-  { x: 114, y: 100 },
-  { x: FIN_TIP.x, y: 150 },
-  { x: 136, y: FIN_TIP.y },
-  { x: 110, y: 189 },
-  { x: 86, y: 181 },
-  { x: 66, y: 165 },
-  { x: 54, y: 139 },
-  { x: 47, y: 92 },
-  { x: 43, y: 22 },
+  { x: 42, y: -16 },
+  { x: 74, y: 12 },
+  { x: 91, y: 58 },
+  { x: 108, y: 106 },
+  { x: FIN_TIP.x, y: FIN_TIP.y },
+  { x: 129, y: 173 },
+  { x: 104, y: NOZZLE_BOTTOM },
+  { x: 81, y: 172 },
+  { x: 62, y: 158 },
+  { x: 51, y: 134 },
+  { x: 44, y: 92 },
+  { x: 41, y: 30 },
 ];
 
 function drawFins(g: Phaser.GameObjects.Graphics, stripe: string): void {
@@ -421,7 +421,7 @@ function drawFins(g: Phaser.GameObjects.Graphics, stripe: string): void {
 
   // Fin star (reference: cream, right fin only).
   g.fillStyle(hexToNum(HULL_LIGHT), 0.95);
-  fillShape(g, starPoints(96, 138, 17, 6.8));
+  fillShape(g, starPoints(92, 132, 16, 6.4));
 }
 
 function drawHull(g: Phaser.GameObjects.Graphics, stripe: string): void {
@@ -554,19 +554,19 @@ function drawMountBase(g: Phaser.GameObjects.Graphics): void {
     g,
     smoothPolygon(
       [
-        { x: -26, y: -136 },
-        { x: -24, y: -156 },
-        { x: -19, y: -168 },
-        { x: 19, y: -168 },
-        { x: 24, y: -156 },
-        { x: 26, y: -136 },
+        { x: -30, y: -136 },
+        { x: -28, y: -157 },
+        { x: -22, y: -170 },
+        { x: 22, y: -170 },
+        { x: 28, y: -157 },
+        { x: 30, y: -136 },
       ],
       6,
     ),
   );
   // Warm machined highlight along the top of the collar.
   g.fillStyle(hexToNum(mixHex(METAL_LIGHT, BRASS, 0.3)), 0.85);
-  g.fillRoundedRect(-20, -167, 40, 6, 3);
+  g.fillRoundedRect(-23, -169, 46, 6, 3);
   // The pivot boss: a visible bearing, so the head reads as mounted, not glued.
   g.fillStyle(hexToNum(METAL), 1);
   g.fillCircle(-11, -150, 7.5);
@@ -583,31 +583,41 @@ function drawMountBase(g: Phaser.GameObjects.Graphics): void {
 function drawYokeAndHousing(g: Phaser.GameObjects.Graphics): void {
   g.clear();
 
-  // Two swept arms from the collar up around the head.
-  for (const side of [-1, 1]) {
-    g.lineStyle(8, hexToNum(METAL_DARK), 1);
+  // A U-shaped CRADLE: one band sweeping under the head and up both sides,
+  // plus a short post each side down to the collar. Two separate thin posts
+  // read as clutter; a cradle reads as a mount holding an instrument.
+  const cradleR = LENS_R + 6;
+  for (const [width, colour, alpha] of [
+    [12, METAL_DARK, 1],
+    [4, mixHex(METAL_LIGHT, BRASS, 0.25), 0.8],
+  ] as const) {
+    g.lineStyle(width, hexToNum(colour), alpha);
     g.beginPath();
-    g.moveTo(side * 18, 8);
-    g.lineTo(side * 33, -10);
-    g.lineTo(side * 37, -32);
-    g.lineTo(side * 30, LENS_LOCAL.y + 4);
+    g.arc(
+      LENS_LOCAL.x,
+      LENS_LOCAL.y,
+      cradleR,
+      Phaser.Math.DegToRad(12),
+      Phaser.Math.DegToRad(168),
+      false,
+    );
     g.strokePath();
-    g.lineStyle(2.5, hexToNum(mixHex(METAL_LIGHT, BRASS, 0.25)), 0.75);
-    g.beginPath();
-    g.moveTo(side * 16, 7);
-    g.lineTo(side * 30, -10);
-    g.lineTo(side * 34, -32);
-    g.lineTo(side * 28, LENS_LOCAL.y + 4);
-    g.strokePath();
+    for (const side of [-1, 1]) {
+      g.beginPath();
+      g.moveTo(side * 20, 8);
+      g.lineTo(side * 38, -14);
+      g.lineTo(side * (cradleR - 10), LENS_LOCAL.y + 14);
+      g.strokePath();
+    }
   }
 
   // Finned heat housing between collar and head.
   g.fillStyle(hexToNum(METAL_DARK), 1);
-  g.fillRoundedRect(-19, -16, 38, 28, 6);
+  g.fillRoundedRect(-23, -16, 46, 28, 7);
   g.fillStyle(hexToNum(METAL), 1);
-  for (let i = 0; i < 4; i++) g.fillRect(-16 + i * 9, -13, 4, 22);
+  for (let i = 0; i < 4; i++) g.fillRect(-19 + i * 11, -13, 5, 22);
   g.fillStyle(hexToNum(mixHex(METAL_LIGHT, BRASS, 0.2)), 0.6);
-  g.fillRoundedRect(-19, -16, 38, 4, 2);
+  g.fillRoundedRect(-23, -16, 46, 4, 2);
 }
 
 /**

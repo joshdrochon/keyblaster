@@ -29,8 +29,12 @@ const BELOW = "BeaconLog";
 
 /** Launch the pause overlay over a live scene, the way Flight's Esc will. */
 async function pauseOver(page: Page, below: string): Promise<void> {
+  // Exactly what the flight lane's Esc handler does: the scene underneath
+  // launches the overlay through its own ScenePlugin.
   await page.evaluate((key) => {
-    (window as any).__kb.game.scene.launch("Pause", { from: key });
+    (window as any).__kb.game.scene
+      .getScene(key)
+      .scene.launch("Pause", { from: key });
   }, below);
   await screen(page, PAUSE).waitFor({ state: "attached" });
   await page.waitForTimeout(120);
@@ -193,10 +197,13 @@ test.describe("row 13 - unlock toasts", () => {
     await seed(page, [{ name: "Ana" }], BELOW);
     const focusBefore = await screen(page, BELOW).getAttribute("data-focus");
 
+    // A short hold: the toast's real dwell is ~3.2 s of SCENE time, and a
+    // throttled headless frame rate makes scene time run far behind the wall
+    // clock. The dismissal mechanism is what is under test, not the number.
     await page.evaluate(() => {
       (window as any).__kb.game.scene
         .getScene("BeaconLog")
-        .raiseToast("trophy earned — first light");
+        .raiseToast("trophy earned — first light", 40);
     });
     await expect(toasts(page)).toHaveCount(1);
     await expect(toasts(page).first()).toContainText("first light");
@@ -208,7 +215,7 @@ test.describe("row 13 - unlock toasts", () => {
     await assertVisibleFocus(page, BELOW);
 
     // Brief: it leaves on its own.
-    await expect(toasts(page)).toHaveCount(0, { timeout: 8000 });
+    await expect(toasts(page)).toHaveCount(0, { timeout: 20000 });
   });
 
   test("a skin toast stacks under a trophy toast", async ({ page }) => {

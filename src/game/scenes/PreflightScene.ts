@@ -164,11 +164,11 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
       depth: 20,
     });
 
-    plate(this, 360, GAME_HEIGHT - 320, 820, 150, { alpha: 0.92 }).setDepth(19);
-    this.lineText = label(this, 396, GAME_HEIGHT - 292, text.text("preflight.line.opening"), {
+    plate(this, 356, GAME_HEIGHT - 300, 700, 112, { alpha: 0.92 }).setDepth(19);
+    this.lineText = label(this, 388, GAME_HEIGHT - 272, text.text("preflight.line.opening"), {
       size: TYPE.body,
       color: INK.text,
-      wrapWidth: 750,
+      wrapWidth: 636,
       lang,
     }).setDepth(20);
 
@@ -215,10 +215,13 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     disc.fillCircle(0, 0, r * 1.4);
     disc.fillStyle(hexToNum(body), 1);
     disc.fillCircle(0, 0, r);
-    disc.fillStyle(hexToNum(mixHex(body, INK.text, 0.24)), 0.6);
-    disc.fillCircle(-r * 0.3, -r * 0.32, r * 0.74);
-    disc.fillStyle(hexToNum(INK.bgDeep), 0.42);
-    disc.fillCircle(r * 0.44, r * 0.36, r * 0.94);
+    disc.fillStyle(hexToNum(mixHex(body, INK.text, 0.24)), 0.55);
+    disc.fillCircle(-r * 0.26, -r * 0.28, r * 0.66);
+    // The night side has to stay INSIDE the disc. An offset circle big enough
+    // to read as a terminator spills past the limb and draws a second planet
+    // beside the first, so the offset plus the radius is kept under 1.0.
+    disc.fillStyle(hexToNum(INK.bgDeep), 0.4);
+    disc.fillCircle(r * 0.22, r * 0.2, r * 0.66);
     this.planet = this.add
       .container(WINDOW.x + WINDOW.w + r * 1.2, WINDOW.y + WINDOW.h * 0.52, [disc])
       .setDepth(2);
@@ -237,7 +240,7 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     frame.lineStyle(3, hexToNum(mixHex(accent, INK.text, 0.45)), 0.45);
     frame.strokeRoundedRect(WINDOW.x, WINDOW.y, WINDOW.w, WINDOW.h, WINDOW.r);
     frame.fillStyle(hexToNum(INK.panelRaised), 0.9);
-    frame.fillRect(WINDOW.x + WINDOW.w * 0.5 - 8, WINDOW.y, 16, WINDOW.h);
+    frame.fillRect(WINDOW.x + WINDOW.w * 0.38 - 8, WINDOW.y, 16, WINDOW.h);
   }
 
   private drawRows(): void {
@@ -261,8 +264,11 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     const x = ROW.x + 64;
     const g = row.lamp;
     g.clear();
+    // A lit system is cool instrument blue, not the stop accent. Three coral
+    // rings in a column read as warning lamps however the palette justifies
+    // the hue, and nothing on this screen may read as an alarm (D31).
     const colour =
-      row.state === "lit" ? pal.accent : row.state === "active" ? INK.accentSoft : INK.locked;
+      row.state === "lit" ? INK.lit : row.state === "active" ? INK.accentSoft : INK.locked;
     const breathe = row.state === "active" ? 0.6 + Math.sin(time / 260) * 0.35 : 1;
     if (row.state !== "dark") {
       g.fillStyle(hexToNum(colour), 0.18 * breathe);

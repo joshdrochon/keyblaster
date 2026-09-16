@@ -63,6 +63,36 @@ function walk(dir, out = []) {
  * trains people to ignore it. String literals are deliberately KEPT: a literal
  * "email" in code usually is a field name.
  */
+
+/**
+ * Judge verdicts (architecture 10.1 step 4). A reference-compare item cannot be
+ * auto-passed; it passes only when an agent has opened both images and written
+ * a verdict here citing the render and the round.
+ *
+ * The verdict is bound to the BYTES of the render it judged. Re-render the art
+ * and the verdict stops applying, because the thing that was judged no longer
+ * exists. That is what stops a stale pass from outliving the work it approved.
+ */
+function judgeVerdict(repo, id, renderPath) {
+  const p = join(repo, "gauntlet/judge-verdicts.json");
+  if (!existsSync(p)) return null;
+  let all;
+  try {
+    all = JSON.parse(readFileSync(p, "utf8"));
+  } catch {
+    return null;
+  }
+  const v = all[id];
+  if (!v || v.verdict !== "pass") return null;
+  const abs = join(repo, renderPath);
+  if (!existsSync(abs)) return null;
+  const bytes = statSync(abs).size;
+  if (typeof v.renderBytes === "number" && v.renderBytes !== bytes) {
+    return { stale: true, judgedBytes: v.renderBytes, currentBytes: bytes };
+  }
+  return { ...v, bytes };
+}
+
 function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
 }
@@ -372,9 +402,11 @@ const reference = [
     run: async ({ repo, evidence }) => {
       const ref = join(repo, "design-reference/refs/lantern-topdown.png");
       if (!existsSync(ref)) return bad("reference image missing from design-reference/refs/");
-      return evidence.has("lantern-render.png")
-        ? { status: STATUS.FAIL, detail: "render exists; side-by-side must be judged by the judge step, never auto-passed", evidence: "gauntlet/evidence/lantern-render.png", needsJudge: true }
-        : todo("Lantern vector not drawn yet; no lantern-render.png");
+      if (!evidence.has("lantern-render.png")) return todo("Lantern vector not drawn yet; no lantern-render.png");
+      const v = judgeVerdict(repo, "R-lantern", "gauntlet/evidence/lantern-render.png");
+      if (!v) return { status: STATUS.FAIL, detail: "render exists but no judge verdict recorded; a reference compare is never auto-passed (D85)", evidence: "gauntlet/evidence/lantern-render.png" };
+      if (v.stale) return { status: STATUS.FAIL, detail: `judge verdict is stale: it approved a ${v.judgedBytes}-byte render, current is ${v.currentBytes}. Re-judge.`, evidence: "gauntlet/evidence/lantern-render.png" };
+      return ok(`judged round ${v.round}: ${v.basis}${v.residual ? " | residual: " + v.residual : ""}`, "gauntlet/judge-notes.md");
     },
   },
   {
@@ -387,9 +419,11 @@ const reference = [
     run: async ({ repo, evidence }) => {
       const ref = join(repo, "design-reference/refs/shadow-sheet.png");
       if (!existsSync(ref)) return bad("reference image missing from design-reference/refs/");
-      return evidence.has("shadow-render.png")
-        ? { status: STATUS.FAIL, detail: "render exists; side-by-side must be judged by the judge step, never auto-passed", evidence: "gauntlet/evidence/shadow-render.png", needsJudge: true }
-        : todo("Shadow vector not drawn yet; no shadow-render.png");
+      if (!evidence.has("shadow-render.png")) return todo("Shadow vector not drawn yet; no shadow-render.png");
+      const v = judgeVerdict(repo, "R-shadow", "gauntlet/evidence/shadow-render.png");
+      if (!v) return { status: STATUS.FAIL, detail: "render exists but no judge verdict recorded; a reference compare is never auto-passed (D85)", evidence: "gauntlet/evidence/shadow-render.png" };
+      if (v.stale) return { status: STATUS.FAIL, detail: `judge verdict is stale: it approved a ${v.judgedBytes}-byte render, current is ${v.currentBytes}. Re-judge.`, evidence: "gauntlet/evidence/shadow-render.png" };
+      return ok(`judged round ${v.round}: ${v.basis}${v.residual ? " | residual: " + v.residual : ""}`, "gauntlet/judge-notes.md");
     },
   },
 ];

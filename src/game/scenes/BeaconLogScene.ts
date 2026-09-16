@@ -104,12 +104,10 @@ export class BeaconLogScene extends MenuScene {
       // beacon screen cannot drift apart. `ok: false` is the calibrating path -
       // a broken device clock must not print "NaN" at a child.
       const readout = lit ? beaconReadout(stopId, new Date(at)) : null;
-      const detail =
-        readout === null
-          ? this.t.t("ui.log.notLit")
-          : readout.ok
-            ? readout.coordsLine
-            : this.t.t("ui.log.notLit");
+      const hasCoords = readout !== null && readout.ok;
+      const detail = hasCoords
+        ? readout.coordsLine
+        : this.t.t("ui.log.notLit");
 
       const row = new ListRow(
         this,
@@ -123,6 +121,7 @@ export class BeaconLogScene extends MenuScene {
           detail,
           width: colW,
           role: "listitem",
+          detailChrome: !hasCoords,
           locked: !lit,
           glyphSize: 78,
           glyph: (scene, gx, gy) =>

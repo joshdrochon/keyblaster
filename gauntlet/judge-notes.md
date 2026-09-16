@@ -84,3 +84,34 @@ has one look, per D91.
 Items 1-3 are the character. Do those and re-render before the rest.
 
 Attempt 1 of 8.
+
+---
+
+## R-lantern — round 3 — PASS
+
+- **Render:** `gauntlet/evidence/lantern-render.png` (165,037 bytes, transparent)
+- **Verdict:** matches the reference. Recorded in `gauntlet/judge-verdicts.json`,
+  bound to the render's byte size so a re-render invalidates it.
+
+The lane stopped guessing and built a harness that decodes both PNGs and
+measures ship 1 in each. Every ratio is to fuselage width at the porthole row:
+
+| Measure | Reference | Round 2 | Round 3 |
+|---|---|---|---|
+| Fin span | 1.57x | 1.66x | **1.57x** |
+| Fin-widest row (% ship height) | 72% | 76% | **70%** |
+| Head assembly width | 0.565x | 0.492x | **0.570x** |
+| Neck width below lens | 0.542x | 0.484x | **0.547x** |
+| Lens bottom to hull top | 0.75 radii | 0.94 | **0.77** |
+
+Silhouette, nosecone, capsule profile, livery, gunmetal emitter, three focusing
+rings, nozzle and fin star all match. D89 satisfied: the emitter reads as
+engineered tech - lens, iris, three rings, finned housing, pivot mount - and not
+as a headlight, with no gun barrel anywhere.
+
+**Residual, logged as a follow-up rather than a blocker:** the exhaust flame is
+a sharp hollow chevron where the reference is a solid, soft-edged tapering cone.
+It is a small change in one function and does not touch the ship silhouette this
+item exists to check, so it should not hold the item at FAIL for a fourth round.
+
+Passed at attempt 3 of 8.

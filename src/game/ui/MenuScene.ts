@@ -275,10 +275,11 @@ export abstract class MenuScene extends Phaser.Scene {
    * the reduced-motion flag so a caller inside the menu lane cannot get them
    * out of step with the screen they are drawn over.
    */
-  raiseToast(message: string): void {
+  raiseToast(message: string, holdMs?: number): void {
     showToast(this, message, {
       style: this.uiStyle,
       reducedMotion: this.reducedMotion,
+      ...(holdMs === undefined ? {} : { holdMs }),
     });
   }
 

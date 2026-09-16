@@ -10,14 +10,22 @@ import { fileURLToPath } from "node:url";
  * `gauntlet/evidence/shadow-render.png` and then REFUSES to auto-pass: the
  * judge places it beside `design-reference/refs/shadow-sheet.png` and either
  * calls the match or lists concrete differences. So this test's job is to hand
- * the judge the fairest possible comparison, which means:
+ * the judge the fairest possible comparison:
  *
  *   - Shadow alone, nothing else on screen, no UI, no scene chrome;
  *   - one large figure for silhouette, proportion and detail, plus all six
- *     poses at the size the sheet draws them, so AC-25.2 is visible in the
- *     same image;
- *   - the sheet's pale-blue field as the background, so the two images are
- *     compared under the same light rather than one on black.
+ *     poses big enough to read, so AC-25.2 is visible in the same image;
+ *   - a TRANSPARENT background, not a coloured field. A field either flatters
+ *     or fights the figure depending on what it is, and the same PNG feeds the
+ *     desaturated-silhouette comparison later, where a background would be
+ *     counted as part of the shape.
+ *
+ * WHY A SECOND Phaser.Game. `bootGame` builds its context with
+ * `transparent: false`, so that canvas has no alpha channel and can never
+ * screenshot transparent; `game.config` is read at construction, so there is
+ * nothing to toggle afterwards. A second game with `transparent: true` is the
+ * only way to get an alpha-backed canvas, and Phaser's constructor is
+ * reachable through the booted game without importing Phaser into a Node file.
  *
  * The scene is built here, in the test, rather than shipped: a pose sheet is
  * evidence, not a screen, and it has no screen-inventory row (D78).
@@ -26,13 +34,12 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 const EVIDENCE = resolve(HERE, "../../gauntlet/evidence");
-const SHEET_KEY = "ShadowSheet";
-
-/** The sheet's own field colour, so the side-by-side is lit the same way. */
-const FIELD = "#7EC8F5";
 
 /** Served by the Vite dev server; resolved in the browser, never by tsc. */
 const SHADOW_MODULE = "/src/game/render/shadow.ts";
+
+const SHEET_W = 1920;
+const SHEET_H = 1080;
 
 test("R-shadow / AC-25.2 renders all six poses and writes shadow-render.png", async ({
   page,
@@ -42,7 +49,7 @@ test("R-shadow / AC-25.2 renders all six poses and writes shadow-render.png", as
   await page.waitForFunction(() => window.__kb !== undefined, null, { timeout: 20_000 });
 
   const poses = await page.evaluate(
-    async ({ key, field, modPath }) => {
+    async ({ modPath, w, h }) => {
       // The specifier is a variable so TypeScript treats it as an opaque
       // runtime path: it is a Vite dev-server URL, not a module tsc can see.
       const mod = (await import(/* @vite-ignore */ modPath)) as {
@@ -57,42 +64,54 @@ test("R-shadow / AC-25.2 renders all six poses and writes shadow-render.png", as
       };
       const kb = window.__kb as unknown as {
         game: {
-          scene: {
-            getScenes(active: boolean): { scene: { stop(): void } }[];
-            add(key: string, config: unknown, autoStart: boolean): void;
-            getScene(key: string): unknown;
-          };
+          constructor: new (config: unknown) => unknown;
+          scene: { getScenes(active: boolean): { scene: { stop(): void } }[] };
+          canvas: HTMLCanvasElement;
         };
       };
+
+      // Quiet the real game and clear the page, so nothing but the sheet is
+      // captured and omitBackground has a transparent page to work with.
       for (const active of kb.game.scene.getScenes(true)) active.scene.stop();
+      kb.game.canvas.style.display = "none";
+      document.documentElement.style.background = "transparent";
+      document.body.style.background = "transparent";
+
+      const host = document.createElement("div");
+      host.id = "shadow-sheet";
+      host.style.cssText = "position:fixed;inset:0;background:transparent";
+      document.body.appendChild(host);
 
       const figures: { update(t: number): void }[] = [];
-      const W = 1920;
-      const H = 1080;
-
-      kb.game.scene.add(
-        key,
-        {
-          create(this: { cameras: { main: { setBackgroundColor(c: string): void } } }) {
-            this.cameras.main.setBackgroundColor(field);
-            // The hero: one Shadow, large, dead centre of the upper half.
-            figures.push(mod.drawShadow(this, W * 0.5, H * 0.3, "idle", { scale: 1.7 }));
-            // The six poses, in the sheet's own order.
+      const Game = kb.game.constructor;
+      const sheet = new Game({
+        // Phaser.AUTO is 0; the enum is not reachable without importing Phaser.
+        type: 0,
+        width: w,
+        height: h,
+        parent: host.id,
+        transparent: true,
+        antialias: true,
+        scene: {
+          create(this: unknown) {
+            // The hero: one Shadow, large, for silhouette and detail.
+            figures.push(mod.drawShadow(this, w * 0.5, h * 0.3, "idle", { scale: 2.5 }));
+            // The six poses, in the sheet's own order, big enough to read.
             const n = mod.SHADOW_POSES.length;
             mod.SHADOW_POSES.forEach((pose, i) => {
-              const x = (W / (n + 1)) * (i + 1);
-              figures.push(mod.drawShadow(this, x, H * 0.76, pose, { scale: 0.78 }));
+              const x = (w / (n + 1)) * (i + 1);
+              figures.push(mod.drawShadow(this, x, h * 0.78, pose, { scale: 1.3 }));
             });
           },
           update(time: number) {
             for (const f of figures) f.update(time);
           },
         },
-        true,
-      );
+      });
+      (window as unknown as Record<string, unknown>)["__kbSheet"] = sheet;
       return mod.SHADOW_POSES;
     },
-    { key: SHEET_KEY, field: FIELD, modPath: SHADOW_MODULE },
+    { modPath: SHADOW_MODULE, w: SHEET_W, h: SHEET_H },
   );
 
   // AC-25.2: six poses, and the sheet's bottom-row colourways are not among
@@ -106,19 +125,14 @@ test("R-shadow / AC-25.2 renders all six poses and writes shadow-render.png", as
     "saluting",
   ]);
 
-  await page.waitForFunction(
-    (k) => {
-      const s = window.__kb?.game.scene.getScene(k) as
-        | { scene: { isActive(): boolean } }
-        | null;
-      return s?.scene.isActive() === true;
-    },
-    SHEET_KEY,
-    { timeout: 10_000 },
-  );
+  const canvas = page.locator("#shadow-sheet canvas");
+  await canvas.waitFor({ state: "visible", timeout: 20_000 });
   // Let the hover bob and the face-plate pulse settle somewhere flattering.
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(900);
 
   mkdirSync(EVIDENCE, { recursive: true });
-  await page.locator("canvas").screenshot({ path: `${EVIDENCE}/shadow-render.png` });
+  await canvas.screenshot({
+    path: `${EVIDENCE}/shadow-render.png`,
+    omitBackground: true,
+  });
 });

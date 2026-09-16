@@ -5,9 +5,10 @@ import {
   PUNISHING_WORDS,
   readsAsRed,
   restartScene,
-  settle,
   snap,
   texts,
+  waitForTweens,
+  waitForSnapshot,
 } from "./support/lane";
 
 /**
@@ -77,6 +78,7 @@ type ResultsSnapshot = {
   bestWpm: number;
   optedIn: boolean;
   promptShown: boolean;
+  promptAnswered: boolean;
   boardRows: { label: string; wpm: number; isYou: boolean }[];
   rendered: string[];
   focusIndex: number;
@@ -163,7 +165,11 @@ async function seed(page: Page, fixture: Seed): Promise<void> {
     progress,
     relativeBoard: fixture.relativeBoard ?? [],
   });
-  await settle(page, 700);
+  // The entrance tweens have to finish before `texts()` can be trusted: a
+  // marker still fading in is below the visibility floor and would read as
+  // absent, which is exactly what several of these tests assert about.
+  await waitForSnapshot(page, "results", "stopId", fixture.stopId);
+  await waitForTweens(page, "Results");
 }
 
 const CLEAN_TALLY = {
@@ -407,7 +413,7 @@ test("D43 the relative board is opt-in, default off, with a calm first-time prom
   expect(before).not.toContain("Omar");
 
   await page.keyboard.press("Enter");
-  await settle(page, 500);
+  await waitForSnapshot(page, "results", "optedIn", true);
 
   const on = await snap<ResultsSnapshot>(page, "results");
   expect(on.optedIn).toBe(true);
@@ -459,11 +465,15 @@ test("D43 declining the board leaves it off and shows no pilots", async ({ page 
 
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
-  await settle(page, 500);
+  await waitForSnapshot(page, "results", "promptAnswered", true);
 
   const s = await snap<ResultsSnapshot>(page, "results");
   expect(s.optedIn).toBe(false);
-  expect((await texts(page, "results")).join(" ")).not.toContain("Ivy");
+  // "Not now" means not now: the panel goes away rather than asking again.
+  expect(s.rendered).toContain("board-declined");
+  const seen = (await texts(page, "results")).join(" ");
+  expect(seen).not.toContain("Ivy");
+  expect(seen).not.toContain("show nearby pilots");
 });
 
 test("AC-18.1 Results is operable with the keyboard alone and shows focus", async ({

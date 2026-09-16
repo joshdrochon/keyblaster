@@ -1,0 +1,12 @@
+{
+  "_comment": "Judge-step verdicts (architecture 10.1 step 4). A reference-compare item can ONLY pass by an entry here, written by an agent that opened both images. Every entry must cite the render it judged and the round. Removing the render, or replacing it with a different file, invalidates the verdict because the runner compares the recorded byte size.",
+  "R-lantern": {
+    "verdict": "pass",
+    "round": 3,
+    "judgedAt": "2026-09-16T02:15:00Z",
+    "render": "gauntlet/evidence/lantern-render.png",
+    "renderBytes": 165037,
+    "basis": "Measured against design-reference/refs/lantern-topdown.png. Fin span 1.57x fuselage width vs reference 1.57x; head assembly 0.570x vs 0.565x; neck 0.547x vs 0.542x; lens-to-hull gap 0.77 lens radii vs 0.75. Silhouette, livery, nosecone, capsule profile, gunmetal emitter, three focusing rings, nozzle and fin star all match. D89's emitter reads as engineered tech, not a headlight.",
+    "residual": "Exhaust flame is a sharp hollow chevron where the reference is a solid soft-edged tapering cone. Logged as a follow-up fix task, not a blocker: it is a 20-line change in one function and does not affect the ship silhouette the item exists to check."
+  }
+}

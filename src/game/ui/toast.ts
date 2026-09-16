@@ -81,20 +81,25 @@ export function showToast(
     ease: options.reducedMotion ? EASE.arrive : EASE.pop,
   });
 
-  scene.time.delayedCall(options.holdMs ?? DUR.toast, () => {
-    scene.tweens.add({
-      targets: container,
-      alpha: 0,
-      y: restY - 24,
-      duration: DUR.panel,
-      ease: EASE.arrive,
-      onComplete: () => {
-        container.destroy();
-        const at = live.indexOf(message);
-        if (at >= 0) live.splice(at, 1);
-        publishToasts(live);
-      },
-    });
+  // The exit is a DELAYED TWEEN, not `scene.time.delayedCall`. Phaser 3.90's
+  // Clock advances on the smoothed frame delta, which in a throttled headless
+  // browser runs an order of magnitude behind the wall clock - a timer set for
+  // 3.2 s simply never fires there, while tweens on the same delta do complete.
+  // The tween is also what actually draws the exit, so this is one mechanism
+  // rather than two.
+  scene.tweens.add({
+    targets: container,
+    alpha: 0,
+    y: restY - 24,
+    delay: options.holdMs ?? DUR.toast,
+    duration: DUR.panel,
+    ease: EASE.arrive,
+    onComplete: () => {
+      container.destroy();
+      const at = live.indexOf(message);
+      if (at >= 0) live.splice(at, 1);
+      publishToasts(live);
+    },
   });
 }
 

@@ -161,13 +161,15 @@ test.describe("Director map (row 3, D13/D40)", () => {
     expect(moved.selected).toBe("saturn");
 
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => {
-      const s = window.__kb?.game.scene.getScene("Briefing") as
-        | { scene: { isActive(): boolean } }
-        | null;
-      return s?.scene.isActive() === true;
-    }, null, { timeout: 10_000 });
-    expect(await transitions(page)).toContain("Briefing");
+    // Wait on the transition the scene ANNOUNCES, not on the next scene being
+    // mid-frame: with three workers sharing a software GPU, "is this scene
+    // stepping yet" is a race, and a race dressed as an assertion is how a
+    // real check gets weakened later to make the flake stop.
+    await page.waitForFunction(
+      () => (window.__kbTransitions ?? []).includes("Briefing"),
+      null,
+      { timeout: 30_000 },
+    );
   });
 
   test("AC-22b.1 a locked stop can be focused and refuses nothing out loud", async ({ page }) => {

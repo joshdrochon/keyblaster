@@ -102,7 +102,7 @@ export async function activeScenes(page: Page): Promise<string[]> {
 export async function waitForScene(
   page: Page,
   sceneKey: string,
-  timeout = 5000,
+  timeout = 20_000,
 ): Promise<void> {
   await page.waitForFunction(
     (key) => {
@@ -112,6 +112,66 @@ export async function waitForScene(
       return game.scene.getScenes(true).some((s) => s.scene.key === key);
     },
     sceneKey,
+    { timeout },
+  );
+}
+
+/**
+ * Wait until every one-shot tween in a scene has finished.
+ *
+ * Headless Chromium renders this game at roughly a quarter of real speed, so a
+ * 260 ms entrance tween can take well over a second of wall clock. Sleeping for
+ * "long enough" is therefore a guess that gets slower and flakier as the scenes
+ * grow; waiting on the tween manager is exact. Looping tweens (a blinking
+ * beacon, a breathing glow) are ignored, because they never finish by design.
+ */
+export async function waitForTweens(
+  page: Page,
+  sceneKey: string,
+  timeout = 20_000,
+): Promise<void> {
+  await page.waitForFunction(
+    (key) => {
+      const game = (window as unknown as { __kb: Record<string, unknown> }).__kb[
+        "game"
+      ] as {
+        scene: {
+          getScene(k: string): {
+            tweens: {
+              getTweens(): { repeat?: number; loop?: number; isPlaying(): boolean }[];
+            };
+          };
+        };
+      };
+      const list = game.scene.getScene(key).tweens.getTweens();
+      return list.every(
+        (t) => t.repeat === -1 || t.loop === -1 || !t.isPlaying(),
+      );
+    },
+    sceneKey,
+    { timeout },
+  );
+}
+
+/** Wait until a scene's snapshot satisfies a predicate written as source. */
+export async function waitForSnapshot(
+  page: Page,
+  bagName: string,
+  field: string,
+  expected: unknown,
+  timeout = 20_000,
+): Promise<void> {
+  await page.waitForFunction(
+    ([name, key, want]) => {
+      const entry = (window as unknown as { __kb: Record<string, unknown> }).__kb[
+        name as string
+      ] as { snapshot: () => Record<string, unknown> } | undefined;
+      if (entry === undefined) return false;
+      return (
+        JSON.stringify(entry.snapshot()[key as string]) === JSON.stringify(want)
+      );
+    },
+    [bagName, field, expected] as [string, string, unknown],
     { timeout },
   );
 }

@@ -19,16 +19,41 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Traces off for THIS file only.
+ * TEMPORARY: traces off for this file. Remove when the note below is actioned.
  *
- * playwright.config.ts sets `trace: "retain-on-failure"` and every lane's suite
- * shares one `test-results/` directory. While lanes run concurrently a second
- * run clears that directory mid-flight and `browserContext.close` then dies on
- * ENOENT writing its trace - the assertions have already passed. Until the
- * config gives each run its own outputDir (not this lane's file to change),
- * dropping the trace is what keeps a green suite green.
+ * `playwright.config.ts` now gives each invocation its own `outputDir`, but
+ * three lane configs at the repo root - `pw.lane-flight.config.ts`,
+ * `pw.lane.tmp.config.ts`, `pw.story.config.ts` - set no `outputDir` at all, so
+ * they default to `test-results/` ITSELF. Playwright clears its outputDir when a
+ * run starts, so any of those three wipes the whole tree including another
+ * run's per-invocation subdirectory. The victim run then dies in
+ * `browserContext.close` with ENOENT writing its trace - AFTER its assertions
+ * have passed, which is what makes it look like a flaky test.
+ *
+ * The fix is one line in each of those three configs (the same
+ * `outputDir: path.join("test-results", runId)` the main config uses). Once
+ * they have it, delete this `test.use` and the traces come back.
  */
 test.use({ trace: "off" });
+
+/**
+ * One WebGL context at a time for this file.
+ *
+ * `fullyParallel: true` spreads these eight tests across eight workers, each
+ * booting its own Phaser WebGL canvas. Eight live contexts on one GPU - plus
+ * whatever other lanes are running - starve the render loop, and a test that
+ * measures ANIMATION then fails on a machine that is merely busy. Running the
+ * file in one worker costs a few seconds and removes the whole class of
+ * false failure. `default` rather than `serial` on purpose: one test failing
+ * must not skip the rest, because each writes a different evidence artifact.
+ */
+test.describe.configure({
+  mode: "default",
+  // 30 s (the default) is not enough for a suite that deliberately waits out
+  // two seconds of real animation per test; alone these run in ~20 s, and a
+  // loaded machine pushes them past the limit.
+  timeout: 150_000,
+});
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const EVIDENCE = join(REPO, "gauntlet", "evidence");
@@ -59,7 +84,7 @@ async function freezeReloads(page: Page): Promise<void> {
 
 /** A frame of the game. Viewport-level, so an HMR swap cannot detach it. */
 async function frame(page: Page): Promise<Buffer> {
-  return page.screenshot();
+  return page.screenshot({ timeout: 60_000 });
 }
 
 /** Game-clock reading, in ms. */
@@ -90,7 +115,7 @@ async function advanceGameTime(page: Page, ms: number): Promise<void> {
       return t.motion().elapsedMs - start >= span;
     },
     [from, ms] as [number, number],
-    { timeout: 20_000 },
+    { timeout: 60_000 },
   );
 }
 
@@ -388,7 +413,10 @@ test("AC-24.2 the vector Lantern renders for the reference compare", async ({ pa
   await page.waitForTimeout(600);
 
   // Filename is fixed by rubric.mjs item R-lantern.
-  writeEvidence("lantern-render.png", await page.screenshot({ omitBackground: true }));
+  writeEvidence(
+    "lantern-render.png",
+    await page.screenshot({ omitBackground: true, timeout: 60_000 }),
+  );
 });
 
 test("no UI string is missing from the active language table", async ({ page }) => {

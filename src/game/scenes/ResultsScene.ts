@@ -107,6 +107,8 @@ export class ResultsScene extends Phaser.Scene {
   private isNewBest = false;
   private optedIn = false;
   private promptShown = false;
+  /** True once the player has answered the one-time prompt, either way. */
+  private promptAnswered = false;
   private boardParts: Phaser.GameObjects.GameObject[] = [];
   private rendered: string[] = [];
 
@@ -119,6 +121,7 @@ export class ResultsScene extends Phaser.Scene {
     this.boardParts = [];
     this.rendered = [];
     this.promptShown = false;
+    this.promptAnswered = false;
   }
 
   create(): void {
@@ -152,12 +155,6 @@ export class ResultsScene extends Phaser.Scene {
     hud.add(this.buildPersonalBest());
     hud.add(this.buildFasterWords());
     hud.add(this.buildRetention());
-    hud.add(
-      plate(this, BOARD.x, BOARD.y, BOARD.w, BOARD.h, {
-        fill: INK.panel,
-        stroke: INK.line,
-      }),
-    );
 
     this.shadow = drawShadow(this, 1830, 940, this.results.stars === 3 ? "cheering" : "idle", {
       scale: 0.7,
@@ -456,6 +453,13 @@ export class ResultsScene extends Phaser.Scene {
   // Relative board (D43) and the buttons, which share a focus list
   // -------------------------------------------------------------------------
 
+  /**
+   * The board panel, the one-time prompt, or nothing at all.
+   *
+   * "Not now" means NOT NOW: the panel disappears rather than asking again on
+   * the same screen. A prompt that reappears after being declined is not
+   * opt-in, it is nagging, and D43 asks for one calm prompt.
+   */
   private renderBoard(): void {
     for (const part of this.boardParts) part.destroy();
     this.boardParts = [];
@@ -465,8 +469,20 @@ export class ResultsScene extends Phaser.Scene {
     const x = BOARD.x + 40;
     const y = BOARD.y + 44;
     const targets: FocusTarget[] = [];
+    const showPanel = this.optedIn || !this.promptAnswered;
 
-    if (!this.optedIn) {
+    if (showPanel) {
+      this.boardParts.push(
+        plate(this, BOARD.x, BOARD.y, BOARD.w, BOARD.h, {
+          fill: INK.panel,
+          stroke: INK.line,
+        }),
+      );
+    } else {
+      this.mark("board-declined");
+    }
+
+    if (!this.optedIn && !this.promptAnswered) {
       this.promptShown = true;
       this.mark("board-prompt");
       this.boardParts.push(
@@ -488,7 +504,7 @@ export class ResultsScene extends Phaser.Scene {
           this.setOptIn(false),
         ),
       );
-    } else {
+    } else if (this.optedIn) {
       this.mark("board");
       this.boardParts.push(
         label(this, x, y, this.lane.copy.text("results.boardHeading"), {
@@ -585,6 +601,7 @@ export class ResultsScene extends Phaser.Scene {
 
   private setOptIn(optedIn: boolean): void {
     this.optedIn = optedIn;
+    this.promptAnswered = true;
     this.initData?.onRelativeBoardOptIn?.(optedIn);
     // Persist the choice where the profile lives; D43 says the board is opt-in,
     // which is only true if "not now" is remembered too.
@@ -649,6 +666,7 @@ export class ResultsScene extends Phaser.Scene {
       bestWpm: this.stopProgress.bestWpm,
       optedIn: this.optedIn,
       promptShown: this.promptShown,
+      promptAnswered: this.promptAnswered,
       boardRows: relativeWindow(this.initData?.relativeBoard ?? []).map((row) => ({
         label: row.isYou ? this.lane.copy.text("results.boardYou") : row.label,
         wpm: row.wpm,

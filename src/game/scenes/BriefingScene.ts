@@ -89,14 +89,14 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     this.drawPage(pal.accent);
 
     // --- Shadow, present and out of the way -------------------------------
-    this.shadow = drawShadow(this, 168, GAME_HEIGHT - 168, "idle", {
-      scale: 0.78,
+    this.shadow = drawShadow(this, 176, GAME_HEIGHT - 116, "idle", {
+      scale: 0.84,
       reducedMotion: ctx.reducedMotion,
       depth: 20,
     });
 
     // --- one button -------------------------------------------------------
-    const btn = { w: 380, h: 96, x: WINDOW.x + WINDOW.w / 2 - 190, y: GAME_HEIGHT - 236 };
+    const btn = { w: 380, h: 92, x: WINDOW.x + WINDOW.w / 2 - 190, y: GAME_HEIGHT - 176 };
     plate(this, btn.x, btn.y, btn.w, btn.h, {
       fill: INK.panelRaised,
       stroke: INK.accent,
@@ -109,7 +109,7 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     })
       .setOrigin(0.5)
       .setDepth(22);
-    label(this, btn.x + btn.w / 2, btn.y + btn.h + 26, text.text("briefing.hint"), {
+    label(this, btn.x + btn.w / 2, btn.y + btn.h + 14, text.text("briefing.hint"), {
       size: TYPE.caption,
       color: INK.textFaint,
       align: "center",
@@ -165,11 +165,11 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
 
     // Instrument shelf: quiet, unlabelled, no readouts a child could fail.
     g.fillStyle(hexToNum(INK.panel), 1);
-    g.fillRoundedRect(WINDOW.x - 30, WINDOW.y + WINDOW.h + 34, WINDOW.w + 60, 92, SPACE.radius);
+    g.fillRoundedRect(WINDOW.x - 30, WINDOW.y + WINDOW.h + 24, WINDOW.w + 60, 76, SPACE.radius);
     for (let i = 0; i < 9; i += 1) {
       const lit = i % 3 === 0;
       g.fillStyle(hexToNum(lit ? accent : INK.line), lit ? 0.75 : 1);
-      g.fillCircle(WINDOW.x + 30 + i * 92, WINDOW.y + WINDOW.h + 80, 11);
+      g.fillCircle(WINDOW.x + 30 + i * 92, WINDOW.y + WINDOW.h + 62, 11);
     }
   }
 
@@ -205,10 +205,10 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
 
     // 3-5 sentences, each its own block so the rag never fights the next one.
     let y = PAGE.y + 200;
-    const wrapWidth = PAGE.w - 140;
+    const wrapWidth = PAGE.w - 132;
     for (const sentence of this.bundle.briefing) {
       const t = label(this, PAGE.x + 72, y, sentence, {
-        size: 32,
+        size: 36,
         color: INK.text,
         wrapWidth,
         lang,

@@ -200,8 +200,13 @@ export function skyAt(travel: SkyTravel, progress: number): SkyStops {
 
 const POOLS: Readonly<Record<StopId, readonly string[]>> = {
   earth: ["launch"],
+  // "win"/"wind" is deliberate: the D25 shared-prefix tier (AC-2.2) can only
+  // ever fire if some stop's pool contains a word that is a proper prefix of
+  // another, and a pool with no such pair makes the whole parked-word path
+  // unreachable. The content lane should keep one pair per pool for the same
+  // reason.
   mars: [
-    "red", "dust", "rock", "wind", "cold", "ice", "land", "moon", "sky",
+    "red", "dust", "rock", "win", "wind", "cold", "ice", "land", "moon", "sky",
     "water", "rivers", "empty", "valley", "storm", "crater", "planet",
     "orbit", "quiet", "giant", "north",
   ],

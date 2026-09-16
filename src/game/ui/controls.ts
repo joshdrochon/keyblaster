@@ -206,6 +206,12 @@ export interface ListRowOptions {
   ) => Phaser.GameObjects.Container;
   readonly glyphSize?: number;
   readonly role?: MirrorRole;
+  /**
+   * False when the detail line is DATA rather than copy - a beacon's
+   * "λ 214.6°  β −1.2°  r 1.52 AU" is a measurement in the D81 format, and the
+   * letter-case setting must not rewrite its units to "au".
+   */
+  readonly detailChrome?: boolean;
 }
 
 /**
@@ -260,6 +266,7 @@ export class ListRow extends Control {
             uppercase: style.uppercase,
             increasedLetterSpacing: style.increasedLetterSpacing,
             wrapWidth: textWidth,
+            chrome: options.detailChrome ?? true,
           });
 
     const textHeight =

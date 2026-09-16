@@ -258,8 +258,10 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       disc.fillCircle(x, ROUTE_Y, NODE_R + 8);
       disc.fillStyle(hexToNum(body), 1);
       disc.fillCircle(x, ROUTE_Y, NODE_R);
+      // Offset + radius stays under 1.0 so the night side cannot spill past
+      // the limb and draw a second, larger disc behind the planet.
       disc.fillStyle(hexToNum(shade), 0.55);
-      disc.fillCircle(x + NODE_R * 0.34, ROUTE_Y + NODE_R * 0.28, NODE_R * 0.92);
+      disc.fillCircle(x + NODE_R * 0.22, ROUTE_Y + NODE_R * 0.2, NODE_R * 0.66);
       disc.lineStyle(3, hexToNum(locked ? INK.line : pal.accent), locked ? 0.7 : 0.95);
       disc.strokeCircle(x, ROUTE_Y, NODE_R);
 

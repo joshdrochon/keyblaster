@@ -138,8 +138,10 @@ export class PauseScene extends MenuScene {
    */
   private openSettings(): void {
     if (this.scene.get(SCENE_KEYS.settings) === null) return;
-    this.scene.sleep();
+    // Launch BEFORE sleeping: a sleeping scene's ScenePlugin no longer runs its
+    // queued operations, so sleeping first swallows the launch.
     this.scene.launch(SCENE_KEYS.settings, { returnTo: SCENE_KEYS.pause });
+    this.scene.sleep();
   }
 
   /**

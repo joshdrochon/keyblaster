@@ -8,10 +8,10 @@ import {
   inks,
   PUNISHING_WORDS,
   readsAsRed,
-  settle,
   snap,
-  waitForScene,
   texts,
+  waitForScene,
+  waitForSnapshot,
 } from "./support/lane";
 
 /**
@@ -103,6 +103,7 @@ test("AC-17.0 the beacon prints the D81 coordinate format plus one pulsar-fix li
 test("AC-17.1 the scene prints the engine's coordinates verbatim, for every stop", async ({
   page,
 }) => {
+  test.setTimeout(120_000);
   // The claim is "do not reformat": the strings on screen must be character-
   // for-character what `@engine/ephemeris` produced for the same date. The
   // engine module is imported INTO the page, so this compares the screen with
@@ -191,6 +192,9 @@ test("AC-18.1 the beacon is operable with the keyboard alone and shows focus", a
 test("screen 12 Pluto's beacon hands over to the ending card, not to Results", async ({
   page,
 }) => {
+  // The ending card runs ~3.8 s of scene time, which headless stretches well
+  // past the default per-test budget.
+  test.setTimeout(120_000);
   await openBeacon(page, "pluto");
   expect((await snap<BeaconSnapshot>(page, "beacon")).nextScene).toBe("Ending");
 
@@ -198,8 +202,11 @@ test("screen 12 Pluto's beacon hands over to the ending card, not to Results", a
   await waitForScene(page, "Ending");
   expect(await activeScenes(page)).toContain("Ending");
 
-  // The ending card blinks seven beacons and says Shadow's closing line.
-  await page.waitForTimeout(3600);
+  // The ending card blinks seven beacons and says Shadow's closing line. The
+  // beacons light on the scene clock, which headless runs far slower than wall
+  // time, so this waits on the state rather than on a stopwatch.
+  await waitForSnapshot(page, "ending", "litCount", 7, 60_000);
+  await waitForSnapshot(page, "ending", "shadowLineVisible", true, 60_000);
   const ending = await page.evaluate(() => {
     const e = (window as unknown as { __kb: Record<string, unknown> }).__kb["ending"] as { snapshot: () => Record<string, unknown> };
     return e.snapshot();

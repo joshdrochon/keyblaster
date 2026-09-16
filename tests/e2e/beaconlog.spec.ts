@@ -202,8 +202,18 @@ test.describe("row 10 - beacon log", () => {
     });
     await press(page, "Escape");
     expect(browserDialogs).toBe(0);
-    // The map lane may not be registered yet; either way Esc must not throw and
-    // the screen must still be operable.
-    await assertVisibleFocus(page, LOG);
+
+    // Two correct outcomes, depending on whether the map lane is registered in
+    // this build: Esc left the log, or the map is not there and the log is
+    // still up and still operable. What is never correct is a browser dialog or
+    // a screen that has stopped responding to the keyboard.
+    if ((await screen(page, LOG).count()) > 0) {
+      await assertVisibleFocus(page, LOG);
+    } else {
+      const started = await page.evaluate(
+        () => (window as any).__kb.game.scene.isActive("DirectorMap") as boolean,
+      );
+      expect(started).toBe(true);
+    }
   });
 });

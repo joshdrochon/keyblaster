@@ -459,8 +459,16 @@ export class FlightScene extends Phaser.Scene {
       const cx = seed() * 512;
       const cy = seed() * 512;
       const r = 26 + seed() * 78;
-      g.fillCircle(cx, cy, r);
-      g.fillCircle(cx + r * 0.7, cy + r * 0.25, r * 0.7);
+      // Drawn nine times, once per wrap offset, so a blob that runs off one
+      // edge comes back on the other. Without this the tile seams show as hard
+      // rectangles - a repeating straight edge is the one thing a soft
+      // silhouette band must never have.
+      for (const dx of [-512, 0, 512]) {
+        for (const dy of [-512, 0, 512]) {
+          g.fillCircle(cx + dx, cy + dy, r);
+          g.fillCircle(cx + dx + r * 0.7, cy + dy + r * 0.25, r * 0.7);
+        }
+      }
     }
     g.generateTexture(textureKey, 512, 512);
     g.destroy();
@@ -1081,6 +1089,16 @@ export class FlightScene extends Phaser.Scene {
     shake: boolean,
   ): void {
     this.cue("ignored");
+    // AC-6e.2: every keystroke gets a visible answer, including the one that
+    // matched nothing at all. A lens blip is that answer - it is an
+    // acknowledgement, not a correction, and it costs the player nothing.
+    this.tweens.add({
+      targets: this.iris,
+      alpha: { from: 1, to: 0.45 },
+      duration: 110,
+      yoyo: true,
+      ease: "Sine.InOut",
+    });
     if (!shake) return;
     if (lockedId !== null) this.rockById(lockedId)?.plate.shake(3, 120);
     for (const id of ignoredTargetIds) {
@@ -1517,6 +1535,13 @@ export class FlightScene extends Phaser.Scene {
         return rock.word;
       },
       words: () => this.rocks.map((r) => r.word),
+      spawn: (word: string) => {
+        // Debug only: puts a KNOWN word on the belt so the shared-prefix and
+        // parked-word paths (D25, AC-2.2) can be exercised deterministically
+        // instead of waiting for the picker to happen to serve the pair.
+        if (!this.cfg.debug) return;
+        this.spawnRock(word, this.time.now);
+      },
     };
   }
 }
@@ -1527,6 +1552,7 @@ export interface FlightDebugApi {
   strike(): void;
   makeCanister(): string | null;
   words(): string[];
+  spawn(word: string): void;
 }
 
 declare global {

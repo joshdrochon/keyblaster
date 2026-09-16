@@ -47,6 +47,7 @@ interface BootOptions {
   reducedMotion?: boolean;
   colorblindPalette?: boolean;
   knobs?: { maxLive?: number };
+  book?: Record<string, unknown>;
 }
 
 /**
@@ -202,6 +203,9 @@ test.describe("Flight - screen 6", () => {
     await page.keyboard.press(target.word[0] as string);
     const locked = await state(page);
     expect(locked.typed.length).toBe(1);
+    // Art-direction section 7: the typed letters light to the accent. The
+    // plate's typed count is what drives that colour, per letter.
+    expect(locked.rocks.find((r) => r.id === target.id)?.typedCount).toBe(1);
 
     await typeWord(page, target.word.slice(1));
     await page.waitForTimeout(80);
@@ -220,61 +224,174 @@ test.describe("Flight - screen 6", () => {
     test.setTimeout(90_000);
     await bootFlight(page, { knobs: { maxLive: 4 }, stageWordCount: 40 });
     await page.waitForFunction(
-      () => (window.__kbFlight?.state().rocks.length ?? 0) >= 2,
+      () => (window.__kbFlight?.state().rocks.length ?? 0) >= 3,
       null,
-      { timeout: 15_000 },
+      { timeout: 20_000 },
     );
 
-    const snapshot = await state(page);
-    const target = snapshot.rocks[0] as RockView;
-    const other = snapshot.rocks.find(
-      (r) => r.word[0] !== target.word[0],
-    ) as RockView;
+    // The whole sequence runs inside one evaluate, so every step lands in the
+    // same frame: no rock can cross the breach line between two keystrokes and
+    // turn a rule check into a race.
+    const run = await page.evaluate(() => {
+      const api = window.__kbFlight as NonNullable<typeof window.__kbFlight>;
+      const press = (ch: string): void => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: ch,
+            code: `Key${ch.toUpperCase()}`,
+          }),
+        );
+      };
+      const snap = (): {
+        typos: number;
+        combo: number;
+        typed: string;
+        lockedId: string | null;
+        hits: number;
+      } => {
+        const s = api.state();
+        return {
+          typos: s.typos,
+          combo: s.combo,
+          typed: s.typed,
+          lockedId: s.lockedId,
+          hits: s.hits,
+        };
+      };
 
-    // Build a combo first, so a broken combo would be visible.
-    await typeWord(page, target.word);
-    await page.waitForTimeout(80);
-    const afterBlast = await state(page);
-    expect(afterBlast.combo).toBe(1);
+      const alphabet = "abcdefghijklmnopqrstuvwxyz".split("");
+      const words = api.state().rocks.map((r) => r.word);
+      for (const ch of words[0] as string) press(ch);
+      const afterBlast = snap();
 
-    const live = await state(page);
-    const second = live.rocks.find((r) => r.id === other.id) ?? (live.rocks[0] as RockView);
-    await pressKey(page, second.word[0] as string);
+      const live = api.state().rocks.map((r) => r.word);
+      // The rival's first letter must not also be the target's SECOND letter,
+      // or the keystroke legitimately advances the word and is not an ignored
+      // key at all. Pick the pair that makes the distinction testable.
+      let target = live[0] as string;
+      let rival = "";
+      for (const t of live) {
+        const r = live.find((w) => w[0] !== t[0] && w[0] !== t[1]);
+        if (r !== undefined) {
+          target = t;
+          rival = r;
+          break;
+        }
+      }
+      press(target[0] as string);
+      const afterLock = snap();
 
-    // A key that starts a DIFFERENT live rock: ignored (AC-3.3), so it shakes
-    // but must not cost a typo and must not break the combo (C10).
-    const rival = (await state(page)).rocks.find(
-      (r) => r.id !== second.id && r.word[0] !== second.word[0],
-    );
-    if (rival !== undefined) {
-      const beforeIgnored = await state(page);
-      await pressKey(page, rival.word[0] as string);
-      const afterIgnored = await state(page);
-      expect(afterIgnored.typos).toBe(beforeIgnored.typos);
-      expect(afterIgnored.combo).toBe(beforeIgnored.combo);
-      expect(afterIgnored.typed).toBe(beforeIgnored.typed);
-      expect(afterIgnored.lockedId).toBe(beforeIgnored.lockedId);
-    }
+      // A key that starts a DIFFERENT live rock (AC-3.3 / C10).
+      press(rival[0] as string);
+      const afterIgnored = snap();
 
-    // A key that starts nothing and continues nothing: a typo. It counts, and
-    // the lock survives it (AC-3.2).
-    const mid = await state(page);
-    const liveWords = mid.rocks.map((r) => r.word);
-    const nextChar = second.word[[...mid.typed].length];
-    const wrongKey = "abcdefghijklmnopqrstuvwxyz"
-      .split("")
-      .find(
+      // A key that starts nothing and continues nothing (AC-3.2).
+      const typedLen = afterIgnored.typed.length;
+      const wrongKey = alphabet.find(
         (c) =>
-          c !== nextChar &&
-          !liveWords.some((w) => w.startsWith(c)) &&
-          !liveWords.some((w) => w[[...mid.typed].length] === c),
+          !live.some((w) => w.startsWith(c)) &&
+          !live.some((w) => w[typedLen] === c),
       ) as string;
+      press(wrongKey);
+      const afterTypo = snap();
 
-    await pressKey(page, wrongKey);
-    const afterTypo = await state(page);
-    expect(afterTypo.typos).toBe(mid.typos + 1);
-    expect(afterTypo.typed).toBe(mid.typed); // the lock did not drop
-    expect(afterTypo.combo).toBe(0); // a typo resets the combo, nothing else
+      return { words, target, rival, wrongKey, afterBlast, afterLock, afterIgnored, afterTypo };
+    });
+
+    expect(run.afterBlast.hits).toBe(1);
+    expect(run.afterBlast.combo).toBe(1);
+
+    expect(run.rival).not.toBe("");
+    expect(run.afterLock.typed).toBe(run.target[0]);
+    expect(run.afterLock.lockedId).not.toBeNull();
+
+    // Ignored: shakes, and changes nothing else. This is collision C10 - if it
+    // counted, brushing a key meant for another rock would cost the combo.
+    expect(run.afterIgnored.typos).toBe(run.afterLock.typos);
+    expect(run.afterIgnored.combo).toBe(run.afterLock.combo);
+    expect(run.afterIgnored.typed).toBe(run.afterLock.typed);
+    expect(run.afterIgnored.lockedId).toBe(run.afterLock.lockedId);
+
+    // Typo: counted once, the lock survives, and the only cost is the combo.
+    expect(run.afterTypo.typos).toBe(run.afterIgnored.typos + 1);
+    expect(run.afterTypo.typed).toBe(run.afterIgnored.typed);
+    expect(run.afterTypo.lockedId).toBe(run.afterIgnored.lockedId);
+    expect(run.afterTypo.combo).toBe(0);
+  });
+
+  test("AC-2.2 + D25: a fully typed word that is still a prefix of a live rival charges visibly and fires at firesAtMs", async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    // The shared-prefix tier unlocks at 80% of the pool solid (ease < 0.6), so
+    // the book is seeded mastered - this is the D25 tier, not a fresh profile.
+    const mastered = (words: string[]): Record<string, unknown> =>
+      Object.fromEntries(
+        words.map((w) => [
+          w,
+          {
+            exposures: 6,
+            hits: 6,
+            misses: 0,
+            typos: 0,
+            fkLatencyMs: [420],
+            ikiMs: [180],
+            firstFkLatencyMs: 520,
+            ease: 0.3,
+            lastSeen: 0,
+            nextEligibleStage: 0,
+          },
+        ]),
+      );
+
+    const pool = (await page.evaluate(async (url) => {
+      const mod = (await import(url)) as {
+        stagePoolFor: (stop: string) => string[];
+      };
+      return mod.stagePoolFor("mars");
+    }, STAGE_MODULE).catch(() => [])) as string[];
+
+    await bootFlight(page, {
+      knobs: { maxLive: 4 },
+      stageWordCount: 40,
+      book: mastered(pool.length > 0 ? pool : ["win", "wind"]),
+    });
+
+    const parked = await page.evaluate(() => {
+      const api = window.__kbFlight as NonNullable<typeof window.__kbFlight>;
+      const press = (ch: string): void => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", { key: ch, code: `Key${ch.toUpperCase()}` }),
+        );
+      };
+      api.spawn("win");
+      api.spawn("wind");
+      for (const ch of "win") press(ch);
+      const s = api.state();
+      return {
+        parkedId: s.parkedId,
+        typed: s.typed,
+        hits: s.hits,
+        words: s.rocks.map((r) => r.word),
+      };
+    });
+
+    // Armed, not fired: "win" is complete but "wind" is still falling.
+    expect(parked.words).toEqual(expect.arrayContaining(["win", "wind"]));
+    expect(parked.typed).toBe("win");
+    expect(parked.parkedId).not.toBeNull();
+    expect(parked.hits).toBe(0);
+
+    // It fires on its own once the player stops typing for one keystroke
+    // budget - the park is not a dead end.
+    await page.waitForFunction(
+      () => (window.__kbFlight?.state().hits ?? 0) > 0,
+      null,
+      { timeout: 10_000 },
+    );
+    const after = await state(page);
+    expect(after.parkedId).toBeNull();
+    expect(after.rocks.some((r) => r.word === "wind")).toBe(true);
   });
 
   test("AC-4.2 + AC-22b.2: a strike costs exactly one hull mark, with no full-screen red flash", async ({
@@ -324,28 +441,45 @@ test.describe("Flight - screen 6", () => {
   test("FR-5 / AC-5.2: blasting a shield canister repairs one hull mark, capped at three", async ({
     page,
   }) => {
-    await bootFlight(page, { knobs: { maxLive: 2 } });
+    test.setTimeout(90_000);
+    await bootFlight(page, { knobs: { maxLive: 3 }, stageWordCount: 40 });
+    await page.waitForFunction(
+      () => (window.__kbFlight?.state().rocks.length ?? 0) >= 2,
+      null,
+      { timeout: 20_000 },
+    );
 
-    await page.evaluate(() => window.__kbFlight?.strike());
-    const damaged = await state(page);
-    expect(damaged.hull).toBe(2);
+    const run = await page.evaluate(() => {
+      const api = window.__kbFlight as NonNullable<typeof window.__kbFlight>;
+      const press = (ch: string): void => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", { key: ch, code: `Key${ch.toUpperCase()}` }),
+        );
+      };
+      const type = (word: string | null): void => {
+        if (word === null) return;
+        for (const ch of word) press(ch);
+      };
 
-    const word = await page.evaluate(() => window.__kbFlight?.makeCanister());
-    expect(word).toBeTruthy();
+      api.strike();
+      const damaged = api.state().hull;
 
-    await typeWord(page, word as string);
-    await page.waitForTimeout(150);
+      const first = api.makeCanister();
+      type(first);
+      const repaired = api.state().hull;
 
-    const repaired = await state(page);
-    expect(repaired.hull).toBe(3);
+      // AC-5.2's cap: a canister blasted at full hull cannot push it past three.
+      const second = api.makeCanister();
+      type(second);
+      const capped = api.state().hull;
 
-    // Cap: a second canister cannot push the hull past three.
-    const second = await page.evaluate(() => window.__kbFlight?.makeCanister());
-    if (second !== null && second !== undefined) {
-      await typeWord(page, second);
-      await page.waitForTimeout(150);
-      expect((await state(page)).hull).toBe(3);
-    }
+      return { damaged, first, repaired, second, capped };
+    });
+
+    expect(run.damaged).toBe(2);
+    expect(run.first).toBeTruthy();
+    expect(run.repaired).toBe(3);
+    expect(run.capped).toBe(3);
   });
 
   test("AC-4.3 + AC-18.1: an empty hull stalls to screen 6b, and Enter alone flies the stage again with the word history kept", async ({

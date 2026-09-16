@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   bootScene,
+  activeScenes,
   frame,
   frameOf,
   type GameHandle,
@@ -11,9 +12,10 @@ import {
   pixelDiffPercent,
   PUNISHING_WORDS,
   readsAsRed,
-  settle,
   snap,
   texts,
+  waitForScene,
+  waitForSnapshot,
 } from "./support/lane";
 
 /**
@@ -112,7 +114,14 @@ async function openWarpWithNote(
     },
     [note, source] as [string, string],
   );
-  await settle(page, 900);
+  // Wait for the note to have arrived AND its fade-in to have finished, so the
+  // two screenshots are compared at the same visual state.
+  await page.waitForFunction(() => {
+    const w = (window as unknown as { __kb: Record<string, unknown> }).__kb["warp"] as {
+      snapshot: () => { coach: { settled: boolean } };
+    };
+    return w.snapshot().coach.settled;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +230,7 @@ test("AC-16.3 a typo on the way does not cost the player 100%", async ({ page })
 test("FR-16 completing the sentence accelerates L2-L5 x4 and cuts to Beacon", async ({
   page,
 }) => {
+  test.setTimeout(90_000);
   await openWarp(page);
   await page.keyboard.type(MARS_SENTENCE.slice(0, -1), { delay: 20 });
   await page.keyboard.press("Period");
@@ -228,31 +238,21 @@ test("FR-16 completing the sentence accelerates L2-L5 x4 and cuts to Beacon", as
 
   expect((await snap<WarpSnapshot>(page, "warp")).warping).toBe(true);
 
-  // art-direction section 8: x4 over 1.2 s.
-  await page.waitForTimeout(1400);
-  const kb = await page.evaluate(() => {
-    const bag = (window as unknown as { __kb: Record<string, unknown> }).__kb;
-    const game = bag["game"] as GameHandle;
-    const warp = bag["warp"] as { snapshot: () => Record<string, unknown> } | undefined;
-    return {
-      snapshot: warp?.snapshot() ?? null,
-      active: game.scene.getScenes(true).map((s) => s.scene.key),
-    };
-  });
-
-  const s = kb.snapshot as unknown as WarpSnapshot | null;
-  if (s !== null) {
-    expect(s.multiplier).toBe(4);
-    for (const [id, base] of [
-      ["farField", 0.15],
-      ["midField", 0.35],
-      ["debris", 1],
-      ["nearField", 1.3],
-    ] as const) {
-      expect(s.layerSpeeds[id]).toBeCloseTo(base * 4, 6);
-    }
+  // art-direction section 8: L2-L5 x4 over 1.2 s of SCENE time.
+  await waitForSnapshot(page, "warp", "multiplier", 4);
+  const s = await snap<WarpSnapshot>(page, "warp");
+  for (const [id, base] of [
+    ["farField", 0.15],
+    ["midField", 0.35],
+    ["debris", 1],
+    ["nearField", 1.3],
+  ] as const) {
+    expect(s.layerSpeeds[id]).toBeCloseTo(base * 4, 6);
   }
-  expect(kb.active).toContain("Beacon");
+
+  // ...and then it cuts to Beacon.
+  await waitForScene(page, "Beacon");
+  expect(await activeScenes(page)).toContain("Beacon");
 });
 
 test("AC-15.3 / AC-15.4 exactly one coach call per warp break, through one interface", async ({
@@ -275,6 +275,9 @@ test("AC-15.3 / AC-15.4 exactly one coach call per warp break, through one inter
 test("AC-33 the coach area is IDENTICAL for an AI note and the shipped fallback", async ({
   page,
 }) => {
+  // Two full boots and two screenshots, on a canvas headless renders at about a
+  // quarter of real speed.
+  test.setTimeout(120_000);
   // The same sentence down both paths, because the claim is about the area, not
   // about the words. Every word is in the compiled allowlist, so neither path
   // is quietly rejected before it renders.
