@@ -132,8 +132,27 @@ function parseInventory() {
   return rows;
 }
 
-/** "Director map" -> "directormap", so Scene filenames can be compared. */
-const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+/**
+ * Read the declared scene -> inventory-row map out of src/game/sceneKeys.ts.
+ * Parsed rather than imported because this script is .mjs and the map is .ts;
+ * the shape is a literal object, so a narrow regex is honest here.
+ */
+function sceneRowMap() {
+  const p = join(REPO, "src/game/sceneKeys.ts");
+  if (!existsSync(p)) return { rows: new Map(), nonScene: new Set() };
+  const src = read("src/game/sceneKeys.ts");
+  const rows = new Map();
+  const block = src.slice(src.indexOf("SCENE_INVENTORY_ROW"), src.indexOf("NON_SCENE_ROWS"));
+  for (const m of block.matchAll(/^\s*"?([A-Za-z]+)"?:\s*"([^"]*)"/gm)) {
+    rows.set(m[1], m[2]);
+  }
+  const nonScene = new Set();
+  const nsBlock = src.slice(src.indexOf("NON_SCENE_ROWS"));
+  for (const m of nsBlock.matchAll(/^\s*"?([A-Za-z][A-Za-z\s-]*?)"?:\s*"/gm)) {
+    nonScene.add(m[1].trim());
+  }
+  return { rows, nonScene };
+}
 
 function sceneNames() {
   const dir = join(REPO, "src/game/scenes");
@@ -190,20 +209,28 @@ function main() {
     failures.push(`ACs that declare no test type (U/E/V/P/M): ${untyped.join(", ")}`);
   }
 
-  // Relation 3: scenes <-> screen inventory.
+  // Relation 3: scenes <-> screen inventory (D78), via the declared map.
   const inventory = parseInventory();
-  const invSlugs = new Set(inventory.map(slug));
+  const { rows: declared, nonScene } = sceneRowMap();
   const scenes = sceneNames();
-  const orphanScenes = scenes.filter((s) => !invSlugs.has(slug(s)));
-  if (orphanScenes.length) {
-    failures.push(`Scenes with no screen-inventory row (D78): ${orphanScenes.join(", ")}`);
+
+  const undeclared = scenes.filter((s) => !declared.has(s));
+  if (undeclared.length) {
+    failures.push(`Scenes missing a SCENE_INVENTORY_ROW entry (D78): ${undeclared.join(", ")}`);
   }
+  // A declared row must actually exist in the brief, or the map is fiction.
+  const invSet = new Set(inventory);
+  const bogus = [...declared].filter(([k, v]) => v !== "" && !invSet.has(v)).map(([k, v]) => `${k} -> "${v}"`);
+  if (bogus.length) {
+    failures.push(`SCENE_INVENTORY_ROW points at rows not in the design brief: ${bogus.join(", ")}`);
+  }
+  // Every brief row needs a scene, or an explained non-scene exemption.
+  const covered = new Set([...declared.values()].filter(Boolean));
+  const uncovered = inventory.filter((r) => !covered.has(r) && !nonScene.has(r));
   if (scenes.length === 0) {
     notes.push(`src/game/scenes is empty (FIRST TASK 4); the reverse check is vacuous until scenes exist`);
-  } else {
-    const sceneSlugs = new Set(scenes.map(slug));
-    const unbuilt = inventory.filter((r) => !sceneSlugs.has(slug(r)));
-    if (unbuilt.length) notes.push(`Inventory rows with no scene yet: ${unbuilt.length} (${unbuilt.slice(0, 6).join(", ")}${unbuilt.length > 6 ? ", ..." : ""})`);
+  } else if (uncovered.length) {
+    notes.push(`Inventory rows with no scene yet: ${uncovered.length} (${uncovered.join(", ")})`);
   }
 
   // AC -> live test linkage. Counted always, enforced only under --strict.
@@ -214,7 +241,7 @@ function main() {
   console.log(`trace-check`);
   console.log(`  decisions:  ${decisions.size} total, ${decided.length} DECIDED, ${Object.keys(AC_EXEMPT).length} exempt from AC mapping`);
   console.log(`  ACs:        ${acs.size} parsed, ${acs.size - untyped.length} declare a test type`);
-  console.log(`  scenes:     ${scenes.length} in src/game/scenes, ${inventory.length} inventory rows`);
+  console.log(`  scenes:     ${scenes.length} in src/game/scenes, ${inventory.length} inventory rows, ${covered.size} rows covered, ${nonScene.size} non-scene rows`);
   console.log(`  AC->test:   ${linked}/${acs.size} cited by a real test (${unlinked.length} not yet)`);
   for (const n of notes) console.log(`  note: ${n}`);
 

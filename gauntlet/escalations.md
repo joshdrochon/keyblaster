@@ -287,3 +287,33 @@ list cannot silently grow.
 
 NOT PASSED. Brief's number shipped as written; the scene lanes have been told to
 size to content rather than to the constant.
+
+## C12 — ambient beds are procedural, not pre-rendered (collision vs D63)
+
+- **Logged:** 2026-09-16 (build night 1)
+- **Source:** D63, D88; PRD AC-21.1
+- **Found by:** the audio lane, which correctly refused to resolve it itself
+
+D63 says the seven per-planet ambient beds are rendered by ElevenLabs at build
+time and shipped as files. There is no `ELEVENLABS_API_KEY`, so the lane
+synthesised all seven procedurally in Web Audio.
+
+D88 already made exactly this substitution for Shadow's **voice** — system voice
+as the stand-in, swap is one module — but D88 speaks only to voice. The beds
+were never covered, so this is a real collision rather than a case already
+decided.
+
+The alternative was seven filenames that 404.
+
+| # | Option | Cost |
+|---|---|---|
+| A | Keep procedural beds | Seven beds that actually play, today, with no key and no cost. Swap point is `buildBedVoice`, one module. |
+| B | Pre-render with ElevenLabs when a key lands | Matches D63 as written; richer beds; needs the key, a build step, and shipped audio files. |
+
+**Lean: A now, B if the key arrives before Friday.** AC-21.1 asks that a bed
+exists per stop and crossfades on transition — it is silent on provenance, so A
+satisfies the AC as written and B is an upgrade, not a fix.
+
+### Status
+
+NOT PASSED as D63 writes it. Shipping A; C12 stays open in the decision log.
