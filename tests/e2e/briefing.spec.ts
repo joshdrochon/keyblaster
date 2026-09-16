@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { gameCanvas } from "./support/lane.js";
 import { mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -194,7 +195,7 @@ test.describe("Briefing (row 4)", () => {
     expectNoPunishment(s.text);
 
     mkdirSync(EVIDENCE, { recursive: true });
-    await page.locator("canvas").screenshot({ path: `${EVIDENCE}/briefing-mars.png` });
+    await gameCanvas(page).screenshot({ path: `${EVIDENCE}/briefing-mars.png` });
   });
 
   test("the same layout dresses a second stop (inventory variant: Saturn)", async ({ page }) => {
@@ -203,7 +204,7 @@ test.describe("Briefing (row 4)", () => {
     expect(s.planetName).toBe("Saturn");
     expect(s.sentenceCount).toBe(5);
     expect(s.buttonCount).toBe(1);
-    await page.locator("canvas").screenshot({ path: `${EVIDENCE}/briefing-saturn.png` });
+    await gameCanvas(page).screenshot({ path: `${EVIDENCE}/briefing-saturn.png` });
   });
 
   test("C07 the ship is named from the profile, never hard-coded", async ({ page }) => {

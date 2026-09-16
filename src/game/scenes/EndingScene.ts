@@ -107,6 +107,8 @@ export class EndingScene extends Phaser.Scene {
     this.ring = createFocusRing(this, layer("hud").depth + 1);
     const target: FocusTarget = {
       id: "ending-continue",
+      // Forward action (see kit.ts).
+      primary: true,
       x: BUTTON.x,
       y: BUTTON.y,
       w: BUTTON.w,

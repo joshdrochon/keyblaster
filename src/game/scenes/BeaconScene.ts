@@ -9,7 +9,7 @@ import { hexToNum } from "@game/render/palette";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import { DUR, INK, TYPE } from "@game/ui/theme";
 import { hasStageBundle, stageBundle } from "./lib/content";
-import { goTo, type StoryInit } from "./lib/init";
+import { goTo, persistStopCleared, type StoryInit } from "./lib/init";
 import {
   createFocusRing,
   createKeyboardMenu,
@@ -124,6 +124,9 @@ export class BeaconScene extends Phaser.Scene {
     this.ring = createFocusRing(this, layer("hud").depth + 1);
     const target: FocusTarget = {
       id: "beacon-continue",
+      // The only choice on this screen, and it is the forward one. Marked
+      // primary so it STAYS the default if a second control is ever added.
+      primary: true,
       x: BUTTON.x,
       y: BUTTON.y,
       w: BUTTON.w,
@@ -381,20 +384,32 @@ export class BeaconScene extends Phaser.Scene {
    */
   private advance(): void {
     const next = this.stopId === "pluto" ? SCENE_KEYS.ending : SCENE_KEYS.results;
+    // D13/AC-17.3: placing the beacon is what charts the stop and opens the
+    // next one. Stars and rates are folded in by Results, which is the screen
+    // that knows them; `markStopCleared` is idempotent on the placement date
+    // and monotone on the bests, so the two writes compose.
+    //
+    // WRITTEN BEFORE THE FADE, not inside its callback: a fade that never
+    // completes (a scene stopped mid-transition, a tab hidden at the wrong
+    // moment) would otherwise swallow the one write that makes the route move.
+    // AC-7.2/D44: the store is what survives a reload, and the array forwarded
+    // below is the one the store actually holds, never a local re-derivation
+    // that could disagree with it.
+    const stored = persistStopCleared(this, this.lane.stopId);
+    const progress =
+      stored ??
+      markStopCleared(this.lane.progress, this.lane.stopId, { atMs: Date.now() });
+    const payload = this.initData?.payload;
     this.cameras.main.fadeOut(DUR.panel, 0, 0, 0);
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       goTo(this, next, {
         ctx: this.lane.ctx,
-        // D13/AC-17.3: placing the beacon is what charts the stop and opens
-        // the next one. Stars and rates are folded in by Results, which is the
-        // screen that knows them.
-        progress: markStopCleared(this.lane.progress, this.lane.stopId, {
-          atMs: Date.now(),
-        }),
+        progress,
         shipName: this.lane.shipName,
         lang: this.lane.lang,
         stopId: this.stopId,
-        ...(this.initData?.payload ?? {}),
+        ...(payload ?? {}),
+        ...(payload === undefined ? {} : { payload }),
       } as StoryInit);
     });
   }

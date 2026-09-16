@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import type { Lang } from "@engine/types";
-import type { Focusable } from "./focus.js";
+import { HIT_ZONE_PREFIX, type Focusable, type PointerHandlers } from "./focus.js";
 import type { MirrorItem, MirrorRole } from "./mirror.js";
 import { DUR, EASE, INK, SPACE, TYPE, rowHeight } from "./theme.js";
 import { plate, strokePlate } from "./chrome.js";
@@ -22,6 +22,10 @@ import { plateWidth, uiText } from "./text.js";
  *    clipped one.
  * 2. FOCUS IS ALWAYS VISIBLE (AC-18.1). Every control brightens its plate and
  *    reports its box, and the screen's one focus ring moves to it.
+ * 3. FOCUSABLE IS CLICKABLE. `Control.bindPointer` gives every control in this
+ *    file a hit area, and `FocusList.setItems` calls it on everything it is
+ *    handed - so a control cannot exist that only the keyboard reaches, and
+ *    the keyboard path is untouched by any of it (AC-18.1, D37).
  */
 
 export interface ControlStyle {
@@ -51,6 +55,7 @@ export abstract class Control implements Focusable {
   protected readonly container: Phaser.GameObjects.Container;
   protected boxW = 0;
   protected boxH = 0;
+  private pointerZone: Phaser.GameObjects.Zone | null = null;
 
   constructor(
     protected readonly scene: Phaser.Scene,
@@ -104,7 +109,70 @@ export abstract class Control implements Focusable {
     return false;
   }
 
+  /**
+   * The pointer half of AC-18.1. Called by `FocusList.setItems` for every
+   * control on the screen, so this is not something a screen opts into.
+   *
+   * WHY A ZONE AND NOT `container.setInteractive()`. The container is scaled by
+   * the 1.5% focus pop, and an input hit area that breathes with a tween is a
+   * button whose edge moves under the cursor. A sibling zone at the control's
+   * measured box stays exactly where the focus ring is drawn, which is the box
+   * the player is aiming at.
+   *
+   * A LOCKED CONTROL STILL TAKES THE POINTER, and only focuses. That is the
+   * same thing the keyboard does with it (focus.ts: locked items are focusable,
+   * `activate` is what locking removes), and it is the whole point of a locked
+   * tile - a child is meant to be able to look at Pluto and read why it is not
+   * lit yet (D73, D31). It gets no hand cursor, because it is not pressable.
+   */
+  bindPointer(handlers: PointerHandlers): void {
+    this.pointerZone?.destroy();
+    this.pointerZone = null;
+    const box = this.ringBounds();
+    if (box.w <= 0 || box.h <= 0) return;
+
+    const zone = this.scene.add
+      .zone(box.x, box.y, box.w, box.h)
+      .setOrigin(0, 0)
+      // Named so the pointer e2e can find every hit area on a screen and prove
+      // it lines up with a focusable control, rather than clicking at hard-coded
+      // pixel coordinates that go stale the moment a layout changes.
+      .setName(`${HIT_ZONE_PREFIX}${this.id}`)
+      .setDepth(this.container.depth + 1)
+      .setInteractive({ useHandCursor: !this.locked });
+
+    zone.on("pointerover", () => handlers.focus());
+    zone.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      if (this.locked) {
+        handlers.focus();
+        return;
+      }
+      // An adjustable control answers a click the way it answers Left/Right:
+      // the left half is -1 and the right half is +1. Sending `activate` here
+      // instead would make clicking a volume slider do nothing at all, which
+      // is the exact dead-click this change exists to remove.
+      if (this.adjustable) {
+        handlers.adjust(pointer.worldX >= box.x + box.w / 2 ? 1 : -1);
+        return;
+      }
+      handlers.press();
+    });
+    this.pointerZone = zone;
+  }
+
+  /**
+   * Take the pointer away without losing the binding - what a screen does while
+   * a modal confirm is open, so a click cannot reach the screen underneath it.
+   */
+  setPointerEnabled(enabled: boolean): void {
+    if (!this.pointerZone) return;
+    if (enabled) this.pointerZone.setInteractive({ useHandCursor: !this.locked });
+    else this.pointerZone.disableInteractive();
+  }
+
   destroy(): void {
+    this.pointerZone?.destroy();
+    this.pointerZone = null;
     this.container.destroy();
   }
 

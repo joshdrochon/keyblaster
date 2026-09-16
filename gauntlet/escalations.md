@@ -850,3 +850,74 @@ suite has never been run". The lead has documented this in `playwright.config.ts
 ### Status
 
 NOT FIXED. Product unaffected. Logged so the third investigation does not happen.
+
+---
+
+## E-playable-path · Four decisions taken on the `fix/playable-path` lane
+
+Four player-facing defects were fixed (default focus, clickability, the
+letterbox, Shadow's voice). Each carried a choice with a real trade-off. All
+four were taken and are recorded here, with what would change the answer.
+
+### 1. Hover MOVES FOCUS, rather than painting a second highlight
+
+| # | Option | Cost |
+|---|---|---|
+| A | **Hover moves the focus caret** (taken) | One "you are here" in the whole UI. The DOM mirror, the focus ring and the raised plate stay one fact, so a screen reader and a sighted mouse user are told the same thing. Cost: resting the mouse over a control moves the caret away from wherever the keyboard left it. |
+| B | A separate hover tint, focus unmoved | The keyboard caret never moves under the mouse. Cost: two highlights on screen at once, two states per control to draw, and a mirror that now has to describe "focused" and "hovered" separately or lie about one of them. |
+
+**Taken: A.** The keyboard path is unchanged either way. B is defensible if
+play-testing shows children resting the cursor mid-screen; it is a change to
+`Control.redraw` and `kit.ts`'s ring, not a redesign.
+
+### 2. `Scale.FIT` kept; the bars are painted rather than removed
+
+| # | Option | Play-field constant (FR-8) | HUD never cropped (AC-18.1) | Blast radius |
+|---|---|---|---|---|
+| A | `Scale.RESIZE`, lay out from the viewport | **No** - the fall distance changes with the window, so the fall-time budget stops meaning one thing | Yes, if done right | 8 scenes read `this.scale.width` meaning 1920; `FlightScene` drives `cameras.main.setScroll` itself for the sway and would fight any centring |
+| B | `Scale.ENVELOP` | Yes | **No** - ~24% of the height cropped at 21:9, which is where the score, hull marks and hint line live | One line |
+| C | **FIT + full-window backdrop** (taken) | Yes | Yes | One new file, `src/game/ui/viewportBackdrop.ts` |
+
+**Taken: C.** Evidence: `gauntlet/evidence/aspect-{16x9,16x10,21x9}.png` and
+`tests/e2e/aspect.spec.ts`.
+
+KNOWN LIMIT, and it is a real one: the bars carry a STILL sky. They do not
+parallax with the flight, so on a 21:9 monitor the outer columns are motionless
+while the play-field scrolls. Only A fixes that properly. It was not worth
+changing the fall-time budget for, but if the bars ever need to move, A is the
+answer and it is a project, not a patch.
+
+### 3. Cloud-only machines get a chirp, not a cloud voice
+
+AC-21.5 says no network TTS at runtime. Chrome's "Google ..." and Edge's
+"... Online (Natural)" voices are rendered on a server, so speaking through one
+is a network TTS call the browser makes on our behalf.
+
+`selectVoice` was already written to PREFER local voices - but it fell through
+to a cloud voice when no local one existed, and `tests/unit/audio/voice.test.ts`
+asserted exactly that ("A list of only cloud voices is still better than
+silence"). That assertion and AC-21.5 cannot both be right.
+
+Rather than change the existing assertion, the policy was moved: `selectVoice`
+still answers "which is the best voice" (unchanged, all its tests untouched),
+and a new `localVoiceFor` answers the different question the TRANSPORT has,
+"may I speak at all" - for which a remote voice is a no. A cloud-only machine
+therefore chirps (`uiNav`, the game's smallest tone) instead of either speaking
+over the network or going silent.
+
+**Worth a human's eye:** if the intent behind that test line was "a cloud voice
+is acceptable when there is no alternative", then AC-21.5 needs rewording and
+this should be reverted. The code currently implements AC-21.5 as written.
+
+### 4. `src/game/scenes/ResultsScene.ts` was edited by two lanes at once
+
+This lane owns presentation and input; another lane owns that file's data flow.
+The default-focus fix needed one property on one target
+(`primary: true` on the `continue` button, in `renderBoard`). It was made as
+small as it could be. If it collides, the whole of this lane's change to that
+file is those five lines.
+
+Noticed while working there, NOT touched because it is the other lane's:
+`create()` now carries a comment reading `// DEFECT REINTRODUCED FOR A NEGATIVE
+RUN` where the `markStopCleared` / `persistStopCleared` write-back used to be.
+AC-12.1's stop-clearing write is currently absent from Results.

@@ -250,7 +250,21 @@ export function buildAudioGraph(ctx: AudioContextLike, options: AudioGraphOption
   const sfx = new SfxBus(ctx, buses.sfx, rand);
   // D75's pitched layer rides the SFX bus with the rest of the keystroke sound.
   const keystrokeTone = new KeystrokeTone(ctx, buses.sfx);
-  const voice = new VoiceBus({ transport: createVoiceTransport(options.voiceEnv), ducker });
+  // Shadow's stand-in when a line cannot be voiced (AC-21.5: the machine offers
+  // only cloud voices, or the browser refused the utterance). `uiNav` is the
+  // game's smallest, calmest tone and D31 forbids anything that reads as a
+  // failure - a chirp here says "he said something", it does not say "error".
+  // Wired at the graph rather than inside voice.ts so that module still names
+  // no sibling and AC-21.7's boundary test stays honest.
+  const voiceEnv: VoiceEnvironment = {
+    ...options.voiceEnv,
+    chirp:
+      options.voiceEnv.chirp ??
+      ((): void => {
+        sfx.play("uiNav", { gainScale: 0.9 });
+      }),
+  };
+  const voice = new VoiceBus({ transport: createVoiceTransport(voiceEnv), ducker });
 
   return {
     ctx,

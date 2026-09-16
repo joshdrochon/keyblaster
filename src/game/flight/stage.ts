@@ -253,7 +253,38 @@ export interface FlightConfig {
   readonly calibration: Calibration;
   readonly book: WordBook;
   readonly knobs: Partial<Knobs>;
-  /** Words this stage will spawn before it ends (FR-6). */
+  /**
+   * Words this stage will spawn before it ends (FR-6).
+   *
+   * WHY 58 AND NOT 18. A belt was over in about three quarters of a minute and
+   * the player said so. The yardstick in the decision log's Origin section is
+   * Type Storm: three waves plus a boss, 1.5-2.5 minutes. The target is
+   * therefore 90-150 s for a median grade 3-5 typist.
+   *
+   * THE ARITHMETIC, because "make it longer" is not a number. It is checked by
+   * `tests/unit/flight/stageLength.test.ts`, against the real word pool, so
+   * this number cannot drift back without the estimate moving with it.
+   *
+   *   A belt is paced by the PLAYER, not by the spawner. `DEFAULT_CALIBRATION`
+   *   puts a median child at ikiMs 350 and fkLatencyMs 500, and Mars' shipped
+   *   pool averages 4.6 letters, so one word costs
+   *       (500 + 3.6 x 350) / 1000 + 0.3 = 2.07 s
+   *   where the 0.3 is choosing the next rock. That is the real clock: at
+   *   `maxLive` 2-7 the board holds several words, but a child types them one
+   *   at a time.
+   *       58 x 2.07 s = 120 s   median
+   *       58 x 1.75 s = 101 s   a quick child (iki -25%)
+   *       58 x 2.38 s = 138 s   a slow one    (iki +25%)
+   *   which sits inside the band at every speed, with the median in the middle
+   *   of it rather than on the edge.
+   *
+   * AND WHY THE BOARD DOES NOT BECOME A WALL. The count is the only thing that
+   * moved. `trySpawn` still gates on `controller.knobs.maxLive` (2-7, FR-10)
+   * and still leaves 850 ms between spawns, so the number of rocks in the air
+   * at once is exactly what it was; there are simply more of them over the
+   * stage. Multiplying the count without checking that gate is how a longer
+   * level turns into an unreadable one.
+   */
   readonly stageWordCount: number;
   /** How long the sky takes to travel from start to end (AC-22.3). */
   readonly stageDurationMs: number;
@@ -279,8 +310,12 @@ export const DEFAULT_FLIGHT_CONFIG: FlightConfig = {
   calibration: DEFAULT_CALIBRATION,
   book: {},
   knobs: {},
-  stageWordCount: 18,
-  stageDurationMs: 90_000,
+  stageWordCount: 58,
+  // The sky's travel is a felt duration and has to match the belt's: at 90 s
+  // against a ~45 s belt the sky never arrived anywhere, which is half of why
+  // AC-22.3 was true on paper and invisible in play. 105 s is comfortably under
+  // the 120 s median belt, so the sky lands before the last rock does.
+  stageDurationMs: 105_000,
   worldSpeedPxPerSec: 110,
   debug: false,
 };
@@ -311,7 +346,24 @@ export const FLIGHT_EVENTS = {
   stageComplete: "kb:flight:stage-complete",
   stall: "kb:flight:stall",
   restart: "kb:flight:restart",
+  /**
+   * D30. The warp break is an OVERLAY on the live belt, not a different screen,
+   * so the thing that accelerates at the end of it is Flight's own world. Warp
+   * emits a multiplier on this channel and Flight scales its parallax by it.
+   *
+   * An event rather than a handle on purpose: Warp must work with NO Flight
+   * behind it (every `?scene=Warp` boot in the e2e suite is exactly that), and
+   * an emit into an empty room is the one form of coupling that degrades
+   * correctly.
+   */
+  warpSpeed: "kb:flight:warp-speed",
 } as const;
+
+/** What `FLIGHT_EVENTS.warpSpeed` carries. */
+export interface WarpSpeedPayload {
+  /** Multiple of the stage's own world speed. 1 is the belt's normal pace. */
+  readonly multiplier: number;
+}
 
 /** Everything the HUD draws. It computes nothing; scoring/ does (FR-6c). */
 export interface HudSnapshot {

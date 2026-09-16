@@ -24,6 +24,7 @@ import {
   progressFor,
   resolveInit,
   unlockedStops,
+  withStoredProgress,
   type ResolvedInit,
   type StoryInit,
 } from "./lib/init";
@@ -90,7 +91,18 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   }
 
   init(data: StoryInit): void {
-    this.story = resolveInit(data, "earth");
+    // THE MAP IS THE SCREEN THE ROUTE IS READ OFF, so it reads the profile.
+    //
+    // It is reached with no payload from the Title, from Pause, from the Beacon
+    // Log and - the case that reported this bug - from a reload. `resolveInit`
+    // defaults a missing `progress` to `[]`, which renders a charted route as
+    // seven locked stops and no lit beacons. `withStoredProgress` fills it from
+    // the store when the caller supplied none, so what the map draws is what the
+    // player actually did.
+    //
+    // A supplied payload still wins, which is what keeps the screen-inventory
+    // variants ("Mars only unlocked", "mid-run", "all seven") mountable.
+    this.story = resolveInit(withStoredProgress(this, data), "earth");
     this.nodes = [];
     this.starGlyphs = 0;
   }

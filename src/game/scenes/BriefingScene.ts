@@ -120,6 +120,8 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
 
     const target: FocusTarget = {
       id: "launch",
+      // Forward action: launching is why this screen exists (see kit.ts).
+      primary: true,
       x: btn.x,
       y: btn.y,
       w: btn.w,

@@ -1,5 +1,6 @@
-import { clearStopOnProfile } from "@engine/progress/index.js";
+import { clearStopOnProfile, type ClearInput } from "@engine/progress/index.js";
 import type { Profile } from "@engine/types";
+import type { ProfileStore } from "@engine/persistence/index.js";
 import { services } from "@game/boot";
 import Phaser from "phaser";
 import { DEFAULT_SCENE_CONTEXT, type SceneContext } from "@game/sceneKeys";
@@ -107,22 +108,88 @@ export function progressFor(
 export { isCharted, unlockedStops } from "@engine/progress/index.js";
 
 /**
- * Write a cleared stop through to the stored profile.
+ * The service bundle, or null when this scene was booted standalone.
  *
- * Scene-to-scene init payloads carry progress for the CURRENT run; the store is
- * what makes it survive a reload (D44, AC-7.2). Both have to be updated, and
- * only the store knows the profile id.
+ * `services()` throws before `bootGame()` has run, which is a supported way to
+ * mount ONE screen in a harness. Every reader here wants "the store if there is
+ * one", so the throw is answered once, in this file.
  */
-export function persistStopCleared(scene: Phaser.Scene, stopId: StopId): void {
-  const store = services(scene).store;
-  const profile = store.activeProfile();
-  if (profile === null) return;
-  store.updateProfile(profile.id, (p: Profile) =>
-    clearStopOnProfile(p, stopId, { atMs: Date.now() }),
-  );
-  store.flush();
+function storeOf(scene: Phaser.Scene): ProfileStore | null {
+  try {
+    return services(scene).store;
+  } catch {
+    return null;
+  }
 }
 
+/**
+ * The stored profile's progress, or null when there is no store/profile.
+ *
+ * THIS IS THE FIX FOR THE STALE-PAYLOAD BUG. A `progress` array threaded
+ * through Flight -> Warp -> Beacon -> Results -> Map is five chances to hand on
+ * the array a scene was GIVEN instead of the one it just changed, and that is
+ * exactly what happened: a cleared Mars never opened Jupiter. The store is the
+ * one copy that cannot go stale, because every writer writes through it, so a
+ * screen that is about to make a progression decision asks the store rather
+ * than the payload it was handed.
+ */
+export function storedProgress(
+  scene: Phaser.Scene,
+): readonly StopProgress[] | null {
+  return storeOf(scene)?.activeProfile()?.progress ?? null;
+}
+
+/**
+ * Fill in `progress` from the store when the caller did not supply one.
+ *
+ * Payload-first is deliberate and is what keeps the screen-inventory VARIANTS
+ * testable (init.ts header): "Mars only unlocked" / "mid-run" / "all seven" are
+ * three payloads into the same scene. In the real game nothing hands the map a
+ * payload - it is reached from the Title, from Pause and from a reload - so the
+ * store is what it actually reads.
+ */
+export function withStoredProgress(
+  scene: Phaser.Scene,
+  data: StoryInit | undefined,
+): StoryInit | undefined {
+  if (data?.progress !== undefined) return data;
+  const stored = storedProgress(scene);
+  if (stored === null) return data;
+  return { ...data, progress: stored };
+}
+
+/**
+ * Write a cleared stop through to the stored profile and hand back the profile's
+ * NEW progress array.
+ *
+ * Scene-to-scene init payloads carry progress for the CURRENT run; the store is
+ * what makes it survive a reload (D44, AC-7.2). Returning the stored array is
+ * what stops the two from disagreeing: the caller forwards what was actually
+ * written rather than its own local copy of it.
+ *
+ * `input` carries the figures the calling screen happens to know.
+ * `markStopCleared` is idempotent on `beaconPlacedAt` and monotone on the
+ * bests, so Beacon may write the clear with no rates and Results may fold the
+ * rates in afterwards without either undoing the other.
+ *
+ * Returns null when there is no store or no active profile - a standalone
+ * harness mount - and the caller falls back to its own array.
+ */
+export function persistStopCleared(
+  scene: Phaser.Scene,
+  stopId: StopId,
+  input: Partial<ClearInput> = {},
+): readonly StopProgress[] | null {
+  const store = storeOf(scene);
+  if (store === null) return null;
+  const profile = store.activeProfile();
+  if (profile === null) return null;
+  const updated = store.updateProfile(profile.id, (p: Profile) =>
+    clearStopOnProfile(p, stopId, { atMs: Date.now(), ...input }),
+  );
+  store.flush();
+  return updated?.progress ?? null;
+}
 
 /**
  * Start another scene if the registry has it, otherwise announce the

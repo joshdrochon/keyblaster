@@ -24,12 +24,33 @@
  *   - a static scan of src/game/audio asserts no network API is even named
  * Both feed `runtimeTtsNetworkCalls` in the evidence artifact.
  *
- * There is a subtler leak the probe would miss, and it is handled in
- * `selectVoice`: several platforms expose CLOUD voices through the same Web
- * Speech API (Chrome's "Google ..." voices, Edge's "... Online (Natural)").
- * Speaking through one of those is a network TTS call made by the browser on
- * our behalf. So a voice with `localService === false` is never chosen while
- * any local voice exists.
+ * There is a subtler leak the probe would miss: several platforms expose CLOUD
+ * voices through the same Web Speech API (Chrome's "Google ..." voices, Edge's
+ * "... Online (Natural)"). Speaking through one of those is a network TTS call
+ * made by the browser on our behalf. `selectVoice` prefers local voices, and
+ * `localVoiceFor` - which is what the TRANSPORT asks - refuses a remote one
+ * outright. A machine offering nothing but cloud voices gets no speech, and
+ * `adaptiveTransport` turns that into a chirp rather than into silence.
+ *
+ * ================== WHY IT WAS MUTE (the 2026-09 fix) ==================
+ * Every piece of this was correct and the game still said nothing, because the
+ * DECISION WAS MADE TOO EARLY. `createVoiceTransport` ran once, inside
+ * `buildAudioGraph`, during boot. On Chrome `speechSynthesis.getVoices()`
+ * returns an EMPTY ARRAY until the platform has loaded its voice list and
+ * fired `voiceschanged`, which happens some milliseconds after boot. So
+ * `webSpeechTransport.available()` was false at exactly the one moment anybody
+ * asked, the graph captured `silentTransport` forever, and every line Shadow
+ * ever spoke went to a `setTimeout`.
+ *
+ * The fix is `adaptiveTransport`: the choice is re-made on EVERY LINE, from the
+ * voice list as it is at that moment. A transport picked once at boot is a
+ * transport picked from an empty list.
+ *
+ * Two smaller mutes are handled in the same place:
+ *   - Chrome refuses `speak()` before a user gesture (M71+). That surfaces as
+ *     `onerror`, so a refused utterance now chirps instead of vanishing.
+ *   - `browserSpeechPort` warms the list on construction and re-reads it on
+ *     `voiceschanged`, so the list is loaded long before the first line.
  *
  * ================== NOTHING READS AS FAILURE (D31) ==================
  * Shadow never says a line because the player got something wrong; this module
@@ -102,6 +123,17 @@ export interface VoiceEnvironment {
   readonly lang: string;
   readonly schedule: Scheduler;
   readonly fetch?: FetchProbe;
+  /**
+   * Shadow's stand-in when the platform HAS a voice API but we will not use it
+   * - the machine offers only cloud voices (AC-21.5 forbids those), or the
+   * browser refused the utterance. A small sound is not a voice, but it says
+   * "he said something", and that is strictly better than a screen where the
+   * character's mouth moves in silence.
+   *
+   * `graph.ts` wires this to the SFX bus. Optional, so nothing below this
+   * module has to have one.
+   */
+  readonly chirp?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +209,29 @@ export function selectVoice(
   return candidates.find((v) => v.default === true) ?? candidates[0] ?? null;
 }
 
+/**
+ * The voice a TRANSPORT is allowed to speak through: `selectVoice`'s choice,
+ * but only if it is rendered on this machine.
+ *
+ * `selectVoice` answers "which of these is the best voice for Shadow", and it
+ * will name a cloud voice if that is all there is. This answers the different
+ * question the transport actually has - "may I speak at all" - and AC-21.5's
+ * answer for a cloud voice is no, whatever the alternative is. Speaking through
+ * Chrome's "Google US English" is a runtime network TTS call; the fact that it
+ * is the browser making it rather than us does not change what it is.
+ *
+ * Null here is not a failure. It routes the line to the chirp (see
+ * `adaptiveTransport`), which is the degradation AC-21.5 asks for.
+ */
+export function localVoiceFor(
+  voices: readonly SpeechVoiceLike[],
+  platform: Platform,
+  lang: string,
+): SpeechVoiceLike | null {
+  const choice = selectVoice(voices, platform, lang);
+  return choice !== null && choice.localService ? choice : null;
+}
+
 // ---------------------------------------------------------------------------
 // Lines and timing
 // ---------------------------------------------------------------------------
@@ -230,15 +285,32 @@ export interface VoiceTransport {
   cancel(): void;
 }
 
+export interface WebSpeechOptions {
+  /**
+   * The platform REFUSED the utterance. Chrome has blocked
+   * `speechSynthesis.speak()` without user activation since M71, and it reports
+   * that through `onerror` rather than by throwing - so without this hook a
+   * blocked line is indistinguishable from a spoken one and the game looks
+   * fine while being mute. The line is still released either way.
+   */
+  readonly onRefused?: () => void;
+}
+
 /**
- * The D88 stand-in: the platform's own voice, chosen from the preference list.
- * Zero bytes downloaded, zero network calls, available on every desktop browser
- * that matters.
+ * The D88 stand-in: the platform's own LOCAL voice, chosen from the preference
+ * list. Zero bytes downloaded, zero network calls.
+ *
+ * `available()` is "is there a voice on this machine I am allowed to use", not
+ * "does the platform list any voices at all". Those differ in the two cases
+ * that matter: a machine with only cloud voices (AC-21.5 says no), and a Chrome
+ * that has not finished loading its list yet (the answer is no NOW and yes in
+ * a moment, which is why `adaptiveTransport` asks again every line).
  */
 export function webSpeechTransport(
   port: SpeechPort,
   platform: Platform,
   lang: string,
+  options: WebSpeechOptions = {},
 ): VoiceTransport {
   let done: (() => void) | null = null;
 
@@ -250,20 +322,31 @@ export function webSpeechTransport(
 
   return {
     id: "webspeech",
-    available: () => port.voices().length > 0,
+    available: () => localVoiceFor(port.voices(), platform, lang) !== null,
     speak(line, onDone) {
       finish();
       done = onDone;
-      const voice = selectVoice(port.voices(), platform, lang);
+      const voice = localVoiceFor(port.voices(), platform, lang);
+      if (voice === null) {
+        // No LOCAL voice. Handing the platform `voiceName: null` here would be
+        // the leak: it would fall back to its own default, and on a cloud-only
+        // machine that default is the cloud voice AC-21.5 forbids.
+        options.onRefused?.();
+        finish();
+        return;
+      }
       port.speak({
         text: line.text,
-        voiceName: voice ? voice.name : null,
+        voiceName: voice.name,
         lang,
         rate: VOICE_DELIVERY.rate,
         pitch: VOICE_DELIVERY.pitch,
         volume: VOICE_DELIVERY.volume,
         onEnd: finish,
-        onError: finish,
+        onError: () => {
+          options.onRefused?.();
+          finish();
+        },
       });
     },
     cancel() {
@@ -305,17 +388,65 @@ export function silentTransport(schedule: Scheduler): VoiceTransport {
 }
 
 /**
- * THE SWAP FUNCTION (D88, AC-21.7). Today: Web Speech when a usable voice
- * exists, silence when it does not. Tomorrow, when `ELEVENLABS_API_KEY` has
- * produced a manifest of pre-rendered files, one branch is added here for
- * `kind === "scripted"` and NOTHING outside this file moves.
+ * Web Speech when a local voice is available AT THIS MOMENT, the silent
+ * fallback when it is not - decided per line, never once at boot.
+ *
+ * THIS IS THE FIX FOR THE MUTE GAME. The old code asked `available()` a single
+ * time, inside `buildAudioGraph`, during boot. Chrome's voice list is empty
+ * until `voiceschanged` fires a few milliseconds later, so the answer was
+ * always "no voices" and the graph held a silent transport for the rest of the
+ * session - on a machine with eight perfectly good local voices.
+ *
+ * `id` is a getter for the same reason: the evidence artifact reads
+ * `voice.transportId`, and a field frozen at construction would report "silent"
+ * on a machine that is, right now, speaking.
+ *
+ * WHEN THE LINE IS NOT VOICED, IT CHIRPS - but only when the platform HAS a
+ * speech API and we declined to use it (no local voice, or a refused
+ * utterance). A browser with no speech synthesis at all keeps the original
+ * quiet fallback: a chirp there would be a new sound on every Shadow line for
+ * a player who never had a voice to lose.
+ */
+export function adaptiveTransport(env: VoiceEnvironment): VoiceTransport {
+  const silent = silentTransport(env.schedule);
+  const web =
+    env.speech === null
+      ? null
+      : webSpeechTransport(env.speech, env.platform, env.lang, {
+          onRefused: () => env.chirp?.(),
+        });
+
+  const pick = (): VoiceTransport => (web !== null && web.available() ? web : silent);
+  let active: VoiceTransport = silent;
+
+  return {
+    get id(): VoiceTransportId {
+      return pick().id;
+    },
+    // The composite can always take a line: worst case it takes the time the
+    // line would have taken and makes a small sound.
+    available: () => true,
+    speak(line, onDone) {
+      const next = pick();
+      if (next !== active) active.cancel();
+      active = next;
+      if (active === silent && web !== null) env.chirp?.();
+      active.speak(line, onDone);
+    },
+    cancel() {
+      active.cancel();
+    },
+  };
+}
+
+/**
+ * THE SWAP FUNCTION (D88, AC-21.7). Today: `adaptiveTransport`. Tomorrow, when
+ * `ELEVENLABS_API_KEY` has produced a manifest of pre-rendered files, one
+ * branch is added here for `kind === "scripted"` and NOTHING outside this file
+ * moves.
  */
 export function createVoiceTransport(env: VoiceEnvironment): VoiceTransport {
-  if (env.speech) {
-    const transport = webSpeechTransport(env.speech, env.platform, env.lang);
-    if (transport.available()) return transport;
-  }
-  return silentTransport(env.schedule);
+  return adaptiveTransport(env);
 }
 
 // ---------------------------------------------------------------------------
@@ -474,6 +605,8 @@ interface SpeechSynthesisGlobal {
   getVoices(): Array<{ name: string; lang: string; localService: boolean; default: boolean }>;
   speak(utterance: unknown): void;
   cancel(): void;
+  /** Present on every real implementation; absent on a minimal fake. */
+  addEventListener?(type: string, listener: () => void): void;
 }
 
 interface UtteranceCtor {
@@ -501,6 +634,23 @@ export function webSpeechPort(
   utteranceCtor: UtteranceCtor | null | undefined,
 ): SpeechPort | null {
   if (!synthesis || !utteranceCtor) return null;
+
+  // WARM THE LIST. On Chrome the first `getVoices()` returns [] and STARTS the
+  // load; the real list arrives with `voiceschanged`. Asking once here, at
+  // boot, means the list is populated long before the first line - and the
+  // subscription exists so that a platform which swaps voices mid-session
+  // (a Bluetooth headset, an OS voice download) is picked up rather than
+  // cached against. Nothing is stored: `voices()` below always reads live.
+  try {
+    synthesis.getVoices();
+    synthesis.addEventListener?.("voiceschanged", () => {
+      synthesis.getVoices();
+    });
+  } catch {
+    // A locked-down browser may refuse either call. That is a quieter game,
+    // never a failed boot.
+  }
+
   return {
     voices: () =>
       synthesis.getVoices().map((v) => ({

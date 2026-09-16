@@ -53,6 +53,11 @@ export class ConfirmDialog {
     const scrim = scene.add
       .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, hexToNum(INK.bgDeep), 0.72)
       .setOrigin(0, 0);
+    // Interactive so the scrim EATS clicks rather than letting them through to
+    // the screen it is dimming. It does nothing with them: a modal that closes
+    // when you click beside it is a modal a child dismisses by accident, and
+    // this one is the "delete this pilot" confirm.
+    scrim.setInteractive();
     this.container.add(scrim);
 
     const panelW = Math.min(1120, GAME_WIDTH - SPACE.gutter * 2);

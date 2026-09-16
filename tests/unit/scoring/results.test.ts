@@ -566,3 +566,73 @@ describe("computeStageResults", () => {
     expect(r.stars).toBe(0);
   });
 });
+
+/**
+ * THE "0 WPM" REGRESSION.
+ *
+ * The results screen reported "words per minute 0" next to 3 of 3 stars after a
+ * real stage. Nothing here was wrong: `computeStageResults` had been handed
+ * `{ characters: 0, elapsedMs: 0, ... }`, because `FlightScene` never sent its
+ * stage tally to the warp break and `ResultsScene` fell back to an empty one.
+ *
+ * These pin both halves. The first is a hand-computed rate, so a future edit to
+ * the formula has to disagree with arithmetic rather than with a fixture. The
+ * second states plainly that an empty tally is the ONLY way this function
+ * produces a zero - which is what makes a 0 on screen a plumbing bug and not a
+ * scoring bug, and stops the next reader looking for it in the engine.
+ */
+describe("computeStageResults: the stage's real numbers arrive (WPM regression)", () => {
+  it("is (characters / 5) / minutes, hand-computed end to end", () => {
+    // 70 characters in 42 s => 14 "words" in 0.7 min => exactly 20 wpm.
+    const r = computeStageResults({
+      stopId: "mars",
+      tally: { characters: 70, elapsedMs: 42_000, hits: 14, typos: 0, hullHits: 0 },
+      exposures: [],
+      profile: profile([]),
+    });
+    expect(70 / 5 / (42_000 / 60_000)).toBe(20);
+    expect(r.wpm).toBe(20);
+    // A cleanly typed stage is 100% by the documented formula, and a clean
+    // stage's accuracy being 1 must never be read as "the tally was empty".
+    expect(r.accuracy).toBe(1);
+  });
+
+  it("a played stage NEVER reports 0 wpm; only an empty tally does", () => {
+    const played = computeStageResults({
+      stopId: "mars",
+      tally: { characters: 96, elapsedMs: 75_000, hits: 18, typos: 3, hullHits: 1 },
+      exposures: [],
+      profile: profile([]),
+    });
+    expect(played.wpm).toBeGreaterThan(0);
+    // Three stars and a zero rate cannot both be true of the same stage: that
+    // pairing is the exact screenshot the player sent in.
+    expect(played.stars).toBeGreaterThan(0);
+
+    // The shape the screen used to be handed. This is what a 0 means.
+    const unplumbed = computeStageResults({
+      stopId: "mars",
+      tally: { characters: 0, elapsedMs: 0, hits: 0, typos: 0, hullHits: 0 },
+      exposures: [],
+      profile: profile([]),
+    });
+    expect(unplumbed.wpm).toBe(0);
+  });
+
+  it("characters are KEYSTROKES, so a longer stage at the same pace scores the same", () => {
+    const short = computeStageResults({
+      stopId: "mars",
+      tally: { characters: 50, elapsedMs: 30_000, hits: 10, typos: 0, hullHits: 0 },
+      exposures: [],
+      profile: profile([]),
+    });
+    const long = computeStageResults({
+      stopId: "mars",
+      tally: { characters: 150, elapsedMs: 90_000, hits: 30, typos: 0, hullHits: 0 },
+      exposures: [],
+      profile: profile([]),
+    });
+    expect(short.wpm).toBe(20);
+    expect(long.wpm).toBe(20);
+  });
+});

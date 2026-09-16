@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { DUR, EASE, FONT_STACK, INK, SPACE, TYPE, chromeCase, letterSpacingPx, lineHeightEm } from "@game/ui/theme";
 import { hexToNum as rgb } from "@game/render/palette";
 import type { Lang } from "@engine/types";
-import { uiSoundBlip } from "@game/ui/focus";
+import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
 
 /**
  * The bits of chrome the four story screens share: type, plates, a focus ring
@@ -106,6 +106,22 @@ export interface FocusTarget {
   readonly activate?: () => void;
   /** Locked stops stay focusable; this only changes the ring's voice. */
   readonly locked?: boolean;
+  /**
+   * THE FORWARD ACTION. The one thing the player came to this screen to do:
+   * continue, launch, light the beacon. It holds focus when the screen opens,
+   * so the obvious next action is Enter and nothing else.
+   *
+   * Replay, retry and back are never primary. On the stage report that means
+   * "continue" is focused and "fly it again" is one key away, not the other way
+   * round - a child who presses Enter on reflex should move on with their run,
+   * not silently repeat the stage they just finished.
+   *
+   * Declared per target rather than inferred from list order so that a screen
+   * can lay its buttons out however it reads best (results puts replay on the
+   * left, because that is where a "back" reads) without that choosing what
+   * Enter does.
+   */
+  readonly primary?: boolean;
 }
 
 export interface FocusRing {
@@ -182,12 +198,34 @@ export interface KeyboardMenu {
 }
 
 /**
- * Keyboard-only list navigation (D37). Arrows on the menu's axis move, Tab and
- * Shift+Tab always move, Enter and Space activate, Escape goes back.
+ * Where the caret goes when a screen opens: an explicit `startIndex` if the
+ * screen computed one (the map focuses the stop you are on), otherwise the
+ * PRIMARY target, otherwise the first.
+ */
+function openingIndex(
+  list: readonly FocusTarget[],
+  startIndex: number | undefined,
+): number {
+  const last = Math.max(0, list.length - 1);
+  if (startIndex !== undefined) return Math.min(Math.max(startIndex, 0), last);
+  const primary = list.findIndex((t) => t.primary === true);
+  return primary >= 0 ? primary : 0;
+}
+
+/**
+ * List navigation (D37, AC-18.1). Arrows on the menu's axis move, Tab and
+ * Shift+Tab always move, Enter and Space activate, Escape goes back - and
+ * every target is also a hit area, so the mouse reaches exactly the same set of
+ * things the keyboard does and nothing more.
  *
  * Tab is handled explicitly and its default prevented: the game is a canvas,
  * so the browser's own focus order would walk out of the document and strand
  * the player, which is the exact failure AC-18.1 exists to catch.
+ *
+ * POINTER RULES, the same three the UI kit uses (ui/focus.ts):
+ *   hover  -> focus. One highlight in this UI, and it is the ring.
+ *   press  -> focus, then activate. A locked target only focuses.
+ *   the keyboard path is untouched and remains sufficient on its own.
  */
 export function createKeyboardMenu(
   scene: Phaser.Scene,
@@ -198,7 +236,8 @@ export function createKeyboardMenu(
   const axis = options.axis ?? "vertical";
   const wrap = options.wrap ?? true;
   let list = [...targets];
-  let index = Math.min(Math.max(options.startIndex ?? 0, 0), Math.max(0, list.length - 1));
+  let index = openingIndex(list, options.startIndex);
+  let zones: Phaser.GameObjects.Zone[] = [];
 
   const step = (delta: number): void => {
     if (list.length === 0) return;
@@ -220,6 +259,41 @@ export function createKeyboardMenu(
     const target = list[index];
     if (target !== undefined) ring.moveTo(target);
     scene.events.emit("kb-focus", index, target);
+  }
+
+  /**
+   * One invisible hit area per target, rebuilt whenever the targets are.
+   *
+   * Built from the SAME rectangle the focus ring is drawn around, so what the
+   * ring says is clickable and what is clickable are one rectangle rather than
+   * two that can drift apart.
+   */
+  function bindPointers(): void {
+    for (const zone of zones) zone.destroy();
+    zones = [];
+    for (const [i, target] of list.entries()) {
+      if (target.w <= 0 || target.h <= 0) continue;
+      const zone = scene.add
+        .zone(target.x, target.y, target.w, target.h)
+        .setOrigin(0, 0)
+        // Named so the pointer e2e can enumerate a screen's hit areas and check
+        // they are exactly the focusable set (see ui/controls.ts for the same).
+        .setName(`${HIT_ZONE_PREFIX}${target.id}`)
+        .setDepth(ring.graphics.depth + 1)
+        .setInteractive({ useHandCursor: target.locked !== true });
+      zone.on("pointerover", () => {
+        if (i === index) return;
+        focus(i);
+        uiSoundBlip("nav");
+      });
+      zone.on("pointerdown", () => {
+        focus(i);
+        if (target.locked === true) return;
+        target.activate?.();
+        uiSoundBlip("activate");
+      });
+      zones.push(zone);
+    }
   }
 
   const forward = axis === "horizontal" ? ["ArrowRight", "ArrowDown"] : ["ArrowDown", "ArrowRight"];
@@ -254,6 +328,7 @@ export function createKeyboardMenu(
   };
 
   scene.input.keyboard?.on("keydown", onKey);
+  bindPointers();
   focus(index);
 
   return {
@@ -264,12 +339,22 @@ export function createKeyboardMenu(
       return list;
     },
     focus,
+    /**
+     * Replace the targets. The caret goes to the PRIMARY target, not to
+     * whatever index happened to be current: a screen that rebuilds its buttons
+     * (results, once the relative-board prompt is answered) is opening a new
+     * set of choices, and the forward one is the default for the new set the
+     * same way it was for the first.
+     */
     setTargets(next: readonly FocusTarget[]) {
       list = [...next];
-      focus(Math.min(index, Math.max(0, list.length - 1)));
+      bindPointers();
+      focus(openingIndex(list, undefined));
     },
     destroy() {
       scene.input.keyboard?.off("keydown", onKey);
+      for (const zone of zones) zone.destroy();
+      zones = [];
     },
   };
 }

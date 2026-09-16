@@ -326,7 +326,7 @@ export class WordPlate extends Phaser.GameObjects.Container {
     this.underlinePulse = null;
     this.scene.tweens.add({
       targets: this,
-      y: this.y - 46,
+      y: this.y - 78,
       alpha: 0,
       scale: 1.06,
       duration: durationMs,

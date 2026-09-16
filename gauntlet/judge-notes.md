@@ -223,3 +223,42 @@ Verified byte-identical across three consecutive runs on three different ports:
 A reference compare is a controlled still, not a live frame.
 
 Passed at attempt 5 of 8.
+
+---
+
+## R-world — round 1 — REWORK (real progress)
+
+- **Reference:** `design-reference/refs/world-bar.png` (Alto's Odyssey, press kit)
+- **Render:** `gauntlet/evidence/flight-frame.png`
+
+**Root cause the lane found, which is the reason this screen alone looked flat:**
+`FlightScene` had its own hand-rolled world of four TileSprites and never used
+the shared `render/parallax.ts` that the other eight screens use. There is one
+world builder now.
+
+**Landed and visible:** atmospheric lift with distance, a sun disc in frame,
+chamfered terraced silhouettes with internal dot grids, dark edge framing,
+sparse drifting accents, and a per-stop atmosphere pass. It also turned up two
+real defects — `skyStopsLate` left **Saturn at deltaE 4.7 and Pluto at 5.3**
+(two stops whose sky demonstrably did not travel, while the green e2e only ever
+measured Mars), and a double additive bloom that clipped Mars' sky to pure
+white.
+
+**Still short of the bar:**
+
+| # | Gap | Target |
+|---|---|---|
+| 1 | **Value range is still compressed.** Everything sits in a mid-to-light brown band; the darkest element is the edge wall at maybe 30% and the reference's foreground is near-black. This is the single biggest remaining difference and it is what makes the reference read as depth. | Push the near plane genuinely dark. |
+| 2 | **The sun is a blown-out white blob, not a disc.** The reference sun is a clean disc with a soft halo around it; ours is clipped white and washes its surroundings. | Draw the disc, then the halo. Do not let the bloom eat the shape. |
+| 3 | **One hue family.** The 14% cool-shift cap is too timid to read; the image is all one brown. | Widen it, checking AC-22.7's palette tolerance rather than assuming 14% is the ceiling. |
+| 4 | **The masses read as slabs floating in soup**, not landforms at distances. | Give each plane a continuous silhouette edge so it reads as terrain, not as separate rectangles. |
+| 5 | Silhouettes are chamfered but still largely rounded rectangles; the dot grid is doing most of the character work. | More spires, terraces and plant forms, per item 5. |
+
+**A structural difference worth stating,** because it limits how far the
+reference transfers: Alto is a SIDE-scroller organised around a horizon line,
+and this is a VERTICAL scroller with the ship at the bottom. Receding ridgelines
+toward a horizon do not map. What does map is value range, hue separation,
+silhouette character, one placed light, and sparse accents — and those are where
+the remaining gap is.
+
+Attempt 1 of 8.

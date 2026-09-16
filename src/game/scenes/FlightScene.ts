@@ -4,10 +4,12 @@ import {
   LAYERS,
   type LayerId,
   cameraSwayPx,
-  idleDriftPx,
   layer,
 } from "@game/render/layers.js";
 import { particleSpec } from "@game/render/particles.js";
+import { buildParallax, type Parallax } from "@game/render/parallax.js";
+import { TEX } from "@game/render/textures.js";
+import { paletteAt as stopPaletteAt } from "@game/render/palette.js";
 import { PauseScene } from "./PauseScene.js";
 import {
   type DebrisType,
@@ -48,6 +50,8 @@ import {
 } from "@engine/controller/index.js";
 import {
   type ComboState,
+  type StageTally,
+  type WordExposure,
   INITIAL_COMBO_STATE,
   accuracy,
   comboReducer,
@@ -68,13 +72,11 @@ import {
   type FlightCue,
   type HudSnapshot,
   type Palette,
-  type SkyTravel,
+  type WarpSpeedPayload,
   flightConfigFrom,
   mulberry32,
   paletteFor,
   retentionPoolFor,
-  skyAt,
-  skyTravelFor,
   stagePoolFor,
 } from "@game/flight/stage.js";
 import { type FlightCopy, createFlightCopy } from "@game/flight/copy.js";
@@ -126,6 +128,12 @@ import { audioFrom } from "@game/audio/wiring.js";
 
 /** D29: "the ship sputters, dims, and sinks ... over several seconds". */
 const STALL_SINK_MS = 2400;
+
+/**
+ * What the world slows to for the warp break (D30). Not zero: "a calm break" is
+ * a change of pace, and rubric item 2 wants an idle frame to still be alive.
+ */
+const CALM_WORLD_SPEED_FRACTION = 0.22;
 
 interface LiveRock {
   readonly id: string;
@@ -221,6 +229,12 @@ export class FlightScene extends Phaser.Scene {
   private lastHudAtMs = 0;
   private skyPaintedAt = -1;
   private stallStartedAtMs: number | null = null;
+  /**
+   * Words this stage pulled from the RETENTION pool (AC-9.3, D21). Recorded at
+   * spawn because `pickNext` is the only place that knows, and read at stage end
+   * because AC-20.3's retention line is a claim about which words those were.
+   */
+  private retentionWords = new Set<string>();
 
   private parked: {
     readonly id: string;
@@ -239,13 +253,20 @@ export class FlightScene extends Phaser.Scene {
     hud: 0,
   };
 
-  private skyTravel!: SkyTravel;
-  private skyImage!: Phaser.GameObjects.Image;
-  private skyTextureKey = "";
-  private celestial!: Phaser.GameObjects.Container;
-  private farField!: Phaser.GameObjects.TileSprite;
-  private midField!: Phaser.GameObjects.TileSprite;
-  private nearField!: Phaser.GameObjects.TileSprite;
+  /**
+   * The world, built by the SHARED stack (`render/parallax.ts`) rather than by
+   * this file.
+   *
+   * It used to be four hand-rolled TileSprites here, and that is why the flight
+   * screen read as flat brown bands while eight other screens did not: the
+   * depth work - atmospheric lift, the value range, the light's position, the
+   * framing foreground, the weather pass (design-reference/refs/WORLD-BAR.md) -
+   * all lives in the builder, and the one screen the player spends the most
+   * time on was the one screen not using it. There is one world in this game now.
+   */
+  private parallax!: Parallax;
+  /** The D30 calm-down, held so the warp jump can stop it. */
+  private calmTween: Phaser.Tweens.Tween | null = null;
   private debrisLayer!: Phaser.GameObjects.Container;
   private shipLayer!: Phaser.GameObjects.Container;
   private shipBody!: Phaser.GameObjects.Container;
@@ -281,9 +302,11 @@ export class FlightScene extends Phaser.Scene {
     this.stalled = false;
     this.stallStartedAtMs = null;
     this.stageComplete = false;
+    this.calmTween = null;
     this.knobChanges = 0;
     this.nextRockIndex = 0;
     this.parked = null;
+    this.retentionWords = new Set<string>();
     this.combo = INITIAL_COMBO_STATE;
     // A restart is a fresh attempt at the stage (AC-4.3), so the run record
     // starts empty even though the word book is carried over.
@@ -325,8 +348,12 @@ export class FlightScene extends Phaser.Scene {
 
     this.scene.launch(SCENE_KEYS.hud, { snapshot: this.snapshot() });
     this.game.events.on(FLIGHT_EVENTS.restart, this.onRestartRequested, this);
+    // D30: the warp break rides on top of this scene and accelerates THIS
+    // world. See `checkStageEnd`.
+    this.game.events.on(FLIGHT_EVENTS.warpSpeed, this.onWarpSpeed, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.game.events.off(FLIGHT_EVENTS.restart, this.onRestartRequested, this);
+      this.game.events.off(FLIGHT_EVENTS.warpSpeed, this.onWarpSpeed, this);
       if (this.cfg.debug) delete window.__kbFlight;
     });
 
@@ -392,128 +419,25 @@ export class FlightScene extends Phaser.Scene {
   }
 
   private buildWorld(width: number, height: number): void {
-    this.skyTravel = skyTravelFor(this.palette);
-    this.skyTextureKey = `kb-sky-${this.cfg.stopId}`;
-    if (this.textures.exists(this.skyTextureKey)) {
-      this.textures.remove(this.skyTextureKey);
-    }
-    this.textures.createCanvas(this.skyTextureKey, 8, 512);
-    this.paintSky(0);
-    this.skyImage = this.add
-      .image(width / 2, height / 2, this.skyTextureKey)
-      .setDisplaySize(width + 24, height + 24)
-      .setDepth(layer("sky").depth);
-
-    this.celestial = this.buildCelestial(width, height);
-    // Bands, not full-screen sheets: art-direction section 2 calls L2 and L3
-    // "silhouette bands" and L5 "sparse foreground", and a band is also three
-    // times cheaper to fill than a screen - which is the whole of AC-22.9's
-    // budget rule (layers and gradients, kept cheap).
-    this.farField = this.buildBand(
+    // ONE world builder for the whole game (render/parallax.ts). Everything
+    // this method used to do by hand - the sky gradient, the planet, three
+    // silhouette bands - is in there, alongside the seven depth cues this
+    // screen was missing. `debris` is deliberately NOT decorated: layer 4 is
+    // where the player's rocks fall, and a silhouette rock drifting at exactly
+    // the speed of a typeable one is a lie about what can be shot.
+    this.parallax = buildParallax(this, {
+      palette: stopPaletteAt(this.cfg.stopId, this.cfg.colorblindPalette),
+      reducedMotion: this.cfg.reducedMotion,
       width,
-      "kb-far",
-      this.palette.colors[3] ?? this.palette.colors[1] ?? "#ffffff",
-      0.34,
-      layer("farField").depth,
-      1.6,
-      height * 0.3,
-      height * 0.26,
-    );
-    this.midField = this.buildBand(
-      width,
-      "kb-mid",
-      this.palette.colors[4] ?? this.palette.colors[2] ?? "#ffffff",
-      0.5,
-      layer("midField").depth,
-      1.1,
-      height * 0.34,
-      height * 0.62,
-    );
-    this.nearField = this.buildBand(
-      width,
-      "kb-near",
-      this.palette.colors[2] ?? this.palette.colors[1] ?? "#ffffff",
-      0.3,
-      layer("nearField").depth,
-      0.55,
-      height * 0.2,
-      height * 0.9,
-    );
+      height,
+      worldSpeed: this.cfg.worldSpeedPxPerSec,
+      decorate: ["sky", "celestial", "farField", "midField", "nearField"],
+      seed: this.cfg.seed,
+    });
 
     this.debrisLayer = this.add.container(0, 0).setDepth(layer("debris").depth);
     this.shipLayer = this.add.container(0, 0).setDepth(layer("shipFx").depth);
-  }
-
-  /** L1: the stop's planet, large and partially framed, with a soft glow. */
-  private buildCelestial(width: number, height: number): Phaser.GameObjects.Container {
-    const g = this.add.graphics();
-    const radius = height * 0.46;
-    const core = hexToInt(this.palette.colors[2] ?? this.palette.accent);
-    const halo = hexToInt(this.palette.accent);
-    for (let i = 6; i >= 1; i -= 1) {
-      g.fillStyle(halo, 0.035 * i);
-      g.fillCircle(0, 0, radius * (1 + i * 0.09));
-    }
-    g.fillStyle(core, 1);
-    g.fillCircle(0, 0, radius);
-    // One light direction per stop: a lighter crescent on the lit limb.
-    g.fillStyle(hexToInt(this.palette.colors[1] ?? this.palette.accent), 0.45);
-    g.beginPath();
-    g.arc(0, 0, radius, Math.PI * 1.15, Math.PI * 1.85, false);
-    g.arc(-radius * 0.22, -radius * 0.1, radius, Math.PI * 1.85, Math.PI * 1.15, true);
-    g.closePath();
-    g.fillPath();
-
-    const container = this.add.container(width * 0.78, -height * 0.12, [g]);
-    container.setDepth(layer("celestial").depth);
-    return container;
-  }
-
-  /**
-   * A silhouette band as a tiling texture: one flat palette colour, drawn as
-   * vectors and tiled, so a whole parallax plane costs one draw call
-   * (AC-22.9 - the budget is layers, never post-processing).
-   */
-  private buildBand(
-    width: number,
-    key: string,
-    colour: string,
-    alpha: number,
-    depth: number,
-    scale: number,
-    bandHeight: number,
-    centreY: number,
-  ): Phaser.GameObjects.TileSprite {
-    const textureKey = `${key}-${this.cfg.stopId}`;
-    if (this.textures.exists(textureKey)) this.textures.remove(textureKey);
-    const g = this.make.graphics({ x: 0, y: 0 }, false);
-    const tint = hexToInt(colour);
-    g.fillStyle(tint, 1);
-    const seed = mulberry32(this.cfg.seed + key.length);
-    for (let i = 0; i < 9; i += 1) {
-      const cx = seed() * 512;
-      const cy = seed() * 512;
-      const r = 26 + seed() * 78;
-      // Drawn nine times, once per wrap offset, so a blob that runs off one
-      // edge comes back on the other. Without this the tile seams show as hard
-      // rectangles - a repeating straight edge is the one thing a soft
-      // silhouette band must never have.
-      for (const dx of [-512, 0, 512]) {
-        for (const dy of [-512, 0, 512]) {
-          g.fillCircle(cx + dx, cy + dy, r);
-          g.fillCircle(cx + dx + r * 0.7, cy + dy + r * 0.25, r * 0.7);
-        }
-      }
-    }
-    g.generateTexture(textureKey, 512, 512);
-    g.destroy();
-
-    const sprite = this.add
-      .tileSprite(width / 2, centreY, width + 24, bandHeight, textureKey)
-      .setAlpha(alpha)
-      .setDepth(depth);
-    sprite.setTileScale(scale, scale);
-    return sprite;
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.parallax.destroy());
   }
 
   private buildShip(width: number, height: number): void {
@@ -692,12 +616,12 @@ export class FlightScene extends Phaser.Scene {
     const sparkSpec = particleSpec("strikeSpark");
     const moteSpec = particleSpec("dustMotes");
 
-    const debrisColour =
-      this.cfg.colorblindPalette
-        ? this.palette.colorblind.debris
-        : (wordDebrisTypesFor(this.cfg.stopId)[0]?.fill ?? this.palette.accent);
-
-    const shardKey = ensureShardTexture(this, `kb-shard-${this.cfg.stopId}`, debrisColour);
+    // WHITE, and tinted at the moment it is emitted. `blastShards` is spec'd
+    // `colorSource: "debris"` - "the rock's own colour, so the player sees WHICH
+    // rock died" - and a texture baked in one stop-wide colour cannot do that: a
+    // C-type and an M-type broke into identical chunks. One white texture plus
+    // `setParticleTint` per blast is the same draw call and keeps the promise.
+    const shardKey = ensureShardTexture(this, "kb-shard-white", "#FFFFFF");
     const sparkKey = ensureMoteTexture(this, `kb-spark-${this.cfg.stopId}`, this.palette.accent);
     const moteKey = ensureMoteTexture(
       this,
@@ -712,7 +636,10 @@ export class FlightScene extends Phaser.Scene {
         angle: { min: shardSpec.angle[0], max: shardSpec.angle[1] },
         gravityY: shardSpec.gravityY,
         scale: { start: shardSpec.scale[0], end: shardSpec.scale[1], ease: shardSpec.ease },
+        // Spin, and at a rate that differs per shard: a field of chunks all
+        // tumbling at one speed reads as a sprite sheet, not as rubble.
         rotate: { start: 0, end: 360 },
+        alpha: { start: 1, end: 0.35, ease: shardSpec.ease },
         emitting: false,
       })
       .setDepth(layer("shipFx").depth);
@@ -836,52 +763,33 @@ export class FlightScene extends Phaser.Scene {
   }
 
   private advanceLayers(dt: number, elapsedMs: number): void {
+    // The MEASUREMENT of the parallax, kept here and kept monotonic. The stack
+    // itself wraps its containers modulo the stage height, which is right on
+    // screen and useless as evidence - a wrapped offset goes backwards once a
+    // tile, so V-22.1b ("five layers observed moving at distinct rates") would
+    // read a negative delta whenever a sample straddled a wrap. This total
+    // never wraps, so the rate it reports is the rate the layer ran at.
     const world = this.cfg.worldSpeedPxPerSec;
     for (const spec of LAYERS) {
       this.layerOffsets[spec.id] += spec.speed * world * dt;
     }
 
+    this.parallax.update(dt * 1000);
+
+    // AC-22.3: the sky travels from its opening stops to its closing ones over
+    // the stage. Repainting is now a crossfade between two pre-drawn gradients
+    // rather than a canvas redraw, so the guard is about not touching the alpha
+    // 60 times a second for no visible change, not about redraw cost.
     const progress = Math.min(1, elapsedMs / this.cfg.stageDurationMs);
-    if (Math.abs(progress - this.skyPaintedAt) > 0.004) {
-      this.paintSky(progress);
+    if (Math.abs(progress - this.skyPaintedAt) > 0.002) {
+      this.parallax.setSkyProgress(progress);
       this.skyPaintedAt = progress;
     }
-
-    this.farField.tilePositionY = -this.layerOffsets.farField;
-    this.midField.tilePositionY = -this.layerOffsets.midField;
-    this.midField.tilePositionX = idleDriftPx(
-      layer("midField"),
-      elapsedMs,
-      this.cfg.reducedMotion,
-    );
-    this.nearField.tilePositionY = -this.layerOffsets.nearField;
-    this.nearField.tilePositionX = idleDriftPx(
-      layer("nearField"),
-      elapsedMs,
-      this.cfg.reducedMotion,
-    );
-    this.celestial.y =
-      -this.scale.height * 0.12 +
-      (this.layerOffsets.celestial % (this.scale.height * 1.5));
   }
 
   private updateCamera(elapsedMs: number): void {
     const sway = cameraSwayPx(elapsedMs, this.cfg.reducedMotion);
     this.cameras.main.setScroll(sway + this.shakeX, sway * 0.5 + this.shakeY);
-  }
-
-  private paintSky(progress: number): void {
-    const texture = this.textures.get(this.skyTextureKey);
-    const canvas = texture as Phaser.Textures.CanvasTexture;
-    const ctx = canvas.getContext();
-    const stops = skyAt(this.skyTravel, progress);
-    const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-    gradient.addColorStop(0, stops.top);
-    gradient.addColorStop(0.45, stops.middle);
-    gradient.addColorStop(1, stops.bottom);
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 8, 512);
-    canvas.refresh();
   }
 
   private updateRocks(now: number): void {
@@ -927,6 +835,7 @@ export class FlightScene extends Phaser.Scene {
       return;
     }
     this.selection = outcome.state;
+    if (outcome.source === "retention") this.retentionWords.add(outcome.word);
     this.spawnRock(outcome.word, now);
     this.nextSpawnAtMs = now + 850;
   }
@@ -973,7 +882,11 @@ export class FlightScene extends Phaser.Scene {
       this.plateStyle,
     );
 
-    const margin = 160;
+    // The near plane now carries near-black framing masses down both edges
+    // (render/parallax.ts, canyonWalls), which reach about 8.5% of the stage.
+    // A rock spawns clear of them by its own half-width plus its plate: a
+    // foreground that covers a word is a foreground that costs a child a rock.
+    const margin = 320;
     const homeX = margin + this.rng() * (width - margin * 2);
     const container = this.add.container(homeX, -sizePx, [body, plate]);
     this.debrisLayer.add(container);
@@ -1238,16 +1151,49 @@ export class FlightScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * The rock breaks (art-direction section 8).
+   *
+   * A player played this and said the explosions "are not satisfying at all",
+   * and they were right: a blast was eight same-coloured shards, a plate fade
+   * and a 220 ms scale-up, all of it inside the rock's own footprint. Nothing
+   * left the rock, so nothing read as the rock coming apart.
+   *
+   * Five things land on the same frame now, which is what an impact is:
+   *   FLASH     one bright additive pop at the point of contact, 160 ms. The
+   *             eye reads the hit before it reads the debris.
+   *   SHOCKWAVE an expanding accent ring on Expo.Out - the blast curve.
+   *   SHARDS    16 chunks in THIS ROCK'S colour, spinning, spread over a wide
+   *             speed range so they spray instead of leaving together.
+   *   PLATE     dissolves upward, further and slower than it did.
+   *   SHAKE     3-9 px, scaled by the combo, so a run that is going well hits
+   *             harder. Off under reduced motion (AC-19.3).
+   *
+   * D28 is untouched by all of it: this is the player DESTROYING something, and
+   * the strike on the hull below stays a scuff with no flash and no red.
+   */
   private fractureRock(rock: LiveRock, points: number): void {
     rock.resolved = true;
     this.rocks = this.rocks.filter((r) => r.id !== rock.id);
 
-    const quantity = 6 + Math.floor(this.rng() * 5); // 6-10 shards
-    this.shards.emitParticleAt(rock.container.x, rock.container.y, quantity);
+    const x = rock.container.x;
+    const y = rock.container.y;
+    const shardSpec = particleSpec("blastShards");
+    const fill = this.cfg.colorblindPalette
+      ? this.palette.colorblind.debris
+      : rock.debris.fill;
 
-    rock.plate.dissolveUpward(400);
+    // The rock's own colour (blastShards.colorSource === "debris").
+    this.shards.setParticleTint(hexToInt(fill));
+    this.shards.emitParticleAt(x, y, shardSpec.quantity);
+
+    this.blastFlash(x, y, rock.sizePx);
+    this.shockwave(x, y, rock.sizePx);
+    this.shakeBy(3 + Math.min(10, this.combo.combo) * 0.6, 160);
+
+    rock.plate.dissolveUpward(520);
     const floater = this.add
-      .text(rock.container.x, rock.container.y, `+${points}`, {
+      .text(x, y, `+${points}`, {
         fontFamily: this.plateStyle.fontFamily,
         fontSize: "26px",
         color: this.palette.accent,
@@ -1265,11 +1211,76 @@ export class FlightScene extends Phaser.Scene {
 
     this.tweens.add({
       targets: rock.body,
-      scale: { from: 1, to: 1.25 },
+      scale: { from: 1, to: 1.5 },
       alpha: 0,
-      duration: 220,
+      duration: 240,
       ease: "Expo.Out",
       onComplete: () => rock.container.destroy(),
+    });
+  }
+
+  /** A brief bright pop at the point of impact. One additive quad, 160 ms. */
+  private blastFlash(x: number, y: number, sizePx: number): void {
+    const flash = this.add
+      .image(x, y, TEX.glow)
+      .setDisplaySize(sizePx * 1.6, sizePx * 1.6)
+      .setTint(hexToInt(this.palette.accent))
+      .setAlpha(0.95)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDepth(layer("shipFx").depth);
+    this.tweens.add({
+      targets: flash,
+      displayWidth: sizePx * 3.4,
+      displayHeight: sizePx * 3.4,
+      alpha: 0,
+      duration: 160,
+      ease: "Expo.Out",
+      onComplete: () => flash.destroy(),
+    });
+  }
+
+  /** The ring that says the rock pushed the air out of the way. */
+  private shockwave(x: number, y: number, sizePx: number): void {
+    const ring = this.add.graphics().setDepth(layer("shipFx").depth);
+    const accent = hexToInt(this.palette.accent);
+    this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: 300,
+      ease: "Expo.Out",
+      onUpdate: (tween) => {
+        const t = tween.getValue() ?? 0;
+        ring.clear();
+        ring.lineStyle(5 * (1 - t) + 1, accent, 0.75 * (1 - t));
+        ring.strokeCircle(x, y, sizePx * (0.45 + t * 1.25));
+      },
+      onComplete: () => ring.destroy(),
+    });
+  }
+
+  /**
+   * One shake implementation, used by the blast and by the strike.
+   *
+   * AC-19.3: shake is FRAMING motion, so reduced motion removes it entirely and
+   * the gameplay underneath is untouched. Both callers get that for free by
+   * going through here rather than each remembering the guard.
+   */
+  private shakeBy(amplitudePx: number, durationMs: number): void {
+    if (this.cfg.reducedMotion) return;
+    this.tweens.addCounter({
+      from: amplitudePx,
+      to: 0,
+      duration: durationMs,
+      ease: "Cubic.Out",
+      onUpdate: (tween) => {
+        const amp = tween.getValue() ?? 0;
+        this.shakeX = Math.sin(tween.progress * Math.PI * 7) * amp;
+        this.shakeY = Math.cos(tween.progress * Math.PI * 5) * amp * 0.5;
+      },
+      onComplete: () => {
+        this.shakeX = 0;
+        this.shakeY = 0;
+      },
     });
   }
 
@@ -1318,23 +1329,11 @@ export class FlightScene extends Phaser.Scene {
     const ship = this.shipWorldPoint();
     this.sparks.emitParticleAt(atX, ship.y - 40, sparkSpec.quantity);
     this.addScorch();
-
-    if (this.cfg.reducedMotion) return; // AC-19.3: shake off, gameplay motion kept.
-    this.tweens.addCounter({
-      from: 6,
-      to: 0,
-      duration: 120,
-      ease: "Cubic.Out",
-      onUpdate: (tween) => {
-        const amp = tween.getValue() ?? 0;
-        this.shakeX = Math.sin(tween.progress * Math.PI * 7) * amp;
-        this.shakeY = Math.cos(tween.progress * Math.PI * 5) * amp * 0.5;
-      },
-      onComplete: () => {
-        this.shakeX = 0;
-        this.shakeY = 0;
-      },
-    });
+    // Art-direction section 8: 120 ms, 6 px, decaying. Fixed, and deliberately
+    // NOT scaled by anything - a strike that hits harder when the hull is low
+    // is a punishment (D28/D31), and the blast is the only shake in this game
+    // that is allowed to grow.
+    this.shakeBy(6, 120);
   }
 
   /** One scorch mark per hit (art-direction section 5), cleared at stage end. */
@@ -1420,6 +1419,17 @@ export class FlightScene extends Phaser.Scene {
     });
   }
 
+  /** D30. The break is over; this stack is what jumps. */
+  private readonly onWarpSpeed = (payload: WarpSpeedPayload): void => {
+    if (!this.stageComplete) return;
+    // The calm-down tween writes the same value every frame, so it has to be
+    // stopped rather than out-shouted: a jump that has to fight a 900 ms ease
+    // still running is a jump that stutters.
+    this.calmTween?.stop();
+    this.calmTween = null;
+    this.parallax.setWorldSpeed(this.cfg.worldSpeedPxPerSec * payload.multiplier);
+  };
+
   private onRestartRequested(): void {
     // AC-4.3: restart from stage start, per-word history retained - the book
     // goes back in as config, so everything the player learned survives.
@@ -1465,6 +1475,7 @@ export class FlightScene extends Phaser.Scene {
     const warp = this.scene.get(SCENE_KEYS.warp);
     if (warp !== null) {
       this.scene.stop(SCENE_KEYS.hud);
+      this.calmTheBelt();
       // D09. `blastHistory` is the record; `blasted` is the flattened view the
       // warp sentence highlights from. Both travel, because the break should
       // not have to re-derive the thing the belt already knows - and because
@@ -1474,7 +1485,19 @@ export class FlightScene extends Phaser.Scene {
       // `missed` / `slow` / `hitRate` are the coach request (FR-15, AC-15.5).
       // Before this they were never supplied, so Shadow could only ever say
       // the "clean run" line, however many words got past the ship.
-      this.scene.start(SCENE_KEYS.warp, {
+      // D30. LAUNCH, not START.
+      //
+      // `scene.start(Warp)` shut this scene down and built a different screen,
+      // which is why the break read as being taken somewhere instead of as
+      // having cleared something. `launch` runs Warp ON TOP while this scene
+      // keeps running: `update` still advances the parallax every frame (the
+      // gameplay block below it is already gated on `stageComplete`), so the
+      // world the player just flew goes on drifting behind the panel, and the
+      // acceleration at the end of the break is applied to THIS stack via
+      // `FLIGHT_EVENTS.warpSpeed`. Warp stops this scene when it leaves for
+      // Beacon, which is the moment the player actually goes somewhere.
+      this.scene.launch(SCENE_KEYS.warp, {
+        overlay: true,
         stopId: this.cfg.stopId,
         book: this.book,
         blastHistory: this.history,
@@ -1484,8 +1507,97 @@ export class FlightScene extends Phaser.Scene {
         hitRate: outcome.hitRate,
         lang: this.cfg.uiLang,
         shipName: this.cfg.shipName,
+        // WHAT THE RESULTS SCREEN IS MADE OF, and what it never used to get.
+        // `computeStageResults` is a pure function of a tally plus the words
+        // this stage saw, and until now neither travelled: Results defaulted to
+        // an all-zero tally and an empty exposure list, so a real belt reported
+        // "0 wpm" with three stars next to it.
+        //
+        // `payload` is the declared opaque channel (WarpInit.payload) that Warp
+        // hands to Beacon and Beacon hands to Results untouched. It is used
+        // rather than three more top-level fields because those two screens are
+        // not supposed to know what a stage tally is.
+        //
+        // NOTE what is NOT here: `progress`. The stage does not carry the route
+        // forward; the store does. Warp/Beacon/Results each read the profile at
+        // the point of use, so a clear cannot be lost by a screen forwarding the
+        // array it was handed rather than the one that was written.
+        payload: {
+          tally: this.stageTally(),
+          exposures: this.stageExposures(),
+        },
       });
+      this.scene.bringToTop(SCENE_KEYS.warp);
     }
+  }
+
+  /**
+   * D30: "everything calms". The belt eases down to a drift rather than
+   * stopping dead, because a world that halts on a frame reads as a pause, and
+   * the break is meant to read as arriving.
+   *
+   * Cubic.Out - arrive and settle (AC-22.5). Kept under reduced motion: this is
+   * the world's own motion, not framing, and D41 removes the second, not the
+   * first.
+   */
+  private calmTheBelt(): void {
+    const from = this.cfg.worldSpeedPxPerSec;
+    const holder = { v: from };
+    this.calmTween = this.tweens.add({
+      targets: holder,
+      v: from * CALM_WORLD_SPEED_FRACTION,
+      duration: 900,
+      ease: "Cubic.Out",
+      onUpdate: () => this.parallax.setWorldSpeed(holder.v),
+      onComplete: () => {
+        this.calmTween = null;
+      },
+    });
+  }
+
+  /** The raw counters `@engine/scoring` turns into WPM, accuracy and stars. */
+  private stageTally(): StageTally {
+    return {
+      characters: this.correctChars,
+      // The Phaser clock, matching `currentWpm()` and the HUD the player just
+      // watched. `performance.now()` here would disagree with the number that
+      // was on screen a second ago, because the scene clock pauses when the
+      // scene does (AC-19.x pause) and wall time does not.
+      elapsedMs: this.time.now - this.stageStartMs,
+      hits: this.hits,
+      typos: this.typos,
+      hullHits: MAX_HULL - this.hull,
+    };
+  }
+
+  /**
+   * One `WordExposure` per word this stage resolved, with its record from
+   * BEFORE the stage as `prior`.
+   *
+   * `this.cfg.book` is the book as it stood at stage start and `this.book` is
+   * the live one, already folded with this stage's samples. AC-20.2 compares
+   * this stage against what came before it, so `prior` has to come from the
+   * frozen config copy - reading `this.book` would compare the stage with
+   * itself and no word would ever be marked faster.
+   */
+  private stageExposures(): WordExposure[] {
+    const samples = new Map<string, { fk: number[]; hit: boolean }>();
+    for (const blast of this.history.blasts) {
+      const entry = samples.get(blast.word) ?? { fk: [], hit: false };
+      if (Number.isFinite(blast.fkLatencyMs)) entry.fk.push(blast.fkLatencyMs);
+      entry.hit = true;
+      samples.set(blast.word, entry);
+    }
+    for (const miss of this.history.misses) {
+      if (!samples.has(miss.word)) samples.set(miss.word, { fk: [], hit: false });
+    }
+    return [...samples.entries()].map(([word, entry]) => ({
+      word,
+      fkLatencyMs: entry.fk,
+      hit: entry.hit,
+      retention: this.retentionWords.has(word),
+      prior: this.cfg.book[word] ?? null,
+    }));
   }
 
   // -------------------------------------------------------------------------

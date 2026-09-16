@@ -4,6 +4,7 @@ import { hexToInt } from "@game/render/wordPlate.js";
 import { FLIGHT_EVENTS, type Palette, paletteFor } from "@game/flight/stage.js";
 import { type FlightCopy, createFlightCopy } from "@game/flight/copy.js";
 import type { Lang, StopId } from "@engine/types.js";
+import { HIT_ZONE_PREFIX } from "@game/ui/focus.js";
 
 export interface StallSceneData {
   readonly stopId: StopId;
@@ -29,8 +30,18 @@ export interface StallSceneData {
  * Shadow's line names the thing that is kept rather than the thing that was
  * lost.
  *
- * Keyboard only (D37, AC-18.1): one control, focused the moment the card
+ * Keyboard first (D37, AC-18.1): one control, focused the moment the card
  * appears, with a visible focus ring; Enter or Space flies the stage again.
+ *
+ * That one control is also the FORWARD action here - there is nothing else to
+ * do from a stall but fly the stage again - so "the forward action holds focus
+ * on entry" is satisfied by there being one, and `focusId` says so out loud for
+ * the e2e rather than leaving it implied.
+ *
+ * It is clickable as well as typed. The keyboard path below is untouched and
+ * still sufficient on its own; the pointer just stops being inert, because a
+ * child who clicks the only button on a screen and gets nothing back has been
+ * told the game is broken.
  */
 export class StallScene extends Phaser.Scene {
   private copy!: FlightCopy;
@@ -165,6 +176,18 @@ export class StallScene extends Phaser.Scene {
       ease: "Cubic.Out",
     });
 
+    // The same rectangle the focus ring is drawn around, as a hit area. It is
+    // NOT added to `card`: the card slides in from 28 px down, and a hit area
+    // that travels with it is a button whose edge moves under the cursor. The
+    // card lands at y = 0, so a zone at the button's final box is correct for
+    // every frame the player can actually aim at.
+    this.add
+      .zone(buttonX, buttonY, buttonW, buttonH)
+      .setOrigin(0, 0)
+      .setName(`${HIT_ZONE_PREFIX}${STALL_FOCUS_ID}`)
+      .setInteractive({ useHandCursor: true })
+      .on("pointerdown", () => this.requestRestart());
+
     const keyboard = this.input.keyboard;
     keyboard?.on("keydown", this.onKeyDown, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -175,6 +198,8 @@ export class StallScene extends Phaser.Scene {
     window.__kbStall = {
       ready: () => true,
       restart: () => this.requestRestart(),
+      focusId: () => STALL_FOCUS_ID,
+      button: () => ({ x: buttonX, y: buttonY, w: buttonW, h: buttonH }),
       texts: () => [
         this.copy.t("stall.title"),
         this.copy.t("stall.line"),
@@ -251,9 +276,16 @@ export class StallScene extends Phaser.Scene {
   }
 }
 
+/** The id of the one control on this card. Exported so the e2e names it once. */
+export const STALL_FOCUS_ID = "stall.restart";
+
 export interface StallDebugApi {
   ready(): boolean;
   restart(): void;
+  /** Which control holds focus on entry. There is one, and it is forward. */
+  focusId(): string;
+  /** The button's box, so a pointer test can click where the ring is drawn. */
+  button(): { x: number; y: number; w: number; h: number };
   texts(): string[];
 }
 

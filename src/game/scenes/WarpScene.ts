@@ -8,12 +8,13 @@ import {
 } from "@engine/coach";
 import { createCoachClient } from "@game/coach/transport";
 import { blastedWords, type BlastHistory } from "@game/flight/blastHistory";
-import type { StopId } from "@engine/types";
+import { FLIGHT_EVENTS, type WarpSpeedPayload } from "@game/flight/stage";
+import { STOP_IDS, type StopId } from "@engine/types";
 import { SCENE_KEYS } from "@game/sceneKeys";
 import { LAYERS, layer, type LayerId } from "@game/render/layers";
 import { particleSpec } from "@game/render/particles";
 import { buildParallax, EASE, type Parallax } from "@game/render/parallax";
-import { hexToNum } from "@game/render/palette";
+import { hexToNum, mixHex } from "@game/render/palette";
 import { LANTERN_DESIGN_HEIGHT, drawLantern, type LanternRig } from "@game/render/lantern";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import { DUR, INK, TYPE } from "@game/ui/theme";
@@ -48,6 +49,26 @@ import {
  * nothing falls, and the only thing left is to retype the sentence made of the
  * words that were just shot down. It is a victory lap that happens to be
  * practice, so it must feel easy and look calm.
+ *
+ * IT IS AN OVERLAY, NOT A CUT (D30, `overlay: true`).
+ *
+ * This used to be `scene.start(Warp)` from Flight: the belt screen was torn
+ * down and a brand new screen was built in its place, which threw away the one
+ * thing D30 is asking for. "A calm break" is a change of PACE in a place you
+ * are already in; a hard cut to a different screen is a change of PLACE, and a
+ * player reads it as having been taken somewhere rather than as having cleared
+ * something. So Flight now `launch`es this scene over itself and keeps running:
+ * the parallax it has been drifting all stage goes on drifting behind the
+ * panel, the ship stays where it was, and the panel SLIDES IN over the live
+ * world. The acceleration at the end is applied to THAT world
+ * (`FLIGHT_EVENTS.warpSpeed`), so the belt the player just cleared is the thing
+ * that jumps.
+ *
+ * Standalone is still a first-class way to run this screen - every `?scene=Warp`
+ * boot in the e2e suite is one - so with no `overlay` flag the scene builds its
+ * own world exactly as before. The difference is one boolean and it is honest
+ * in both directions: overlaid, it never draws a world, because there is
+ * already one underneath.
  *
  * AC-16.1  NOTHING SPAWNS OR MOVES. The parallax is built with `worldSpeed: 0`
  *          and with the debris layer left undecorated, so there is no rock in
@@ -97,6 +118,12 @@ const COACH = { x: 160, y: 742, w: 1600, h: 236 } as const;
 
 export interface WarpInit extends StoryInit {
   /**
+   * D30. True when Flight launched this scene over itself and is still running
+   * behind it. The scene then draws no sky, no parallax and no ship - there is
+   * already one of each on screen - and slides its panel in instead of cutting.
+   */
+  readonly overlay?: boolean;
+  /**
    * Injected transport. Default: whatever `createCoachClient` selects, which
    * is MockCoach unless a `/api/coach` endpoint was configured (D87).
    */
@@ -126,7 +153,7 @@ export class WarpScene extends Phaser.Scene {
   private stopId: StopId = "mars";
 
   private parallax!: Parallax;
-  private lantern!: LanternRig;
+  private lantern: LanternRig | null = null;
   private shadow!: ShadowFigure;
   private ring!: FocusRing;
 
@@ -145,6 +172,21 @@ export class WarpScene extends Phaser.Scene {
 
   private multiplier = 0;
   private warping = false;
+  /** D30: laid over a live Flight rather than replacing it. */
+  private overlay = false;
+  /** Everything that slides in, so the slide is one tween on one object. */
+  private panelRoot!: Phaser.GameObjects.Container;
+  /**
+   * AC-22.5 / the player's own words: "the progress bar should ease, not just
+   * jolt forward". The meter is painted from THIS, which chases
+   * `chargeFraction(sentence)` on a Cubic.Out tween, never from the fraction
+   * directly. The state is still the truth - the snapshot and every AC read
+   * `chargeFraction` - and this is only how it is drawn.
+   */
+  private meterShown = 0;
+  private meterTween: Phaser.Tweens.Tween | null = null;
+  /** Which third of the charge has been SOUNDED. See `soundCharge`. */
+  private chargeStage = 0;
   /** One warp-charge spool per visit (AC-21.3), not one per keystroke. */
   private chargeHeard = false;
   /**
@@ -176,6 +218,10 @@ export class WarpScene extends Phaser.Scene {
     this.chargeHeard = false;
     this.debrisMoved = false;
     this.debrisSignature = "";
+    this.overlay = data?.overlay === true;
+    this.meterShown = 0;
+    this.meterTween = null;
+    this.chargeStage = 0;
   }
 
   create(): void {
@@ -183,31 +229,49 @@ export class WarpScene extends Phaser.Scene {
     this.stopId = this.lane.stopId;
     const pal = this.lane.palette;
 
+    // OVERLAID: the world behind this panel is Flight's, still running, still
+    // drifting. Building a second one here would paint over the very thing D30
+    // wants the player to keep seeing, so the stack is created with NOTHING
+    // decorated - eight empty containers, the same API, no pixels. The empty
+    // debris container is also what keeps AC-16.1's evidence honest in both
+    // modes: the scene samples the same place either way, and it is empty
+    // because nothing put anything in it.
     this.parallax = buildParallax(this, {
       palette: pal,
       reducedMotion: this.lane.reducedMotion,
       // Still. Drift continues (rubric 2); nothing travels (AC-16.1).
       worldSpeed: 0,
-      decorate: CALM_LAYERS,
+      decorate: this.overlay ? [] : CALM_LAYERS,
+      framing: !this.overlay,
+      atmosphere: !this.overlay,
       seed: 0x7a2b,
     });
 
     const hud = this.parallax.layerOf("hud").container;
+    this.panelRoot = this.add.container(0, 0);
+    hud.add(this.panelRoot);
 
-    this.lantern = drawLantern(this, 1660, 470, {
-      scale: 300 / LANTERN_DESIGN_HEIGHT,
-      reducedMotion: this.lane.reducedMotion,
-      idleBob: true,
-      exhaust: true,
-      beam: true,
-      iris: 0.15,
-    });
-    this.parallax.layerOf("shipFx").container.add(this.lantern.container);
+    // The ship is already on screen when this is an overlay - it is Flight's,
+    // and it is the one the player has been flying. Drawing a second Lantern
+    // over it is the single most obvious way to say "this is a different
+    // screen", which is exactly what D30 forbids.
+    if (!this.overlay) {
+      this.lantern = drawLantern(this, 1660, 470, {
+        scale: 300 / LANTERN_DESIGN_HEIGHT,
+        reducedMotion: this.lane.reducedMotion,
+        idleBob: true,
+        exhaust: true,
+        beam: true,
+        iris: 0.15,
+      });
+      this.parallax.layerOf("shipFx").container.add(this.lantern.container);
+    }
 
-    hud.add(this.buildHeader());
-    hud.add(this.buildSentencePanel());
-    hud.add(this.buildMeter());
-    hud.add(this.buildCoachArea());
+    if (this.overlay) this.panelRoot.add(this.scrim());
+    this.panelRoot.add(this.buildHeader());
+    this.panelRoot.add(this.buildSentencePanel());
+    this.panelRoot.add(this.buildMeter());
+    this.panelRoot.add(this.buildCoachArea());
 
     this.ring = createFocusRing(this, layer("hud").depth + 1);
     this.ring.moveTo({
@@ -217,6 +281,8 @@ export class WarpScene extends Phaser.Scene {
       w: PANEL.w,
       h: PANEL.h,
     });
+
+    this.slideIn();
 
     this.chargedDrawn = latchOnRender(this, () => this.chargedLabel.visible);
     this.focusRingDrawn = latchOnRender(this, () => this.ring.graphics.visible);
@@ -231,7 +297,7 @@ export class WarpScene extends Phaser.Scene {
       this.input.keyboard?.off("keydown", this.onKey, this);
       this.ring.destroy();
       this.shadow.destroy();
-      this.lantern.destroy();
+      this.lantern?.destroy();
       this.parallax.destroy();
     });
   }
@@ -240,6 +306,70 @@ export class WarpScene extends Phaser.Scene {
   // Layout
   // -------------------------------------------------------------------------
 
+  /**
+   * D30, and the player's own words: "the UI should slide in".
+   *
+   * Only when overlaid. A standalone boot has nothing to slide OVER, and the
+   * AC-33 pixel compare screenshots that screen twice and requires the two to
+   * be identical - an entrance animation there is a race the test can only
+   * lose. Under reduced motion it is a fade, because a panel arriving is
+   * framing motion (AC-19.3) but a panel APPEARING with no transition at all
+   * reads as a glitch.
+   */
+  private slideIn(): void {
+    if (!this.overlay) return;
+    if (this.lane.reducedMotion) {
+      this.panelRoot.setAlpha(0);
+      this.tweens.add({
+        targets: this.panelRoot,
+        alpha: 1,
+        duration: DUR.panel,
+        ease: EASE.arrive,
+      });
+      return;
+    }
+    this.panelRoot.setAlpha(0);
+    this.panelRoot.setY(150);
+    this.tweens.add({
+      targets: this.panelRoot,
+      y: 0,
+      alpha: 1,
+      duration: 460,
+      // Arrive and settle. Never Back.Out here: the panel carries the sentence
+      // the player is about to type, and text that overshoots is text that is
+      // briefly unreadable.
+      ease: EASE.arrive,
+    });
+  }
+
+  /**
+   * A soft plate behind the whole panel, overlay only.
+   *
+   * The world underneath is live and moving, and copy over a moving parallax is
+   * copy a child has to work to read (rubric 8: the readout owns its contrast).
+   * This seats it without hiding what is behind it.
+   */
+  private scrim(): Phaser.GameObjects.GameObject {
+    const g = this.add.graphics();
+    const ink = mixHex(INK.panel, "#000000", 0.2);
+    // Abutting strips with integer edges. Overlapping translucent strips
+    // composite twice where they meet and the doubled alpha shows as a hard
+    // line - the first render of this scrim was a set of stripes across the
+    // live world, which is worse than no scrim at all.
+    const steps = 48;
+    const top = 60;
+    const height = this.scale.height - top;
+    for (let i = 0; i < steps; i++) {
+      const a = Math.round(top + (height * i) / steps);
+      const b = Math.round(top + (height * (i + 1)) / steps);
+      if (b <= a) continue;
+      const t = i / (steps - 1);
+      g.fillStyle(hexToNum(ink), 0.08 + 0.4 * t);
+      g.fillRect(0, a, this.scale.width, b - a);
+    }
+    return g;
+  }
+
   private buildHeader(): Phaser.GameObjects.GameObject[] {
     const pal = this.lane.palette;
     const heading = label(this, 160, 96, this.lane.copy.text("warp.heading"), {
@@ -247,10 +377,14 @@ export class WarpScene extends Phaser.Scene {
       color: pal.accent,
       lang: this.lane.lang,
     });
-    const calm = label(this, 160, 162, this.lane.copy.text("warp.beltClear"), {
+    // "belt cleared - type this to charge the warp drive". The line used to be
+    // "the belt is clear. everything is still out here.", which is atmosphere:
+    // it never said that the asteroids were GONE because the player destroyed
+    // them, and it never said what the typing below it was for.
+    const calm = label(this, 160, 162, this.lane.copy.text("warp.beltCleared"), {
       size: TYPE.body,
       color: pal.plateText,
-      alpha: 0.82,
+      alpha: 0.9,
       lang: this.lane.lang,
     });
     return [heading, calm];
@@ -266,8 +400,12 @@ export class WarpScene extends Phaser.Scene {
         stroke: pal.accent,
       }),
     );
+    // The instruction is on the header line now ("warp.beltCleared"), where it
+    // sits next to what just happened. This slot carries the OTHER half the
+    // player was missing - where the drive is taking them - so the screen names
+    // the destination before the jump rather than only after it.
     made.push(
-      label(this, PANEL.x + 40, PANEL.y + 24, this.lane.copy.text("warp.prompt"), {
+      label(this, PANEL.x + 40, PANEL.y + 24, this.destinationCopy(), {
         size: TYPE.label,
         color: pal.plateText,
         alpha: 0.72,
@@ -448,11 +586,14 @@ export class WarpScene extends Phaser.Scene {
     made.push(this.meterFill);
     this.paintMeter();
 
+    // "warp drive charged - next stop Jupiter". The old line was "warp drive
+    // charged. hold on." - true, and it never told the player they were about
+    // to travel anywhere, let alone where.
     this.chargedLabel = label(
       this,
       METER.x,
       METER.y + 44,
-      this.lane.copy.text("warp.charged"),
+      this.chargedCopy(),
       { size: TYPE.label, color: pal.accent, lang: this.lane.lang },
     );
     this.chargedLabel.setVisible(false);
@@ -461,8 +602,72 @@ export class WarpScene extends Phaser.Scene {
     return made;
   }
 
+  /**
+   * The line under the meter once it is full.
+   *
+   * `stopId` is the belt that was just cleared, so the place the player is
+   * about to warp TO is the next one on the route. Pluto is the last stop and
+   * has no next, which is a different sentence rather than a missing word - a
+   * screen that says "next stop: undefined" is worse than one that says
+   * nothing.
+   */
+  private chargedCopy(): string {
+    const next = this.nextStop();
+    if (next === null) return this.lane.copy.text("warp.chargedLast");
+    return this.lane.copy.text("warp.chargedNext", { stop: next });
+  }
+
+  /** The line above the sentence: where this typing is taking the player. */
+  private destinationCopy(): string {
+    const next = this.nextStop();
+    if (next === null) return this.lane.copy.text("warp.prompt");
+    return this.lane.copy.text("warp.nextStop", { stop: next });
+  }
+
+  /** The stop AFTER the belt that was just cleared, or null at the last one. */
+  private nextStop(): string | null {
+    const next = STOP_IDS[STOP_IDS.indexOf(this.stopId) + 1];
+    return next === undefined ? null : this.lane.copy.stopName(next);
+  }
+
+  /**
+   * AC-22.5. Move the DRAWN fill toward the real one on Cubic.Out.
+   *
+   * The meter used to be repainted straight from `chargeFraction`, so every
+   * character was a hard step - "it should ease, not just jolt forward". The
+   * tween is on a number this scene owns, not on the sentence: the state is
+   * exact and instantaneous (AC-16.3 still reads exactly 1 on the final
+   * character), and only the pixels lag it by a quarter of a second.
+   *
+   * The previous tween is stopped rather than left running, so a fast typist
+   * gets one fill chasing the target instead of six fighting over it.
+   */
+  private easeMeterTo(target: number): void {
+    this.meterTween?.stop();
+    if (this.lane.reducedMotion) {
+      this.meterShown = target;
+      this.paintMeter();
+      return;
+    }
+    const holder = { v: this.meterShown };
+    this.meterTween = this.tweens.add({
+      targets: holder,
+      v: target,
+      duration: 280,
+      ease: EASE.arrive,
+      onUpdate: () => {
+        this.meterShown = holder.v;
+        this.paintMeter();
+      },
+      onComplete: () => {
+        this.meterShown = target;
+        this.paintMeter();
+      },
+    });
+  }
+
   private paintMeter(): void {
-    const f = chargeFraction(this.sentence);
+    const f = Math.max(0, Math.min(1, this.meterShown));
     const inset = 4;
     this.meterFill.clear();
     if (f <= 0) return;
@@ -629,16 +834,10 @@ export class WarpScene extends Phaser.Scene {
     this.sentence = typeChar(before, event.key);
     if (this.sentence.lastEvent === "none") return;
 
-    // AC-21.3 `warpCharge`: the drive spools. Once per screen, on the first
-    // character the sentence actually accepts - it is anticipation, and
-    // anticipation starts when the player does, not when the screen opens.
-    if (!this.chargeHeard) {
-      this.chargeHeard = true;
-      audioFrom(this.registry)?.play("warpCharge", "warp-scene:charge");
-    }
+    this.soundCharge(chargeFraction(this.sentence));
 
     this.paintLetters();
-    this.paintMeter();
+    this.easeMeterTo(chargeFraction(this.sentence));
     this.percentLabel.setText(
       this.lane.copy.text("warp.chargePercent", { percent: chargePercent(this.sentence) }),
     );
@@ -648,6 +847,55 @@ export class WarpScene extends Phaser.Scene {
       return;
     }
     if (this.sentence.lastEvent === "charged") this.beginWarp();
+  }
+
+  /**
+   * "It should actually make noise when it is charging up."
+   *
+   * The screen used to spool `warpCharge` once, on the first accepted
+   * character, and then type in silence for the rest of the sentence - so the
+   * one bar in the game that is a continuous quantity had no continuous sound.
+   * Three layers now, and each answers a different question:
+   *
+   *   PER CHARACTER  a keystroke tick transposed by the fill, 0 to +12
+   *                  semitones. This is the one that tells the player how close
+   *                  they are: the pitch of the last key they pressed IS the
+   *                  meter, so it works with the bar off screen and it works
+   *                  for a child who is watching their hands.
+   *   PER THIRD      the drive re-spools a fifth higher each time the fill
+   *                  crosses a third. Three landings on the way up, which is
+   *                  what makes it read as spooling rather than as ticking.
+   *   AT FULL        `beginWarp` fires the stinger (D62). Nothing here plays at
+   *                  100%, so the stinger arrives into a gap it owns.
+   *
+   * AC-21.3 is unaffected: `warpCharge` still rotates its variants, and one
+   * warp break still spools once per third rather than once per keystroke.
+   */
+  private soundCharge(fill: number): void {
+    const audio = audioFrom(this.registry);
+    if (audio === null) return;
+    const f = Math.max(0, Math.min(1, fill));
+
+    if (!this.chargeHeard) {
+      this.chargeHeard = true;
+      audio.play("warpCharge", "warp-scene:charge", { pitchSemitones: 0 });
+      this.chargeStage = 1;
+    } else {
+      // Thirds, and never the last one: at f === 1 the stinger is the sound.
+      const stage = Math.min(3, Math.floor(f * 3) + 1);
+      if (stage > this.chargeStage && f < 1) {
+        this.chargeStage = stage;
+        audio.play("warpCharge", "warp-scene:charge", {
+          pitchSemitones: (stage - 1) * 7,
+          gainScale: 0.6 + 0.2 * stage,
+        });
+      }
+    }
+
+    audio.play("keystroke", "warp-scene:charge-step", {
+      pitchSemitones: f * 12,
+      gainScale: 0.85,
+    });
   }
 
   /**
@@ -683,7 +931,10 @@ export class WarpScene extends Phaser.Scene {
     audioFrom(this.registry)?.play("warp", "warp-scene:jump");
     this.chargedLabel.setVisible(true);
     this.shadow.setPose("cheering");
-    this.lantern.setIris(1);
+    this.lantern?.setIris(1);
+    // The meter finishes on the same curve it filled on, so the last step is
+    // the same kind of move as the forty before it.
+    this.easeMeterTo(1);
 
     // Reduced motion (D41): streaks off, the acceleration itself kept - it is
     // the transition, not framing decoration.
@@ -697,14 +948,30 @@ export class WarpScene extends Phaser.Scene {
       ease: EASE.blast,
       onUpdate: () => {
         this.multiplier = holder.m;
-        this.parallax.setWorldSpeed(FLIGHT_WORLD_SPEED * holder.m);
+        this.accelerateWorld(holder.m);
       },
       onComplete: () => {
         this.multiplier = WARP_MULTIPLIER;
-        this.parallax.setWorldSpeed(FLIGHT_WORLD_SPEED * WARP_MULTIPLIER);
+        this.accelerateWorld(WARP_MULTIPLIER);
         this.cutToBeacon();
       },
     });
+  }
+
+  /**
+   * Speed up whichever world is actually on screen.
+   *
+   * Standalone, that is this scene's own parallax. Overlaid, this scene HAS no
+   * world - Flight's is the one the player can see - so the multiplier goes out
+   * on `FLIGHT_EVENTS.warpSpeed` and Flight scales its own stack by it. Both
+   * calls are made in both modes on purpose: the local one is a no-op with
+   * nothing decorated, and the event lands in an empty room when no belt is
+   * listening, so neither mode needs a branch and neither can be forgotten.
+   */
+  private accelerateWorld(multiplier: number): void {
+    this.parallax.setWorldSpeed(FLIGHT_WORLD_SPEED * multiplier);
+    const payload: WarpSpeedPayload = { multiplier };
+    this.game.events.emit(FLIGHT_EVENTS.warpSpeed, payload);
   }
 
   /**
@@ -742,13 +1009,30 @@ export class WarpScene extends Phaser.Scene {
   }
 
   private cutToBeacon(): void {
+    // `payload` is spread AND re-attached. Spreading alone is what lost the
+    // stage tally between Flight and Results: Beacon forwards `initData.payload`
+    // to Results, and a payload that arrived here flattened has no `payload` key
+    // left for Beacon to forward. Keeping both means a screen may read the
+    // contents directly or pass the envelope on, and neither has to know the
+    // other exists.
+    // The belt that has been running behind this panel is done now. Stopping it
+    // HERE rather than when the panel opened is the whole of D30: Flight stayed
+    // alive for the entire break so the world never went away, and it is torn
+    // down at the moment the player actually leaves it.
+    if (this.overlay) {
+      this.scene.stop(SCENE_KEYS.hud);
+      this.scene.stop(SCENE_KEYS.flight);
+    }
+
+    const payload = this.initData?.payload;
     goTo(this, SCENE_KEYS.beacon, {
       ctx: this.lane.ctx,
       progress: this.lane.progress,
       shipName: this.lane.shipName,
       lang: this.lane.lang,
       stopId: this.stopId,
-      ...(this.initData?.payload ?? {}),
+      ...(payload ?? {}),
+      ...(payload === undefined ? {} : { payload }),
     } as StoryInit);
   }
 

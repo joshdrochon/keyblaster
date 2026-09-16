@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { gameCanvas } from "./support/lane.js";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,7 +62,7 @@ test.describe("Director map (row 3, D13/D40)", () => {
     expectNoPunishment(s.text);
 
     mkdirSync(EVIDENCE, { recursive: true });
-    await page.locator("canvas").screenshot({ path: `${EVIDENCE}/map-mars-only.png` });
+    await gameCanvas(page).screenshot({ path: `${EVIDENCE}/map-mars-only.png` });
   });
 
   test("D13 variant: mid-run - the lit path stops at the furthest beacon", async ({ page }) => {
@@ -76,7 +77,7 @@ test.describe("Director map (row 3, D13/D40)", () => {
     expect(stops.find((r) => r.stopId === "uranus")?.locked).toBe(false);
     expect(stops.find((r) => r.stopId === "neptune")?.locked).toBe(true);
 
-    await page.locator("canvas").screenshot({ path: `${EVIDENCE}/map-mid-run.png` });
+    await gameCanvas(page).screenshot({ path: `${EVIDENCE}/map-mid-run.png` });
   });
 
   test("D13 variant: all seven - every beacon is lit and nothing is locked", async ({ page }) => {
@@ -85,7 +86,7 @@ test.describe("Director map (row 3, D13/D40)", () => {
     expect(s.litCount).toBe(7);
     expect(rows(s).every((r) => !r.locked)).toBe(true);
 
-    await page.locator("canvas").screenshot({ path: `${EVIDENCE}/map-all-seven.png` });
+    await gameCanvas(page).screenshot({ path: `${EVIDENCE}/map-all-seven.png` });
   });
 
   test("D27 / AC-4.4 each charted stop shows its star rating", async ({ page }) => {

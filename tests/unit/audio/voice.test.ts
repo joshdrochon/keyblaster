@@ -6,7 +6,9 @@ import {
   VOICE_DELIVERY,
   VOICE_PREFERENCES,
   VoiceBus,
+  adaptiveTransport,
   browserSpeechPort,
+  localVoiceFor,
   coachNoteDisplay,
   createVoiceTransport,
   detectPlatform,
@@ -17,6 +19,8 @@ import {
   webSpeechPort,
   webSpeechTransport,
   type Ducker,
+  type SpeakRequest,
+  type SpeechPort,
   type SpeechVoiceLike,
   type VoiceLine,
 } from "../../../src/game/audio/voice.js";
@@ -524,5 +528,207 @@ describe("the DOM adapter", () => {
     });
     expect(spoken[0]!["voice"]).toBe(null);
     (spoken[0]!["onerror"] as () => void)();
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// The mute-game regression (2026-09)
+// ---------------------------------------------------------------------------
+
+/**
+ * A speech port whose voice list ARRIVES LATE, which is the one thing the
+ * existing `FakeSpeechPort` cannot do and the one thing the real platform
+ * always does.
+ *
+ * Chrome returns `[]` from `getVoices()` until it has loaded the list and fired
+ * `voiceschanged`. Every fake in this suite answered synchronously, so every
+ * test passed while the shipped game was mute - the graph asked "are there
+ * voices" exactly once, at boot, inside that empty window, and cached "no"
+ * for the session.
+ */
+class LateSpeechPort implements SpeechPort {
+  readonly requests: SpeakRequest[] = [];
+  cancels = 0;
+  private list: readonly SpeechVoiceLike[] = [];
+
+  constructor(private readonly eventual: readonly SpeechVoiceLike[]) {}
+
+  /** The platform finishes loading. Nothing else is told. */
+  load(): void {
+    this.list = this.eventual;
+  }
+
+  voices(): readonly SpeechVoiceLike[] {
+    return this.list;
+  }
+
+  speak(request: SpeakRequest): void {
+    this.requests.push(request);
+  }
+
+  cancel(): void {
+    this.cancels += 1;
+  }
+
+  get last(): SpeakRequest | undefined {
+    return this.requests[this.requests.length - 1];
+  }
+}
+
+describe("AC-21.5: the transport is chosen per line, not once at boot", () => {
+  it("AC-21.5: a voice list that arrives after construction is still used", () => {
+    const port = new LateSpeechPort(MAC_VOICES);
+    const scheduler = fakeScheduler();
+    const transport = adaptiveTransport({
+      speech: port,
+      platform: "mac",
+      lang: "en-US",
+      schedule: scheduler.schedule,
+    });
+
+    // Boot: no voices yet. Silence is the honest answer, and a line still
+    // takes the time it would have taken.
+    expect(transport.id).toBe("silent");
+    transport.speak(line("early"), () => undefined);
+    expect(port.requests.length).toBe(0);
+
+    // The platform loads. Nothing is rebuilt, nothing is re-injected.
+    port.load();
+
+    // THE FIX: the next line goes to the platform. Before it, this stayed
+    // "silent" for the life of the session.
+    expect(transport.id).toBe("webspeech");
+    transport.speak(line("later"), () => undefined);
+    expect(port.requests.length).toBe(1);
+    expect(port.last?.text).toBe("later");
+    expect(port.last?.voiceName).toBe("Samantha");
+  });
+
+  it("AC-21.5: a cloud-only machine is never spoken through, and chirps", () => {
+    // Every voice here is rendered on a server. Speaking through one would be
+    // the runtime network TTS call AC-21.5 forbids - so the transport refuses
+    // it, and the line degrades to a chirp rather than to nothing at all.
+    const cloudOnly: SpeechVoiceLike[] = [
+      { name: "Google US English", lang: "en-US", localService: false, default: true },
+      { name: "Microsoft Aria Online (Natural)", lang: "en-US", localService: false },
+    ];
+    expect(selectVoice(cloudOnly, "other", "en-US")?.name).toBe("Google US English");
+    // ...and the TRANSPORT's question has a different answer to the SELECTOR's.
+    expect(localVoiceFor(cloudOnly, "other", "en-US")).toBe(null);
+
+    const port = new FakeSpeechPort(cloudOnly);
+    const scheduler = fakeScheduler();
+    let chirps = 0;
+    const transport = adaptiveTransport({
+      speech: port,
+      platform: "other",
+      lang: "en-US",
+      schedule: scheduler.schedule,
+      chirp: () => (chirps += 1),
+    });
+
+    expect(transport.id).toBe("silent");
+    let done = 0;
+    transport.speak(line("Mars ahead."), () => (done += 1));
+
+    expect(port.requests.length).toBe(0);
+    expect(chirps).toBe(1);
+    // And the line still takes its time, so ducking and pacing are unchanged.
+    expect(done).toBe(0);
+    scheduler.runAll();
+    expect(done).toBe(1);
+  });
+
+  it("AC-21.5: a browser with no speech API at all stays quiet, without chirping", () => {
+    // A player who never had a voice must not gain a new sound on every line
+    // Shadow says. The chirp is for a voice we DECLINED, not for a platform
+    // that never offered one.
+    const scheduler = fakeScheduler();
+    let chirps = 0;
+    const transport = adaptiveTransport({
+      speech: null,
+      platform: "other",
+      lang: "en-US",
+      schedule: scheduler.schedule,
+      chirp: () => (chirps += 1),
+    });
+
+    expect(transport.id).toBe("silent");
+    transport.speak(line(), () => undefined);
+    expect(chirps).toBe(0);
+  });
+
+  it("AC-21.5: a refused utterance chirps rather than vanishing", () => {
+    // Chrome has blocked `speechSynthesis.speak()` without user activation
+    // since M71 and reports it through `onerror`. Without this the line looks
+    // spoken and is not.
+    const port = new FakeSpeechPort(MAC_VOICES);
+    let chirps = 0;
+    const transport = webSpeechTransport(port, "mac", "en-US", {
+      onRefused: () => (chirps += 1),
+    });
+
+    let done = 0;
+    transport.speak(line("Course locked."), () => (done += 1));
+    expect(chirps).toBe(0);
+    port.failLast();
+    expect(chirps).toBe(1);
+    expect(done).toBe(1);
+  });
+
+  it("AC-21.5: the DOM adapter warms the voice list and listens for changes", () => {
+    // The adapter asks once at construction, because on Chrome that CALL is
+    // what starts the load, and subscribes so a list that changes mid-session
+    // (a headset, an OS voice download) is picked up.
+    let asks = 0;
+    const listeners: string[] = [];
+    const synthesis = {
+      getVoices: () => {
+        asks += 1;
+        return [];
+      },
+      speak: () => undefined,
+      cancel: () => undefined,
+      addEventListener: (type: string) => listeners.push(type),
+    };
+    class Utterance {
+      voice: unknown = null;
+      lang = "";
+      rate = 1;
+      pitch = 1;
+      volume = 1;
+      onend: unknown = null;
+      onerror: unknown = null;
+      constructor(readonly text: string) {}
+    }
+
+    browserSpeechPort({ speechSynthesis: synthesis, SpeechSynthesisUtterance: Utterance });
+    expect(asks).toBeGreaterThanOrEqual(1);
+    expect(listeners).toContain("voiceschanged");
+  });
+
+  it("AC-21.5: an adapter on a browser that refuses either call still binds", () => {
+    // A locked-down browser is a quieter game, never a failed boot.
+    const synthesis = {
+      getVoices: () => {
+        throw new Error("blocked");
+      },
+      speak: () => undefined,
+      cancel: () => undefined,
+    };
+    class Utterance {
+      voice: unknown = null;
+      lang = "";
+      rate = 1;
+      pitch = 1;
+      volume = 1;
+      onend: unknown = null;
+      onerror: unknown = null;
+      constructor(readonly text: string) {}
+    }
+    expect(() =>
+      browserSpeechPort({ speechSynthesis: synthesis, SpeechSynthesisUtterance: Utterance }),
+    ).not.toThrow();
   });
 });

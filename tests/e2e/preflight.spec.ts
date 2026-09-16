@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { gameCanvas } from "./support/lane.js";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -163,7 +164,7 @@ test.describe("Pre-flight (row 5, D51/FR-11)", () => {
 
     mkdirSync(EVIDENCE, { recursive: true });
     await page.waitForTimeout(2_600);
-    await page.locator("canvas").screenshot({ path: `${EVIDENCE}/preflight-sequence.png` });
+    await gameCanvas(page).screenshot({ path: `${EVIDENCE}/preflight-sequence.png` });
 
     const samples = await sample(page, (s) => s.phase !== "done", async () => {});
     // Every sample is a prefix-ordered lighting of hull, then systems, then

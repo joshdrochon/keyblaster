@@ -27,7 +27,7 @@ import { hexToNum, mixHex, paletteAt } from "../render/palette.js";
 import { TEX, ensureTextures } from "../render/textures.js";
 import { LANTERN_DESIGN_HEIGHT, drawLantern, type LanternRig } from "../render/lantern.js";
 import { LANGS, type Lang } from "../../engine/types.js";
-import { uiSoundBlip } from "@game/ui/focus";
+import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
 
 const FONT = '"Avenir Next","Nunito","Trebuchet MS",system-ui,sans-serif';
 
@@ -113,6 +113,7 @@ export class TitleScene extends Phaser.Scene {
     this.items = [primary, settings, lang];
 
     this.bindKeyboard();
+    this.bindPointers();
     this.setFocus(0);
     this.publishDebug();
 
@@ -316,6 +317,38 @@ export class TitleScene extends Phaser.Scene {
           break;
       }
     });
+  }
+
+  /**
+   * The pointer half of AC-18.1, on the one screen that predates the menu kit
+   * and rolls its own list. Same three rules the kit uses (ui/focus.ts):
+   * hover focuses, press focuses then activates, and the keyboard above is
+   * untouched and still sufficient on its own.
+   *
+   * The hit area is the rectangle `drawFocusRing` strokes, padding included, so
+   * what looks clickable and what is clickable are one box. Bound before the
+   * entrance tweens run, while `root.x` still holds each item's final x - the
+   * tween starts 26 px to the left of it and arrives back at it.
+   */
+  private bindPointers(): void {
+    const pad = 14;
+    for (const [i, item] of this.items.entries()) {
+      this.add
+        .zone(item.root.x - pad, item.root.y - pad, item.width + pad * 2, item.height + pad * 2)
+        .setOrigin(0, 0)
+        .setName(`${HIT_ZONE_PREFIX}${item.id}`)
+        .setInteractive({ useHandCursor: true })
+        .on("pointerover", () => {
+          if (i === this.focusIndex) return;
+          this.setFocus(i);
+          uiSoundBlip("nav");
+        })
+        .on("pointerdown", () => {
+          this.setFocus(i);
+          item.activate();
+          uiSoundBlip("activate");
+        });
+    }
   }
 
   private currentItem(): MenuItem | undefined {

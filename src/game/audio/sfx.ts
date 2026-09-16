@@ -330,7 +330,25 @@ export interface SfxPlayOptions {
   readonly hullFraction?: number;
   /** Extra linear gain, e.g. a settings volume. Default 1. */
   readonly gainScale?: number;
+  /**
+   * A caller-supplied transposition, in semitones, applied to ANY event.
+   *
+   * D63's reactive shaping is per-event and computed in here - blast pitch from
+   * the combo, hit weight from the hull - because those two are rules about the
+   * game and belong with the recipe. This is the other kind: a screen that is
+   * SOUNDING A CONTINUOUS QUANTITY and needs the pitch to track it. The warp
+   * break is the case that asked for it; a charge meter whose sound does not
+   * climb tells the player nothing about how close they are.
+   *
+   * Semitones rather than Hz, and capped, for the same reason
+   * `blastSemitonesFor` is: everything in this game has to stay musical against
+   * the keystroke tone (D75) and the music bed.
+   */
+  readonly pitchSemitones?: number;
 }
+
+/** Cap on `SfxPlayOptions.pitchSemitones`. One octave each way. */
+export const MAX_PITCH_SEMITONES = 12;
 
 export interface SfxPlayResult {
   readonly variant: SfxVariant;
@@ -380,7 +398,16 @@ export class SfxBus {
     const variant = this.nextVariant(event);
     const gainScale = Number.isFinite(options.gainScale) ? (options.gainScale as number) : 1;
 
-    const pitchRatio = event === "blast" ? blastPitchRatio(options.combo ?? 0) : 1;
+    // The two pitch sources compose: the event's own rule (blast rises with the
+    // combo) and the caller's continuous one. With neither supplied this is
+    // exactly 1, so every existing call sounds the way it always did.
+    const reactive = event === "blast" ? blastSemitonesFor(options.combo ?? 0) : 0;
+    const requested = clamp(
+      options.pitchSemitones ?? 0,
+      -MAX_PITCH_SEMITONES,
+      MAX_PITCH_SEMITONES,
+    );
+    const pitchRatio = semitoneRatio(reactive + requested);
     const intensity =
       event === "hit" ? hitIntensityFor(options.hullFraction ?? 1) : 1;
 

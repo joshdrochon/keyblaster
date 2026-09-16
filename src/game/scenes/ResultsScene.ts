@@ -20,7 +20,13 @@ import { hexToNum } from "@game/render/palette";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import { starPoints } from "@game/render/textures";
 import { DUR, INK, TYPE } from "@game/ui/theme";
-import { goTo, progressFor, type StoryInit } from "./lib/init";
+import {
+  goTo,
+  persistStopCleared,
+  progressFor,
+  storedProgress,
+  type StoryInit,
+} from "./lib/init";
 import {
   createFocusRing,
   createKeyboardMenu,
@@ -105,6 +111,8 @@ export class ResultsScene extends Phaser.Scene {
   private tally: StageTally = EMPTY_TALLY;
   private stopProgress!: StopProgress;
   private isNewBest = false;
+  /** False on the very first run at this stop: there is no best to report yet. */
+  private hasPreviousRun = false;
   private optedIn = false;
   private promptShown = false;
   /** True once the player has answered the one-time prompt, either way. */
@@ -138,7 +146,35 @@ export class ResultsScene extends Phaser.Scene {
     });
     this.stopProgress = progressFor(profile.progress, this.stopId);
     this.isNewBest = this.results.wpm > this.stopProgress.bestWpm;
+    // "Your best here" is a comparison, and on a first run there is nothing to
+    // compare with. A stored best of 0 is the ABSENCE of a previous run, not a
+    // previous run of zero, and rendering it as "your best here: 0 wpm" is the
+    // D31 failure mode: a number that reads as a verdict where the honest
+    // answer is silence. See `buildPersonalBest`.
+    this.hasPreviousRun = this.stopProgress.bestWpm > 0;
     this.optedIn = profile.settings.relativeBoard;
+
+    // The run is now written back. This is the second half of the clear Beacon
+    // started: Beacon knows the stop was charted, this screen knows the stars,
+    // the WPM and the accuracy (AC-20.4, D50's personal best, D80's trophies).
+    // `markStopCleared` keeps the earlier `beaconPlacedAt` and only ever moves
+    // the bests up, so the two writes compose.
+    //
+    // Order matters: everything above reads the profile as it stood BEFORE this
+    // stage, which is what `computeStageResults` documents it needs and what
+    // makes "new personal best" mean beating a run that is not this one.
+    //
+    // Skipped when the caller supplied its own `profile`. That is a harness
+    // mounting one screen against a fixture, and a fixture must not be able to
+    // write itself into a real child's save.
+    if (this.initData?.profile === undefined) {
+      persistStopCleared(this, this.stopId, {
+        atMs: Date.now(),
+        stars: this.results.stars,
+        wpm: this.results.wpm,
+        accuracy: this.results.accuracy,
+      });
+    }
 
     this.parallax = buildParallax(this, {
       palette: this.lane.palette,
@@ -352,7 +388,23 @@ export class ResultsScene extends Phaser.Scene {
     ];
   }
 
+  /**
+   * D50's personal best, and the one case where the right answer is to say
+   * nothing at all.
+   *
+   * Three states, not two:
+   *   - beat it            -> "new personal best"
+   *   - there is a best    -> "your best here: N wpm"
+   *   - first run here     -> NOTHING. `null` is rendered as absence, never as
+   *                           a zero (this file's header), and "your best here:
+   *                           0 wpm" is precisely that zero. It was on screen
+   *                           for every first run, because a fresh stop stores
+   *                           bestWpm 0 and `0 > 0` is false, so the screen fell
+   *                           through to the compare branch and formatted the
+   *                           absence.
+   */
   private buildPersonalBest(): Phaser.GameObjects.GameObject[] {
+    if (!this.isNewBest && !this.hasPreviousRun) return [];
     const pal = this.lane.palette;
     const line = this.isNewBest
       ? this.lane.copy.text("results.newPersonalBest")
@@ -554,16 +606,22 @@ export class ResultsScene extends Phaser.Scene {
       });
     }
 
+    // Replay is drawn first because "back" reads on the left. CONTINUE is the
+    // primary, so the caret opens on it whatever the layout order is: the
+    // forward action is the default on every screen that offers both, and a
+    // child pressing Enter on reflex moves on with their run rather than
+    // silently re-flying the stage they just finished.
     targets.push(
       this.button(160, BUTTON_Y, 420, this.lane.copy.text("results.replay"), "replay", () =>
         this.replay(),
       ),
     );
-    targets.push(
-      this.button(620, BUTTON_Y, 420, this.lane.copy.text("results.continue"), "continue", () =>
+    targets.push({
+      ...this.button(620, BUTTON_Y, 420, this.lane.copy.text("results.continue"), "continue", () =>
         this.continueOn(),
       ),
-    );
+      primary: true,
+    });
     this.boardParts.push(
       label(this, 1080, BUTTON_Y + 20, this.lane.copy.text("results.hint"), {
         size: TYPE.caption,
@@ -611,10 +669,25 @@ export class ResultsScene extends Phaser.Scene {
     this.renderBoard();
   }
 
+  /**
+   * The route as the STORE holds it, not as the init payload described it.
+   *
+   * `this.lane.progress` is the array this screen was handed, and by the time it
+   * gets here it has crossed Flight, Warp and Beacon. Beacon's clear is written
+   * to the profile and this screen has just written the stage's figures on top
+   * of it, so the payload is by definition the older of the two. Forwarding it
+   * to the map is what left Jupiter locked after Mars was charted.
+   *
+   * Falls back to the payload for a standalone mount, where there is no store.
+   */
+  private currentProgress(): readonly StopProgress[] {
+    return storedProgress(this) ?? this.lane.progress;
+  }
+
   private replay(): void {
     goTo(this, SCENE_KEYS.flight, {
       ctx: this.lane.ctx,
-      progress: this.lane.progress,
+      progress: this.currentProgress(),
       shipName: this.lane.shipName,
       lang: this.lane.lang,
       stopId: this.stopId,
@@ -624,7 +697,7 @@ export class ResultsScene extends Phaser.Scene {
   private continueOn(): void {
     goTo(this, SCENE_KEYS.map, {
       ctx: this.lane.ctx,
-      progress: this.lane.progress,
+      progress: this.currentProgress(),
       shipName: this.lane.shipName,
       lang: this.lane.lang,
       stopId: this.stopId,

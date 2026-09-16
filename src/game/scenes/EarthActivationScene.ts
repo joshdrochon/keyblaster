@@ -277,6 +277,8 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
   private showContinue(): void {
     const target: FocusTarget = {
       id: "continue",
+      // Forward action: the beacon is lit, the map is next (see kit.ts).
+      primary: true,
       x: GAME_WIDTH / 2 - BUTTON_W / 2,
       y: BUTTON_Y,
       w: BUTTON_W,
@@ -285,10 +287,12 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
         // AC-12.1: lighting Earth's beacon CLEARS the stop. Without this the
         // map's unlock rule never opens Mars, the map re-focuses Earth, and
         // the player bounces between the two forever.
-        const progress = markStopCleared(this.story.progress, "earth", {
-          atMs: Date.now(),
-        });
-        persistStopCleared(this, "earth");
+        // Forward what was WRITTEN, not a parallel local derivation of it: the
+        // store is the copy the map and a reload both read, so any disagreement
+        // between the two is a bug waiting to surface one screen later.
+        const progress =
+          persistStopCleared(this, "earth") ??
+          markStopCleared(this.story.progress, "earth", { atMs: Date.now() });
         goTo(this, SCENE_KEYS.map, {
           ctx: this.story.ctx,
           progress,

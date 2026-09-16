@@ -30,13 +30,23 @@ export const PARTICLES: readonly ParticleSpec[] = [
   {
     // Rock breaking: chunks fly outward, are heavy, tumble, and keep the
     // rock's colour so the player sees WHICH rock died.
+    //
+    // The numbers moved once, after a player said the explosions "are not
+    // satisfying at all", and they moved for a reason each. 8 shards at 90-220
+    // px/s read as a puff: the count was below the art direction's own "6-10
+    // shards" only at the low end of the roll, and the speed range was narrow
+    // enough that they all left together, so there was no spray. 16 shards over
+    // 140-420 px/s leave in a spread, the fast ones clear the frame and the slow
+    // ones fall back through it, and the longer tail lets gravity actually be
+    // seen doing something. Scale ends at 0.34 rather than 0.2 so a shard is
+    // still a chunk of rock when it dies instead of a dot.
     id: "blastShards",
-    quantity: 8,
-    lifespanMs: [420, 680],
-    speed: [90, 220],
+    quantity: 16,
+    lifespanMs: [480, 900],
+    speed: [140, 420],
     angle: [0, 360],
-    gravityY: 320,
-    scale: [0.9, 0.2],
+    gravityY: 420,
+    scale: [1.15, 0.34],
     rotate: true,
     colorSource: "debris",
     ease: "Expo.Out",

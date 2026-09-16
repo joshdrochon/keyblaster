@@ -232,11 +232,23 @@ export async function frame(page: Page): Promise<Buffer> {
  * Screenshot a rectangle given in DESIGN coordinates, mapped through the
  * canvas's actual on-screen box (the game scales FIT).
  */
+/**
+ * The game's own canvas.
+ *
+ * The viewport backdrop (src/game/ui/viewportBackdrop.ts) adds a SECOND canvas
+ * to fill the letterbox, so a bare `locator("canvas")` is a strict-mode
+ * violation and every screenshot helper broke at once. Excluding it by test id
+ * here means no spec has to know the backdrop exists.
+ */
+export function gameCanvas(page: Page) {
+  return page.locator('canvas:not([data-testid="viewport-backdrop"])');
+}
+
 export async function frameOf(
   page: Page,
   rect: { x: number; y: number; w: number; h: number },
 ): Promise<Buffer> {
-  const box = await page.locator("canvas").boundingBox();
+  const box = await gameCanvas(page).boundingBox();
   if (box === null) throw new Error("no canvas");
   const scale = box.width / DESIGN.width;
   return page.screenshot({

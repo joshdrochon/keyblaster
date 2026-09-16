@@ -258,6 +258,10 @@ export abstract class MenuScene extends Phaser.Scene {
     onCancel?: () => void;
   }): void {
     this.dialog?.close();
+    // The screen behind a modal stops taking clicks. The keyboard already went
+    // to the dialog first (see `wireKeyboard`); this is the same rule for the
+    // pointer, so "are you sure" cannot be answered by clicking past it.
+    this.list.setPointerEnabled(false);
     this.dialog = new ConfirmDialog(this, this.uiStyle, {
       message: options.message,
       confirmLabel: options.confirmLabel,
@@ -265,11 +269,13 @@ export abstract class MenuScene extends Phaser.Scene {
       depth: this.depth + 20,
       onConfirm: () => {
         this.dialog = null;
+        this.list.setPointerEnabled(true);
         options.onConfirm();
         this.publish();
       },
       onCancel: () => {
         this.dialog = null;
+        this.list.setPointerEnabled(true);
         options.onCancel?.();
         this.moveRing();
         this.publish();

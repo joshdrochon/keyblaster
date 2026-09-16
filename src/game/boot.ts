@@ -46,6 +46,7 @@ import {
   type AudioService,
 } from "./audio/index.js";
 import { setUiSound } from "./ui/focus.js";
+import { installViewportBackdrop, type ViewportBackdrop } from "./ui/viewportBackdrop.js";
 import { FLIGHT_EVENTS } from "./flight/stage.js";
 
 /** Registry key the service bundle is stored under. */
@@ -232,6 +233,7 @@ function wireAudioToFrames(
   game: Phaser.Game,
   audio: AudioService,
   context: SceneContext,
+  backdrop: ViewportBackdrop | null,
 ): void {
   let lastStop: StopId | null = null;
 
@@ -241,6 +243,11 @@ function wireAudioToFrames(
     if (stop !== null && stop !== lastStop) {
       lastStop = stop;
       audio.ambientFor(stop);
+      // The letterbox wears the same sky as the stop the player is at, off the
+      // SAME "where are we" answer the ambient bed uses - so the bars and the
+      // bed can never disagree about where the ship is. `setStop` repaints only
+      // on a change, so this costs nothing on the frames where nothing moved.
+      backdrop?.setStop(stop);
     }
   });
 
@@ -344,6 +351,28 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
 
   const discovered = await discoverScenes();
 
+  /**
+   * THE LETTERBOX (see ui/viewportBackdrop.ts for the full reasoning).
+   *
+   * `Scale.FIT` is kept deliberately: it is the only one of the three options
+   * that keeps the flight play-field at exactly its design size on every window
+   * (FR-8's fall-time budget is measured against a fixed fall distance) while
+   * also keeping every HUD row on screen (AC-18.1 - `Scale.ENVELOP` would crop
+   * about a quarter of the height at 21:9, and that is where the score and the
+   * hint line live). What FIT leaves behind is two bars, so the bars get the
+   * stop's own sky instead of black.
+   *
+   * Installed BEFORE `new Phaser.Game`, so it is the first child of the parent
+   * element and the game canvas is drawn over it.
+   */
+  const parentEl = document.getElementById(options.parent ?? "app");
+  const backdrop =
+    parentEl === null
+      ? null
+      : installViewportBackdrop(parentEl, {
+          colorblind: () => context.colorblindPalette,
+        });
+
   const earth = paletteFor("earth");
   const voidColor = earth.colors[earth.colors.length - 1] ?? "#08111F";
   // The reference-compare harness renders on alpha so the judge sees the
@@ -402,7 +431,7 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
   // hook once here makes every menu in the game audible, including any built
   // after this line runs.
   setUiSound(() => audioService?.uiNav());
-  wireAudioToFrames(game, audioService, context);
+  wireAudioToFrames(game, audioService, context, backdrop);
 
   const registered = new Set<string>();
   for (const { key, klass } of discovered) {
@@ -440,7 +469,12 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
     // playing through, not a copy and not a rebuilt graph, which is the whole
     // difference between "the audio exists" and "the audio is connected".
     audio: audioService,
+    // The aspect-ratio e2e reads this to say how much bar FIT left and what is
+    // painted in it, rather than eyeballing a screenshot for black.
+    backdrop,
   };
+
+  game.events.once(Phaser.Core.Events.DESTROY, () => backdrop?.destroy());
 
   return game;
 }

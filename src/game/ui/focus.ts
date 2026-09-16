@@ -1,12 +1,56 @@
 import type { MirrorItem } from "./mirror.js";
 
 /**
- * Keyboard focus, the only way anything in this game is operated (D37, AC-18.1).
+ * Focus, the way everything in this game is operated (D37, AC-18.1).
  *
- * There is no pointer path and no hidden DOM focus. One list owns the caret for
- * a screen, every control reports whether it is focused, and the scene mirrors
- * that into the DOM so both a screen reader and an e2e test can see it.
+ * One list owns the caret for a screen, every control reports whether it is
+ * focused, and the scene mirrors that into the DOM so both a screen reader and
+ * an e2e test can see it.
+ *
+ * THE KEYBOARD IS THE INPUT MODEL AND IT IS STILL SUFFICIENT ON ITS OWN
+ * (D37, AC-18.1). Nothing below adds a control the keyboard cannot reach, and
+ * no screen may require a pointer for anything. What it adds is that the mouse
+ * is no longer INERT: D37 chose the keyboard, it never forbade a mouse, and a
+ * child who clicks a button and gets nothing back concludes the game is broken
+ * rather than that it is keyboard-first.
+ *
+ * FOCUSABLE AND CLICKABLE ARE ONE THING. `FocusList.setItems` binds the pointer
+ * for every item it is given (`bindPointer` below), so a screen cannot add a
+ * control that only one input reaches: to be in the focus list IS to be
+ * clickable, and to be clickable you must be in the focus list.
+ *
+ * HOVER MOVES FOCUS rather than painting a second highlight. There is exactly
+ * one "you are here" in this UI - the ring plus the control's own raised plate
+ * - and inventing a hover-only state would mean two competing highlights on
+ * screen and two things for a screen reader's mirror to disagree about.
  */
+
+/**
+ * Every pointer hit area in the game is a Phaser Zone named
+ * `kb-hit:<focusable id>`.
+ *
+ * The naming is not decoration. It is what lets one e2e enumerate a screen's
+ * hit areas and assert they are EXACTLY the focusable set - neither a control
+ * only the keyboard can reach, nor a click target with no focus entry - which
+ * is the invariant this whole file exists to hold. Both menu kits use it
+ * (`ui/controls.ts` and `scenes/lib/kit.ts`), as do the two screens that
+ * predate them (Title, Stall).
+ */
+export const HIT_ZONE_PREFIX = "kb-hit:";
+
+/** What a control calls when a pointer reaches it. Supplied by `FocusList`. */
+export interface PointerHandlers {
+  /** The pointer is over this control: make it the focused one. */
+  focus(): void;
+  /** The pointer pressed this control: focus it, then do what Enter does. */
+  press(): void;
+  /**
+   * The pointer pressed an ADJUSTABLE control. `delta` is -1 for the left half
+   * of the box and +1 for the right half, so a slider or an option row answers
+   * a click the same way it answers Left/Right.
+   */
+  adjust(delta: number): void;
+}
 
 export interface Focusable {
   readonly id: string;
@@ -20,6 +64,17 @@ export interface Focusable {
   /** Left/Right, +1/-1. No-op unless `adjustable`. */
   adjust(delta: number): void;
   toMirror(): MirrorItem;
+  /**
+   * Wire this control's hit area to the list (AC-18.1's pointer half).
+   *
+   * Optional so a non-visual `Focusable` in a unit test needs no stub, but
+   * every real control in `controls.ts` implements it - and `setItems` calls it
+   * on everything, so forgetting it is the only way to ship a keyboard-only
+   * control, and that is a missing method rather than a missing call site.
+   */
+  bindPointer?(handlers: PointerHandlers): void;
+  /** Take the pointer away (a modal is open) without losing the binding. */
+  setPointerEnabled?(enabled: boolean): void;
 }
 
 /** What the scene is told after any focus or value change. */
@@ -75,7 +130,28 @@ export class FocusList {
   setItems(items: readonly Focusable[]): void {
     this.items = [...items];
     this.index = 0;
+    // Every item in the list becomes clickable here, in ONE place. A screen
+    // builds controls and hands them over; it never decides, per control,
+    // whether the mouse works on it.
+    for (const item of this.items) this.bind(item);
     this.paint();
+  }
+
+  private bind(item: Focusable): void {
+    if (typeof item.bindPointer !== "function") return;
+    item.bindPointer({
+      focus: () => {
+        this.focus(item.id);
+      },
+      press: () => {
+        this.focus(item.id);
+        this.activate();
+      },
+      adjust: (delta: number) => {
+        this.focus(item.id);
+        this.adjust(delta);
+      },
+    });
   }
 
   onChange(listener: FocusListener): void {
@@ -150,6 +226,17 @@ export class FocusList {
     } else {
       this.move(delta);
     }
+  }
+
+  /**
+   * Suspend or restore the pointer for the whole screen.
+   *
+   * The keyboard is deliberately NOT touched: `MenuScene` already routes every
+   * key to the open dialog first, so the modal's keyboard behaviour is unchanged
+   * and this only stops a click from reaching a button behind the scrim.
+   */
+  setPointerEnabled(enabled: boolean): void {
+    for (const item of this.items) item.setPointerEnabled?.(enabled);
   }
 
   toMirror(): MirrorItem[] {

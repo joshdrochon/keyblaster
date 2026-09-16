@@ -50,6 +50,16 @@ export const EN = {
 
   "warp.heading": "Warp break",
   "warp.prompt": "Type the sentence to charge the warp drive.",
+  /*
+   * D30. The break is the most important five seconds in the game and it used
+   * to say neither of the two things a player needs to know. These three do:
+   * the belt is GONE, this typing is what charges the drive, and the drive
+   * being full means you are ABOUT TO TRAVEL, to a named place.
+   */
+  "warp.beltCleared": "Belt cleared. Type this to charge the warp drive.",
+  "warp.nextStop": "Destination: {stop}.",
+  "warp.chargedNext": "Warp drive charged. Next stop: {stop}.",
+  "warp.chargedLast": "Warp drive charged. The last jump. Hold on.",
 
   "beacon.placed": "Beacon placed at {stop}.",
 
@@ -106,6 +116,10 @@ export const ES: Record<StringKey, string> = {
 
   "warp.heading": "Pausa de salto",
   "warp.prompt": "Escribe la frase para cargar el motor de salto.",
+  "warp.beltCleared": "Cinturón limpio. Escribe para cargar el motor de salto.",
+  "warp.nextStop": "Destino: {stop}.",
+  "warp.chargedNext": "Motor de salto cargado. Próxima parada: {stop}.",
+  "warp.chargedLast": "Motor de salto cargado. El último salto. Agárrate.",
 
   "beacon.placed": "Baliza colocada en {stop}.",
 
@@ -156,6 +170,10 @@ export const HI: Record<StringKey, string> = {
 
   "warp.heading": "वार्प विराम",
   "warp.prompt": "वार्प इंजन भरने के लिए वाक्य लिखो।",
+  "warp.beltCleared": "पट्टी साफ़ हो गई। वार्प इंजन भरने के लिए यह लिखो।",
+  "warp.nextStop": "गंतव्य: {stop}।",
+  "warp.chargedNext": "वार्प इंजन भर गया। अगला पड़ाव: {stop}।",
+  "warp.chargedLast": "वार्प इंजन भर गया। आख़िरी छलांग। सँभल जाओ।",
 
   "beacon.placed": "{stop} पर बीकन लगा।",
 
