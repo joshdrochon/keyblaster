@@ -51,6 +51,7 @@ describe("schema gate (AC-15.2)", () => {
   });
 
   it("AC-15.2: schema gate rejects a non-string or blank variant", () => {
+    expect(parseCoachPayload({ ...good, variants: [3, "ok"] })).toBeNull();
     expect(parseCoachPayload({ ...good, variants: ["ok", 3] })).toBeNull();
     expect(parseCoachPayload({ ...good, variants: ["ok", "  "] })).toBeNull();
   });

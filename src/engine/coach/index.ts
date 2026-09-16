@@ -97,6 +97,7 @@ export {
   createMockCoach,
   hashRequest,
   mockNote,
+  templateTablesAreUsable,
   type MockCoachOptions,
   type MockVariantSource,
 } from "./mock.js";

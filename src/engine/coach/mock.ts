@@ -87,11 +87,22 @@ export function hashRequest(req: SanitizedCoachRequest): number {
   return hash >>> 0;
 }
 
-/** Pick deterministically. Returns the first entry if the table is short. */
+/**
+ * Pick deterministically. The tables above are compile-time constants and are
+ * never empty, and the modulo keeps the index in range - neither fact is
+ * visible to noUncheckedIndexedAccess, and a `?? fallback` here would be a
+ * branch no test could ever reach. `templateTablesAreUsable` asserts the
+ * precondition instead, and a unit test runs it.
+ */
 function pick(table: readonly string[], hash: number): string {
-  const chosen = table[hash % table.length];
-  // noUncheckedIndexedAccess: the modulo guarantees this, the compiler cannot.
-  return chosen ?? "";
+  return table[hash % table.length] as string;
+}
+
+/** The precondition `pick` relies on, exposed so a test can hold it. */
+export function templateTablesAreUsable(): boolean {
+  return [TWO_MISSED, ONE_MISSED, ONE_SLOW, CLEAN].every(
+    (table) => table.length > 0 && table.every((entry) => entry.length > 0),
+  );
 }
 
 /** Build the canned note for a request. Exported so the demo can assert it. */

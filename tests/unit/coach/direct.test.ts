@@ -219,6 +219,7 @@ describe("DirectCoach request shape (D92)", () => {
     for (const body of [
       { content: [{ type: "text", text: "Sorry, I cannot help with that." }] },
       { content: [{ type: "text", text: "{not json at all" }] },
+      { content: [{ type: "text", text: "{ this looks like json but is not }" }] },
       { content: [{ type: "tool_use", id: "x" }] },
       { content: "not an array" },
       { nothing: true },

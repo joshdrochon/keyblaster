@@ -204,3 +204,44 @@ NOT PASSED. The selection lane implements the documented predicate, degrades
 gracefully rather than stalling (it returns a normal word and flags
 `relaxed: ["catch"]`), and exports `poolHasCatchWord()` so content tooling can
 detect the state. Two tests pin the current behaviour.
+
+## C11 — D92's coach model id is probably wrong (one-line fix)
+
+- **Logged:** 2026-09-16 (build night 1)
+- **Source:** D92; PRD FR-15, AC-15.1, AC-15.5; D52 (demo script)
+- **Found by:** the coach lane, flagged as a doc concern; verified against the
+  Anthropic API model table rather than from memory.
+
+D92 specifies the model id `claude-haiku-4-5-20251001`.
+
+The current API model table lists Claude Haiku 4.5 as the bare id
+**`claude-haiku-4-5`**, and says current-generation ids are complete as written
+and must never be given a date suffix — date-suffixed variants of current models
+are a known training-data artifact. D92's pricing ($1 / $5 per MTok) matches the
+table and is not in question; only the id string is.
+
+### Why it matters more than it looks
+
+A wrong id returns 400. The client's 1500 ms timeout and shipped fallback
+(AC-15.1) catch it perfectly — which is the problem. The failure is **silent**:
+the game looks completely healthy and every coach note quietly comes from the
+shipped bundle. D52's demo beat and AC-15.5 both depend on showing a coach note
+that names the two words the player just missed. On camera, that would be the
+fallback.
+
+Nothing tonight is affected: the gauntlet and the demo default to `MockCoach`
+(D87), and `/api/coach` is never deployed by this loop.
+
+| # | Option | Cost |
+|---|---|---|
+| A | Change D92's id to `claude-haiku-4-5` | One line. What the API documents. |
+| B | Keep the dated string | Live coach path is dead; every note is the fallback, undetectably. |
+
+**Lean: A.** This is a fact, not a judgement — but D92 is a user decision and
+the collision rule forbids silently overwriting one, so it is logged as C11 and
+shipped as written.
+
+### Status
+
+NOT PASSED. `COACH_MODEL` carries D92's string verbatim; `options.model`
+overrides it, so adopting A is a one-line change in one place.

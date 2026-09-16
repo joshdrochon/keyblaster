@@ -6,6 +6,7 @@ import {
   fallbackFor,
   hashRequest,
   mockNote,
+  templateTablesAreUsable,
 } from "@engine/coach/index.js";
 import { allowlist, marsRequest } from "./fixtures.js";
 
@@ -102,6 +103,10 @@ describe("determinism (AC-15.4, D85)", () => {
     expect(hashRequest(base)).toBe(hashRequest({ ...base, hitRate: 0.8234 }));
     expect(hashRequest(base)).not.toBe(hashRequest({ ...base, hitRate: 0.42 }));
     expect(hashRequest(base)).not.toBe(hashRequest({ ...base, stopId: "pluto" }));
+  });
+
+  it("the template tables are non-empty, which is what makes the pick total", () => {
+    expect(templateTablesAreUsable()).toBe(true);
   });
 
   it("mockNote is a pure function of the sanitized request", () => {

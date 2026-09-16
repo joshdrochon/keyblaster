@@ -94,10 +94,15 @@ const visual = [
       if (!existsSync(cfg)) return todo("src/game/render/layers.ts does not exist yet");
       const src = readFileSync(cfg, "utf8");
       const speeds = [...src.matchAll(/speed:\s*([0-9.]+)/g)].map((m) => Number(m[1]));
-      const distinct = new Set(speeds);
-      return speeds.length >= 5 && distinct.size === speeds.length
-        ? ok(`${speeds.length} layers, ${distinct.size} distinct speeds: ${speeds.join(", ")}`)
-        : bad(`found ${speeds.length} layers / ${distinct.size} distinct speeds; need >=5 and all distinct`);
+      // Count DISTINCT SCROLLING speeds. AC-22.1 asks for five layers moving at
+      // distinct speeds, not for every layer to be unique: sky and hud are
+      // pinned at 0, and debris and shipFx share the gameplay plane at 1.0 by
+      // design (art-direction s2). Demanding all-distinct would fail correct art.
+      const scrolling = speeds.filter((s) => s > 0);
+      const distinct = new Set(scrolling);
+      return distinct.size >= 5
+        ? ok(`${scrolling.length} scrolling layers, ${distinct.size} distinct speeds: ${[...distinct].sort((a,b)=>a-b).join(", ")}`)
+        : bad(`found ${distinct.size} distinct scrolling speeds; need >=5`);
     },
   },
   {

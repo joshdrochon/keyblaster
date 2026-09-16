@@ -45,17 +45,12 @@ export function parseCoachPayload(raw: unknown): CoachPayload | null {
   const variants = candidate.variants;
   if (!Array.isArray(variants) || variants.length !== VARIANT_COUNT) return null;
 
-  const texts: string[] = [];
-  for (const entry of variants) {
-    const text = asText(entry);
-    if (text === null) return null;
-    texts.push(text);
-  }
-
-  // noUncheckedIndexedAccess: the length check above is not visible to the
-  // type system, so rebuild the tuple explicitly rather than casting.
-  const [first, second] = texts;
-  if (first === undefined || second === undefined) return null;
+  // Checked position by position rather than in a loop: FR-15 says two, the
+  // length check above says two, and reading both explicitly is what lets the
+  // tuple type be built without a cast under noUncheckedIndexedAccess.
+  const first = asText(variants[0]);
+  const second = asText(variants[1]);
+  if (first === null || second === null) return null;
 
   const tuple: CoachVariants = [first, second];
   return { note, variants: tuple };
