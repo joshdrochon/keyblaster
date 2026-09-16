@@ -35,9 +35,12 @@ import {
  * It also flies a WHOLE Mars belt with real keystrokes - 58 words at the
  * current stage length - so its budget is minutes, not seconds. That is the
  * price of proving the stage actually completes, and the stage completing is
- * the precondition for everything this spec asserts afterwards.
+ * the precondition for everything this spec asserts afterwards. The belt alone
+ * is ~50 s of SCENE time, and headless software GL steps Phaser's clock at a
+ * fraction of wall time that gets worse as the box gets busier, so the budget
+ * is set for a loaded machine. It bounds a hang; it is not a speed target.
  */
-test.describe.configure({ mode: "default", timeout: 900_000 });
+test.describe.configure({ mode: "default", timeout: 1_800_000 });
 
 /** Press a key and let the transition it triggers actually run. */
 async function press(page: import("@playwright/test").Page, key: string): Promise<void> {
@@ -168,7 +171,7 @@ async function typeTheWarpSentence(
   await page.waitForFunction(
     () => (window as unknown as { __kb: Record<string, unknown> }).__kb["warp"] !== undefined,
     undefined,
-    { timeout: 90_000 },
+    { timeout: 120_000 },
   );
   await settle(page, 600);
   const sentence = (await snap<{ sentence: string }>(page, "warp")).sentence;
@@ -182,13 +185,13 @@ async function leaveBeaconForResults(
   where: () => string,
 ): Promise<{ wpm: number; accuracy: number }> {
   await pressUntilGone(page, "Beacon", 10);
-  await waitForScene(page, "Results", 90_000).catch(async (e) => {
+  await waitForScene(page, "Results", 120_000).catch(async (e) => {
     throw new Error(`the beacon was placed but Results never opened. ${where()}\n${String(e)}`);
   });
   await page.waitForFunction(
     () => (window as unknown as { __kb: Record<string, unknown> }).__kb["results"] !== undefined,
     undefined,
-    { timeout: 90_000 },
+    { timeout: 120_000 },
   );
   await settle(page, 900);
   return snap<{ wpm: number; accuracy: number }>(page, "results");
@@ -255,6 +258,37 @@ async function storedStop(
   }, stopId);
 }
 
+
+/**
+ * Light Earth's beacon and come back to the map.
+ *
+ * RETRIED, because one attempt is an assumption about timing, not about the
+ * game. `typeWord` only registers once the word prompt is live, and on a loaded
+ * box the scene's create + entrance tweens can still be running after a fixed
+ * settle - so the keystrokes land nowhere, no Continue button appears, Enter
+ * does nothing, and the wait for the map then fails 120 s later pointing at the
+ * wait instead of at the cause. Re-checking the live scene each pass makes the
+ * step wait for the screen to be READY rather than for a guessed duration.
+ *
+ * It still asserts the same thing: Earth must light and must hand back to the
+ * map. Only the patience changed.
+ */
+async function lightEarth(
+  page: import("@playwright/test").Page,
+  where: () => string,
+): Promise<void> {
+  for (let i = 0; i < 8; i++) {
+    if (!(await activeScenes(page)).includes("EarthActivation")) return;
+    await typeWord(page, "launch");
+    await settle(page, 700);
+    await press(page, "Enter");
+    await page.waitForTimeout(900);
+  }
+  if ((await activeScenes(page)).includes("EarthActivation")) {
+    throw new Error(`Earth's beacon never lit after 8 attempts. ${where()}`);
+  }
+}
+
 test("a player can get from the Title to a placed beacon using only the keyboard", async ({
   page,
 }) => {
@@ -296,7 +330,7 @@ test("a player can get from the Title to a placed beacon using only the keyboard
       return !g.scene.getScenes(true).some((s) => s.scene.key === "Title");
     },
     undefined,
-    { timeout: 60_000 },
+    { timeout: 120_000 },
   ).catch(async (e) => {
     throw new Error(`Title never handed off. ${where()}\n${String(e)}`);
   });
@@ -327,12 +361,12 @@ test("a player can get from the Title to a placed beacon using only the keyboard
   // --- Earth: type the activation word -----------------------------------
   if (beforeEarth === "EarthActivation") {
     await settle(page, 600);
-    await typeWord(page, "launch");
-    await waitForScene(page, "DirectorMap", 60_000);
+    await lightEarth(page, where);
+    await waitForScene(page, "DirectorMap", 120_000);
   }
 
   // --- Director map: fly the first belt ----------------------------------
-  await waitForScene(page, "DirectorMap", 60_000).catch(async (e) => {
+  await waitForScene(page, "DirectorMap", 120_000).catch(async (e) => {
     throw new Error(`never reached the Director map. ${where()}\n${String(e)}`);
   });
   await mark("director map");
@@ -362,10 +396,10 @@ test("a player can get from the Title to a placed beacon using only the keyboard
   // cleared, so the map kept re-focusing Earth forever.
   if (afterMap === "EarthActivation") {
     await settle(page, 700);
-    await typeWord(page, "launch");
-    await settle(page, 900);
-    await press(page, "Enter");
-    await waitForScene(page, "DirectorMap", 60_000);
+    await lightEarth(page, where);
+    await waitForScene(page, "DirectorMap", 120_000).catch(async (e) => {
+      throw new Error(`Earth lit but never handed back to the map. ${where()}\n${String(e)}`);
+    });
     await settle(page, 800);
 
     let leftAgain = false;
@@ -411,7 +445,7 @@ test("a player can get from the Title to a placed beacon using only the keyboard
     await settle(page, 600);
     await press(page, "Enter");
   }
-  await waitForScene(page, "Preflight", 60_000).catch(() => {});
+  await waitForScene(page, "Preflight", 120_000).catch(() => {});
   if ((await activeScenes(page)).includes("Preflight")) {
     // The ritual is a timed sequence; it may want keys or may run itself.
     for (let i = 0; i < 30; i++) {
@@ -422,7 +456,7 @@ test("a player can get from the Title to a placed beacon using only the keyboard
   }
 
   await mark("waiting for Flight");
-  await waitForScene(page, "Flight", 90_000).catch(async (e) => {
+  await waitForScene(page, "Flight", 120_000).catch(async (e) => {
     throw new Error(`never reached Flight. ${where()}\n${String(e)}`);
   });
   await mark("flight reached");
@@ -433,14 +467,14 @@ test("a player can get from the Title to a placed beacon using only the keyboard
   await mark("belt cleared");
 
   // --- Warp break: retype the sentence made of the words just blasted -----
-  await waitForScene(page, "Warp", 90_000).catch(async (e) => {
+  await waitForScene(page, "Warp", 120_000).catch(async (e) => {
     throw new Error(`the belt ended but the warp break never opened. ${where()}\n${String(e)}`);
   });
   await mark("warp break");
   await typeTheWarpSentence(page);
 
   // --- Beacon placement --------------------------------------------------
-  await waitForScene(page, "Beacon", 90_000).catch(async (e) => {
+  await waitForScene(page, "Beacon", 120_000).catch(async (e) => {
     throw new Error(`the warp charged but the beacon never dropped. ${where()}\n${String(e)}`);
   });
   await mark("beacon");
@@ -470,7 +504,7 @@ test("a player can get from the Title to a placed beacon using only the keyboard
 
   // --- Back to the map: Jupiter must be open -----------------------------
   await pressUntilGone(page, "Results", 8);
-  await waitForScene(page, "DirectorMap", 90_000).catch(async (e) => {
+  await waitForScene(page, "DirectorMap", 120_000).catch(async (e) => {
     throw new Error(`Results never returned to the map. ${where()}\n${String(e)}`);
   });
   await mark("back on the map");
@@ -503,7 +537,7 @@ test("a player can get from the Title to a placed beacon using only the keyboard
   // The map drawn from a cold boot - no init payload anywhere - must agree.
   await page.goto("/?scene=DirectorMap");
   await expect(page.getByTestId("app")).toHaveAttribute("data-booted", "true");
-  await waitForScene(page, "DirectorMap", 90_000);
+  await waitForScene(page, "DirectorMap", 120_000);
   await settle(page, 900);
   const afterReload = await mapStops(page);
   expect(

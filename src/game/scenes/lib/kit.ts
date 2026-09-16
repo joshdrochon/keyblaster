@@ -193,7 +193,13 @@ export interface KeyboardMenu {
   readonly index: number;
   readonly targets: readonly FocusTarget[];
   focus(index: number): void;
-  setTargets(targets: readonly FocusTarget[]): void;
+  /**
+   * Replace the targets. Focus goes to the PRIMARY target unless `focusId`
+   * names one - which is how a screen says "this rebuild is different", e.g.
+   * results putting the caret on its one-time opt-in question while that
+   * question is on screen.
+   */
+  setTargets(targets: readonly FocusTarget[], focusId?: string): void;
   destroy(): void;
 }
 
@@ -345,11 +351,17 @@ export function createKeyboardMenu(
      * (results, once the relative-board prompt is answered) is opening a new
      * set of choices, and the forward one is the default for the new set the
      * same way it was for the first.
+     *
+     * `focusId` overrides that for the case where the screen is ASKING
+     * something. A one-time question the caret skips past is a question nobody
+     * answers, and "the forward action is the default" is a rule about
+     * replay-versus-continue, not a licence to focus past a prompt.
      */
-    setTargets(next: readonly FocusTarget[]) {
+    setTargets(next: readonly FocusTarget[], focusId?: string) {
       list = [...next];
       bindPointers();
-      focus(openingIndex(list, undefined));
+      const named = focusId === undefined ? -1 : list.findIndex((t) => t.id === focusId);
+      focus(named >= 0 ? named : openingIndex(list, undefined));
     },
     destroy() {
       scene.input.keyboard?.off("keydown", onKey);

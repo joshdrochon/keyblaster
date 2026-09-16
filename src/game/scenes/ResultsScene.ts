@@ -522,6 +522,15 @@ export class ResultsScene extends Phaser.Scene {
     const y = BOARD.y + 44;
     const targets: FocusTarget[] = [];
     const showPanel = this.optedIn || !this.promptAnswered;
+    /**
+     * Which target the caret opens on for THIS build of the board.
+     *
+     * Set only inside the branch that actually draws the question, so it is a
+     * fact about what is on screen right now rather than about
+     * `this.promptShown`, which is sticky for the snapshot's benefit and stays
+     * true after the question has been answered and removed.
+     */
+    let openOn: string | undefined;
 
     if (showPanel) {
       this.boardParts.push(
@@ -536,6 +545,7 @@ export class ResultsScene extends Phaser.Scene {
 
     if (!this.optedIn && !this.promptAnswered) {
       this.promptShown = true;
+      openOn = "board-yes";
       this.mark("board-prompt");
       this.boardParts.push(
         label(this, x, y, this.lane.copy.text("results.boardPrompt"), {
@@ -631,7 +641,12 @@ export class ResultsScene extends Phaser.Scene {
     );
 
     hud.add(this.boardParts);
-    this.menu.setTargets(targets);
+    // The caret opens on CONTINUE (`primary`, above) - except while the D43
+    // opt-in question is on screen, when it opens on the question. A one-time
+    // prompt the default action skips past is a prompt nobody ever answers,
+    // and the defect being fixed here was "replay steals the default", not
+    // "anything that is not continue steals the default".
+    this.menu.setTargets(targets, openOn);
   }
 
   private button(

@@ -1,13 +1,29 @@
 /**
  * A deterministic whole-flight simulation, built from the real engine modules.
  *
- * This is the harness behind AC-6e.3 and AC-6e.4. Both ACs are claims about
- * what happens over a WHOLE RUN, so neither can be checked by a unit test of
+ * This is the harness behind AC-6e.3, AC-6e.4 and AC-4.3. All three are claims
+ * about what happens over a WHOLE RUN, so none can be checked by a unit test of
  * any single module - the emergent behaviour is the thing under test.
  *
  * Nothing here models gameplay it also asserts. The simulated player has a
  * fixed per-character accuracy and a fixed typing speed; whether a word is hit
  * falls out of fall time versus typing time, both computed by the real engine.
+ *
+ * TWO SIMULATIONS LIVE HERE, AND THE DIFFERENCE IS THE POINT.
+ *
+ * `simulateStage` is the original: it asks whether the SELECTION side of the
+ * loop behaves over a whole run - does the board stay fed (AC-6e.3), does a
+ * learner's recognition improve (AC-6e.4). It resolves every live rock
+ * independently, as if the player could answer them all at once.
+ *
+ * That assumption is exactly why this harness could not see the belt stall. A
+ * player is ONE server: AC-2.1 gives every live word a distinct first letter so
+ * the lock is unambiguous, and the child types one word at a time. A rock that
+ * is not being typed is not waiting politely - it is falling. `simulateBelt`
+ * models that: one serial typist, the real fall times, the real hull (D27), and
+ * the real spawn pacing out of `@engine/pacing`. It is the harness for "is a
+ * belt survivable", which is a question about arrival rate versus service rate
+ * and cannot be asked of a player who clears rocks in parallel.
  */
 
 import { fallTimeMs } from "@engine/fallTime/index.js";
@@ -23,7 +39,26 @@ import {
   medianFkLatency,
   type WordBook,
 } from "@engine/words/index.js";
-import { DEFAULT_CALIBRATION, type WordRecord } from "@engine/types.js";
+import {
+  DEFAULT_CALIBRATION,
+  type Calibration,
+  type WordRecord,
+} from "@engine/types.js";
+import {
+  type ControllerState,
+  createController,
+  hitRate,
+  recordOutcome,
+} from "@engine/controller/index.js";
+import type { Knobs } from "@engine/controller/knobs.js";
+import { expectedClearMs, observedBiasMs, spawnGapMs } from "@engine/pacing/index.js";
+import {
+  MAX_HULL,
+  hullAfterShield,
+  hullAfterStrike,
+  isStalled,
+  maySpawnCanister,
+} from "@game/flight/shield.js";
 
 /** Deterministic PRNG. Never Math.random, in the module or the test. */
 export function mulberry32(seed: number): () => number {
@@ -41,6 +76,15 @@ export interface SimPlayer {
   accuracy: number;
   /** Median inter-key interval, ms. */
   ikiMs: number;
+  /**
+   * What the pre-flight ritual MEASURED as this player's first-key latency
+   * (D51). Deliberately separate from `coldRecognitionMs`: the ritual uses
+   * short, high-frequency words, so it measures recognition of a word the child
+   * already reads, and a brand new word costs more than it says. The gap
+   * between the two is what the observed-clear feedback in `@engine/pacing`
+   * exists to close. Defaults to PRD FR-8's 500 ms.
+   */
+  fkLatencyMs?: number;
   /**
    * Recognition latency for a word the player does not know yet, ms. Shrinks
    * with exposure, which is the whole mechanism the retention line measures.
@@ -75,6 +119,24 @@ function recognitionMs(player: SimPlayer, record: WordRecord): number {
   const floor = 220;
   const decay = 0.72 ** record.hits;
   return floor + (player.coldRecognitionMs - floor) * decay;
+}
+
+/**
+ * Typing time for every key AFTER the first one.
+ *
+ * `recognitionMs` already runs to the moment the first key goes down - that is
+ * what first-key latency means (D51, FR-11) - so charging an inter-key interval
+ * for it as well costs the player a keystroke they never made. The belt is
+ * paced off this number, so a systematic overcharge of one `ikiMs` per word is
+ * an overcharge of a whole minute across a 58-word stage.
+ */
+function typeAfterFirstKeyMs(player: SimPlayer, word: string, rng: () => number): number {
+  let ms = 0;
+  for (let i = 1; i < [...word].length; i++) {
+    ms += player.ikiMs;
+    if (rng() > player.accuracy) ms += player.ikiMs;
+  }
+  return ms;
 }
 
 /** Time to physically type the word, plus the retries a typo costs. */
@@ -182,6 +244,354 @@ export function simulateStage(
 
   if (deadSince !== null) maxDeadMs = Math.max(maxDeadMs, nowMs - deadSince);
   return { stopIndex: cfg.stopIndex, spawns, maxDeadMs, book: nextBook };
+}
+
+// ---------------------------------------------------------------------------
+// The belt: one serial typist, a real hull, and the real spawn pacing
+// ---------------------------------------------------------------------------
+
+/** What the game believes about this player's hands (D51, FR-11). */
+export function calibrationOf(player: SimPlayer): Calibration {
+  return {
+    ikiMs: player.ikiMs,
+    fkLatencyMs: player.fkLatencyMs ?? DEFAULT_CALIBRATION.fkLatencyMs,
+  };
+}
+
+export interface BeltConfig {
+  stopIndex: number;
+  stagePool: readonly string[];
+  retentionPool: readonly string[];
+  /** Words the stage spawns before it ends (FR-6). */
+  spawnCount: number;
+  /** Starting knobs; the controller owns them from there (FR-10). */
+  knobs?: Partial<Knobs>;
+  /**
+   * Model the shield canister (AC-5.1, AC-5.2, D26) - a damaged hull is handed
+   * a rock that gives a mark back when it is blasted. OFF by default, because a
+   * survivability claim proved without the safety net is a claim that holds
+   * with it.
+   */
+  canisters?: boolean;
+  /**
+   * A FIXED gap, in ms, instead of the derived one. Only a regression test uses
+   * this: it is how the old 850 ms constant is reproduced, so the fix can be
+   * shown to fix something rather than asserted to.
+   */
+  fixedGapMs?: number | null;
+}
+
+export interface BeltSpawn extends SpawnRecord {
+  /** Gap the belt waited after this rock before feeding the next one, ms. */
+  gapAfterMs: number;
+  /** How long this rock waited before the player could start it, ms. */
+  queuedMs: number;
+  /** Fall time this rock was granted (@engine/fallTime), ms. */
+  fallMs: number;
+  /** What the belt estimated it would cost this player, ms. */
+  estimateMs: number;
+  /** What it actually cost them once they started, ms. */
+  actualMs: number;
+}
+
+export interface BeltResult {
+  spawns: BeltSpawn[];
+  /** Hull left when the belt ended, 0..3 (D27). */
+  hull: number;
+  /** AC-4.3: the hull emptied and the stage stalled before it finished. */
+  stalled: boolean;
+  breaches: number;
+  blasted: number;
+  /** How many of `spawnCount` ever made it onto the board. */
+  spawned: number;
+  /** Wall-clock length of the belt, ms - the 90-150 s target lives here. */
+  durationMs: number;
+  /** Longest stretch with nothing live and spawns still pending (AC-6e.3). */
+  maxDeadMs: number;
+  /** Blasted / spawned over the whole belt. */
+  hitRate: number;
+  /** Every gap the pacing module handed back, in order. */
+  gaps: number[];
+  /** Most rocks live at once - the board's real depth, not the knob's cap. */
+  peakLive: number;
+  book: WordBook;
+}
+
+interface BeltRock {
+  word: string;
+  spawnedAtMs: number;
+  /** Fall time from `@engine/fallTime`: the instant it reaches the breach. */
+  deadlineMs: number;
+  /** Set when the player commits to it; the lock never drops (AC-3.2). */
+  startedAtMs: number | null;
+  /** AC-5.2: blasting this one gives a hull mark back. */
+  isCanister: boolean;
+  /** What the belt estimated this rock would cost, at spawn. */
+  clearEstimateMs: number;
+}
+
+/**
+ * Fly one belt with a single serial typist.
+ *
+ * THE PLAYER MODEL, and why each part of it is the conservative choice:
+ *
+ * - ONE WORD AT A TIME. The lock machine allows nothing else, and a child could
+ *   not do anything else.
+ * - LOWEST ROCK FIRST (earliest deadline). This is both what a player does and
+ *   what `tests/e2e/playthrough.spec.ts` does, and it is the BEST possible
+ *   scheduling order for a single server with deadlines - so a belt this
+ *   simulation cannot survive, no real player survives either.
+ * - COMMITTED. Once typing starts the player finishes the word, because AC-3.2
+ *   says the lock is never dropped. A rock that breaches mid-word costs the
+ *   player everything they had spent on it.
+ * - NO SHIELD CANISTERS, unless `cfg.canisters` asks for them. The real game
+ *   hands a damaged hull a rock that gives a mark back (AC-5.1/AC-5.2); the
+ *   default here does not. Survivability proved without the safety net is
+ *   survivability with it, and the flag exists to measure what the net is worth
+ *   rather than to lean on it.
+ *
+ * The RULES all come from the engine: which word (`selection`), how long it
+ * falls (`fallTime`), when the next one is fed (`pacing`), what the hull does
+ * (`flight/shield`), what the rolling hit rate is (`controller`).
+ */
+export function simulateBelt(
+  cfg: BeltConfig,
+  player: SimPlayer,
+  book: WordBook,
+  rng: () => number,
+): BeltResult {
+  const calibration = calibrationOf(player);
+  let selection: SelectionState = createSelectionState({
+    stage: cfg.stopIndex,
+    stagePool: cfg.stagePool,
+    retentionPool: cfg.retentionPool,
+    book,
+  });
+  let controller: ControllerState = createController({ knobs: cfg.knobs ?? {} });
+  let nextBook: WordBook = { ...book };
+
+  const spawns: BeltSpawn[] = [];
+  const gaps: number[] = [];
+  /** actual service minus the estimate, per cleared rock (@engine/pacing). */
+  const residuals: number[] = [];
+  const lastSeenStage: Record<string, number> = {};
+  const byWord = new Map<string, BeltSpawn>();
+
+  let live: BeltRock[] = [];
+  let busy: { rock: BeltRock; doneAtMs: number; fkMs: number } | null = null;
+  let nowMs = 0;
+  let spawned = 0;
+  let hull = MAX_HULL;
+  let blasted = 0;
+  let breaches = 0;
+  let nextSpawnAtMs = 0;
+  /** When the player last became free; a rock's service starts no earlier. */
+  let freeSinceMs = 0;
+  let canisterLive = false;
+  let maxDeadMs = 0;
+  let deadSinceMs: number | null = null;
+  let peakLive = 0;
+  let stalled = false;
+
+  const pending = (): boolean => spawned < cfg.spawnCount;
+
+  const noteDead = (): void => {
+    if (live.length === 0 && pending()) {
+      if (deadSinceMs === null) deadSinceMs = nowMs;
+    } else if (deadSinceMs !== null) {
+      maxDeadMs = Math.max(maxDeadMs, nowMs - deadSinceMs);
+      deadSinceMs = null;
+    }
+  };
+
+  let guard = 0;
+  while (pending() || live.length > 0) {
+    if ((guard += 1) > 400_000) throw new Error("belt simulation did not terminate");
+    noteDead();
+
+    // 1. The player finishes the word they were on. A rock whose deadline lands
+    //    on the same instant is still a blast: the fall-time budget is inclusive.
+    if (busy !== null && busy.doneAtMs <= nowMs) {
+      const rock = busy.rock;
+      const record = nextBook[rock.word] ?? blankRecord();
+      live = live.filter((r) => r !== rock);
+      nextBook = {
+        ...nextBook,
+        [rock.word]: applyEvent(record, {
+          kind: "hit",
+          fkLatencyMs: busy.fkMs,
+          ikiMs: [player.ikiMs],
+          atMs: nowMs,
+          stage: cfg.stopIndex,
+        }),
+      };
+      controller = recordOutcome(controller, "blasted");
+      if (rock.isCanister) {
+        hull = hullAfterShield(hull);
+        canisterLive = false;
+      }
+      // The service sample the scene records: from the moment the player was
+      // free to attend to this rock, to the moment it blew up. Queueing time is
+      // excluded, or the gap would chase its own tail.
+      residuals.push(nowMs - (rock.startedAtMs ?? nowMs) - rock.clearEstimateMs);
+      const spawn = byWord.get(rock.word + rock.spawnedAtMs);
+      if (spawn !== undefined) {
+        spawn.clearedAtMs = nowMs;
+        spawn.hit = true;
+      }
+      blasted += 1;
+      busy = null;
+      freeSinceMs = nowMs;
+      continue;
+    }
+
+    // 2. Anything that reached the breach line. One hull mark each (AC-4.2),
+    //    including the rock the player was mid-way through.
+    const due = live.find((r) => r.deadlineMs <= nowMs);
+    if (due !== undefined) {
+      const record = nextBook[due.word] ?? blankRecord();
+      live = live.filter((r) => r !== due);
+      nextBook = {
+        ...nextBook,
+        [due.word]: applyEvent(record, { kind: "miss", atMs: nowMs, stage: cfg.stopIndex }),
+      };
+      controller = recordOutcome(controller, "missed");
+      if (due.isCanister) canisterLive = false;
+      const spawn = byWord.get(due.word + due.spawnedAtMs);
+      if (spawn !== undefined) spawn.clearedAtMs = nowMs;
+      breaches += 1;
+      hull = hullAfterStrike(hull);
+      if (busy !== null && busy.rock === due) {
+        busy = null;
+        freeSinceMs = nowMs;
+      }
+      if (isStalled(hull)) {
+        stalled = true;
+        break;
+      }
+      continue;
+    }
+
+    // 3. Feed the belt. The gate is the scene's, exactly: never past `maxLive`,
+    //    and never early UNLESS the board is empty - AC-6e.3's fast path, which
+    //    is what stops a longer gap from turning into dead air.
+    const boardEmpty = live.length === 0;
+    if (pending() && live.length < controller.knobs.maxLive && (boardEmpty || nowMs >= nextSpawnAtMs)) {
+      const outcome = pickNext(selection, {
+        live: live.map((r) => r.word),
+        book: nextBook,
+        lastSeenStage,
+        rng,
+      });
+      if (!outcome.ok) {
+        // "no legal word" implies a non-empty board, so something is already
+        // falling; the scene retries on the next frame and so do we.
+        nextSpawnAtMs = nowMs + 200;
+        if (boardEmpty) nowMs += 200;
+        continue;
+      }
+      selection = outcome.state;
+      const word = outcome.word;
+      const record = nextBook[word] ?? blankRecord();
+      const fall = fallTimeMs({ word, ease: record.ease, calibration });
+      const isCanister =
+        (cfg.canisters ?? false) && maySpawnCanister(hull, canisterLive) && rng() < 0.5;
+      if (isCanister) canisterLive = true;
+      const rock: BeltRock = {
+        word,
+        spawnedAtMs: nowMs,
+        deadlineMs: nowMs + fall,
+        startedAtMs: null,
+        isCanister,
+        clearEstimateMs: expectedClearMs({
+          length: [...word].length,
+          ease: record.ease,
+          calibration,
+        }),
+      };
+      live.push(rock);
+      peakLive = Math.max(peakLive, live.length);
+      lastSeenStage[word] = cfg.stopIndex;
+      spawned += 1;
+
+      // The board's own cost, newest rock last - the scene passes exactly this.
+      const liveClearMs = live.map((r) => r.clearEstimateMs);
+      const served = busy === null ? 0 : nowMs - (busy.rock.startedAtMs ?? nowMs);
+      const gap =
+        cfg.fixedGapMs !== null && cfg.fixedGapMs !== undefined
+          ? cfg.fixedGapMs
+          : spawnGapMs({
+              liveClearMs,
+              servedMs: served,
+              fallMs: fall,
+              biasMs: observedBiasMs(residuals),
+              knobs: controller.knobs,
+              hitRate: hitRate(controller),
+            });
+      gaps.push(gap);
+      nextSpawnAtMs = nowMs + gap;
+
+      const spawn: BeltSpawn = {
+        word,
+        spawnedAtMs: nowMs,
+        clearedAtMs: rock.deadlineMs,
+        hit: false,
+        fkLatencyMs: 0,
+        gapAfterMs: gap,
+        queuedMs: 0,
+        fallMs: fall,
+        estimateMs: rock.clearEstimateMs,
+        actualMs: 0,
+      };
+      spawns.push(spawn);
+      byWord.set(word + rock.spawnedAtMs, spawn);
+      continue;
+    }
+
+    // 4. A free player picks the rock nearest the breach line and commits.
+    if (busy === null && live.length > 0) {
+      const target = live.reduce((a, b) => (b.deadlineMs < a.deadlineMs ? b : a));
+      const record = nextBook[target.word] ?? blankRecord();
+      const fk = recognitionMs(player, record);
+      const need = fk + typeAfterFirstKeyMs(player, target.word, rng);
+      target.startedAtMs = Math.max(freeSinceMs, target.spawnedAtMs);
+      const spawn = byWord.get(target.word + target.spawnedAtMs);
+      if (spawn !== undefined) {
+        spawn.queuedMs = nowMs - target.spawnedAtMs;
+        spawn.fkLatencyMs = fk;
+      }
+      if (spawn !== undefined) spawn.actualMs = need;
+      busy = { rock: target, doneAtMs: nowMs + need, fkMs: fk };
+      continue;
+    }
+
+    // 5. Nothing to do at this instant: jump to the next thing that happens.
+    const candidates: number[] = [];
+    if (busy !== null) candidates.push(busy.doneAtMs);
+    for (const r of live) candidates.push(r.deadlineMs);
+    if (pending() && live.length < controller.knobs.maxLive) candidates.push(nextSpawnAtMs);
+    const next = Math.min(...candidates.filter((t) => t > nowMs));
+    if (!Number.isFinite(next)) break;
+    nowMs = next;
+    noteDead();
+  }
+
+  if (deadSinceMs !== null) maxDeadMs = Math.max(maxDeadMs, nowMs - deadSinceMs);
+
+  return {
+    spawns,
+    hull,
+    stalled,
+    breaches,
+    blasted,
+    spawned,
+    durationMs: nowMs,
+    maxDeadMs,
+    hitRate: spawns.length === 0 ? 1 : blasted / spawns.length,
+    gaps,
+    peakLive,
+    book: nextBook,
+  };
 }
 
 /**

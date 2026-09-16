@@ -185,6 +185,36 @@ async function pressKey(page: Page, ch: string): Promise<void> {
   }, ch);
 }
 
+/**
+ * Put KNOWN words on the belt through the debug spawn hook.
+ *
+ * Two tests below need several rocks in the air at once - one to check that
+ * size tracks word length across lengths, one to check that a key belonging to
+ * another rock is ignored (AC-3.3). Neither is a test of the SPAWNER, and both
+ * used to get their rocks by waiting for the belt to pile them up, which worked
+ * only because the belt fed a rock every 850 ms regardless of whether anyone
+ * was clearing them. That constant was the stall defect (`@engine/pacing`): the
+ * belt now feeds one rock per rock's worth of the player's own work, so an
+ * idle board - which is what these tests are, nobody is typing - stays at one
+ * or two rocks, as it should.
+ *
+ * Spawning the words the test needs makes the setup say what it means and
+ * leaves the assertions measuring what they name.
+ */
+async function seedRocks(page: Page, words: readonly string[]): Promise<void> {
+  await page.evaluate((list) => {
+    for (const word of list as string[]) window.__kbFlight?.spawn(word);
+  }, words);
+  await page.waitForFunction(
+    (list) => {
+      const live = new Set(window.__kbFlight?.state().rocks.map((r) => r.word) ?? []);
+      return (list as string[]).every((w) => live.has(w));
+    },
+    words,
+    { timeout: 15_000 },
+  );
+}
+
 /** The size rule from art-direction section 4, restated so the test is a check. */
 function expectedSizePx(word: string): number {
   const letters = Math.max(3, [...word].length);
@@ -202,8 +232,15 @@ test.describe("Flight - screen 6", () => {
     test.setTimeout(90_000);
     await bootFlight(page, { knobs: { maxLive: 5 }, stageWordCount: 40 });
 
+    // Five real Mars words, three to seven letters, so the monotonic claim is
+    // checked across the whole range the pool can produce instead of across
+    // whatever the picker happened to serve.
     const seen = new Map<string, RockView>();
-    for (let i = 0; i < 24; i += 1) {
+    for (const word of ["dry", "dust", "moons", "rivers", "surface"]) {
+      await seedRocks(page, [word]);
+      for (const rock of (await state(page)).rocks) seen.set(rock.word, rock);
+    }
+    for (let i = 0; i < 12; i += 1) {
       const snapshot = await state(page);
       for (const rock of snapshot.rocks) seen.set(rock.word, rock);
       await page.waitForTimeout(220);
@@ -283,6 +320,10 @@ test.describe("Flight - screen 6", () => {
   }) => {
     test.setTimeout(90_000);
     await bootFlight(page, { knobs: { maxLive: 4 }, stageWordCount: 40 });
+    // Three rivals with distinct first letters, none of which is another's
+    // second letter - the pair the assertion below needs, made deterministic
+    // rather than waited for.
+    await seedRocks(page, ["moons", "pilot", "sky"]);
     await page.waitForFunction(
       () => (window.__kbFlight?.state().rocks.length ?? 0) >= 3,
       null,

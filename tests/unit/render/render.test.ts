@@ -32,11 +32,29 @@ describe("AC-22.1: parallax depth (D60 rubric 1)", () => {
 
   it("AC-22.1: speeds match art-direction section 2 exactly", () => {
     // These numbers ARE the rubric; changing one is an art-direction edit.
+    //
+    // `foreVeil` at 1.80 is an ADDITION to the doc's eight, documented in
+    // layers.ts. Every layer the art direction lists is behind the ship, so
+    // nothing had ever passed in FRONT of the Lantern and it read as pasted on
+    // top of a moving picture. The AC is a floor ("at least five distinct
+    // speeds"), so a sixth is the direction of travel, not a violation.
     const byId = Object.fromEntries(LAYERS.map((l) => [l.id, l.speed]));
     expect(byId).toEqual({
       sky: 0.0, celestial: 0.05, farField: 0.15, midField: 0.35,
-      debris: 1.0, nearField: 1.3, shipFx: 1.0, hud: 0.0,
+      debris: 1.0, nearField: 1.3, shipFx: 1.0, foreVeil: 1.8, hud: 0.0,
     });
+  });
+
+  it("puts exactly one world layer in FRONT of the ship, under the HUD", () => {
+    // The whole reason L6.5 exists. If this ever inverts, the ship is pasted on
+    // top of the world again; if it climbs over the HUD, a readout gets veiled.
+    expect(layer("foreVeil").depth).toBeGreaterThan(layer("shipFx").depth);
+    expect(layer("foreVeil").depth).toBeLessThan(layer("hud").depth);
+    expect(layer("foreVeil").speed).toBeGreaterThan(layer("nearField").speed);
+    const inFront = LAYERS.filter(
+      (l) => l.depth > layer("shipFx").depth && l.depth < layer("hud").depth,
+    );
+    expect(inFront.map((l) => l.id)).toEqual(["foreVeil"]);
   });
 
   it("orders depth back to front with no collisions", () => {

@@ -46,8 +46,14 @@ import {
   type ControllerState,
   createController,
   endStage,
+  hitRate,
   recordOutcome,
 } from "@engine/controller/index.js";
+import {
+  expectedClearMs,
+  observedBiasMs,
+  spawnGapMs,
+} from "@engine/pacing/index.js";
 import {
   type ComboState,
   type StageTally,
@@ -105,6 +111,7 @@ import { audioFrom } from "@game/audio/wiring.js";
  * THIS SCENE DECIDES NOTHING. Every rule it obeys is imported:
  *   which word spawns next      @engine/selection  (pickNext)
  *   how long it falls           @engine/fallTime   (fallTimeMs)
+ *   when the next one is fed    @engine/pacing     (spawnGapMs)
  *   what a keystroke means      @engine/lock       (reduce -> emissions)
  *   what a word is worth        @engine/scoring    (combo, multiplier, wpm)
  *   what the player now knows   @engine/words      (applyToBook)
@@ -146,6 +153,13 @@ interface LiveRock {
   readonly isCanister: boolean;
   readonly spawnedAtMs: number;
   readonly fallMs: number;
+  /**
+   * What `@engine/pacing` expected this rock to cost THIS player, at spawn.
+   * Held on the rock rather than recomputed because the belt is paced off it
+   * and then corrected by it: the residual it leaves behind is how the stage
+   * learns that the child is slower than their calibration said.
+   */
+  readonly clearEstimateMs: number;
   readonly fromY: number;
   readonly toY: number;
   readonly homeX: number;
@@ -171,6 +185,8 @@ export interface FlightDebugState {
   readonly stageComplete: boolean;
   readonly maxLive: number;
   readonly knobChanges: number;
+  /** The gap the belt is currently holding between rocks, ms (@engine/pacing). */
+  readonly spawnGapMs: number;
   readonly rocks: readonly {
     readonly id: string;
     readonly word: string;
@@ -220,6 +236,20 @@ export class FlightScene extends Phaser.Scene {
   private correctChars = 0;
   private spawnedCount = 0;
   private nextSpawnAtMs = 0;
+  private lastSpawnGapMs = 0;
+  /**
+   * When the last rock left the board, by blast or by breach. A player is one
+   * server: this is the instant they became free for the next word, and both
+   * the pacing's "work already spent" and its clear samples are measured from
+   * it (@engine/pacing).
+   */
+  private lastResolveAtMs = 0;
+  /**
+   * Per-rock `actual service - estimate`, in blast order. `@engine/pacing`
+   * reads the recent tail of this and stretches the belt by it, which is what
+   * makes the gap follow the player rather than their calibration.
+   */
+  private clearResiduals: number[] = [];
   private canisterId: string | null = null;
   private stageStartMs = 0;
   private stalled = false;
@@ -250,6 +280,8 @@ export class FlightScene extends Phaser.Scene {
     debris: 0,
     nearField: 0,
     shipFx: 0,
+    // L6.5: the only world layer in front of the ship (render/layers.ts).
+    foreVeil: 0,
     hud: 0,
   };
 
@@ -298,6 +330,9 @@ export class FlightScene extends Phaser.Scene {
     this.correctChars = 0;
     this.spawnedCount = 0;
     this.nextSpawnAtMs = 0;
+    this.lastSpawnGapMs = 0;
+    this.lastResolveAtMs = 0;
+    this.clearResiduals = [];
     this.canisterId = null;
     this.stalled = false;
     this.stallStartedAtMs = null;
@@ -345,6 +380,7 @@ export class FlightScene extends Phaser.Scene {
 
     this.stageStartMs = this.time.now;
     this.nextSpawnAtMs = this.stageStartMs;
+    this.lastResolveAtMs = this.stageStartMs;
 
     this.scene.launch(SCENE_KEYS.hud, { snapshot: this.snapshot() });
     this.game.events.on(FLIGHT_EVENTS.restart, this.onRestartRequested, this);
@@ -837,7 +873,52 @@ export class FlightScene extends Phaser.Scene {
     this.selection = outcome.state;
     if (outcome.source === "retention") this.retentionWords.add(outcome.word);
     this.spawnRock(outcome.word, now);
-    this.nextSpawnAtMs = now + 850;
+    this.lastSpawnGapMs = this.spawnGapAfter(now);
+    this.nextSpawnAtMs = now + this.lastSpawnGapMs;
+  }
+
+  /**
+   * How long to wait before the next rock (@engine/pacing).
+   *
+   * THIS USED TO BE 850 MS AND THAT IS THE BUG. A player is one server - AC-2.1
+   * gives every live word a distinct first letter so the lock is unambiguous -
+   * so rocks leave the board one word at a time, at whatever rate this child
+   * types. A constant feed of 850 ms is about two and a half times that rate,
+   * `maxLive` caps what is LIVE rather than what is fed, and a rock nobody is
+   * typing is still falling. The surplus landed, three landings empty the hull
+   * (D27), and the stage stalled.
+   *
+   * Everything the replacement needs is already in this scene: what the board
+   * holds, how long the player has been on the rock in hand, what the last few
+   * rocks actually cost them, and the controller's knobs. The rule that turns
+   * those into a duration lives in the engine, like every other rule here.
+   */
+  private spawnGapAfter(now: number): number {
+    const newest = this.rocks[this.rocks.length - 1];
+    return spawnGapMs({
+      liveClearMs: this.rocks.map((r) => r.clearEstimateMs),
+      servedMs: now - this.serviceStartedAtMs(now),
+      fallMs: newest?.fallMs ?? 0,
+      biasMs: observedBiasMs(this.clearResiduals),
+      knobs: this.controller.knobs,
+      hitRate: hitRate(this.controller),
+    });
+  }
+
+  /**
+   * When the player started on the word they are answering now: the moment the
+   * board last freed up, or the moment that rock arrived, whichever is later.
+   *
+   * The rock in hand is the locked one when there is a lock, and otherwise the
+   * oldest live rock - the one nearest the breach line, which is the one a
+   * player answers next and the one the e2e's simulated child answers next.
+   */
+  private serviceStartedAtMs(now: number): number {
+    const locked =
+      this.lock.lockedId === null ? undefined : this.rockById(this.lock.lockedId);
+    const target = locked ?? this.rocks[0];
+    if (target === undefined) return now;
+    return Math.max(this.lastResolveAtMs, target.spawnedAtMs);
   }
 
   private spawnRock(word: string, now: number): void {
@@ -897,6 +978,11 @@ export class FlightScene extends Phaser.Scene {
       ease: record.ease,
       calibration: this.cfg.calibration,
     });
+    const clearEstimateMs = expectedClearMs({
+      length: letters,
+      ease: record.ease,
+      calibration: this.cfg.calibration,
+    });
 
     const rock: LiveRock = {
       id,
@@ -909,6 +995,7 @@ export class FlightScene extends Phaser.Scene {
       isCanister,
       spawnedAtMs: now,
       fallMs,
+      clearEstimateMs,
       fromY: -sizePx,
       toY: this.breachY,
       homeX,
@@ -933,6 +1020,23 @@ export class FlightScene extends Phaser.Scene {
       type: "spawn",
       asteroid: { id, word, spawnedAtMs: now },
     });
+  }
+
+  /**
+   * One rock's service time, as the amount it ran OVER what the belt expected.
+   *
+   * Measured from the moment the player was free to answer this rock - it
+   * arrived, or the previous one left, whichever was later - so the number is
+   * how long they took, never how long they waited. Queueing time belongs to
+   * the belt's pacing, and feeding it back in would make every wait justify a
+   * longer gap, which would justify a longer wait.
+   */
+  private recordClear(rock: LiveRock | undefined, nowMs: number): void {
+    if (rock !== undefined) {
+      const startedAt = Math.max(this.lastResolveAtMs, rock.spawnedAtMs);
+      this.clearResiduals.push(nowMs - startedAt - rock.clearEstimateMs);
+    }
+    this.lastResolveAtMs = nowMs;
   }
 
   // -------------------------------------------------------------------------
@@ -1112,6 +1216,7 @@ export class FlightScene extends Phaser.Scene {
       stage: this.cfg.stage,
     });
     this.controller = recordOutcome(this.controller, "blasted");
+    this.recordClear(rock, nowMs);
 
     if (rock !== undefined) {
       if (rock.isCanister) {
@@ -1301,6 +1406,11 @@ export class FlightScene extends Phaser.Scene {
       stage: this.cfg.stage,
     });
     this.controller = recordOutcome(this.controller, "missed");
+    // A breach frees the player for the next word exactly as a blast does, but
+    // it is NOT a clear sample: they never got to this rock, so it says nothing
+    // about how fast they type. Pacing off it would read a belt that is already
+    // too fast as a player who is slow.
+    this.lastResolveAtMs = now;
     this.combo = comboReducer(this.combo, "hullHit");
     this.hull = hullAfterStrike(this.hull);
     // The other half of D09: a word that got through is the one thing the warp
@@ -1705,6 +1815,7 @@ export class FlightScene extends Phaser.Scene {
           stageComplete: this.stageComplete,
           maxLive: this.controller.knobs.maxLive,
           knobChanges: this.knobChanges,
+          spawnGapMs: this.lastSpawnGapMs,
           rocks: this.rocks.map((r) => ({
             id: r.id,
             word: r.word,

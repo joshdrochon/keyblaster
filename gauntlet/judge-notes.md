@@ -262,3 +262,38 @@ silhouette character, one placed light, and sparse accents — and those are whe
 the remaining gap is.
 
 Attempt 1 of 8.
+
+---
+
+## R-world — round 2 — REWORK, and partly a regression
+
+Round 2 did real work — decorative debris now populates far, mid, near and a new
+foreVeil plane, the seam is fixed structurally, the white slabs are gone, and
+the value floor moved. Mechanically it is much better built.
+
+**It does not look better, and one change made it worse.**
+
+| # | Judgement |
+|---|---|
+| 1 | **The ridgelines are a regression.** They read as brown ribbons or pipes laid across the frame, not as terrain at a distance. They have a visible constant thickness and a hard outline, so they sit ON the image instead of receding into it. The lane tried three versions and said the first two were worse; this one is still not right. A ridgeline should be the TOP EDGE of a mass that fills everything below it to the bottom of its plane — not a band with sky on both sides. |
+| 2 | **The sun is now occluded by a ridge** and reads as an accident rather than a composition. The lane flagged this. On Mars the light source is the one thing the whole frame's rim lighting derives from; it should not be half-hidden behind a ribbon. |
+| 3 | **Still one hue family.** Cool shift went 0.14 → 0.20 and it still reads as one brown. The reference's depth is carried as much by hue rotation as by value, and we are not rotating. |
+| 4 | **The masses are still large flat rounded rectangles** with dot grids. The second terrace and the spires are there but they are not doing enough. |
+| 5 | Value range is better at the extremes but the MIDDLE is crowded: the big masses, the ridgelines and the planet are all within a narrow mid band, so the frame has two darks, two lights and a large undifferentiated middle. |
+
+**What I would do in round 3, in order:**
+
+1. Delete the ribbon ridgelines. Replace with: each plane is a solid mass whose
+   top edge is a silhouette, filling to the bottom of its plane. That is what
+   the reference does and it is why its planes read as ground rather than as
+   decoration.
+2. Put the sun back in clear sky and compose the planes around it.
+3. Spread the mid-tones apart. Four planes should be four clearly different
+   values, not two darks plus a crowded middle.
+4. Then hue.
+
+**What is genuinely good and should not be touched:** the decorative debris at
+multiple depths, the foreground veil over the ship, the seam fix, the near-plane
+bound, and the per-stop atmosphere. Those are the right ideas, correctly built.
+
+Attempt 2 of 8.

@@ -24,6 +24,56 @@ import { focused, items, open, press, screen, snapshot as menuSnapshot } from ".
 
 const HIT_PREFIX = "kb-hit:";
 
+const STOPS = ["earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto"] as const;
+
+/**
+ * A full profile for the Results screen.
+ *
+ * `relativeBoard` is the lever these specs care about: false means the D43
+ * one-time opt-in prompt is on screen (and holds the caret), true means it is
+ * not (and `continue` holds the caret). Handed to the scene explicitly so the
+ * fixture cannot write itself into a real save.
+ */
+function resultsProfile(relativeBoard: boolean): Record<string, unknown> {
+  return {
+    id: "pilot-test",
+    name: "Ada",
+    avatar: "avatar-1",
+    shipId: "ship-1",
+    shipName: "Lantern",
+    createdAt: 1,
+    calibration: { ikiMs: 350, fkLatencyMs: 500 },
+    settings: {
+      musicVolume: 0.7,
+      sfxVolume: 0.8,
+      keyboardLayout: "qwerty",
+      uiLang: "en",
+      contentLang: "en",
+      inputMethod: "latin",
+      uppercase: false,
+      increasedLetterSpacing: false,
+      reducedMotion: false,
+      colorblindPalette: false,
+      relativeBoard,
+    },
+    progress: STOPS.map((stopId) => ({
+      stopId,
+      cleared: stopId === "earth" || stopId === "mars",
+      stars: 3,
+      bestWpm: stopId === "mars" ? 22 : 0,
+      bestAccuracy: 95,
+      lastWpm: 20,
+      lastAccuracy: 94,
+      beaconPlacedAt: stopId === "earth" || stopId === "mars" ? 1 : null,
+    })),
+    trophies: [],
+    unlockedShips: ["ship-1"],
+    unlockedSkins: [],
+    words: {},
+  };
+}
+
+
 interface HitBox {
   id: string;
   x: number;
@@ -199,9 +249,11 @@ test.describe("AC-18.1: the pointer reaches everything the keyboard does", () =>
     page,
   }) => {
     await bootScene(page, "Results", "results");
+    // Opted in, so the D43 prompt is not on screen: this test is about the two
+    // buttons, and a prompt would add two more hit areas to reason about.
     await restartScene(page, "Results", {
       stopId: "mars",
-      progress: [charted("earth", 3, 0, 0), charted("mars", 3, 22, 95)],
+      profile: resultsProfile(true),
       tally: { characters: 210, elapsedMs: 60_000, hits: 12, typos: 3, hullHits: 0 },
       exposures: [],
     });

@@ -489,15 +489,21 @@ test("AC-18.1 Results is operable with the keyboard alone and shows focus", asyn
 
   const s = await snap<ResultsSnapshot>(page, "results");
   expect(s.focusIds).toEqual(["replay", "continue"]);
-  expect(s.focusIndex).toBe(0);
+  // CONTINUE holds focus on entry, not replay. This assertion used to read
+  // `focusIndex === 0`, which pinned the caret to whichever button was drawn
+  // first - and replay is drawn first, because "back" reads on the left. So a
+  // child pressing Enter on reflex silently re-flew the stage they had just
+  // finished. The forward action is the default on every screen that offers
+  // both; layout order does not choose what Enter does.
+  expect(s.focusId).toBe("continue");
 
   await page.keyboard.press("Tab");
-  expect((await snap<ResultsSnapshot>(page, "results")).focusId).toBe("continue");
   // Wraps, so a child cannot get stuck at the end of the list.
-  await page.keyboard.press("Tab");
   expect((await snap<ResultsSnapshot>(page, "results")).focusId).toBe("replay");
-  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("Tab");
   expect((await snap<ResultsSnapshot>(page, "results")).focusId).toBe("continue");
+  await page.keyboard.press("ArrowUp");
+  expect((await snap<ResultsSnapshot>(page, "results")).focusId).toBe("replay");
 });
 
 test("D74 / AC-22b.1 Results is informational, never a grade", async ({ page }) => {

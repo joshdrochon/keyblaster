@@ -7,9 +7,9 @@
  * curves; those ARE the rubric and live there.
  *
  * WHAT IT GUARANTEES
- *  - Eight containers exist, one per LayerSpec, at the spec's depth. Scenes add
- *    their own content (the ship, debris, HUD) into `layerOf(id).container`
- *    rather than building a second stack.
+ *  - One container per LayerSpec, at the spec's depth. Scenes add their own
+ *    content (the ship, debris, HUD) into `layerOf(id).container` rather than
+ *    building a second stack.
  *  - `update(dt)` applies THREE things per layer, and nothing else:
  *      scroll   spec.speed x worldSpeed   (only for layers that scroll)
  *      drift    idleDriftPx(spec, ...)    (kept under reduced motion)
@@ -21,11 +21,30 @@
  * WHAT IT DOES NOT DO
  *  Game logic of any kind. It has no notion of a word, a rock or a score.
  *
- * THREE LAYERS DO NOT SCROLL, on purpose: `sky` and `hud` are pinned at speed 0
- * by the art direction, and `shipFx` is speed 1.0 but the SHIP IS FIXED (art
- * dir. L6) - its 1.0 describes the plane it shares with debris, not a
- * translation. It still moves every frame via drift and sway, so it still
- * counts toward "nothing is ever still".
+ * `sky` and `hud` are pinned at speed 0 by the art direction, and `shipFx` is
+ * speed 1.0 but THE SHIP IS FIXED (art dir. L6) - its 1.0 describes the plane it
+ * shares with debris, not a translation. They still move every frame via drift
+ * and sway, so they still count toward "nothing is ever still".
+ *
+ * ---------------------------------------------------------------------------
+ * THE WRAP SEAM, AND WHY IT IS NOW SOMEONE ELSE'S PROBLEM
+ *
+ * This file used to generate each plane's two wrap copies like this:
+ *
+ *     for (const dy of [0, -h])
+ *       for (let i = 0; i < count; i++) {
+ *         const halfW = (110 + rand() * 190) * scale;   // <- fresh rand per copy
+ *
+ * The wrap arithmetic was correct and the loop still jolted, because the tile at
+ * `dy = 0` and the tile at `dy = -h` were two different landscapes: at the seam a
+ * whole new arrangement snapped in. Every generator in the file had the same
+ * shape and therefore the same bug.
+ *
+ * All content geometry now lives in `tiles.ts`, which builds ONE tile and then
+ * produces the second copy by translation. That module imports no Phaser, so
+ * `tests/unit/render/tiles.test.ts` asserts the seam property on the geometry
+ * itself rather than on a screenshot. This file's only remaining job on that
+ * front is `drawOps`, which replays a list.
  *
  * ---------------------------------------------------------------------------
  * WHY THIS FILE WAS REWRITTEN (WORLD-BAR.md)
@@ -38,16 +57,26 @@
  * each named where it is built:
  *
  *   1 atmospheric lift    `depthRamp` / `atmospheric` in palette.ts
- *   2 value range         `foregroundInk` anchors the near end at near-black
- *   3 hue shift           `coolShift`, applied with the lift
- *   4 one light, in frame `celestialBody` at `lightPositionOf`, rims everywhere
- *   5 characterful shapes `massif` - angular, chamfered, terraced, dotted
- *   6 dark framing        `canyonWall` on the near plane + a pinned vignette
- *   7 sparse accents      `accents` - three, tiny, high contrast
+ *   2 value range         `foregroundInk` + `foregroundObjectInk` in palette.ts
+ *   3 hue shift           `coolShift` far, `warmShift` near
+ *   4 one light, in frame `celestialBody` / `sunDisc` at `lightPositionOf`
+ *   5 characterful shapes `massifTile` - angular, chamfered, terraced, spired
+ *   6 dark framing        `canyonTile` on the near plane + a pinned vignette
+ *   7 sparse accents      `accentTile` - three, tiny, high contrast
  *   8 atmosphere pass     `atmosphereFor` - one cheap full-screen pass per stop
  *
- * All eight are still layers, gradients and generated vector textures, so the
- * AC-22.9 budget is untouched: no post-processing, no filters, no shaders.
+ * And two the reference does not have to think about, because it is a
+ * side-scroller with a horizon and we are a vertical scroller with the ship at
+ * the bottom:
+ *
+ *   9 objects at depth    `driftTile` - decorative debris on four planes, so
+ *                         something finally moves PAST the camera rather than
+ *                         the whole world moving with it
+ *  10 a plane in front    `foreVeil` (layers.ts L6.5) - the stop's own veil and
+ *                         its nearest silhouettes, crossing in front of the ship
+ *
+ * All ten are layers, gradients and generated vector textures, so the AC-22.9
+ * budget is untouched: no post-processing, no filters, no shaders.
  */
 
 import Phaser from "phaser";
@@ -65,7 +94,10 @@ import {
   atmospheric,
   depthRamp,
   foregroundInk,
+  foregroundObjectInk,
   hexToNum,
+  isBrightStop,
+  liftAt,
   lightAngleOf,
   lightPositionOf,
   mixHex,
@@ -73,7 +105,25 @@ import {
   skyStops,
   skyStopsLate,
 } from "./palette.js";
-import { type Pt, TEX, ensureTextures, fillShape, smoothPolygon } from "./textures.js";
+import {
+  type DriftMaterial,
+  type TileOp,
+  FALLBACK_RADII,
+  accentTile,
+  canyonTile,
+  driftTile,
+  dustTile,
+  massifTile,
+  moteTile,
+  planeMaterialColor,
+  starTile,
+  veilFor,
+  veilTile,
+  wrapXY,
+  wrapY,
+} from "./tiles.js";
+import { debrisTypesFor } from "./asteroid.js";
+import { TEX, ensureTextures } from "./textures.js";
 
 export { atmosphereFor, type AtmosphereKind } from "./palette.js";
 
@@ -100,6 +150,7 @@ const SCROLLS: ReadonlySet<LayerId> = new Set<LayerId>([
   "midField",
   "debris",
   "nearField",
+  "foreVeil",
 ]);
 
 /**
@@ -118,8 +169,54 @@ const DEPTH_PLANES = 4;
 
 /** Depth of the pinned floor vignette: in front of the near field, behind the ship. */
 const VIGNETTE_DEPTH = 5.6;
-/** Depth of the atmosphere pass: in front of the ship, behind the HUD. */
-const ATMOSPHERE_DEPTH = 6.5;
+/** Depth of the atmosphere pass: in front of the foreground veil, behind the HUD. */
+const ATMOSPHERE_DEPTH = 6.8;
+
+/**
+ * SIDEWAYS drift of the decorative debris planes, as a multiple of world speed
+ * plus a px/s floor that keeps them alive on a still screen (rubric 2).
+ *
+ * THIS IS THE WHOLE "not typeable" SIGNAL, and it is not a label. A gameplay
+ * rock falls straight down the ship's lane, because fall time is a learning rule
+ * (FR-8 / D19) and only a rock on that one plane can carry a word. A decorative
+ * rock is on a different track: it crosses the frame and leaves by the side. You
+ * learn it the way you learn anything in a game - you watch one drift past and
+ * miss you - rather than by being told that a different shade of brown means
+ * "do not type this".
+ *
+ * Adjacent planes drift in OPPOSITE directions on purpose. Parallel motion at
+ * different speeds reads as one field being scrolled; opposed motion reads as
+ * separate things on separate orbits, which is what they are.
+ */
+const DRIFT_X: Readonly<Record<string, { rate: number; base: number }>> = {
+  farField: { rate: 0.1, base: 5 },
+  midField: { rate: -0.2, base: -8 },
+  nearField: { rate: 0.34, base: 11 },
+  foreVeil: { rate: -0.52, base: -15 },
+};
+
+/**
+ * Master alpha on the foreground veil.
+ *
+ * `veilTile` emits bands at 7-16% and this scales them, so what actually
+ * crosses the ship is 5-12% with a typical band at about 8%. That is the number
+ * the brief asked me to pick and state: enough to read as something passing in
+ * front, not enough to be looked at. Under reduced motion it drops further
+ * (D41 keeps the world alive but this is the layer most likely to bother a
+ * motion-sensitive player).
+ */
+const VEIL_ALPHA = 0.72;
+const VEIL_ALPHA_REDUCED = 0.5;
+
+/**
+ * Fraction of the stage width, from each edge, that near-plane objects and the
+ * veil are allowed to occupy.
+ *
+ * AC-22.8 is the hard one: legibility is the game. Word plates fall down the
+ * centre, so nothing on a plane IN FRONT of them may sit there. 0.26 leaves the
+ * middle 48% of the frame permanently clear.
+ */
+const LANE_GUARD = 0.26;
 
 export interface ParallaxOptions {
   readonly palette: StopPalette;
@@ -172,6 +269,10 @@ export interface Parallax {
     fills: readonly string[];
     lightAngleRad: number;
     atmosphere: string | null;
+    /** The near-black the foreground OBJECTS are drawn in. */
+    objectInk: string;
+    /** The stop's front-of-camera veil, and the fact it is drawn from. */
+    veil: { kind: string; what: string; source: string } | null;
   };
   destroy(): void;
 }
@@ -184,6 +285,7 @@ const DEFAULT_DECORATE: readonly LayerId[] = [
   "midField",
   "debris",
   "nearField",
+  "foreVeil",
 ];
 
 const mod = (v: number, m: number): number => ((v % m) + m) % m;
@@ -200,6 +302,124 @@ function rng(seed: number): () => number {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Replay
+// ---------------------------------------------------------------------------
+
+const SPRITE_TEX = { mote: TEX.mote, glint: TEX.glint, glow: TEX.glow } as const;
+
+/**
+ * Replay an op list into the scene.
+ *
+ * ONE Graphics carries every shape in the list, so a whole plane is one draw
+ * call however many masses are on it. Sprite ops become Images because they
+ * sample a generated texture; there are never many of them.
+ */
+function drawOps(scene: Phaser.Scene, ops: readonly TileOp[]): Phaser.GameObjects.GameObject[] {
+  const out: Phaser.GameObjects.GameObject[] = [];
+  const g = scene.add.graphics();
+  let used = false;
+  for (const op of ops) {
+    if (op.kind === "sprite") {
+      const img = scene.add
+        .image(op.x, op.y, SPRITE_TEX[op.tex])
+        .setDisplaySize(op.size, op.size)
+        .setTint(hexToNum(op.color))
+        .setAlpha(op.alpha);
+      if (op.additive) img.setBlendMode(Phaser.BlendModes.ADD);
+      out.push(img);
+      continue;
+    }
+    used = true;
+    g.fillStyle(hexToNum(op.color), op.alpha);
+    switch (op.kind) {
+      case "poly":
+        g.fillPoints(
+          op.points.map((p) => new Phaser.Geom.Point(p.x, p.y)),
+          true,
+          true,
+        );
+        break;
+      case "circle":
+        g.fillCircle(op.x, op.y, op.r);
+        break;
+      default:
+        g.fillEllipse(op.x, op.y, op.w, op.h);
+        break;
+    }
+  }
+  if (used) out.unshift(g);
+  else g.destroy();
+  return out;
+}
+
+/** A plane's decorative sub-container: scrolls with its layer, drifts sideways. */
+interface DriftPlane {
+  readonly container: Phaser.GameObjects.Container;
+  readonly rate: number;
+  readonly base: number;
+  offset: number;
+}
+
+// ---------------------------------------------------------------------------
+// Materials
+// ---------------------------------------------------------------------------
+
+/**
+ * The stop's REAL debris, valued for one plane.
+ *
+ * Shapes and the two-tone fill come from `asteroid.ts`'s FR-12b table, which is
+ * transcribed from the PRD with a NASA source per row - so a decorative rock on
+ * Jupiter's far plane is a Trojan seen from further away, not a generic blob.
+ * Only the colour changes: lifted into the haze for its distance, then bonded
+ * toward that plane's own fill so it belongs to the plane rather than floating
+ * between two of them.
+ */
+function materialsFor(
+  pal: StopPalette,
+  planeFill: string,
+  lift: number,
+  bond: number,
+  withRim: boolean,
+): DriftMaterial[] {
+  const sky = skyStops(pal)[1];
+  const types = debrisTypesFor(pal.id);
+  const out: DriftMaterial[] = [];
+  if (types.length === 0) {
+    // Earth, by construction: D57 gives the launchpad no belt, so FR-12b has no
+    // row to borrow. Scenery in the plane's own colour is not a content claim.
+    const fill = planeMaterialColor(planeFill, sky, planeFill, lift, 1);
+    out.push({
+      radii: FALLBACK_RADII,
+      facets: [
+        { x: 0.22, y: 0.16, r: 0.24 },
+        { x: -0.3, y: 0.34, r: 0.15 },
+      ],
+      fill,
+      facet: mixHex(fill, "#000000", 0.3),
+      rim: withRim ? rimOf(fill) : null,
+    });
+    return out;
+  }
+  for (const type of types.slice(0, 3)) {
+    for (const variant of type.variants.slice(0, 3)) {
+      const fill = planeMaterialColor(type.fill, sky, planeFill, lift, bond);
+      out.push({
+        radii: variant.radii,
+        facets: variant.facets.map((f) => ({ x: f.x, y: f.y, r: f.r })),
+        fill,
+        facet: planeMaterialColor(type.facet, sky, planeFill, lift, bond),
+        rim: withRim ? rimOf(fill) : null,
+      });
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Builder
+// ---------------------------------------------------------------------------
+
 export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Parallax {
   ensureTextures(scene);
 
@@ -215,15 +435,15 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   let worldSpeed = options.worldSpeed ?? 0;
   let elapsedMs = 0;
 
-  // WORLD-BAR items 1-3, in one line: four fills spanning near-sky to
-  // near-black, desaturating and cooling with distance. Everything drawn below
-  // takes its colour from this array and from nothing else, which is what makes
-  // the depth read consistent instead of per-shape.
+  // WORLD-BAR items 1-3, in one line: four fills spanning near-sky to the near
+  // plane, desaturating and cooling with distance and warming toward the camera.
   const ramp = depthRamp(pal, DEPTH_PLANES);
   const farFill = ramp[0] ?? pal.debris;
   const midFill = ramp[1] ?? pal.debris;
   const debrisFill = ramp[2] ?? pal.debris;
   const nearFill = ramp[3] ?? foregroundInk(pal);
+  const objectInk = foregroundObjectInk(pal);
+  const sky = skyStops(pal)[1];
   const light = lightAngleOf(pal);
 
   const layers: ParallaxLayer[] = LAYERS.map((spec) => {
@@ -237,8 +457,19 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
     return l;
   };
 
-  /** Objects outside the eight layers: pinned framing and the weather pass. */
+  /** Objects outside the layer stack: pinned framing and the weather pass. */
   const extras: Phaser.GameObjects.GameObject[] = [];
+  const driftPlanes: DriftPlane[] = [];
+
+  /** Add a wrapped, sideways-drifting sub-plane to a layer. */
+  const addDrift = (id: LayerId, ops: readonly TileOp[]): void => {
+    const cfg = DRIFT_X[id];
+    if (cfg === undefined || ops.length === 0) return;
+    const sub = scene.add.container(0, 0);
+    sub.add(drawOps(scene, wrapXY(ops, W, H)));
+    layerOf(id).container.add(sub);
+    driftPlanes.push({ container: sub, rate: cfg.rate, base: cfg.base, offset: 0 });
+  };
 
   // --- L0 sky -------------------------------------------------------------
   // Two full-stage gradients (stage start / stage end) crossfaded by
@@ -246,10 +477,10 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   // 1px-tall strips - one draw, no texture memory, and it is genuinely vector.
   let skyLate: Phaser.GameObjects.Graphics | null = null;
   if (decorate.has("sky")) {
-    const sky = layerOf("sky").container;
-    sky.add(gradient(scene, W, H, skyStops(pal)));
+    const skyLayer = layerOf("sky").container;
+    skyLayer.add(gradient(scene, W, H, skyStops(pal)));
     skyLate = gradient(scene, W, H, skyStopsLate(pal)).setAlpha(0);
-    sky.add(skyLate);
+    skyLayer.add(skyLate);
     // NOTE: the bloom around the light is drawn ONCE, by `sunDisc` on the
     // celestial layer. A second full-screen additive pass here is what clipped
     // Mars' top band to pure white - two ADD blends of a near-white tint over a
@@ -259,15 +490,11 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   // --- L1 celestial -------------------------------------------------------
   if (decorate.has("celestial")) {
     const c = layerOf("celestial").container;
-    // Starfield first, so the planet occludes it.
-    const stars = scene.add.graphics();
+    // Starfield first, so the planet occludes it. Wrapped like everything else:
+    // it used to be drawn once across -H..H, which is not periodic, so the stars
+    // were themselves a source of the seam jolt.
     const starTint = mixHex(skyStops(pal)[0], "#FFFFFF", 0.75);
-    for (let i = 0; i < 90; i++) {
-      const y = rand() * H * 2 - H;
-      stars.fillStyle(hexToNum(starTint), 0.25 + rand() * 0.55);
-      stars.fillCircle(rand() * W, y, 0.8 + rand() * 1.6);
-    }
-    c.add(stars);
+    c.add(drawOps(scene, wrapY(starTile(W, H, starTint, 90, rand), H)));
     for (const dy of [0, -H]) c.add(celestialBody(scene, pal, W, H, dy));
     // WORLD-BAR item 4: the source itself, in frame. The planet alone is not
     // it - a large dark disc reads as an object the light falls on, which is
@@ -277,66 +504,198 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   }
 
   // --- L2/L3 silhouette planes -------------------------------------------
-  // WORLD-BAR item 5: angular, terraced, chamfered massifs, not rounded blobs
-  // at three sizes. The far plane is nearly the sky; the mid plane is the first
-  // value the eye can actually separate from it.
-  // SKY IS MOST OF THE FRAME. The reference is roughly half sky, and the first
-  // pass of this rewrite was not: three big massifs per plane per wrap covered
-  // most of the canvas, so four carefully separated values had nowhere to be
-  // seen against each other. Two per plane, and the far plane smaller than the
-  // near one, which is also just perspective.
+  // WORLD-BAR item 5: angular, terraced, chamfered, spired massifs sitting on a
+  // CONTINUOUS ridgeline, not rounded blobs at three sizes floating in sky.
+  // SKY IS MOST OF THE FRAME, and it has to stay that way: the reference is
+  // roughly half sky, and four carefully separated values need somewhere to be
+  // seen against each other. Two masses per plane, far smaller than near.
   if (decorate.has("farField")) {
-    layerOf("farField").container.add(
-      massifField(scene, W, H, {
-        fill: farFill,
-        alpha: 0.95,
+    const f = layerOf("farField").container;
+    f.add(
+      drawOps(
+        scene,
+        wrapY(
+          massifTile(W, H, {
+            fill: farFill,
+            rimColor: rimOf(farFill),
+            alpha: 0.95,
+            light,
+            rand,
+            count: 2,
+            scale: 0.72,
+            // A far shape has no rim: a lit edge out there reads as a near
+            // object and destroys the depth it is meant to build.
+            rim: false,
+            dots: false,
+            ridgeAt: 0.62,
+            avoid: { x: W * lightPositionOf(pal).x, r: 190 },
+          }),
+          H,
+        ),
+      ),
+    );
+    addDrift(
+      "farField",
+      driftTile(W, H, {
+        materials: materialsFor(pal, farFill, liftAt(0, DEPTH_PLANES), 0.55, false),
+        count: 7,
+        minPx: 10,
+        maxPx: 26,
+        alpha: 0.9,
         light,
+        laneGuard: 0,
         rand,
-        count: 2,
-        scale: 0.72,
-        // A far shape has no rim: a lit edge out there reads as a near object
-        // and destroys the depth it is meant to build (art dir. "Light").
-        rim: false,
-        dots: false,
       }),
     );
   }
   if (decorate.has("midField")) {
     const m = layerOf("midField").container;
     m.add(
-      massifField(scene, W, H, {
-        fill: midFill,
-        alpha: 1,
+      drawOps(
+        scene,
+        wrapY(
+          massifTile(W, H, {
+            fill: midFill,
+            rimColor: rimOf(midFill),
+            alpha: 1,
+            light,
+            rand,
+            count: 2,
+            scale: 0.95,
+            rim: true,
+            dots: true,
+            ridgeAt: 0.34,
+            avoid: { x: W * lightPositionOf(pal).x, r: 150 },
+          }),
+          H,
+        ),
+      ),
+    );
+    m.add(
+      drawOps(scene, wrapY(dustTile(W, H, mixHex(midFill, "#FFFFFF", 0.22), rand), H)),
+    );
+    addDrift(
+      "midField",
+      driftTile(W, H, {
+        materials: materialsFor(pal, midFill, liftAt(1, DEPTH_PLANES), 0.45, true),
+        count: 5,
+        minPx: 26,
+        maxPx: 54,
+        alpha: 0.95,
         light,
+        laneGuard: 0,
         rand,
-        count: 2,
-        scale: 0.95,
-        rim: true,
-        dots: true,
       }),
     );
-    m.add(dustBank(scene, W, H, mixHex(midFill, "#FFFFFF", 0.22), rand));
   }
 
   // --- L4 debris ----------------------------------------------------------
-  // Distant, unlabelled rocks. The Flight lane owns real debris; this is the
-  // silhouette plane that makes the world read as populated.
+  // Distant, unlabelled rocks in the gameplay plane's own value. The Flight lane
+  // owns the real, typeable debris; this is the silhouette that makes the world
+  // read as populated when no word is on screen.
   if (decorate.has("debris")) {
-    layerOf("debris").container.add(rockField(scene, W, H, debrisFill, light, rand));
+    layerOf("debris").container.add(
+      drawOps(
+        scene,
+        wrapY(
+          driftTile(W, H, {
+            materials: materialsFor(pal, debrisFill, liftAt(2, DEPTH_PLANES), 0.6, true),
+            count: 5,
+            minPx: 46,
+            maxPx: 78,
+            alpha: 1,
+            light,
+            laneGuard: 0.3,
+            rand,
+          }),
+          H,
+        ),
+      ),
+    );
   }
 
   // --- L5 near field ------------------------------------------------------
   if (decorate.has("nearField")) {
     const n = layerOf("nearField").container;
-    // WORLD-BAR item 6: a genuinely dark foreground that frames the scene. The
-    // world here scrolls VERTICALLY, so the reference's bottom-of-frame
-    // foreground becomes canyon walls running down both edges - same job (they
-    // frame and they are near-black), same plane, and they wrap with the scroll
-    // instead of sliding off it.
-    if (wantsFraming) n.add(canyonWalls(scene, W, H, nearFill, light, rand));
-    n.add(nearField(scene, W, H, nearFill, pal.accent, rand));
+    // WORLD-BAR item 6: the frame's near terrain. The world here scrolls
+    // VERTICALLY, so the reference's bottom-of-frame foreground becomes canyon
+    // walls running down both edges - same job, same plane, and they wrap with
+    // the scroll instead of sliding off it.
+    if (wantsFraming) {
+      n.add(
+        drawOps(
+          scene,
+          wrapY(canyonTile(W, H, { fill: nearFill, rimColor: rimOf(nearFill), light, rand }), H),
+        ),
+      );
+    }
+    n.add(drawOps(scene, wrapY(moteTile(W, H, nearFill, pal.accent, rand), H)));
     // WORLD-BAR item 7. Three of them. Tiny, high contrast, enormous effect.
-    n.add(accents(scene, W, H, pal, rand));
+    n.add(
+      drawOps(scene, wrapY(accentTile(W, H, mixHex(pal.accent, "#FFFFFF", 0.2), rand), H)),
+    );
+    addDrift(
+      "nearField",
+      driftTile(W, H, {
+        materials: materialsFor(pal, objectInk, 0, 0.8, true),
+        count: 4,
+        minPx: 70,
+        maxPx: 132,
+        alpha: 1,
+        light,
+        laneGuard: LANE_GUARD,
+        rand,
+      }),
+    );
+  }
+
+  // --- L6.5 foreground veil ----------------------------------------------
+  // The only world layer in front of the ship. See layers.ts for why the stack
+  // needed one, and tiles.ts VEIL_BY_STOP for what each stop's veil actually is
+  // and the NASA page it is drawn from.
+  const veilSpec = veilFor(pal.id);
+  let veilContainer: Phaser.GameObjects.Container | null = null;
+  if (decorate.has("foreVeil")) {
+    const fv = layerOf("foreVeil").container;
+    // The nearest silhouettes: big, near-black, fast, and out of the centre
+    // lane. This is where the frame's darkest value comes from - judge note 1 -
+    // rather than from painting the whole near plane black.
+    addDrift(
+      "foreVeil",
+      driftTile(W, H, {
+        materials: materialsFor(pal, objectInk, 0, 0.92, false),
+        count: 2,
+        minPx: 130,
+        maxPx: 230,
+        alpha: 0.94,
+        light,
+        laneGuard: LANE_GUARD * 0.8,
+        rand,
+      }),
+    );
+    if (veilSpec !== null) {
+      const tint = veilSpec.warm
+        ? mixHex(pal.colors[0] ?? "#FFFFFF", "#FFFFFF", 0.45)
+        : mixHex(skyStops(pal)[0], "#FFFFFF", 0.7);
+      veilContainer = scene.add.container(0, 0);
+      veilContainer.add(
+        drawOps(
+          scene,
+          wrapXY(veilTile(W, H, { spec: veilSpec, tint, laneGuard: LANE_GUARD, rand }), W, H),
+        ),
+      );
+      veilContainer.setAlpha(reducedMotion ? VEIL_ALPHA_REDUCED : VEIL_ALPHA);
+      fv.add(veilContainer);
+      const cfg = DRIFT_X["foreVeil"] as { rate: number; base: number };
+      driftPlanes.push({
+        container: veilContainer,
+        // A touch slower than the silhouettes on the same plane, so the veil
+        // reads as air moving through them rather than as part of them.
+        rate: cfg.rate * 0.72,
+        base: cfg.base * 0.72,
+        offset: 0,
+      });
+    }
   }
 
   // --- Pinned framing and weather ----------------------------------------
@@ -371,6 +730,14 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
         l.offsetX = idleDriftPx(spec, elapsedMs, reducedMotion) + sway * (0.25 + spec.speed);
         l.container.setPosition(l.offsetX, l.offsetY);
       }
+      // The decorative planes cross the frame as well as falling through it.
+      // Under reduced motion they keep moving (D41 removes shake and sway, not
+      // the world being alive) at a calmer rate.
+      const crossScale = reducedMotion ? 0.55 : 1;
+      for (const p of driftPlanes) {
+        p.offset = mod(p.offset + (p.base + p.rate * worldSpeed) * crossScale * (dt / 1000), W);
+        p.container.x = p.offset;
+      }
       if (weather !== null) {
         // The weather crosses every plane, so it moves on its own clock rather
         // than on any one layer's: a touch faster than the near field, with a
@@ -390,6 +757,7 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
 
     setReducedMotion(on: boolean): void {
       reducedMotion = on;
+      veilContainer?.setAlpha(on ? VEIL_ALPHA_REDUCED : VEIL_ALPHA);
     },
 
     debugOffsets(): Record<string, { x: number; y: number }> {
@@ -402,18 +770,25 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
       return { swayPx: cameraSwayPx(elapsedMs, reducedMotion), elapsedMs, reducedMotion };
     },
 
-    debugDepth(): {
-      fills: readonly string[];
-      lightAngleRad: number;
-      atmosphere: string | null;
-    } {
-      return { fills: [...ramp], lightAngleRad: light, atmosphere: kind };
+    debugDepth() {
+      return {
+        fills: [...ramp],
+        lightAngleRad: light,
+        atmosphere: kind,
+        objectInk,
+        veil:
+          veilSpec === null
+            ? null
+            : { kind: veilSpec.kind, what: veilSpec.what, source: veilSpec.source },
+      };
     },
 
     destroy(): void {
       for (const l of layers) l.container.destroy(true);
       for (const e of extras) e.destroy();
       extras.length = 0;
+      driftPlanes.length = 0;
+      veilContainer = null;
       weather = null;
     },
   };
@@ -423,8 +798,8 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
 }
 
 // ---------------------------------------------------------------------------
-// Content generators. Each returns ONE Graphics drawn twice - once at y and
-// once at y - H - so the layer wraps seamlessly at one draw call.
+// Content that is NOT tiled: the sky, the one light, and the pinned framing.
+// Everything that wraps lives in tiles.ts.
 // ---------------------------------------------------------------------------
 
 function gradient(
@@ -449,9 +824,9 @@ function gradient(
 /**
  * The stop's sun or planet, PLACED (WORLD-BAR item 4).
  *
- * It sits at `lightPositionOf`, which is the same number every rim highlight in
- * the frame is computed from, so the light in this game has one source and the
- * player can see where it is.
+ * It sits opposite `lightPositionOf`, which is the same number every rim
+ * highlight in the frame is computed from, so the light in this game has one
+ * source and the player can see where it is.
  */
 function celestialBody(
   scene: Phaser.Scene,
@@ -460,8 +835,6 @@ function celestialBody(
   h: number,
   dy: number,
 ): Phaser.GameObjects.Container {
-  // Opposite the light, so the planet is lit from the same direction as every
-  // silhouette in the frame and the terminator below actually means something.
   const at = lightPositionOf(pal);
   const cx = w * (1 - at.x);
   const cy = dy + h * 0.2;
@@ -480,7 +853,9 @@ function celestialBody(
     .image(cx, cy, TEX.glow)
     .setDisplaySize(r * 3.4, r * 3.4)
     .setTint(hexToNum(lit))
-    .setAlpha(0.3)
+    // Lowered from 0.30. This is the second-brightest thing in frame and it was
+    // washing the far plane it is meant to sit behind.
+    .setAlpha(0.22)
     .setBlendMode(Phaser.BlendModes.ADD);
   c.add(glow);
 
@@ -503,8 +878,22 @@ function celestialBody(
 }
 
 /**
- * The light, as an object. Small, bright, and at `lightPositionOf` - the same
- * number the rim highlight on every silhouette is computed from.
+ * The light, as an object: a clean DISC with a soft halo around it.
+ *
+ * Judge note 2: "the sun is a blown-out white blob, not a disc. The reference
+ * sun is a clean disc with a soft halo; ours is clipped white and washes its
+ * surroundings. Draw the disc, then the halo. Do not let the bloom eat the
+ * shape."
+ *
+ * The bloom was eating the shape LITERALLY. The halo was one ADD-blended glow
+ * sprite 6.5 radii across, centred on the disc, so the pixels immediately around
+ * the disc edge were driven to 255 in every channel - and a disc whose
+ * surroundings are the same white as the disc has no edge. Raising the disc's
+ * own value could never fix that; there is nothing above white.
+ *
+ * So the halo is now a set of concentric strokes that START outside the disc.
+ * Nothing additive touches the edge, the falloff is still smooth, it is vector
+ * (D83), and it costs one Graphics.
  */
 function sunDisc(
   scene: Phaser.Scene,
@@ -512,383 +901,35 @@ function sunDisc(
   w: number,
   h: number,
   dy: number,
-): Phaser.GameObjects.Container {
+): Phaser.GameObjects.Graphics {
   const at = lightPositionOf(pal);
   const cx = w * at.x;
   const cy = dy + h * at.y;
-  const r = 86;
-  // Nearly white. At 0.72 toward white the disc was within a few values of
-  // Mars' own butterscotch sky and read as a smudge rather than as a sun - the
-  // brightest thing in the frame has to actually be the brightest thing.
-  const core = mixHex(skyStops(pal)[0], "#FFFFFF", 0.93);
+  // Smaller and softer on a night stop. Earth is a launchpad after dark and
+  // Neptune is most of the way to nowhere; the light in frame there is a moon,
+  // not a sun, and a 78 px near-white disc on a navy sky is a hole in the
+  // picture that also fights whatever type the screen puts near it.
+  const bright = isBrightStop(pal);
+  const r = bright ? 78 : 44;
+  const skyTop = skyStops(pal)[0];
+  const core = mixHex(skyTop, "#FFFFFF", bright ? 0.9 : 0.74);
+  const halo = mixHex(skyTop, "#FFFFFF", bright ? 0.62 : 0.5);
 
-  const c = scene.add.container(0, 0);
-  c.add(
-    scene.add
-      .image(cx, cy, TEX.glow)
-      .setDisplaySize(r * 6.5, r * 6.5)
-      .setTint(hexToNum(core))
-      .setAlpha(0.26)
-      .setBlendMode(Phaser.BlendModes.ADD),
-  );
   const g = scene.add.graphics();
-  g.fillStyle(hexToNum(core), 0.98);
+  // Enough rings that each one's alpha step is below a visible band. The first
+  // pass used 18 and the render showed concentric circles around the sun, which
+  // is a different way of not having a soft halo.
+  const rings = 40;
+  for (let i = rings - 1; i >= 0; i--) {
+    const t = i / (rings - 1);
+    g.lineStyle(r * 0.14, hexToNum(halo), 0.034 * (1 - t) ** 1.7);
+    g.strokeCircle(cx, cy, r * (1.03 + t * 1.9));
+  }
+  g.fillStyle(hexToNum(core), 1);
   g.fillCircle(cx, cy, r);
-  c.add(g);
-  return c;
-}
-
-// ---------------------------------------------------------------------------
-// Massifs (WORLD-BAR item 5)
-// ---------------------------------------------------------------------------
-
-/**
- * An angular rock mass: flat planes, chamfered corners, terraced shoulders.
- *
- * This is the shape language the reference actually uses and the one we did not
- * have. `smoothPolygon` rounds everything it touches, which is right for a
- * friendly asteroid you shoot (art dir. section 4) and wrong for the scenery
- * behind it: a world built entirely of rounded blobs has no edges for the light
- * to catch and nothing for the eye to read as structure.
- */
-function massifPoints(
-  cx: number,
-  cy: number,
-  halfW: number,
-  halfH: number,
-  rand: () => number,
-): Pt[] {
-  const chamfer = halfW * (0.18 + rand() * 0.16);
-  const top = cy - halfH;
-  const bottom = cy + halfH;
-  const left = cx - halfW;
-  const right = cx + halfW;
-  // A stepped shoulder on one side, picked per shape, so no two silhouettes in
-  // a field are the same slab.
-  const stepSide = rand() < 0.5 ? -1 : 1;
-  const stepX = cx + stepSide * halfW * (0.42 + rand() * 0.3);
-  const stepY = top + halfH * (0.5 + rand() * 0.5);
-
-  const pts: Pt[] = [
-    { x: left + chamfer, y: top },
-    { x: right - chamfer, y: top },
-    { x: right, y: top + chamfer },
-  ];
-  if (stepSide > 0) {
-    pts.push({ x: right, y: stepY - chamfer * 0.6 });
-    pts.push({ x: stepX, y: stepY });
-    pts.push({ x: stepX, y: bottom - chamfer });
-    pts.push({ x: stepX - chamfer, y: bottom });
-  } else {
-    pts.push({ x: right, y: bottom - chamfer });
-    pts.push({ x: right - chamfer, y: bottom });
-  }
-  if (stepSide < 0) {
-    pts.push({ x: stepX + chamfer, y: bottom });
-    pts.push({ x: stepX, y: bottom - chamfer });
-    pts.push({ x: stepX, y: stepY });
-    pts.push({ x: left, y: stepY - chamfer * 0.6 });
-  } else {
-    pts.push({ x: left + chamfer, y: bottom });
-    pts.push({ x: left, y: bottom - chamfer });
-  }
-  pts.push({ x: left, y: top + chamfer });
-  return pts;
-}
-
-/** The reference's temple face: a sparse diamond grid inside a near silhouette. */
-function dotGrid(
-  g: Phaser.GameObjects.Graphics,
-  cx: number,
-  cy: number,
-  halfW: number,
-  halfH: number,
-  tint: string,
-): void {
-  const step = 34;
-  g.fillStyle(hexToNum(tint), 0.5);
-  for (let y = cy - halfH + step; y < cy + halfH - step * 0.5; y += step) {
-    for (let x = cx - halfW + step; x < cx + halfW - step * 0.5; x += step) {
-      g.fillPoints(
-        [
-          new Phaser.Geom.Point(x, y - 4),
-          new Phaser.Geom.Point(x + 4, y),
-          new Phaser.Geom.Point(x, y + 4),
-          new Phaser.Geom.Point(x - 4, y),
-        ],
-        true,
-        true,
-      );
-    }
-  }
-}
-
-/** A fan of tapered spikes: the reference's agave, as a rock-growth silhouette. */
-function frond(
-  g: Phaser.GameObjects.Graphics,
-  cx: number,
-  cy: number,
-  size: number,
-  tint: string,
-  rand: () => number,
-): void {
-  g.fillStyle(hexToNum(tint), 1);
-  const blades = 7;
-  for (let i = 0; i < blades; i++) {
-    const a = -Math.PI + (Math.PI * (i + 0.5)) / blades;
-    const len = size * (0.65 + rand() * 0.45);
-    const wob = 0.12;
-    g.fillPoints(
-      [
-        new Phaser.Geom.Point(cx + Math.cos(a - wob) * size * 0.16, cy + Math.sin(a - wob) * size * 0.16),
-        new Phaser.Geom.Point(cx + Math.cos(a) * len, cy + Math.sin(a) * len),
-        new Phaser.Geom.Point(cx + Math.cos(a + wob) * size * 0.16, cy + Math.sin(a + wob) * size * 0.16),
-      ],
-      true,
-      true,
-    );
-  }
-}
-
-interface MassifOptions {
-  readonly fill: string;
-  readonly alpha: number;
-  readonly light: number;
-  readonly rand: () => number;
-  readonly count: number;
-  readonly scale: number;
-  readonly rim: boolean;
-  readonly dots: boolean;
-}
-
-/** One depth plane's worth of massifs, drawn twice so the plane wraps. */
-function massifField(
-  scene: Phaser.Scene,
-  w: number,
-  h: number,
-  o: MassifOptions,
-): Phaser.GameObjects.Graphics {
-  const g = scene.add.graphics();
-  const rim = rimOf(o.fill);
-  // Art-direction section 2: the rim is a second offset shape on the LIT side,
-  // never a drawn shadow on the dark side.
-  const rimDx = -Math.cos(o.light) * 4;
-  const rimDy = -Math.sin(o.light) * 4;
-
-  for (const dy of [0, -h]) {
-    for (let i = 0; i < o.count; i++) {
-      const halfW = (110 + o.rand() * 190) * o.scale;
-      const halfH = (150 + o.rand() * 260) * o.scale;
-      const cx = halfW * 0.5 + o.rand() * (w - halfW);
-      const cy = dy + ((i + o.rand() * 0.75) / o.count) * h;
-      const shape = massifPoints(cx, cy, halfW, halfH, o.rand);
-
-      if (o.rim) {
-        g.fillStyle(hexToNum(rim), o.alpha);
-        fillShape(g, shape.map((p) => ({ x: p.x + rimDx, y: p.y + rimDy })));
-      }
-      g.fillStyle(hexToNum(o.fill), o.alpha);
-      fillShape(g, shape);
-
-      if (o.dots && o.rand() < 0.6) {
-        dotGrid(g, cx, cy, halfW * 0.62, halfH * 0.66, rim);
-      }
-      if (o.rand() < 0.5) {
-        frond(g, cx + halfW * 0.5, cy - halfH * 0.92, 44 * o.scale, o.fill, o.rand);
-      }
-    }
-  }
-  return g;
-}
-
-/**
- * WORLD-BAR item 6. Near-black masses running down both edges of the frame.
- *
- * The reference frames its scene with a dark foreground along the bottom. This
- * world scrolls top-to-bottom instead of left-to-right, so the same job is done
- * by the edges: they are the nearest thing in the frame, they are the darkest
- * value in it, and because they are built on the near-field plane they wrap with
- * the scroll rather than sliding out of it.
- *
- * They stay off the middle of the screen on purpose - the middle is where the
- * word plates fall, and a foreground that eats a word is a foreground that costs
- * a child a rock.
- */
-function canyonWalls(
-  scene: Phaser.Scene,
-  w: number,
-  h: number,
-  fill: string,
-  light: number,
-  rand: () => number,
-): Phaser.GameObjects.Graphics {
-  const g = scene.add.graphics();
-  const rim = rimOf(fill);
-  const rimDx = -Math.cos(light) * 3;
-  const rimDy = -Math.sin(light) * 3;
-  const maxReach = w * 0.085;
-
-  for (const dy of [0, -h]) {
-    for (const side of [-1, 1] as const) {
-      const segments = 4;
-      for (let i = 0; i < segments; i++) {
-        const halfH = h / segments / 2;
-        const cy = dy + (i + 0.5) * (h / segments);
-        const reach = maxReach * (0.5 + rand() * 0.5);
-        const cx = side < 0 ? -reach * 0.25 : w + reach * 0.25;
-        const shape = massifPoints(cx, cy, reach, halfH * 1.05, rand);
-        g.fillStyle(hexToNum(rim), 0.9);
-        fillShape(g, shape.map((p) => ({ x: p.x + rimDx, y: p.y + rimDy })));
-        g.fillStyle(hexToNum(fill), 1);
-        fillShape(g, shape);
-      }
-    }
-  }
-  return g;
-}
-
-/** Mid-field dust: bigger, softer, lower-contrast than the near field. */
-function dustBank(
-  scene: Phaser.Scene,
-  w: number,
-  h: number,
-  fill: string,
-  rand: () => number,
-): Phaser.GameObjects.Graphics {
-  const g = scene.add.graphics();
-  for (const dy of [0, -h]) {
-    for (let i = 0; i < 20; i++) {
-      g.fillStyle(hexToNum(fill), 0.035 + rand() * 0.055);
-      g.fillEllipse(rand() * w, dy + rand() * h, 240 + rand() * 420, 34 + rand() * 60);
-    }
-  }
-  return g;
-}
-
-/** Distant rocks: two-tone, rounded, never spiky (art dir. section 4). */
-function rockField(
-  scene: Phaser.Scene,
-  w: number,
-  h: number,
-  fill: string,
-  light: number,
-  rand: () => number,
-): Phaser.GameObjects.Graphics {
-  const crater = mixHex(fill, "#000000", 0.28);
-  const rim = rimOf(fill);
-  const rimDx = -Math.cos(light) * 2.5;
-  const rimDy = -Math.sin(light) * 2.5;
-  const count = 5;
-  const g = scene.add.graphics();
-  for (const dy of [0, -h]) {
-    for (let i = 0; i < count; i++) {
-      const cx = 120 + rand() * (w - 240);
-      const cy = dy + ((i + rand() * 0.7) / count) * h;
-      const r = 26 + rand() * 30;
-      const shape = smoothPolygon(deckPoints(cx, cy, r, r * (0.82 + rand() * 0.3), rand), 8);
-      g.fillStyle(hexToNum(rim), 0.6);
-      fillShape(g, shape.map((p) => ({ x: p.x + rimDx, y: p.y + rimDy })));
-      g.fillStyle(hexToNum(fill), 1);
-      fillShape(g, shape);
-      g.fillStyle(hexToNum(crater), 0.75);
-      g.fillCircle(cx + r * 0.24, cy + r * 0.18, r * 0.26);
-      g.fillCircle(cx - r * 0.3, cy + r * 0.36, r * 0.15);
-    }
-  }
-  return g;
-}
-
-function deckPoints(cx: number, cy: number, rx: number, ry: number, rand: () => number): Pt[] {
-  const pts: Pt[] = [];
-  const n = 9;
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    const k = 0.72 + rand() * 0.42;
-    pts.push({ x: cx + Math.cos(a) * rx * k, y: cy + Math.sin(a) * ry * k });
-  }
-  return pts;
-}
-
-/** Foreground motes and glints: sparse, blurred by SIZE, never by a filter. */
-function nearField(
-  scene: Phaser.Scene,
-  w: number,
-  h: number,
-  fill: string,
-  accent: string,
-  rand: () => number,
-): Phaser.GameObjects.GameObject[] {
-  const out: Phaser.GameObjects.GameObject[] = [];
-  // Blurred BY SIZE: the near plane's motes are the biggest and softest in the
-  // frame, which is the only "blur" the AC-22.9 budget allows.
-  for (const dy of [0, -h]) {
-    for (let i = 0; i < 22; i++) {
-      const s = 18 + rand() * 54;
-      out.push(
-        scene.add
-          .image(rand() * w, dy + rand() * h, TEX.mote)
-          .setDisplaySize(s, s)
-          .setTint(hexToNum(mixHex(fill, "#FFFFFF", 0.12)))
-          .setAlpha(0.1 + rand() * 0.16),
-      );
-    }
-    for (let i = 0; i < 7; i++) {
-      const s = 14 + rand() * 20;
-      out.push(
-        scene.add
-          .image(rand() * w, dy + rand() * h, TEX.glint)
-          .setDisplaySize(s, s)
-          .setTint(hexToNum(accent))
-          .setAlpha(0.3 + rand() * 0.35)
-          .setBlendMode(Phaser.BlendModes.ADD),
-      );
-    }
-  }
-  return out;
-}
-
-/**
- * WORLD-BAR item 7: sparse, high-contrast accents.
- *
- * "A bird, a flag, balloons, a few drifting diamonds. Tiny, few, and they carry
- * enormous life." Three per wrap, in the stop's accent, at sizes small enough
- * that they never compete with a word plate. Their whole job is to be the one
- * saturated thing in a desaturated frame.
- */
-function accents(
-  scene: Phaser.Scene,
-  w: number,
-  h: number,
-  pal: StopPalette,
-  rand: () => number,
-): Phaser.GameObjects.Graphics {
-  const g = scene.add.graphics();
-  const bright = mixHex(pal.accent, "#FFFFFF", 0.2);
-  for (const dy of [0, -h]) {
-    for (let i = 0; i < 3; i++) {
-      const cx = w * (0.1 + rand() * 0.8);
-      const cy = dy + ((i + rand()) / 3) * h;
-      // A small drifting diamond and two smaller followers: the same read as
-      // the reference's balloons, with this game's shape language.
-      g.fillStyle(hexToNum(bright), 0.85);
-      for (const [ox, oy, s] of [
-        [0, 0, 9],
-        [22, 34, 5],
-        [-18, 52, 4],
-      ] as const) {
-        g.fillPoints(
-          [
-            new Phaser.Geom.Point(cx + ox, cy + oy - s),
-            new Phaser.Geom.Point(cx + ox + s, cy + oy),
-            new Phaser.Geom.Point(cx + ox, cy + oy + s),
-            new Phaser.Geom.Point(cx + ox - s, cy + oy),
-          ],
-          true,
-          true,
-        );
-      }
-    }
-  }
+  // A crisp lip, so the boundary is a disc edge and not the end of a fade.
+  g.lineStyle(2.5, hexToNum(mixHex(core, "#FFFFFF", 0.7)), 0.9);
+  g.strokeCircle(cx, cy, r - 1.25);
   return g;
 }
 
@@ -906,7 +947,10 @@ function vignette(
   h: number,
 ): Phaser.GameObjects.Graphics {
   const g = scene.add.graphics();
-  const ink = foregroundInk(pal);
+  // The OBJECT ink, not the terrain ink: this is the frame's near-black, and on
+  // a night stop the terrain ink is deliberately a lifted slate (see
+  // `foregroundInk`). A vignette drawn in that would lighten the corners.
+  const ink = foregroundObjectInk(pal);
   // ABUTTING strips, never overlapping ones.
   //
   // The first pass drew each strip 2 px taller than its slot "so a sub-pixel
@@ -926,7 +970,7 @@ function vignette(
       g.fillRect(0, a, w, b - a);
     }
   };
-  ramp(h, h - h * 0.34, 0.44);
+  ramp(h, h - h * 0.34, 0.5);
   // A touch on the top edge too, so the HUD plate has something to sit on.
   ramp(0, h * 0.16, 0.16);
   return g;
@@ -935,7 +979,7 @@ function vignette(
 /**
  * WORLD-BAR item 8: one atmosphere pass per stop.
  *
- * A single tiled texture drifting across the whole frame, in front of the ship
+ * A single tiled texture drifting across the whole frame, in front of the world
  * and behind the HUD, at an alpha low enough to unify rather than to veil. The
  * texture is generated from vectors at runtime (D83) and is 256x256, so the
  * whole pass is one quad and one draw call - which is the only way a

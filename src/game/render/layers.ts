@@ -9,6 +9,23 @@
  * a flat silhouette at a distinct speed reads as distance, and it costs one
  * draw call (AC-22.9 - the effects budget is layers and gradients, never
  * post-processing).
+ *
+ * ---------------------------------------------------------------------------
+ * L6.5 `foreVeil` IS AN ADDITION TO THE DOC'S TABLE, and here is why.
+ *
+ * Art-direction section 2 lists eight layers and every one of them is BEHIND
+ * the ship: L5 nearField runs at 1.30, faster than anything else in the world,
+ * and still draws behind L6 shipFx. The consequence is that the Lantern reads
+ * as pasted on top of a moving picture rather than as being inside the scene -
+ * nothing in the game has ever passed in FRONT of it.
+ *
+ * `foreVeil` is that slot: the stop's own atmosphere (Mars dust, Neptune's
+ * methane clouds, Pluto's haze layers - see `tiles.ts`, VEIL_BY_STOP) and its
+ * nearest, darkest silhouettes, crossing in front of the ship at 1.80. It sits
+ * under the HUD at L7, which is absolute: nothing ever veils a readout.
+ *
+ * It raises AC-22.1's distinct-speed count from five to six, which is the
+ * direction of travel rather than a problem - the AC is a floor.
  */
 
 export type LayerId =
@@ -19,6 +36,7 @@ export type LayerId =
   | "debris"
   | "nearField"
   | "shipFx"
+  | "foreVeil"
   | "hud";
 
 export interface LayerSpec {
@@ -40,6 +58,7 @@ export const LAYERS: readonly LayerSpec[] = [
   { id: "debris",     speed: 1.00, depth: 4, idleDrift: false, note: "the rocks and their word plates; fall speed per D19" },
   { id: "nearField",  speed: 1.30, depth: 5, idleDrift: true,  note: "foreground motes and glints, blurred by size not filter" },
   { id: "shipFx",     speed: 1.00, depth: 6, idleDrift: true,  note: "the Lantern, beam, blast and strike; camera micro-sway" },
+  { id: "foreVeil",   speed: 1.80, depth: 6.5, idleDrift: true, note: "the only world layer IN FRONT of the ship: the stop's own veil and its nearest silhouettes" },
   { id: "hud",        speed: 0.00, depth: 7, idleDrift: false, note: "own contrast plate, never over debris" },
 ];
 

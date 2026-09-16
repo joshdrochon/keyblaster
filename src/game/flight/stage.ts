@@ -279,11 +279,20 @@ export interface FlightConfig {
    *   of it rather than on the edge.
    *
    * AND WHY THE BOARD DOES NOT BECOME A WALL. The count is the only thing that
-   * moved. `trySpawn` still gates on `controller.knobs.maxLive` (2-7, FR-10)
-   * and still leaves 850 ms between spawns, so the number of rocks in the air
-   * at once is exactly what it was; there are simply more of them over the
-   * stage. Multiplying the count without checking that gate is how a longer
-   * level turns into an unreadable one.
+   * moved: `trySpawn` gates on `controller.knobs.maxLive` (2-7, FR-10), so the
+   * number of rocks in the air at once is what it always was; there are simply
+   * more of them over the stage.
+   *
+   * THAT GATE WAS NOT ENOUGH, AND THIS IS WHERE THIS NOTE USED TO BE WRONG. It
+   * said the belt "still leaves 850 ms between spawns, so the number of rocks in
+   * the air at once is exactly what it was". `maxLive` caps what is LIVE, not
+   * what is FED, and a rock nobody is typing is still falling: at one word every
+   * 850 ms against a child who clears one every two seconds, the surplus did not
+   * queue, it landed, and three landings empty the hull (D27). The arithmetic
+   * above is the arithmetic of a belt paced by the player, so the spawner now
+   * has to be paced by the player too - `@engine/pacing`, driven from this
+   * player's calibration and from what the last few rocks actually cost them.
+   * At 18 words the stage ended before that caught up with it; at 58 it did not.
    */
   readonly stageWordCount: number;
   /** How long the sky takes to travel from start to end (AC-22.3). */

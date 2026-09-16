@@ -921,3 +921,149 @@ Noticed while working there, NOT touched because it is the other lane's:
 `create()` now carries a comment reading `// DEFECT REINTRODUCED FOR A NEGATIVE
 RUN` where the `markStopCleared` / `persistStopCleared` write-back used to be.
 AC-12.1's stop-clearing write is currently absent from Results.
+
+## D27 vs D17 — hull 3 and the 80-90% band cannot both hold at 58 words
+
+- **Escalated:** 2026-09-16 (spawn-pacing fix, `fix/playable-path`)
+- **Source:** D27 / AC-4.1 (hull 3 per stage), D17 / FR-10 / AC-10.2 (hit rate held at 80-90%), FR-6 (`stageWordCount` 58)
+- **Attempts:** n/a — arithmetic, not a defect. Retrying cannot change it.
+- **Evidence:** `gauntlet/evidence/belt-survivability.json`, produced by
+  `tests/unit/simulation/belt.test.ts` (58 words, 40 seeds, canisters off).
+
+### The arithmetic
+
+The hull is 3 marks and a breach costs exactly one (AC-4.1, AC-4.2). A stage
+spawns 58 rocks. So a stage is survivable only at a hit rate of
+`1 - 3/58 = 94.8%` or better, before the shield canister gives anything back.
+
+D17 puts the target band at 80-90%, and the controller loosens below 0.80
+because it considers that stage too hard. A player held in the MIDDLE of the
+band - 85%, which is the number D17 is built around - breaches 8.7 rocks in a
+stage and stalls, twice, on a belt the controller believes is going well.
+
+The two numbers used to agree. At 18 words, 15% of spawns is 2.7 breaches
+against a hull of 3: a player at the bottom of the D17 band finished the stage
+with one mark left. Raising the count to 58 broke that relation silently,
+because nothing in the build ties the hull to the stage length.
+
+### What the pacing fix does about it
+
+It paces the belt so that a player at their own measured speed clears
+essentially everything: the belt feeds one rock per rock's worth of THIS
+player's work (`@engine/pacing`). Measured hit rates over a whole Mars belt are
+100% (median typist), 98.9-99.8% (a 25% slower one) and 100% (a 25% faster one),
+which clears the 94.8% the hull demands.
+
+That is a fix for the stall. It is NOT a reconciliation of D27 with D17: the
+belt now sits well ABOVE the D17 band, so the controller reads "too easy" and
+tightens on almost every stage. Difficulty then comes from `maxLive` and
+`lengthBias` alone, which is what D53 says should happen - but the band the
+controller is steering toward is not one the hull can survive.
+
+### Where it still bites
+
+A child at roughly grade-2 speed - 600 ms between keys, 0.82 per-character
+accuracy, 2.4 s to recognise an unfamiliar word - clears at 82% and stalls on
+55 of 100 seeded belts (16 of 100 with the shield canister modelled). Their fall
+times are computed from their own calibration, so every rock is individually
+clearable; what they cannot absorb is three of 58 going wrong. No spawn gap
+fixes that, because the gap is already longer than they need.
+
+### Options (user decision — none taken)
+
+| # | Option | Cost |
+|---|---|---|
+| A | Leave it. The belt is paced so typical players clear ~100%, and the hull is a safety net that rarely fires | The D17 band stays decorative for the belt, and the slowest players still stall. AC-10.2 is already escalated as unreachable for the same population. |
+| B | Scale the hull with stage length — 3 marks per 18 spawns, so 58 words gets ~9 | Changes D27 and AC-4.1, and the HUD draws three marks (art-direction §5). Restores the relation the numbers had when both were written. |
+| C | Put `stageWordCount` back to ~18-24 | Undoes the fix for "the level is too short", which was itself a play-test finding. |
+| D | Make the canister rule stronger for a damaged hull (it is currently a 50% roll per spawn while damaged, one live at a time) | Tunes the symptom; the 94.8% requirement is unchanged, and a canister that always appears reads as charity. |
+
+**Lean: B.** It is the only option that makes the two decisions agree again
+rather than choosing between them, and it is a constant plus a HUD change, not a
+redesign. It also removes the trap that any future change to `stageWordCount`
+re-arms: with the hull derived from the count, a longer stage cannot quietly
+become an unsurvivable one.
+
+### Status
+
+OPEN. The stall is fixed and the belt is survivable for median, slow and fast
+typists at both ends of the `maxLive` knob (`tests/unit/simulation/belt.test.ts`,
+40 seeds each, shield canister OFF). The D27/D17 relation is not fixed and is a
+product decision.
+
+---
+
+## E-world-3 · The near plane on a night stop cannot have the reference's value range
+
+**Raised by:** render lane (`src/game/render/*`), R-world round 2.
+**Status:** OPEN — decision needed. A defensible behaviour is shipped meanwhile.
+
+### What happened
+
+Two defects were reported together and they pull against each other.
+
+The player saw **near-white slabs framing the Title**. Cause found: the dark-stop
+branch of `foregroundInk` returned the palette's LIGHTEST colour pushed 22%
+further toward white — on Earth that is cloud white taken to near-white — and
+that colour was painting `canyonWalls` on the near plane. It is fixed: a dark
+stop's near plane now lifts off the SKY by a bounded L* step and is capped in
+absolute value. Earth went from L* 94 to L* 35, measured at the pixel in
+`gauntlet/evidence/title-frame.json` (edge luminance 0.26–0.31, was ~0.94).
+
+The judge's note 1 says the frame's **value range is still compressed** and the
+darkest element should be near-black.
+
+On the five bright stops both are satisfiable at once and are satisfied: the
+near plane is near-black and the ramp spans 47–69 L*. **On the two night stops —
+Earth and Neptune — they are not.** The sky is L* 20. Art-direction §2 says the
+near plane is LIGHTER than the sky there. A near plane 40 L* above a sky at 20
+is L* 60, which is the pale frame we just removed. The ramp's own span on those
+two stops is ~12 L*, not 40+.
+
+### What is shipped
+
+The near plane lifts 14 L* above the sky, capped at L* 42, and the frame gets
+its dark end from a separate value, `foregroundObjectInk` — the near-black that
+the foreground rocks crossing in front of the terrain are drawn in. Frame span on
+Earth is 32 L* (bright stops: 74–93). The unit assertion in
+`tests/unit/render/depth.test.ts` is therefore split: 40 L* of ramp span on a
+bright stop, 10 on a night one, with the reason written next to it.
+
+**That split is a weakened test and it is the thing needing a decision.** I did
+not want to quietly lower a bar to match what I built.
+
+### Options
+
+| # | Option | Cost |
+|---|---|---|
+| A | Ship as-is: night stops have a compressed range, and that is what night looks like | The R-world reference compare will keep reading Earth as lower-contrast than an Alto frame. The reference is a daytime side-scroller; this may simply not transfer. |
+| B | Break §2 on dark stops: near plane goes near-black there too | Frame span still only ~30 L* (the sky's own bottom is already near-black), and the near plane disappears into the lower third of the frame. Strictly worse, measured. |
+| C | Give the two night palettes a lighter sky so a dark foreground has something to sit against | `palettes.json` is rubric-validated content (V-22.7) and promoted from design-reference. A palette edit is a content decision, not a render one. |
+| D | Accept a near plane up to ~L* 55 on night stops and take the 40 L* span | Measured: that is where it starts reading as a pale frame again. It is the defect we were asked to fix. |
+
+**Lean: A**, and log the reference-compare gap rather than paying for it with the
+defect. B is measurably worse, D re-creates the reported bug, and C is not this
+lane's to make — but C is the only option that would actually give Earth the
+reference's range, so if the range matters more than the palette, it is the one
+to take.
+
+---
+
+## E-world-4 · V-22.8 measures plate contrast in colour space, and a veil now sits over the plate
+
+**Raised by:** render lane. **Status:** FYI — no action taken, none obviously needed.
+
+A foreground layer (`foreVeil`, L6.5) now crosses in FRONT of the ship and can
+pass over a word plate at 5–12% alpha.
+
+`V-22.8` / AC-22.8 is asserted in `tests/e2e/flight.spec.ts` as
+`contrastRatio(palette.plate, palette.plateText)` — pure colour maths on
+`palettes.json`. It never reads a pixel, so it cannot see the veil, and it
+reports 18.08:1 on all seven stops whatever is drawn over the plate. After this
+change it is measuring something slightly different from what the player sees.
+
+I did not change it, because the margin is large enough that it is not urgent:
+at the veil's maximum 12%, a #0E1116 plate with #F7FAFF text composites to about
+13.3:1, still ~3x the 4.5 floor. But the check is now an approximation of the
+thing it is named after, and the honest version would sample the rendered plate.
+Flagging rather than leaving it.
