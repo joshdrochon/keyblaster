@@ -24,6 +24,21 @@ HARD RULES
 - LLM is used exactly once per warp break via /api/coach with a 1500 ms timeout and shipped fallback (D33). Never in the game loop.
 - 60 fps: p95 frame time ≤ 16.7 ms in the scripted flight (P test).
 
+UNATTENDED RULE (D94) — THE LOOP NEVER BLOCKS ON A HUMAN
+- NEVER ask the user a blocking question during an unattended run. No
+  AskUserQuestion, no "should I?", no waiting. A run that stops for a human at
+  3am has failed, however good its reasoning was.
+- Every decision that would have been a question goes to gauntlet/escalations.md
+  instead: the options, the evidence, and a lean. Then CONTINUE with the
+  documented behaviour. That file is the morning review queue and it is the
+  ONLY channel for a decision that needs the user (architecture 10.1 step 5).
+- Permissions are pre-granted in .claude/settings.json, including the D87
+  guardrails as explicit deny rules (no vercel, no force-push, no rebase, no
+  branch delete, no push to main, no .env reads). Deny beats allow, so the
+  guardrails hold even if a later allow rule is added carelessly.
+- Subagents inherit this. A lane brief must never instruct an agent to do
+  something that prompts; if a tool is not pre-granted, do not use it.
+
 OVERNIGHT GUARDRAILS (D87)
 - Never deploy, never run `vercel`, never touch Vercel env.
 - Paid APIs mocked unless `--live` with SPEND_CAP_USD.

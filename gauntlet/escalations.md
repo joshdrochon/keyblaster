@@ -104,3 +104,25 @@ displayed number mean what its label says.
 ### Status
 
 NOT PASSED. Shipped as documented.
+
+## PROCESS — the loop asked the user a blocking question (fixed)
+
+- **Logged:** 2026-09-16 (build night 1)
+- **Severity:** process defect, not a product defect
+
+Twice during night one the run stopped and waited for a human: once for repo
+visibility and branch naming, once for the overnight mechanism. A third
+interruption came from a subagent that was instructed to fetch NASA/JPL
+Horizons, which is a network call that was not pre-granted.
+
+That is a failure of the loop regardless of how reasonable each question was.
+An unattended run that halts at 3am has produced nothing overnight.
+
+**Fixed by D94:** no blocking questions during an unattended run; decisions go
+here with options and a lean, and the run continues on the documented
+behaviour. Permissions pre-granted in `.claude/settings.json`, with the D87
+guardrails written as deny rules so they cannot be relaxed by accident.
+
+Nothing about the two decisions already taken changes — private repo, `main`
+as the default branch, `/loop` as the mechanism. They are recorded here only so
+the interruption itself is in the review queue.
