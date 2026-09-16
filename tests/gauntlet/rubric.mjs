@@ -267,11 +267,41 @@ const visual = [
     source: "D60#8 / AC-22.8",
     title: "Word plate text contrast >= 4.5:1",
     kind: "unit",
-    run: async ({ evidence }) =>
-      evidence.has("contrast.json")
-        ? evidence.assertNumber("contrast.json", "minRatio", (v) => v >= 4.5,
-            "lowest word-plate contrast ratio across all seven palettes")
-        : todo("no contrast.json evidence; palettes and label plates not built"),
+    run: async ({ repo, evidence }) => {
+      // Two things are drawn on the plate: the untyped word in plateText, and
+      // the letters ALREADY TYPED in the accent. This check only ever measured
+      // the first pair, so it reported 18.08 while typed letters sat at 1.02:1
+      // on two stops in colourblind mode - invisible, for the accessibility
+      // setting. A contrast check that skips the colour the child is actually
+      // reading is not a contrast check.
+      const pp = join(repo, "src/content/palettes.json");
+      if (!existsSync(pp)) return todo("src/content/palettes.json not compiled yet");
+      const palettes = JSON.parse(readFileSync(pp, "utf8"));
+
+      const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+      const lin = (c) => (c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      const lum = (h) => { const [r, g, b] = hex(h); return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b); };
+      const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+
+      const fails = [];
+      let worst = Infinity;
+      for (const [stop, pal] of Object.entries(palettes)) {
+        const checks = [
+          [`${stop} body`, pal.plateText, pal.plate],
+          [`${stop} typed`, pal.accent, pal.plate],
+          [`${stop} typed (colourblind)`, pal.colorblind?.plateAccent, pal.plate],
+        ];
+        for (const [what, fg, bg] of checks) {
+          if (typeof fg !== "string") { fails.push(`${what}: missing colour`); continue; }
+          const r = ratio(fg, bg);
+          worst = Math.min(worst, r);
+          if (r < 4.5) fails.push(`${what} ${r.toFixed(2)}:1`);
+        }
+      }
+      const ev = "src/content/palettes.json";
+      if (fails.length) return bad(`below 4.5:1 - ${fails.join(", ")}`, ev);
+      return ok(`worst contrast ${worst.toFixed(2)}:1 across 7 palettes x {body, typed, typed-colourblind}`, ev);
+    },
   },
   {
     id: "P-22.9",

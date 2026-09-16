@@ -22,7 +22,8 @@
     "plateText": "#F7FAFF",
     "colorblind": {
       "accent": "#FFFFFF",
-      "debris": "#3C7BD9"
+      "debris": "#3C7BD9",
+      "plateAccent": "#FFD98A"
     }
   },
   "mars": {
@@ -48,7 +49,8 @@
     "plateText": "#F7FAFF",
     "colorblind": {
       "accent": "#FFFFFF",
-      "debris": "#B5522A"
+      "debris": "#B5522A",
+      "plateAccent": "#FFB59A"
     }
   },
   "jupiter": {
@@ -74,7 +76,8 @@
     "plateText": "#F7FAFF",
     "colorblind": {
       "accent": "#FFFFFF",
-      "debris": "#C97B3F"
+      "debris": "#C97B3F",
+      "plateAccent": "#FFE9B0"
     }
   },
   "saturn": {
@@ -100,7 +103,8 @@
     "plateText": "#F7FAFF",
     "colorblind": {
       "accent": "#111318",
-      "debris": "#C9B48C"
+      "debris": "#C9B48C",
+      "plateAccent": "#BFE6F7"
     }
   },
   "uranus": {
@@ -126,7 +130,8 @@
     "plateText": "#F7FAFF",
     "colorblind": {
       "accent": "#FFFFFF",
-      "debris": "#3E9DAF"
+      "debris": "#3E9DAF",
+      "plateAccent": "#C8FFE8"
     }
   },
   "neptune": {
@@ -152,7 +157,8 @@
     "plateText": "#F7FAFF",
     "colorblind": {
       "accent": "#FFFFFF",
-      "debris": "#0B173F"
+      "debris": "#0B173F",
+      "plateAccent": "#A8C6FF"
     }
   },
   "pluto": {
@@ -178,7 +184,8 @@
     "plateText": "#F7FAFF",
     "colorblind": {
       "accent": "#111318",
-      "debris": "#F5E6D0"
+      "debris": "#F5E6D0",
+      "plateAccent": "#FFC9D8"
     }
   }
 }

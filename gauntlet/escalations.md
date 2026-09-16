@@ -597,3 +597,15 @@ implementation will drift from the judged one the moment either is touched.
 
 NOT PASSED. Sent back to the menus lane, which owns the four scenes and wrote
 the file that says to delete it.
+
+## L-6e.1 — Input-to-visual latency <= 16.7 ms (one frame)
+
+- **Escalated:** 2026-09-16T11:24:55.926Z
+- **Source:** D77 / AC-6e.1
+- **Attempts:** 8 (cap 8)
+- **Last measurement:** captured headless - at a 144.7ms p95 frame interval, keydown-to-postrender measures render cost, not perceived latency. Re-capture headed, and report the keydown-to-next-presented-frame delta.
+- **Evidence:** gauntlet/evidence/input-latency.json
+
+**Proposal:** Needs a human read. The check is measuring the right thing but the implementation has not reached the threshold in 8 attempts.
+
+_Not marked passed. D85: escalated items never ship as green._
