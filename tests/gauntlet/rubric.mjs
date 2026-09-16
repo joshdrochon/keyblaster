@@ -462,7 +462,11 @@ const guardrails = [
       const banned = [
         [/type=["']email["']/i, "email input field"],
         [/\bgtag\(|googletagmanager|google-analytics/i, "Google Analytics"],
-        [/\bmixpanel\b|\bamplitude\b|\bsegment\.com\b|\bposthog\b/i, "analytics SDK"],
+        // Match these as MODULE IMPORTS or SDK calls, not as bare words.
+        // "amplitude" is ordinary vocabulary for an oscillation - Shadow's
+        // glow pulse and the strike shake both have one - and "segment" is a
+        // line segment. Banning the words bans the domain.
+        [/from\s+["'][^"']*(mixpanel|amplitude|posthog|segment)[^"']*["']|require\(["'][^"']*(mixpanel|amplitude|posthog|segment)[^"']*["']\)|\b(mixpanel|posthog)\s*\.\s*(init|track|identify)\b|\bamplitude\s*\.\s*(init|track|getInstance)\b|segment\.com/i, "analytics SDK"],
         [/\bdateOfBirth\b|\bbirthday\b|\bphoneNumber\b|\bhomeAddress\b/i, "PII field"],
       ];
       const hits = [];
