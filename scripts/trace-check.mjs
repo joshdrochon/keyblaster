@@ -73,6 +73,7 @@ const AC_EXEMPT = {
   D87: "overnight guardrails; asserted in scripts/gauntlet.mjs",
   D92: "model choice for the coach call; AC-15.1/15.4 carry the behaviour",
   D93: "build method (builder/critic fan-out); process, not product",
+  D94: "unattended-run process rule; enforced by .claude/settings.json, not by product behaviour",
 };
 
 function parseDecisions() {
