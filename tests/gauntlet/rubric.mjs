@@ -85,25 +85,41 @@ const readAll = (files) => files.map((f) => readFileSync(f, "utf8")).join("\n");
 
 const visual = [
   {
-    id: "V-22.1",
-    source: "D60#1 / AC-22.1",
+    // AC-22.1 is declared "U (config) + V (debug overlay)". Those are two
+    // different claims with two different evidence artifacts, and collapsing
+    // them let a config scan claim a visual pass. Split, per the PRD's own
+    // wording.
+    id: "V-22.1a",
+    source: "D60#1 / AC-22.1 (config half)",
     title: "At least 5 parallax layers at distinct scroll speeds",
-    kind: "visual",
+    kind: "static",
     run: async ({ repo }) => {
       const cfg = join(repo, "src/game/render/layers.ts");
       if (!existsSync(cfg)) return todo("src/game/render/layers.ts does not exist yet");
       const src = readFileSync(cfg, "utf8");
       const speeds = [...src.matchAll(/speed:\s*([0-9.]+)/g)].map((m) => Number(m[1]));
-      // Count DISTINCT SCROLLING speeds. AC-22.1 asks for five layers moving at
-      // distinct speeds, not for every layer to be unique: sky and hud are
-      // pinned at 0, and debris and shipFx share the gameplay plane at 1.0 by
-      // design (art-direction s2). Demanding all-distinct would fail correct art.
-      const scrolling = speeds.filter((s) => s > 0);
+      // Count DISTINCT SCROLLING speeds. sky and hud are pinned at 0, and
+      // debris and shipFx share 1.0 by design (art-direction s2) because the
+      // rocks and the Lantern occupy one gameplay plane. Demanding
+      // all-distinct would fail correct art.
+      const scrolling = speeds.filter((v) => v > 0);
       const distinct = new Set(scrolling);
       return distinct.size >= 5
-        ? ok(`${scrolling.length} scrolling layers, ${distinct.size} distinct speeds: ${[...distinct].sort((a,b)=>a-b).join(", ")}`)
+        ? ok(`${scrolling.length} scrolling layers, ${distinct.size} distinct speeds: ${[...distinct].sort((a, b) => a - b).join(", ")}`)
         : bad(`found ${distinct.size} distinct scrolling speeds; need >=5`);
     },
+  },
+  {
+    id: "V-22.1b",
+    source: "D60#1 / AC-22.1 (visual half)",
+    title: "Layer-debug overlay shows the five speeds actually moving",
+    kind: "visual",
+    needsBrowser: true,
+    run: async ({ evidence }) =>
+      evidence.has("parallax-overlay.json")
+        ? evidence.assertNumber("parallax-overlay.json", "movingLayers", (v) => v >= 5,
+            "layers observed moving at distinct rates in the debug overlay")
+        : todo("Flight scene not built; no parallax-overlay.json evidence"),
   },
   {
     id: "V-22.2",
@@ -421,7 +437,11 @@ const guardrails = [
       if (files.length === 0) return todo("src/ has no sources yet");
       const hits = [];
       for (const f of files) {
-        const src = readFileSync(f, "utf8");
+        // Comments stripped, string literals kept: the thing this check exists
+        // to catch IS a string literal (load.image("ship.png")), while a doc
+        // comment using one as an EXAMPLE of what not to do is not a raster
+        // dependency. Same rule as G-pii and G-nored.
+        const src = stripComments(readFileSync(f, "utf8"));
         for (const m of src.matchAll(/["'`][^"'`]*\.(png|jpe?g|gif|webp|bmp|tiff?)["'`]/gi)) {
           hits.push(`${f.replace(repo + "/", "")}: ${m[0]}`);
         }
