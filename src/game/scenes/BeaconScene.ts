@@ -1,3 +1,4 @@
+import { markStopCleared } from "@engine/progress/index.js";
 import Phaser from "phaser";
 import { beaconReadout, type BeaconResult } from "@engine/ephemeris";
 import type { StopId } from "@engine/types";
@@ -384,7 +385,12 @@ export class BeaconScene extends Phaser.Scene {
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       goTo(this, next, {
         ctx: this.lane.ctx,
-        progress: this.lane.progress,
+        // D13/AC-17.3: placing the beacon is what charts the stop and opens
+        // the next one. Stars and rates are folded in by Results, which is the
+        // screen that knows them.
+        progress: markStopCleared(this.lane.progress, this.lane.stopId, {
+          atMs: Date.now(),
+        }),
         shipName: this.lane.shipName,
         lang: this.lane.lang,
         stopId: this.stopId,

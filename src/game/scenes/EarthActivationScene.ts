@@ -17,7 +17,8 @@ import {
 } from "./lib/kit";
 import { createWordPrompt, type WordPrompt } from "./lib/typedWord";
 import { stageBundle } from "./lib/content";
-import { goTo, resolveInit, type ResolvedInit, type StoryInit } from "./lib/init";
+import { goTo, persistStopCleared, resolveInit, type ResolvedInit, type StoryInit } from "./lib/init";
+import { markStopCleared } from "@engine/progress/index.js";
 
 /**
  * Screen inventory row 2b - Earth activation (D57, AC-12.1).
@@ -281,9 +282,16 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
       w: BUTTON_W,
       h: BUTTON_H,
       activate: () => {
+        // AC-12.1: lighting Earth's beacon CLEARS the stop. Without this the
+        // map's unlock rule never opens Mars, the map re-focuses Earth, and
+        // the player bounces between the two forever.
+        const progress = markStopCleared(this.story.progress, "earth", {
+          atMs: Date.now(),
+        });
+        persistStopCleared(this, "earth");
         goTo(this, SCENE_KEYS.map, {
           ctx: this.story.ctx,
-          progress: this.story.progress,
+          progress,
           shipName: this.story.shipName,
           lang: this.story.lang,
           newProfile: this.story.newProfile,

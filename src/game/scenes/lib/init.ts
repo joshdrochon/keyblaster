@@ -1,3 +1,6 @@
+import { clearStopOnProfile } from "@engine/progress/index.js";
+import type { Profile } from "@engine/types";
+import { services } from "@game/boot";
 import Phaser from "phaser";
 import { DEFAULT_SCENE_CONTEXT, type SceneContext } from "@game/sceneKeys";
 import {
@@ -96,24 +99,30 @@ export function progressFor(
  * A locked stop is still drawn, still focusable and still readable. Locked
  * means "not yet", never "denied" (D31).
  */
-export function unlockedStops(
-  progress: readonly StopProgress[],
-  order: readonly StopId[],
-): ReadonlySet<StopId> {
-  const open = new Set<StopId>();
-  let previousCleared = true;
-  for (const stop of order) {
-    if (previousCleared) open.add(stop);
-    previousCleared = progress.find((p) => p.stopId === stop)?.cleared ?? false;
-  }
-  return open;
+/**
+ * Route progression now lives in `@engine/progress` - it is a rule, it is
+ * pure, and in the engine it sits under the 95% coverage gate. These two are
+ * re-exported so existing scene imports keep working.
+ */
+export { isCharted, unlockedStops } from "@engine/progress/index.js";
+
+/**
+ * Write a cleared stop through to the stored profile.
+ *
+ * Scene-to-scene init payloads carry progress for the CURRENT run; the store is
+ * what makes it survive a reload (D44, AC-7.2). Both have to be updated, and
+ * only the store knows the profile id.
+ */
+export function persistStopCleared(scene: Phaser.Scene, stopId: StopId): void {
+  const store = services(scene).store;
+  const profile = store.activeProfile();
+  if (profile === null) return;
+  store.updateProfile(profile.id, (p: Profile) =>
+    clearStopOnProfile(p, stopId, { atMs: Date.now() }),
+  );
+  store.flush();
 }
 
-/** A stop is charted once its beacon is placed (D13). */
-export function isCharted(progress: readonly StopProgress[], stopId: StopId): boolean {
-  const entry = progress.find((p) => p.stopId === stopId);
-  return entry !== undefined && entry.beaconPlacedAt !== null;
-}
 
 /**
  * Start another scene if the registry has it, otherwise announce the
