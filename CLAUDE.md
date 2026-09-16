@@ -34,6 +34,20 @@ OVERNIGHT GUARDRAILS (D87)
 GAUNTLET LOOP
 `npm test` → `npm run test:e2e` → `npm run gauntlet` → judge step (cite evidence per item) → fix loop (8 attempts per item) → escalate to gauntlet/escalations.md → `npm run gauntlet:loop` for unattended runs → gauntlet/summary.md.
 
+BUILDER/CRITIC FAN-OUT (D93)
+Work is split into the smallest independently judgeable pieces. Each piece gets a
+builder subagent AND a separate harsh critic subagent with fresh context. The critic
+inspects the real artifact against the bar - the rubric in tests/gauntlet/ for
+measurable items, design-reference/refs/*.png for the two reference-compare items -
+and names the single biggest remaining gap. The piece loops until the critic passes
+it blind. Praise from a critic is not a result.
+- Builders work DISJOINT file lanes and never run git. The lead agent owns the git
+  index; concurrent git from parallel agents corrupts it.
+- A critic never marks its own builder's work passed without citing the evidence
+  artifact (D85). NOT-IMPLEMENTED is a valid status; "passed" without evidence is not.
+- The 8-attempt cap and gauntlet/escalations.md still bound every item, so one stuck
+  piece cannot eat an unattended night.
+
 FIRST TASKS (in order)
 1. Scaffold tooling: TypeScript, Vite, Phaser 3, Vitest, Playwright. `npm test` runs green on an empty suite.
 2. Build src/engine with tests, module by module, in this order: allowlist, words, fallTime, selection, controller, lock, calibration, scoring, persistence, ephemeris, i18n, coach (3 transports).
