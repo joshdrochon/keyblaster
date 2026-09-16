@@ -8,19 +8,21 @@ import type {
 import { DEFAULT_CALIBRATION, DEFAULT_SETTINGS } from "@engine/types.js";
 import type { Knobs } from "@engine/controller/index.js";
 import type { WordBook } from "@engine/words/index.js";
+import { hasStageBundle, stageBundle } from "@game/scenes/lib/content.js";
 
 /**
  * Flight stage configuration: everything the core loop needs that is NOT a
  * rule (rules live in src/engine) and NOT a drawing (drawings live in
  * src/game/render).
  *
- * WHY THE POOLS ARE HERE AND NOT IN src/content. The content pipeline (D45,
- * D67, FR-12) ships `StageBundle { stopId, lang, briefing, pool[], preflight,
- * warpSentence, beaconText }` into src/content/<lang>/, and that lane owns
- * those files. Until it lands, the flight loop still has to fly, so this module
- * carries a small English pool per belt stop and builds an allowlist from it.
- * The seam is one function - `stagePoolFor` - so swapping in the real bundles
- * is a one-line change and nothing else in the scene moves.
+ * WHERE THE POOLS COME FROM. The content pipeline (D45, D67, FR-12) ships
+ * `StageBundle { stopId, lang, briefing, pool[], preflight, warpSentence,
+ * beaconText }` into src/content/<lang>/, and `stagePoolFor` reads it. This
+ * module used to carry a hand-written stand-in table instead, and that table
+ * was the mechanism of the D09 defect: the belt flew one list of words while
+ * the warp break highlighted another, so "the sentence is made of the words
+ * you blasted" was false by construction. The table is gone; the seam is the
+ * same one function it always was.
  */
 
 export interface PaletteColorblind {
@@ -195,50 +197,33 @@ export function skyAt(travel: SkyTravel, progress: number): SkyStops {
 }
 
 // ---------------------------------------------------------------------------
-// Stage word pools (placeholder for the content pipeline; see the note above)
+// Stage word pools - the shipped content bundles (D09, D45, D67)
 // ---------------------------------------------------------------------------
 
-const POOLS: Readonly<Record<StopId, readonly string[]>> = {
-  earth: ["launch"],
-  // "win"/"wind" is deliberate: the D25 shared-prefix tier (AC-2.2) can only
-  // ever fire if some stop's pool contains a word that is a proper prefix of
-  // another, and a pool with no such pair makes the whole parked-word path
-  // unreachable. The content lane should keep one pair per pool for the same
-  // reason.
-  mars: [
-    "red", "dust", "rock", "win", "wind", "cold", "ice", "land", "moon", "sky",
-    "water", "rivers", "empty", "valley", "storm", "crater", "planet",
-    "orbit", "quiet", "giant", "north",
-  ],
-  jupiter: [
-    "belt", "metal", "dark", "stone", "spin", "cloud", "storm", "moons",
-    "huge", "ring", "iron", "gas", "field", "path", "lucky", "wide",
-    "orbit", "deep", "junk", "trail",
-  ],
-  saturn: [
-    "ice", "ring", "float", "dust", "moon", "titan", "lake", "pale",
-    "gold", "wide", "shine", "cold", "glass", "chunk", "slow", "bath",
-    "quiet", "edge", "north", "drift",
-  ],
-  uranus: [
-    "side", "tilt", "dark", "ring", "cold", "green", "night", "long",
-    "winter", "quiet", "faint", "icy", "spin", "pole", "thin", "blue",
-    "years", "narrow", "shadow", "edge",
-  ],
-  neptune: [
-    "wind", "storm", "blue", "deep", "fast", "dark", "moon", "cold",
-    "triton", "back", "far", "hours", "light", "spot", "cloud", "ice",
-    "quiet", "ring", "giant", "sea",
-  ],
-  pluto: [
-    "heart", "frost", "small", "ice", "cold", "rock", "moon", "charon",
-    "five", "far", "light", "slow", "plain", "edge", "quiet", "pink",
-    "belt", "night", "snow", "dwarf",
-  ],
-};
-
+/**
+ * The words this stop's belt may spawn: the stage bundle's own asteroid pool,
+ * which is also the pool the warp sentence is drawn from (AC-12.3 requires
+ * every content word of the sentence to be in it).
+ *
+ * THIS IS THE D09 SEAM. Flight spawns from this list and the warp break
+ * highlights from the run recorded while flying it (`blastHistory.ts`), so the
+ * two are the same vocabulary by construction. A second, private table here -
+ * which is what used to be here - makes the game's founding claim untrue
+ * without anything failing.
+ *
+ * EARTH IS THE ONE SPECIAL CASE, and it is content, not a placeholder. Earth is
+ * the launchpad and has no belt (D57), so its bundle ships `pool: []` and one
+ * `activationWord` - the single word that lights the beacon (AC-12.1). Handing
+ * back that word keeps `createSelectionState` buildable for anything that does
+ * boot a belt there, and it is still a real content word rather than an
+ * invented one.
+ */
 export function stagePoolFor(stop: StopId): readonly string[] {
-  return POOLS[stop];
+  if (!hasStageBundle(stop)) return [];
+  const bundle = stageBundle(stop);
+  if (bundle.pool.length > 0) return bundle.pool;
+  const activation = bundle.activationWord;
+  return activation === null ? [] : [activation];
 }
 
 /** Words from every earlier stop, for the AC-9.3 interleave. */

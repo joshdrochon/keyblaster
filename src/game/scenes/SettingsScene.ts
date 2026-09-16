@@ -21,6 +21,7 @@ import { hexToNum } from "@game/render/palette";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { uiText } from "@game/ui/text";
 import type { MenuKey } from "@game/ui/i18n";
+import { audioFrom } from "@game/audio/wiring";
 
 /**
  * SCREEN 11 - SETTINGS (D41, D45; AC-19.1 to AC-19.4).
@@ -338,24 +339,28 @@ export class SettingsScene extends MenuScene {
   }
 
   /**
-   * Push volumes at whatever is actually making sound.
+   * Push volumes at what is actually making sound.
    *
-   * The audio lane publishes `createAudioSystem()` but nothing registers a live
-   * graph yet, so this handles both: if a graph is on the registry its music
-   * and sfx buses are set directly; otherwise Phaser's own sound manager takes
-   * the effects level. Either way the change is audible immediately, which is
-   * the half of AC-19.1 a storage assertion cannot prove.
+   * `boot.ts` now publishes the LIVE audio service on `kb.audio`, so the two
+   * sliders move the real music and SFX bus gains and the change is audible
+   * before the key is released - which is the half of AC-19.1 a storage
+   * assertion cannot prove.
+   *
+   * It goes through `setVolumes` rather than writing the gain nodes directly
+   * because the music bus is a sidechain target: a raw write would be undone by
+   * the next voice line's release ramp, and the child's choice would silently
+   * revert the moment Shadow finished a sentence.
+   *
+   * `this.sound.volume` stays as well. Phaser's own sound manager plays nothing
+   * in this game today, but it is the level any future Phaser-side sound would
+   * use, and a screen that sets one of two mixers is a bug waiting for the
+   * first `this.sound.play`. Null is a supported answer: a scene opened
+   * standalone by the e2e harness has no boot and so no audio.
    */
   private pushVolumes(): void {
     const s = this.app.settings();
     this.sound.volume = s.sfxVolume;
-    const graph = this.registry.get("kb.audio") as
-      | { buses?: Record<string, { gain?: { value: number } }> }
-      | undefined;
-    const music = graph?.buses?.["music"]?.gain;
-    if (music) music.value = s.musicVolume;
-    const sfx = graph?.buses?.["sfx"]?.gain;
-    if (sfx) sfx.value = s.sfxVolume;
+    audioFrom(this.registry)?.setVolumes({ music: s.musicVolume, sfx: s.sfxVolume });
   }
 
   /**

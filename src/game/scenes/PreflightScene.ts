@@ -22,6 +22,7 @@ import { createWordPrompt, type WordPrompt } from "./lib/typedWord";
 import { ritualPool, stageBundle } from "./lib/content";
 import { goTo, resolveInit, type ResolvedInit, type StoryInit } from "./lib/init";
 import type { SceneStringKey } from "./lib/strings";
+import { audioFrom } from "@game/audio/wiring";
 
 /**
  * Screen inventory row 5 - Pre-flight (D51, D81, PRD FR-11).
@@ -290,8 +291,22 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
   // The sequence
   // -------------------------------------------------------------------------
 
+  /**
+   * Shadow says a line.
+   *
+   * AC-21.6's ordering applies here too and for the same reason: the TEXT is
+   * the line. It is set first, and the system voice is handed the string that
+   * was drawn - not a second copy of the copy - so a player with no voices
+   * installed reads exactly what a player with voices hears, and the screen is
+   * identical either way. The voice bus ducks the music and the bed while he
+   * talks (AC-21.4) and un-ducks itself when the utterance ends.
+   *
+   * `audioFrom` returning null is the standalone-harness case and is silent by
+   * design; the line still renders.
+   */
   private say(key: SceneStringKey, pose: ShadowPose): void {
-    this.lineText.setText(this.story.text.text(key));
+    const line = this.story.text.text(key);
+    this.lineText.setText(line);
     this.shadow.setPose(pose);
     this.tweens.add({
       targets: this.lineText,
@@ -299,6 +314,7 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
       duration: 260,
       ease: EASE.arrive,
     });
+    audioFrom(this.registry)?.speak({ id: key, text: line, kind: "scripted" });
   }
 
   private beginStep(time: number): void {

@@ -93,8 +93,14 @@ export const DUCK_RELEASE_MS = 420;
 interface DuckTarget {
   readonly id: BusId;
   readonly gain: GainNodeLike;
-  /** The undacked resting gain, captured once at construction. */
-  readonly base: number;
+  /**
+   * The unducked resting gain. Captured at construction from the bus table and
+   * moved afterwards only by `setBase`, which is how a settings volume slider
+   * reaches a ducked bus: if the slider wrote the gain node directly, the next
+   * release would ramp the bus back to the SHIPPED level and the child's choice
+   * would be undone the moment Shadow finished a sentence.
+   */
+  base: number;
 }
 
 /**
@@ -126,6 +132,25 @@ export class SidechainDucker implements Ducker {
   /** The buses this ducker moves. Read by the graph tests and the evidence. */
   targetIds(): readonly BusId[] {
     return this.targets.map((t) => t.id);
+  }
+
+  /**
+   * Move a target's resting level (a settings volume) and re-apply whatever
+   * duck state is in flight, so a slider dragged mid-line lands immediately and
+   * the release still comes back to the NEW level rather than the shipped one.
+   * Returns false when this ducker does not own the bus, which is how
+   * `setBusGain` knows to write the node itself.
+   */
+  setBase(id: BusId, base: number): boolean {
+    const target = this.targets.find((t) => t.id === id);
+    if (target === undefined) return false;
+    target.base = clamp(base, 0, 1);
+    const multiplier = this.depth > 0 ? dbToGain(this.duckDb) : 1;
+    const now = this.ctx.currentTime;
+    target.gain.gain.cancelScheduledValues(now);
+    target.gain.gain.setValueAtTime(target.base * multiplier, now);
+    target.gain.gain.value = target.base * multiplier;
+    return true;
   }
 
   duck(active: boolean): void {
@@ -188,6 +213,12 @@ export interface AudioGraph {
   advance(dtMs: number): void;
   /** Set the overall level without disturbing the ducker's captured bases. */
   setMasterGain(gain: number): void;
+  /**
+   * Set ONE bus's resting level - what the settings volume sliders drive
+   * (AC-19.1). For a ducked bus this also moves the sidechain's base, so the
+   * new level survives the next voice line; see `SidechainDucker.setBase`.
+   */
+  setBusGain(id: BusId, gain: number): void;
 }
 
 /**
@@ -236,6 +267,15 @@ export function buildAudioGraph(ctx: AudioContextLike, options: AudioGraphOption
     },
     setMasterGain(gain: number): void {
       buses.master.gain.value = clamp(gain, 0, 1);
+    },
+    setBusGain(id: BusId, gain: number): void {
+      const node = buses[id];
+      if (node === undefined) return;
+      const level = clamp(gain, 0, 1);
+      // The ducker owns music and ambient; it writes the node itself so the
+      // level and the duck state can never disagree. Everything else is a
+      // plain assignment.
+      if (!ducker.setBase(id, level)) node.gain.value = level;
     },
   };
 }

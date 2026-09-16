@@ -79,6 +79,13 @@ import {
 } from "@game/flight/stage.js";
 import { type FlightCopy, createFlightCopy } from "@game/flight/copy.js";
 import {
+  type BlastHistory,
+  emptyHistory,
+  recordBlast,
+  recordMiss,
+  stageOutcome,
+} from "@game/flight/blastHistory.js";
+import {
   MAX_HULL,
   hullAfterShield,
   hullAfterStrike,
@@ -171,6 +178,10 @@ export interface FlightDebugState {
   readonly layerOffsets: Readonly<Record<string, number>>;
   readonly skySample: { readonly x: number; readonly y: number };
   readonly bookExposures: number;
+  /** D09: the words actually shot down, in blast order. */
+  readonly blasted: readonly string[];
+  /** Words that crossed the breach line and were never blasted. */
+  readonly missed: readonly string[];
 }
 
 export class FlightScene extends Phaser.Scene {
@@ -184,6 +195,13 @@ export class FlightScene extends Phaser.Scene {
   private controller!: ControllerState;
   private combo: ComboState = INITIAL_COMBO_STATE;
   private book: WordBook = {};
+  /**
+   * D09. What the player ACTUALLY shot down this stage, in order, and what got
+   * past them. This is the value the warp break is built from; the word book is
+   * not a substitute, because it accumulates across stages and across runs and
+   * therefore cannot answer "what did they blast just now".
+   */
+  private history: BlastHistory = emptyHistory();
 
   private rocks: LiveRock[] = [];
   private hull = MAX_HULL;
@@ -266,6 +284,9 @@ export class FlightScene extends Phaser.Scene {
     this.nextRockIndex = 0;
     this.parked = null;
     this.combo = INITIAL_COMBO_STATE;
+    // A restart is a fresh attempt at the stage (AC-4.3), so the run record
+    // starts empty even though the word book is carried over.
+    this.history = emptyHistory();
     this.skyPaintedAt = -1;
     this.shakeX = 0;
     this.shakeY = 0;
@@ -1155,6 +1176,16 @@ export class FlightScene extends Phaser.Scene {
     const points = wordScore([...word].length, this.combo.multiplier);
     this.score += points;
     this.hits += 1;
+    // D09. Recorded HERE, off the lock machine's own `blast` emission, because
+    // this is the only place in the program that knows a word was destroyed by
+    // the player rather than merely present on the belt.
+    this.history = recordBlast(this.history, {
+      word,
+      atMs: nowMs,
+      fkLatencyMs,
+      ikiMs,
+      wasCanister: rock?.isCanister ?? false,
+    });
     this.book = applyToBook(this.book, word, {
       kind: "hit",
       fkLatencyMs,
@@ -1256,6 +1287,9 @@ export class FlightScene extends Phaser.Scene {
     this.controller = recordOutcome(this.controller, "missed");
     this.combo = comboReducer(this.combo, "hullHit");
     this.hull = hullAfterStrike(this.hull);
+    // The other half of D09: a word that got through is the one thing the warp
+    // sentence must NOT light up, and it is what Shadow names (AC-15.5).
+    this.history = recordMiss(this.history, { word: rock.word, atMs: now });
 
     rock.plate.destroy();
     this.tweens.add({
@@ -1409,6 +1443,8 @@ export class FlightScene extends Phaser.Scene {
     }
     this.scorchLayer.removeAll(true); // D27: full repair at stage end.
 
+    const outcome = stageOutcome(this.history, this.cfg.calibration);
+
     this.game.events.emit(FLIGHT_EVENTS.stageComplete, {
       stopId: this.cfg.stopId,
       wpm: this.currentWpm(),
@@ -1417,12 +1453,33 @@ export class FlightScene extends Phaser.Scene {
       score: this.score,
       book: this.book,
       knobs: this.controller.knobs,
+      history: this.history,
+      ...outcome,
     });
 
     const warp = this.scene.get(SCENE_KEYS.warp);
     if (warp !== null) {
       this.scene.stop(SCENE_KEYS.hud);
-      this.scene.start(SCENE_KEYS.warp, { stopId: this.cfg.stopId, book: this.book });
+      // D09. `blastHistory` is the record; `blasted` is the flattened view the
+      // warp sentence highlights from. Both travel, because the break should
+      // not have to re-derive the thing the belt already knows - and because
+      // handing over the raw history keeps the later screens (Results, the
+      // beacon log) able to ask questions this hand-off did not anticipate.
+      //
+      // `missed` / `slow` / `hitRate` are the coach request (FR-15, AC-15.5).
+      // Before this they were never supplied, so Shadow could only ever say
+      // the "clean run" line, however many words got past the ship.
+      this.scene.start(SCENE_KEYS.warp, {
+        stopId: this.cfg.stopId,
+        book: this.book,
+        blastHistory: this.history,
+        blasted: outcome.blasted,
+        missed: outcome.missed,
+        slow: outcome.slow,
+        hitRate: outcome.hitRate,
+        lang: this.cfg.uiLang,
+        shipName: this.cfg.shipName,
+      });
     }
   }
 
@@ -1467,7 +1524,21 @@ export class FlightScene extends Phaser.Scene {
   private cue(name: FlightCue): void {
     // AC-6e.2: every keystroke gets a visual AND an audio response. The visual
     // is above; this is the audio lane's hook, so the two never drift apart.
-    this.game.events.emit(FLIGHT_EVENTS.cue, { cue: name, atMs: this.time.now });
+    //
+    // The three numbers ride along because D63's reactive shaping needs them AT
+    // THE INSTANT OF THE CUE: blast pitch rises with the combo and the hit thud
+    // grows as the hull falls, and both of those are updated in this scene
+    // immediately BEFORE the cue and published to the HUD immediately after. An
+    // audio listener reading the HUD stream instead would be reading the state
+    // from before the very event it is sounding.
+    this.game.events.emit(FLIGHT_EVENTS.cue, {
+      cue: name,
+      atMs: this.time.now,
+      combo: this.combo.combo,
+      hull: this.hull,
+      maxHull: MAX_HULL,
+      live: this.rocks.length,
+    });
   }
 
   private snapshot(): HudSnapshot {
@@ -1499,42 +1570,49 @@ export class FlightScene extends Phaser.Scene {
 
   private debugApi(): FlightDebugApi {
     return {
-      state: (): FlightDebugState => ({
-        hull: this.hull,
-        score: this.score,
-        combo: this.combo.combo,
-        multiplier: hudMultiplierFor(this.combo.combo),
-        typos: this.typos,
-        hits: this.hits,
-        wpm: this.currentWpm(),
-        accuracy: accuracy(this.hits, this.typos),
-        typed: this.lock.typed,
-        lockedId: this.lock.lockedId,
-        parkedId: this.parked?.id ?? null,
-        stalled: this.stalled,
-        stageComplete: this.stageComplete,
-        maxLive: this.controller.knobs.maxLive,
-        knobChanges: this.knobChanges,
-        rocks: this.rocks.map((r) => ({
-          id: r.id,
-          word: r.word,
-          sizePx: r.sizePx,
-          x: r.container.x,
-          y: r.container.y,
-          plateY: r.container.y + r.plate.y,
-          plateTop: r.container.y + r.plate.y - r.plate.plateSizePx.height / 2,
-          rockBottom: r.container.y + r.sizePx / 2,
-          typedCount: r.plate.typedCount,
-          isCanister: r.isCanister,
-          debrisType: r.debris.id,
-        })),
-        layerOffsets: { ...this.layerOffsets },
-        skySample: { x: this.scale.width * 0.05, y: this.scale.height * 0.04 },
-        bookExposures: Object.values(this.book).reduce(
-          (n, r) => n + r.exposures,
-          0,
-        ),
-      }),
+      state: (): FlightDebugState => {
+        const outcome = stageOutcome(this.history, this.cfg.calibration);
+        return {
+          hull: this.hull,
+          score: this.score,
+          combo: this.combo.combo,
+          multiplier: hudMultiplierFor(this.combo.combo),
+          typos: this.typos,
+          hits: this.hits,
+          wpm: this.currentWpm(),
+          accuracy: accuracy(this.hits, this.typos),
+          typed: this.lock.typed,
+          lockedId: this.lock.lockedId,
+          parkedId: this.parked?.id ?? null,
+          stalled: this.stalled,
+          stageComplete: this.stageComplete,
+          maxLive: this.controller.knobs.maxLive,
+          knobChanges: this.knobChanges,
+          rocks: this.rocks.map((r) => ({
+            id: r.id,
+            word: r.word,
+            sizePx: r.sizePx,
+            x: r.container.x,
+            y: r.container.y,
+            plateY: r.container.y + r.plate.y,
+            plateTop: r.container.y + r.plate.y - r.plate.plateSizePx.height / 2,
+            rockBottom: r.container.y + r.sizePx / 2,
+            typedCount: r.plate.typedCount,
+            isCanister: r.isCanister,
+            debrisType: r.debris.id,
+          })),
+          layerOffsets: { ...this.layerOffsets },
+          skySample: { x: this.scale.width * 0.05, y: this.scale.height * 0.04 },
+          bookExposures: Object.values(this.book).reduce(
+            (n, r) => n + r.exposures,
+            0,
+          ),
+          // D09's evidence. `blasted` is the ordered list the warp break lights
+          // up; `missed` is the list it must leave dim.
+          blasted: [...outcome.blasted],
+          missed: [...outcome.missed],
+        };
+      },
       strike: () => {
         if (!this.cfg.debug || this.stalled) return;
         this.controller = recordOutcome(this.controller, "missed");

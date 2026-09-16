@@ -12,6 +12,7 @@ import {
   pixelDiffPercent,
   PUNISHING_WORDS,
   readsAsRed,
+  restartScene,
   snap,
   texts,
   waitForScene,
@@ -62,6 +63,8 @@ type WarpSnapshot = {
   focusId: string;
   focusRingVisible: boolean;
   highlightedText: string[];
+  blastedWords: string[];
+  missedWords: string[];
   debris: { count: number; moved: boolean };
   warping: boolean;
   multiplier: number;
@@ -152,12 +155,39 @@ test("AC-16.1 the break is calm, not frozen: the ambient layers still drift", as
   expect(diff).toBeGreaterThan(0.2);
 });
 
-test("D30 the sentence highlights the words the player just blasted", async ({ page }) => {
+test("D09 / D30 the sentence highlights the words the player just blasted", async ({
+  page,
+}) => {
   await openWarp(page);
+
+  // D09. This test used to open the screen with no run behind it and assert
+  // that Mars' whole pool was lit, which the screen satisfied by highlighting
+  // the CONTENT FILE rather than the player's run - the founding defect, with
+  // a green test on top of it. The run is now supplied, and what it asserts is
+  // the difference between the two rules: "planet" is in Mars' pool and in
+  // Mars' sentence, and it is dark because the player never blasted it.
+  //
+  // The full flight-to-warp version lives in tests/e2e/blast-history.spec.ts.
+  await restartScene(page, "Warp", {
+    stopId: "mars",
+    blastHistory: {
+      blasts: ["mars", "red"].map((word, order) => ({
+        word,
+        order,
+        atMs: order * 1000,
+        fkLatencyMs: 400,
+        ikiMs: [200, 200],
+        wasCanister: false,
+      })),
+      misses: [{ word: "planet", atMs: 5000 }],
+    },
+  });
+  await page.waitForTimeout(500);
+
   const s = await snap<WarpSnapshot>(page, "warp");
   expect(s.sentence).toBe(MARS_SENTENCE);
-  // Mars' asteroid pool carries mars / red / planet; "is" and "the" are filler.
-  expect(s.highlightedText).toEqual(["Mars", "red", "planet"]);
+  expect(s.highlightedText).toEqual(["Mars", "red"]);
+  expect(s.highlightedText).not.toContain("planet");
 });
 
 test("AC-16.2 a typo does not reset the sentence and re-highlights the current letter", async ({

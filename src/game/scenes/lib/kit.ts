@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { DUR, EASE, FONT_STACK, INK, SPACE, TYPE, chromeCase, letterSpacingPx, lineHeightEm } from "@game/ui/theme";
 import { hexToNum as rgb } from "@game/render/palette";
 import type { Lang } from "@engine/types";
+import { uiSoundBlip } from "@game/ui/focus";
 
 /**
  * The bits of chrome the four story screens share: type, plates, a focus ring
@@ -205,6 +206,12 @@ export function createKeyboardMenu(
     if (wrap) next = (next + list.length) % list.length;
     else next = Math.min(Math.max(next, 0), list.length - 1);
     focus(next);
+    // D62 "UI sounds for every interaction" / AC-21.3 `uiNav`. The hook is the
+    // menu kit's (ui/focus.ts) so both keyboard menus in this game make the
+    // same sound; boot installs it once. `focus()` itself stays silent: it is
+    // also how a screen restores the caret after a restart, and a blip there
+    // would make a settings row chirp at itself.
+    uiSoundBlip("nav");
   };
 
   function focus(i: number): void {
@@ -237,6 +244,7 @@ export function createKeyboardMenu(
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       list[index]?.activate?.();
+      uiSoundBlip("activate");
       return;
     }
     if (event.key === "Escape" || event.key === "Backspace") {

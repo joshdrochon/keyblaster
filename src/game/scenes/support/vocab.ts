@@ -48,14 +48,28 @@ function sightWords(): string[] {
  * shipped fallback bundle and its mock templates live in `src/engine/coach`.
  * Read out of those two files; a word missing here turns a good note into a
  * fallback for no reason.
+ *
+ * Six words were missing. "do" and "goes" are in the SHIPPED FALLBACK's own
+ * Saturn and base notes, which is a contradiction the code could not detect:
+ * the fallback bypasses the validator by necessity, so Shadow's safety net was
+ * carrying words Shadow is not allowed to say.
+ *
+ * "an", "how", "let" and "take" were missing, and the cost was invisible until
+ * the belt started handing the coach real missed words (D09): MockCoach's
+ * one-missed template is `Good run. Let us take "{a}" a little slower.`, which
+ * failed the allowlist gate on two ordinary Fry-100 words and silently became
+ * the shipped fallback - so AC-15.5 ("a note that names those words") could
+ * never hold. `tests/unit/coach/voice.test.ts` now pins the whole set, so the
+ * next template edit fails a test instead of quietly degrading the note.
  */
 const SHADOW_VOICE_EN: readonly string[] = [
-  "again", "anyway", "awake", "belt", "clean", "down", "draw", "drawn",
-  "everything", "eye", "eyes", "flying", "gets", "good", "got", "had",
-  "hands", "here", "home", "kept", "let's", "little", "me", "moment", "next",
-  "nice", "past", "read", "rocks", "slow", "slower", "starts", "steady",
-  "threaded", "tilted", "together", "took", "try", "typed", "us", "was",
-  "watch", "way", "word", "words", "work", "your", "yours",
+  "again", "an", "anyway", "awake", "belt", "clean", "do", "down", "draw",
+  "drawn", "everything", "eye", "eyes", "flying", "gets", "goes", "good",
+  "got", "had", "hands", "here", "home", "how", "kept", "let", "let's",
+  "little", "me", "moment", "next", "nice", "past", "read", "rocks", "slow",
+  "slower", "starts", "steady", "take", "threaded", "tilted", "together",
+  "took", "try", "typed", "us", "was", "watch", "way", "word", "words",
+  "work", "your", "yours",
 ];
 
 const CACHE = new Map<Lang, Allowlist>();

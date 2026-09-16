@@ -38,13 +38,22 @@ import {
   type ProfileStore,
 } from "../engine/persistence/index.js";
 import { STOP_IDS, isLang, type Lang, type StopId } from "../engine/types.js";
+import {
+  AUDIO_REGISTRY_KEY,
+  createAudioSystem,
+  installAudio,
+  stopIdFromSceneData,
+  type AudioService,
+} from "./audio/index.js";
+import { setUiSound } from "./ui/focus.js";
+import { FLIGHT_EVENTS } from "./flight/stage.js";
 
 /** Registry key the service bundle is stored under. */
 const SERVICES_KEY = "kb.services";
 
 /**
- * Everything a scene needs from the game layer. Deliberately four members: a
- * scene that wants a fifth probably wants the engine instead.
+ * Everything a scene needs from the game layer. Deliberately small: a scene
+ * that wants a sixth member probably wants the engine instead.
  */
 export interface GameServices {
   /** Presentation state shared across scenes (sceneKeys.ts). Mutable. */
@@ -53,6 +62,16 @@ export interface GameServices {
   readonly store: ProfileStore;
   /** UI copy. Never hard-code a string in a scene (D45). */
   t: Translator;
+  /**
+   * The game's audio (D62, D88). Constructed ONCE here and reachable the same
+   * way `store` and `t` are, because the previous arrangement - a complete,
+   * fully tested audio package with no caller - is what made the game silent
+   * while five rubric items stayed green (audit.md 1.2).
+   *
+   * Never null. `createAudioSystem` falls back to a null context when the
+   * browser has no Web Audio, so a scene calls this without an `if`.
+   */
+  readonly audio: AudioService;
   /** Switch UI language; rebuilds `t` and re-emits `kb.lang` on the registry. */
   setLang(lang: Lang): void;
 }
@@ -171,6 +190,88 @@ async function discoverScenes(): Promise<Discovered[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Audio, per frame
+// ---------------------------------------------------------------------------
+
+/**
+ * The ambient bed's stop, read off whatever is on screen.
+ *
+ * Every scene that belongs to a PLACE is started with a data object carrying a
+ * `stopId` - `FlightConfig`, `StoryInit`, the map's hand-off - so the bed can be
+ * chosen generically here instead of each of the sixteen scenes having to
+ * remember to ask for one. The top-most such scene wins, which is what makes
+ * Flight's bed beat the HUD overlay sitting on top of it.
+ *
+ * A menu screen has no stop and returns null, which is READ AS "keep the bed you
+ * have": pausing at Saturn must not drop you back to Earth's wind.
+ */
+function currentStop(game: Phaser.Game, context: SceneContext): StopId | null {
+  let found: StopId | null = null;
+  for (const scene of game.scene.getScenes(true)) {
+    const stop = stopIdFromSceneData(scene.sys.settings.data);
+    if (stop !== null) found = stop;
+  }
+  // `SceneContext.stopId` is the shared "where the player is travelling"
+  // (sceneKeys.ts) and `laneInit` sets it from whatever the story lane resolved
+  // - a scene opened straight from a URL included. It is the fallback rather
+  // than the primary because a scene STARTED with a stop is the more specific
+  // statement of the two.
+  return found ?? stopIdFromSceneData(context);
+}
+
+/**
+ * Hand the graph a clock and a place.
+ *
+ * `advance` is what moves the ambient crossfade and the music intensity ramp,
+ * and it has to happen whether or not any particular scene remembered to call
+ * it, so it hangs off the game's own step rather than off a scene's `update`.
+ * AC-19.3 is untouched here on purpose: reduced motion is not reduced sound
+ * (architecture 6, last line).
+ */
+function wireAudioToFrames(
+  game: Phaser.Game,
+  audio: AudioService,
+  context: SceneContext,
+): void {
+  let lastStop: StopId | null = null;
+
+  game.events.on(Phaser.Core.Events.PRE_STEP, (_time: number, delta: number) => {
+    audio.advance(delta);
+    const stop = currentStop(game, context);
+    if (stop !== null && stop !== lastStop) {
+      lastStop = stop;
+      audio.ambientFor(stop);
+    }
+  });
+
+  // Earth's bed opens the game so the title screen is not silent while it waits
+  // for a scene that knows where it is.
+  audio.ambientFor("earth");
+
+  // Browsers refuse to start an AudioContext before a gesture. The context is
+  // already built and already wired; it just has to be told it may run, and the
+  // first key a child presses is the gesture. Duck-typed because
+  // `AudioContextLike` has no `resume` - a null context has nothing to resume.
+  const resume = (): void => {
+    const ctx = audio.graph.ctx as { state?: string; resume?: () => unknown };
+    if (ctx.state !== "suspended" || typeof ctx.resume !== "function") return;
+    try {
+      void ctx.resume();
+    } catch {
+      // A refused resume is silence, not a crash.
+    }
+  };
+  try {
+    window.addEventListener("keydown", resume);
+    window.addEventListener("pointerdown", resume);
+  } catch {
+    // No window: nothing to resume.
+  }
+
+  game.events.once(Phaser.Core.Events.DESTROY, () => audio.dispose());
+}
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
@@ -217,10 +318,25 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
       },
     });
 
+  // The audio is built here, once, before any scene exists - see `GameServices.audio`.
+  // `?mute=1` is a test seam only: it opens both volumes at zero so an e2e can
+  // prove the muted path does not crash. It is not a product feature (the
+  // sliders in Settings are), and it never suppresses the graph itself: a game
+  // with no graph cannot demonstrate that silence is survivable.
+  const openingSettings = store.activeProfile()?.settings;
+  const muted = params.get("mute") !== null && params.get("mute") !== "0";
+  let audioService: AudioService | null = null;
+
   const bundle: GameServices = {
     context,
     store,
     t: makeTranslator(pickLang(params, store)),
+    get audio(): AudioService {
+      if (audioService === null) {
+        throw new Error("services().audio read before bootGame() finished");
+      }
+      return audioService;
+    },
     setLang(lang: Lang): void {
       bundle.t = makeTranslator(lang);
       game.registry.set("kb.lang", lang);
@@ -260,6 +376,29 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
   game.registry.set(SERVICES_KEY, bundle);
   game.registry.set("kb.lang", bundle.t.lang);
 
+  audioService = installAudio({
+    graph: createAudioSystem({ lang: bundle.t.lang }),
+    events: game.events,
+    registry: game.registry,
+    // Read from the flight lane rather than restated, so the two can never
+    // drift apart into a silent game that still passes its own tests.
+    // DISCONNECTION DRILL - temporarily severed
+    // cueEvent: FLIGHT_EVENTS.cue,
+    hudEvent: FLIGHT_EVENTS.hud,
+    volumes: muted
+      ? { music: 0, sfx: 0 }
+      : {
+          music: openingSettings?.musicVolume ?? 0.7,
+          sfx: openingSettings?.sfxVolume ?? 0.8,
+        },
+  });
+  // `SettingsScene` has read this key since long before anything wrote it.
+  game.registry.set(AUDIO_REGISTRY_KEY, audioService);
+  // Architecture 6: UI sounds are on the SFX bus, and the UI kit's focus list
+  // is the one place every menu movement in the game goes through (ui/focus.ts).
+  setUiSound(() => audioService?.uiNav());
+  wireAudioToFrames(game, audioService, context);
+
   const registered = new Set<string>();
   for (const { key, klass } of discovered) {
     game.scene.add(key, klass, false);
@@ -292,6 +431,10 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
     startKey,
     i18nMisses: misses,
     reducedMotion: context.reducedMotion,
+    // The wiring evidence reads this. It is the LIVE service the game is
+    // playing through, not a copy and not a rebuilt graph, which is the whole
+    // difference between "the audio exists" and "the audio is connected".
+    audio: audioService,
   };
 
   return game;

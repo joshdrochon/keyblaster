@@ -23,6 +23,9 @@ export * from "./sfx.js";
 export * from "./keystrokeTone.js";
 export * from "./voice.js";
 export * from "./evidence.js";
+// The connection layer. `createAudioSystem` BUILDS the audio; `installAudio`
+// is what makes the game the thing playing it (audit.md 1.2).
+export * from "./wiring.js";
 
 import type { AudioContextLike } from "./context.js";
 import { NullAudioContext } from "./nullContext.js";

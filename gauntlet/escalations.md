@@ -609,3 +609,116 @@ the file that says to delete it.
 **Proposal:** Needs a human read. The check is measuring the right thing but the implementation has not reached the threshold in 8 attempts.
 
 _Not marked passed. D85: escalated items never ship as green._
+
+## D09 fix — three decisions taken with the documented behaviour, per D94
+
+- **Escalated:** 2026-09-16
+- **Source:** D09 / D25 / AC-15.4 / CLAUDE.md "rules live in src/engine"
+- **Status:** IMPLEMENTED as leaned; each is one edit to reverse.
+
+### 1. `stagePoolFor` now reads the shipped bundle, which removes D25's natural path
+
+`src/game/flight/stage.ts` used to carry a private word table. Its own header
+said the table kept one shared-prefix pair per stop ("win"/"wind") because the
+D25 / AC-2.2 parked-word tier can only ever fire when a pool contains a word
+that is a proper prefix of another. The shipped content pools do not all have
+one:
+
+| stop | prefix pair in `src/content/en/<stop>.json` |
+|---|---|
+| mars | **none** |
+| jupiter | big/biggest |
+| saturn | **none** |
+| uranus | planet/planets, spin/spins |
+| neptune | sun/sunlight |
+| pluto | **none** |
+
+So at Mars, Saturn and Pluto the parked-word path is now unreachable through
+normal selection. `tests/e2e/flight.spec.ts` still covers AC-2.2, because it
+spawns the pair through the debug hook rather than waiting for the picker.
+
+| # | Option | Cost |
+|---|---|---|
+| A | Ship as is; ask the content lane to add one prefix pair to mars/saturn/pluto | Three content words. The lane owns `src/content/**`, which this change may not edit. |
+| B | Keep a private table for the three stops | Re-creates the exact D09 defect at three of six belts. |
+| C | Drop the requirement and let D25 fire only at three stops | Silently narrows a decision that was made deliberately. |
+
+**Lean: A.** One content word per stop (e.g. mars already has "run"; adding
+"runs" or "rust"/"rusty" gives the pair) and nothing in code moves.
+
+### 2. No history at the warp break means NO highlight, rather than the pool
+
+`docs/audit.md` §1.1's suggested fix says "falling back to the pool only when it
+is absent". That fallback is the defect with a friendlier face: it makes the
+screen claim the child blasted words there is no evidence they ever saw, and it
+is exactly what would let this regress silently again. `WarpScene` now
+highlights nothing when it is opened without a run behind it, and
+`tests/e2e/blast-history.spec.ts` pins that. The sentence is still fully
+typeable, so nothing is lost but the untrue part.
+
+### 3. `flight/shield.ts` and `flight/blastHistory.ts` are pure rules living in `src/game`
+
+Both files say so in their own headers, and neither may create an engine module
+under the current lane rules. CLAUDE.md puts rules in `src/engine`, and the 95%
+coverage gate covers `src/engine` only — which is exactly how `shield.ts`
+shipped with no test at all and nothing noticed. Both now have unit tests
+(`tests/unit/flight/`), but those tests are outside the gate.
+
+**Lean: move both into `src/engine` (`engine/hull/`, `engine/run/`).** They are
+pure, total, Phaser-free and DOM-free; the move is a `git mv` plus an import
+rewrite in `FlightScene.ts` and `WarpScene.ts`, and it puts the hull rules under
+the gate that exists to catch precisely this.
+
+## D25's parked-word tier is unreachable at three of six belts
+
+- **Logged:** 2026-09-16 (build night 1)
+- **Source:** D25, AC-2.2; found by the blast-history lane while deleting the placeholder pools
+- **Severity:** a shipped feature that cannot occur in play, and an e2e that passes anyway
+
+D25's shared-prefix tier — where "flow" is fully typed while "flower" is still
+falling, and the word parks and fires on a tick — needs a pool containing a word
+that is a true PREFIX of another word in the same pool.
+
+The deleted placeholder pools had one per stop, deliberately. The real content
+bundles do not:
+
+| Stop | Prefix pair in pool |
+|---|---|
+| Mars | **none** |
+| Jupiter | big / biggest |
+| Saturn | **none** |
+| Uranus | planet / planets, spin / spins |
+| Neptune | sun / sunlight |
+| Pluto | **none** |
+
+So at Mars, Saturn and Pluto the park can never fire through normal selection.
+**The AC-2.2 e2e still passes, because it debug-spawns the pair** — another test
+that is green for a reason unrelated to whether the feature can happen in the
+product.
+
+Shared FIRST LETTERS are plentiful everywhere (Mars alone has red/rust/rivers/run
+and planet/pink/pilot/place), so AC-2.1's tier gate is fine. It is specifically
+the park that is unreachable.
+
+### Why I did not just fix it
+
+The fix is three words, but the honest ones have to come from the briefing prose,
+and the briefings are approved story content (D67). Adding a pool word that is
+not in its briefing breaks the rule that asteroid words come from the stage's
+story text (D09). Editing the briefings is a story change, and story changes are
+yours.
+
+| # | Option | Cost |
+|---|---|---|
+| A | Add one natural prefix pair to each of the three briefings (e.g. Mars already says "rivers" and "riverbeds" — promote both) | Smallest story edit; keeps D09 intact. Needs your eye on the prose. |
+| B | Allow the park to fire across a pool word and a sight-word filler | No story edit, but the filler is not a story word, which weakens the warp-sentence tie-in. |
+| C | Accept the tier only fires at Jupiter, Uranus and Neptune | Free. A mastery-gated tier that three belts never reach is arguably fine, but D25 does not say that and the PRD does not either. |
+
+**Lean: A**, with Mars as the worked example — the briefing already contains both
+"rivers" and "riverbeds", so promoting the pair is a pool change, not a prose
+change. Saturn and Pluto need a closer look.
+
+### Status
+
+NOT PASSED. Shipped as-is; the feature exists and is tested, it just cannot be
+reached at three stops.

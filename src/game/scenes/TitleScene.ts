@@ -27,6 +27,7 @@ import { hexToNum, mixHex, paletteAt } from "../render/palette.js";
 import { TEX, ensureTextures } from "../render/textures.js";
 import { LANTERN_DESIGN_HEIGHT, drawLantern, type LanternRig } from "../render/lantern.js";
 import { LANGS, type Lang } from "../../engine/types.js";
+import { uiSoundBlip } from "@game/ui/focus";
 
 const FONT = '"Avenir Next","Nunito","Trebuchet MS",system-ui,sans-serif';
 
@@ -294,15 +295,22 @@ export class TitleScene extends Phaser.Scene {
           this.moveFocus(event.shiftKey ? -1 : 1);
           break;
         case "ArrowRight":
-          if (this.currentItem()?.id === "lang") this.cycleLang(1);
+          if (this.currentItem()?.id === "lang") {
+            this.cycleLang(1);
+            uiSoundBlip("nav");
+          }
           break;
         case "ArrowLeft":
-          if (this.currentItem()?.id === "lang") this.cycleLang(-1);
+          if (this.currentItem()?.id === "lang") {
+            this.cycleLang(-1);
+            uiSoundBlip("nav");
+          }
           break;
         case "Enter":
         case " ":
           event.preventDefault();
           this.currentItem()?.activate();
+          uiSoundBlip("activate");
           break;
         default:
           break;
@@ -317,6 +325,11 @@ export class TitleScene extends Phaser.Scene {
   private moveFocus(step: number): void {
     if (this.items.length === 0) return;
     this.setFocus((this.focusIndex + step + this.items.length) % this.items.length);
+    // D62 "UI sounds for every interaction" / AC-21.3 `uiNav`. This screen
+    // predates the menu kit and rolls its own list, so it calls the kit's sound
+    // hook directly rather than growing a fourth definition of a menu blip.
+    // `setFocus` stays silent: it is also how the screen opens.
+    uiSoundBlip("nav");
   }
 
   /** AC-18.1: focus is never invisible. One stroked ring, in the accent. */

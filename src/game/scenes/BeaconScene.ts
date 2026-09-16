@@ -28,6 +28,7 @@ import {
   type DrawLatch,
   type LaneInit,
 } from "./support/laneInit";
+import { audioFrom } from "@game/audio/wiring";
 
 /**
  * SCREEN 8 - BEACON PLACEMENT (design-brief-v2.md "8. Beacon placement";
@@ -304,6 +305,9 @@ export class BeaconScene extends Phaser.Scene {
 
     const light = (): void => {
       this.lit = true;
+      // AC-21.3 `beacon`: a clear bell, the reward tone of the whole game, on
+      // the frame the lamp comes up rather than when the scene opens.
+      audioFrom(this.registry)?.play("beacon", "beacon-scene:lit");
       if (this.lane.reducedMotion) {
         halo.setAlpha(1);
         return;

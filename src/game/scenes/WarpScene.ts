@@ -1,12 +1,13 @@
 import Phaser from "phaser";
 import {
   createCoachGate,
-  createCoachValidator,
-  createMockCoach,
   type CoachClient,
+  type CoachGate,
   type CoachRequest,
   type CoachResult,
 } from "@engine/coach";
+import { createCoachClient } from "@game/coach/transport";
+import { blastedWords, type BlastHistory } from "@game/flight/blastHistory";
 import type { StopId } from "@engine/types";
 import { SCENE_KEYS } from "@game/sceneKeys";
 import { LAYERS, layer, type LayerId } from "@game/render/layers";
@@ -28,6 +29,7 @@ import {
   type LaneInit,
 } from "./support/laneInit";
 import { coachAllowlist } from "./support/vocab";
+import { audioFrom } from "@game/audio/wiring";
 import {
   cells,
   chargeFraction,
@@ -94,8 +96,22 @@ const METER = { x: 160, y: 622, w: 1600, h: 30 } as const;
 const COACH = { x: 160, y: 742, w: 1600, h: 236 } as const;
 
 export interface WarpInit extends StoryInit {
-  /** Injected transport. Default: MockCoach (D87). */
+  /**
+   * Injected transport. Default: whatever `createCoachClient` selects, which
+   * is MockCoach unless a `/api/coach` endpoint was configured (D87).
+   */
   readonly coach?: CoachClient;
+  /**
+   * D09. The run that just happened, handed over by `FlightScene`. The words
+   * the sentence highlights come from THIS, never from the stop's pool.
+   */
+  readonly blastHistory?: BlastHistory;
+  /**
+   * The flattened view of the same thing, in blast order. Present so a caller
+   * that has the list but not the record - a harness, a replay - can still
+   * drive the screen honestly. Wins over `blastHistory` when both are given.
+   */
+  readonly blasted?: readonly string[];
   /** What the belt produced. Missed words are what Shadow names (AC-15.5). */
   readonly missed?: readonly string[];
   readonly slow?: readonly string[];
@@ -124,9 +140,13 @@ export class WarpScene extends Phaser.Scene {
   private coachResult: CoachResult | null = null;
   private coachSettled = false;
   private coachCalls = 0;
+  /** One gate per warp break, not one per request (AC-15.3). */
+  private gate: CoachGate | null = null;
 
   private multiplier = 0;
   private warping = false;
+  /** One warp-charge spool per visit (AC-21.3), not one per keystroke. */
+  private chargeHeard = false;
   /**
    * "Was it drawn", latched on a real render pass (see `latchOnRender`). The
    * Text's own `visible` flag is the truth only while the scene is alive: it
@@ -149,8 +169,11 @@ export class WarpScene extends Phaser.Scene {
     this.coachResult = null;
     this.coachSettled = false;
     this.coachCalls = 0;
+    // A restart IS a new warp break (a new stage ended), so the gate is new.
+    this.gate = null;
     this.multiplier = 0;
     this.warping = false;
+    this.chargeHeard = false;
     this.debrisMoved = false;
     this.debrisSignature = "";
   }
@@ -252,13 +275,11 @@ export class WarpScene extends Phaser.Scene {
       }),
     );
 
-    // The sentence is content (D30, D67): it comes from the stage bundle, and
-    // the words to highlight are the bundle's own asteroid pool - i.e. exactly
-    // the words the player just blasted.
-    const bundle = this.stageContent();
+    // D09. The sentence is content (D30, D67) and comes from the stage bundle.
+    // The HIGHLIGHT is not content: it is the run. See `blastedThisRun`.
     this.sentence = createWarpSentence({
-      text: bundle.sentence,
-      blasted: bundle.pool,
+      text: this.warpSentenceText(),
+      blasted: this.blastedThisRun(),
     });
 
     made.push(...this.layoutLetters());
@@ -290,16 +311,42 @@ export class WarpScene extends Phaser.Scene {
   }
 
   /**
-   * The stage bundle's warp sentence and its pool.
+   * The stage bundle's warp sentence.
    *
    * Earth has no belt and therefore no warp break (D57), so its bundle carries
    * `warpSentence: null`. An empty sentence is already charged, which is the
    * only sane read: it never strands a player on a screen with nothing to type.
    */
-  private stageContent(): { sentence: string; pool: readonly string[] } {
-    if (!hasStageBundle(this.stopId)) return { sentence: "", pool: [] };
-    const bundle = stageBundle(this.stopId);
-    return { sentence: bundle.warpSentence ?? "", pool: bundle.pool };
+  private warpSentenceText(): string {
+    if (!hasStageBundle(this.stopId)) return "";
+    return stageBundle(this.stopId).warpSentence ?? "";
+  }
+
+  /**
+   * D09 - THE ONE THING THIS GAME EXISTS TO DO.
+   *
+   * The decision log's Origin section names the defect in Type Storm that
+   * KeyBlaster was built to fix: its end-of-level sentence does not reuse the
+   * words just typed. D09 is the fix, and it is a claim about the RUN.
+   *
+   * This method used to return `stageBundle(stopId).pool`. That is the stop's
+   * whole vocabulary, so a word the child missed lit up exactly like a word
+   * they destroyed - which is, precisely, the defect, reimplemented. The pool
+   * is therefore NOT a fallback here, and that is deliberate:
+   *
+   *   no history  ->  no highlights.
+   *
+   * A screen opened without a run behind it has no information about what was
+   * blasted, and "highlight everything" is not a safe default for a claim; it
+   * is the bug with a friendlier face. An unlit sentence is still perfectly
+   * typeable, so nothing is lost but the untrue part.
+   */
+  private blastedThisRun(): readonly string[] {
+    const explicit = this.initData?.blasted;
+    if (explicit !== undefined) return explicit;
+    const history = this.initData?.blastHistory;
+    if (history !== undefined) return blastedWords(history);
+    return [];
   }
 
   /**
@@ -483,9 +530,18 @@ export class WarpScene extends Phaser.Scene {
 
   private async askShadow(): Promise<void> {
     const lang = this.lane.lang;
-    const validator = createCoachValidator({ allowlist: coachAllowlist(lang) });
-    const client = this.initData?.coach ?? createMockCoach({ validator });
-    const gate = createCoachGate({ client, phase: "warp-break" });
+    // AC-15.4. The transport is chosen by `@game/coach/transport`, which is the
+    // only place in the program that decides; the scene holds a `CoachClient`
+    // and cannot tell which one it got. An injected client (tests, a replay)
+    // still wins, because that seam is what makes AC-33's two screenshots
+    // comparable at all.
+    const client =
+      this.initData?.coach ??
+      createCoachClient({ allowlist: coachAllowlist(lang) });
+    // AC-15.3. The gate lives for the whole scene, not for this call: a second
+    // `askShadow` - a re-render, a late resume - must find the break already
+    // spent and get the memoised result back rather than buying another call.
+    const gate = (this.gate ??= createCoachGate({ client, phase: "warp-break" }));
 
     const request: CoachRequest = {
       stopId: this.stopId,
@@ -503,26 +559,49 @@ export class WarpScene extends Phaser.Scene {
 
   /**
    * The ONE place a coach result reaches the screen, and it reads `note` only.
-   * D63: the note displays as text with a short chirp, never as live speech.
+   *
+   * AC-21.6: the note is spoken by the system voice AFTER the text renders, and
+   * the display is identical either way. Both halves are STRUCTURAL rather than
+   * promised. `speakCoachNote` calls the renderer and only then hands anything
+   * to the voice bus, so there is no path through it that speaks first; and the
+   * renderer below is handed a `CoachNoteDisplay` that carries the text and
+   * nothing else - no "spoken" flag, no voice id - so there is nothing here it
+   * could branch on even if someone later wanted it to. A player with no voices
+   * installed, or a muted graph, sees exactly this screen.
+   *
+   * D63 said "text with a chirp, never live TTS"; D88 (revised) supersedes the
+   * voice portion of D63 and PRD AC-21.6 is explicit. The Web Speech system
+   * voice is local, so D63's actual concern - no runtime network TTS, the LLM
+   * call stays the only runtime dependency (D32) - is untouched.
    */
   private showNote(result: CoachResult): void {
     this.coachResult = result;
-    this.noteText.setText(result.note);
     const settle = (): void => {
       this.coachSettled = true;
     };
-    if (this.lane.reducedMotion) {
-      this.noteText.setAlpha(1);
-      settle();
+
+    const render = (display: { text: string }): void => {
+      this.noteText.setText(display.text);
+      if (this.lane.reducedMotion) {
+        this.noteText.setAlpha(1);
+        settle();
+        return;
+      }
+      this.tweens.add({
+        targets: this.noteText,
+        alpha: 1,
+        duration: DUR.panel,
+        ease: EASE.arrive,
+        onComplete: settle,
+      });
+    };
+
+    const audio = audioFrom(this.registry);
+    if (audio === null) {
+      render({ text: result.note });
       return;
     }
-    this.tweens.add({
-      targets: this.noteText,
-      alpha: 1,
-      duration: DUR.panel,
-      ease: EASE.arrive,
-      onComplete: settle,
-    });
+    audio.speakNote({ note: result.note }, render, "warp.coachNote");
   }
 
   // -------------------------------------------------------------------------
@@ -549,6 +628,14 @@ export class WarpScene extends Phaser.Scene {
     const before = this.sentence;
     this.sentence = typeChar(before, event.key);
     if (this.sentence.lastEvent === "none") return;
+
+    // AC-21.3 `warpCharge`: the drive spools. Once per screen, on the first
+    // character the sentence actually accepts - it is anticipation, and
+    // anticipation starts when the player does, not when the screen opens.
+    if (!this.chargeHeard) {
+      this.chargeHeard = true;
+      audioFrom(this.registry)?.play("warpCharge", "warp-scene:charge");
+    }
 
     this.paintLetters();
     this.paintMeter();
@@ -591,6 +678,9 @@ export class WarpScene extends Phaser.Scene {
   private beginWarp(): void {
     if (this.warping) return;
     this.warping = true;
+    // D62: "warp is a full stinger" - the loudest, longest sound in the game,
+    // fired on the frame the acceleration starts so the two are one event.
+    audioFrom(this.registry)?.play("warp", "warp-scene:jump");
     this.chargedLabel.setVisible(true);
     this.shadow.setPose("cheering");
     this.lantern.setIris(1);
@@ -720,6 +810,12 @@ export class WarpScene extends Phaser.Scene {
       highlightedText: this.sentence.highlights.map(([a, b]) =>
         this.sentence.text.slice(a, b),
       ),
+      // D09's evidence: what the belt said was blasted, and what reached this
+      // screen. `blastedWords` is the list the highlights were computed from,
+      // so a test can tell "the sentence has no such word" apart from "the
+      // player never blasted it".
+      blastedWords: [...this.blastedThisRun()],
+      missedWords: [...(this.initData?.missed ?? [])],
       letters: this.letters.map((l) => ({ char: l.text, color: l.style.color, alpha: l.alpha })),
       debris: { count: this.debrisCount, moved: this.debrisMoved },
       warping: this.warping,

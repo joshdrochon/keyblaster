@@ -76,6 +76,15 @@ export function laneInit(
   const resolved = resolveInit(merged, fallbackStop);
   const reducedMotion = resolved.ctx.reducedMotion;
 
+  // Tell the rest of the game where this screen is. `SceneContext.stopId` is
+  // declared as "stop the player is travelling to, for briefing/flight/warp/
+  // beacon" (sceneKeys.ts) and until now nothing wrote it, so the one piece of
+  // shared state that knows the answer was always null. The ambient bed (D62,
+  // AC-21.1) reads it: this is what makes arriving at Saturn SOUND like Saturn
+  // on a screen that was opened straight from a URL, as the e2e suite opens
+  // every screen. Presentation state only - no rule reads it.
+  if (svc) svc.context.stopId = resolved.stopId;
+
   return {
     ...resolved,
     services: svc,

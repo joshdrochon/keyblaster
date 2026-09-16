@@ -25,6 +25,55 @@ export interface Focusable {
 /** What the scene is told after any focus or value change. */
 export type FocusListener = () => void;
 
+/**
+ * The UI sound hook (D62 "UI sounds for every interaction", AC-21.3 `uiNav`).
+ *
+ * WHY IT IS A MODULE-LEVEL HOOK AND NOT A CONSTRUCTOR ARGUMENT. Every screen in
+ * the game builds its own `FocusList`, several of them inside `MenuScene`'s
+ * base class, and a few before `appFor(scene)` has run. Threading an audio
+ * handle through all of those is the kind of change that lands on fifteen of
+ * sixteen screens - and the sixteenth is then silently mute, which is the exact
+ * failure mode this whole fix exists to undo. Boot sets it once; every list in
+ * the game is audible from that moment, including ones built later.
+ *
+ * Null by default, so a focus list in a unit test or a standalone scene makes
+ * no sound and needs no stub.
+ */
+export type UiSoundKind = "nav" | "activate";
+export type UiSound = (kind: UiSoundKind) => void;
+
+let uiSound: UiSound | null = null;
+
+/** Boot calls this with the audio service's `uiNav`. Pass null to unhook. */
+export function setUiSound(hook: UiSound | null): void {
+  uiSound = hook;
+}
+
+/** The hook currently installed. Read by the wiring evidence. */
+export function currentUiSound(): UiSound | null {
+  return uiSound;
+}
+
+/**
+ * Make the UI blip, if anything is listening.
+ *
+ * Exported because this kit's `FocusList` is not the only keyboard menu in the
+ * game: the story lane's screens (title, map, briefing, warp, beacon, results,
+ * ending) drive `createKeyboardMenu` in `scenes/lib/kit.ts` instead. Both call
+ * this, so "UI sounds for every interaction" (D62) means every interaction and
+ * not just the ones on the five screens that happen to use this file.
+ */
+export function uiSoundBlip(kind: UiSoundKind): void {
+  if (uiSound === null) return;
+  try {
+    uiSound(kind);
+  } catch {
+    // A sound that throws must never take a menu down with it.
+  }
+}
+
+const blip = uiSoundBlip;
+
 export class FocusList {
   private items: Focusable[] = [];
   private index = 0;
@@ -60,8 +109,13 @@ export class FocusList {
   focus(id: string): boolean {
     const i = this.items.findIndex((item) => item.id === id);
     if (i < 0) return false;
+    // Only a MOVE is a sound. `focus(currentId)` is how a scene restores the
+    // caret after a restart, and a blip there would make the settings screen
+    // chirp at itself every time a slider is nudged.
+    const moved = i !== this.index;
     this.index = i;
     this.paint();
+    if (moved) blip("nav");
     return true;
   }
 
@@ -79,6 +133,7 @@ export class FocusList {
     const n = this.items.length;
     this.index = (((this.index + step) % n) + n) % n;
     this.paint();
+    blip("nav");
   }
 
   activate(): void {
@@ -86,6 +141,7 @@ export class FocusList {
     if (c && !c.locked) {
       c.activate();
       this.listener();
+      blip("activate");
     }
   }
 
@@ -95,6 +151,9 @@ export class FocusList {
     if (c.adjustable) {
       c.adjust(delta);
       this.listener();
+      // A slider step is an interaction too - and it is the one a child
+      // dragging the SFX volume is listening to while they drag it.
+      blip("nav");
     } else {
       this.move(delta);
     }

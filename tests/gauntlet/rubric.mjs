@@ -349,68 +349,357 @@ const visual = [
 // Audio rubric (D62, D63, D88, PRD section 3.9)
 // ---------------------------------------------------------------------------
 
+/**
+ * WHY EVERY AUDIO ITEM NOW READS TWO ARTIFACTS.
+ *
+ * `audio-graph.json` is produced by `buildAudioEvidence`, which builds a graph
+ * on a null context INSIDE A UNIT TEST. Every number in it is honestly
+ * measured, and not one of them can tell the difference between an audio system
+ * the game plays through and an audio system nothing imports. That distinction
+ * is not academic: A-21.1 .. A-21.5 were all green while `createAudioSystem()`
+ * had no caller outside its own test, `SettingsScene` read a registry key
+ * nobody wrote, and `FLIGHT_EVENTS.cue` was emitted to zero listeners
+ * (audit.md 1.2). Five items certified a subsystem that was not in the product.
+ *
+ * A check that cannot distinguish "built" from "connected" is not a check. So
+ * each item below now asserts BOTH halves and passes only on both:
+ *
+ *   BUILT    audio-graph.json   the sound is correctly made      (unchanged)
+ *   WIRED    audio-wiring.json  the running game makes it        (new)
+ *
+ * `audio-wiring.json` is produced by `tests/e2e/audio-wiring.spec.ts` against a
+ * REAL `bootGame()` in a browser. Nothing in it can be produced by a table: the
+ * per-event `via` tags are written by the game code that made each call
+ * ("flight-cue:blast", "ui:nav", "warp-scene:jump", "beacon-scene:lit"), the
+ * ambient and music numbers come from real scene transitions and real HUD
+ * snapshots, and the context names itself so a null one cannot pass as real.
+ *
+ * NOTHING IN THE BUILT HALF WAS WEAKENED. Every original predicate is below,
+ * verbatim; the wiring predicate is an ADDITIONAL gate. Deleting
+ * audio-wiring.json therefore cannot turn any of these green again - it turns
+ * them `not-implemented`, which is the truth about a silent game.
+ */
+
+const GRAPH_ARTIFACT = "audio-graph.json";
+const WIRING_ARTIFACT = "audio-wiring.json";
+
+/** The ten events AC-21.3 names, in the PRD's order. */
+const AUDIO_EVENTS = [
+  "lock", "keystroke", "typo", "blast", "hit",
+  "shield", "warpCharge", "warp", "beacon", "uiNav",
+];
+
+/**
+ * The gate every audio item shares: a real boot produced a real audio system,
+ * published where scenes look for it, and the game is stepping it.
+ *
+ * `contextKind` is the load-bearing field. `buildAudioEvidence` runs on a
+ * `NullAudioContext` and says so; a browser says "AudioContext". An artifact
+ * that reports the null context has measured a graph, not a game.
+ */
+function bootedAudio(w) {
+  const b = w?.boot ?? {};
+  return (
+    b.onServices === true &&
+    b.onRegistry === true &&
+    b.registryKey === "kb.audio" &&
+    typeof b.contextKind === "string" &&
+    b.contextKind !== "NullAudioContext" &&
+    /AudioContext/.test(b.contextKind) &&
+    Array.isArray(b.buses) &&
+    b.buses.includes("master") &&
+    // The graph is being advanced by the game's own frame loop, not by a test.
+    Number(b.framesAfterASecond ?? 0) > Number(b.framesAdvanced ?? 0)
+  );
+}
+
+/**
+ * Build an audio item that must satisfy the BUILT predicate on the graph
+ * artifact and the WIRED predicate on the wiring artifact. Reports both paths,
+ * so a pass always cites the evidence for both claims (D85).
+ */
+function audioItem({ built, builtWhat, wired, wiredWhat }) {
+  return async ({ repo, evidence }) => {
+    if (!existsSync(join(repo, "src/game/audio"))) {
+      return todo("src/game/audio does not exist yet");
+    }
+    if (!evidence.has(GRAPH_ARTIFACT)) return todo("no audio-graph.json evidence yet");
+    if (!evidence.has(WIRING_ARTIFACT)) {
+      return todo(
+        "no audio-wiring.json evidence yet - the graph is built, but nothing " +
+        "shows the GAME plays it. Run `npx playwright test tests/e2e/audio-wiring.spec.ts`.",
+      );
+    }
+
+    const builtResult = evidence.assertShape(GRAPH_ARTIFACT, built, `built: ${builtWhat}`);
+    if (builtResult.status !== STATUS.PASS) return builtResult;
+
+    const both = `${evidence.path(GRAPH_ARTIFACT)} + ${evidence.path(WIRING_ARTIFACT)}`;
+    const w = evidence.read(WIRING_ARTIFACT);
+    if (!bootedAudio(w)) {
+      return {
+        status: STATUS.FAIL,
+        detail:
+          `built: ${builtWhat} — but audio-wiring.json does not show a real boot ` +
+          "producing a live audio system on a real AudioContext, published on " +
+          "kb.services.audio and registry kb.audio and advanced every frame",
+        evidence: both,
+      };
+    }
+
+    let passed = false;
+    try {
+      passed = wired(w) === true;
+    } catch {
+      passed = false;
+    }
+    return {
+      status: passed ? STATUS.PASS : STATUS.FAIL,
+      detail: `built: ${builtWhat}; wired: ${wiredWhat}`,
+      evidence: both,
+    };
+  };
+}
+
 const audio = [
   {
     id: "A-21.1",
     source: "D62 / AC-21.1",
-    title: "Per-planet ambient bed exists and crossfades on transition",
+    title: "Per-planet ambient bed exists, crossfades, and follows the running game",
     kind: "audio",
-    run: async ({ repo, evidence }) => {
-      if (!existsSync(join(repo, "src/game/audio"))) return todo("src/game/audio does not exist yet");
-      return evidence.has("audio-graph.json")
-        ? evidence.assertShape("audio-graph.json", (g) =>
-            Array.isArray(g.ambientBeds) && g.ambientBeds.length === 7 && g.crossfade === true,
-            "seven ambient beds with crossfade enabled")
-        : todo("no audio-graph.json evidence yet");
-    },
+    needsBrowser: true,
+    run: audioItem({
+      built: (g) =>
+        Array.isArray(g.ambientBeds) && g.ambientBeds.length === 7 && g.crossfade === true,
+      builtWhat: "seven ambient beds with crossfade enabled",
+      // The bed changed because the GAME changed stop. Two distinct stops in
+      // order, with a crossfade counted at the transition - a table cannot
+      // produce this, only a scene transition can.
+      wired: (w) => {
+        const stops = w?.ambient?.stops;
+        return (
+          Array.isArray(stops) &&
+          new Set(stops).size >= 2 &&
+          Number(w.ambient.crossfades ?? 0) >= 1 &&
+          w.ambient.crossfadedOnSceneTransition === true
+        );
+      },
+      wiredWhat: "the bed followed a real scene transition and crossfaded",
+    }),
   },
   {
     id: "A-21.2",
     source: "D62 / AC-21.2",
     title: "Music has >= 3 intensity layers driven by live asteroids and combo",
     kind: "audio",
-    run: async ({ evidence }) =>
-      evidence.has("audio-graph.json")
-        ? evidence.assertShape("audio-graph.json", (g) => (g.musicLayers ?? 0) >= 3,
-            "music intensity layer count")
-        : todo("no audio-graph.json evidence yet"),
+    needsBrowser: true,
+    run: audioItem({
+      built: (g) => (g.musicLayers ?? 0) >= 3,
+      builtWhat: "music intensity layer count",
+      // Fed by the real HUD stream, and the index actually MOVED. An index that
+      // never leaves 0 is a graph nobody is driving.
+      wired: (w) => {
+        const m = w?.music ?? {};
+        return (
+          Number(m.hudSamples ?? 0) > 0 &&
+          Array.isArray(m.indicesObserved) &&
+          m.indicesObserved.length >= 2 &&
+          typeof m.drivenBy === "string" &&
+          /hud/i.test(m.drivenBy)
+        );
+      },
+      wiredWhat: "the index moved on live HUD liveCount/combo during real play",
+    }),
   },
   {
     id: "A-21.3",
     source: "D62 / AC-21.3",
-    title: "Every event has >= 3 SFX variants and never repeats consecutively",
+    title: "All ten events have >= 3 SFX variants, rotate, and are reached by game code",
     kind: "audio",
-    run: async ({ evidence }) =>
-      evidence.has("audio-graph.json")
-        ? evidence.assertShape("audio-graph.json", (g) => {
-            const v = g.sfxVariants ?? {};
-            const events = ["lock","keystroke","typo","blast","hit","shield","warpCharge","warp","beacon","uiNav"];
-            return events.every((e) => (v[e] ?? 0) >= 3) && g.noConsecutiveRepeat === true;
-          }, ">=3 variants for all ten named events, with rotation")
-        : todo("no audio-graph.json evidence yet"),
+    needsBrowser: true,
+    run: audioItem({
+      built: (g) => {
+        const v = g.sfxVariants ?? {};
+        return AUDIO_EVENTS.every((e) => (v[e] ?? 0) >= 3) && g.noConsecutiveRepeat === true;
+      },
+      builtWhat: ">=3 variants for all ten named events, with rotation",
+      /**
+       * Every one of the ten was PLAYED during a real session, and each carries
+       * the call-site tag the game code that played it wrote. The tags are
+       * checked for shape too: a play whose only provenance is "test" would be
+       * the same hole in a different place.
+       */
+      wired: (w) => {
+        const events = w?.events ?? {};
+        return AUDIO_EVENTS.every((e) => {
+          const entry = events[e];
+          if (!entry || Number(entry.count ?? 0) <= 0) return false;
+          const via = Array.isArray(entry.via) ? entry.via : [];
+          return (
+            via.length > 0 &&
+            via.every((v) => typeof v === "string" && v.length > 0 && !/^test/i.test(v))
+          );
+        });
+      },
+      wiredWhat: "all ten played in a real session, each tagged with its game call site",
+    }),
   },
   {
     id: "A-21.4",
     source: "D62 / AC-21.4",
-    title: "Music ducks by >= 6 dB while Shadow speaks",
+    title: "Music ducks by >= 6 dB while Shadow speaks, on the live graph",
     kind: "audio",
-    run: async ({ evidence }) =>
-      evidence.has("audio-graph.json")
-        ? evidence.assertNumber("audio-graph.json", "duckDb", (v) => v <= -6,
-            "gain reduction applied to Music/Ambient under the Voice bus")
-        : todo("no audio-graph.json evidence yet"),
+    needsBrowser: true,
+    run: audioItem({
+      built: (g) => typeof g.duckDb === "number" && g.duckDb <= -6,
+      builtWhat: "gain reduction applied to Music/Ambient under the Voice bus",
+      /**
+       * The same reduction, measured on the graph the running game is playing
+       * through, by driving its ducker and sampling the real `AudioParam` after
+       * the ramp. A real param is float32, so an exactly-scheduled -6.000000 dB
+       * reads back as -5.9999999; the tolerance below is that rounding and
+       * nothing else - the float64 measurement above still requires <= -6
+       * exactly. It must also come back: a duck that never releases is a bug
+       * the player only meets later.
+       */
+      wired: (w) => {
+        const d = w?.duck ?? {};
+        const slop = typeof d.float32SlopDb === "number" ? d.float32SlopDb : 1e-3;
+        const perBus = d.reductionDb ?? {};
+        const buses = Object.keys(perBus);
+        return (
+          d.measuredOnLiveGraph === true &&
+          buses.includes("music") &&
+          buses.includes("ambient") &&
+          buses.every((b) => Number(perBus[b]) <= -6 + slop) &&
+          d.releasedToResting === true &&
+          Array.isArray(w?.voice?.spokenLines) &&
+          w.voice.spokenLines.length > 0
+        );
+      },
+      wiredWhat: "the live graph ducked >= 6 dB and released, with lines really spoken",
+    }),
   },
   {
     id: "A-21.5",
     source: "D88 / AC-21.5",
     title: "Shadow speaks via Web Speech system voice; zero network TTS at runtime",
     kind: "audio",
-    run: async ({ evidence }) =>
-      evidence.has("audio-graph.json")
-        ? evidence.assertShape("audio-graph.json", (g) =>
-            g.voiceTransport === "webspeech" && g.runtimeTtsNetworkCalls === 0,
-            "system voice stand-in with no runtime TTS network calls (D88)")
-        : todo("no audio-graph.json evidence yet"),
+    needsBrowser: true,
+    run: audioItem({
+      built: (g) => g.voiceTransport === "webspeech" && g.runtimeTtsNetworkCalls === 0,
+      builtWhat: "system voice stand-in with no runtime TTS network calls (D88)",
+      /**
+       * The static and unit halves prove nothing CALLS a network TTS. This
+       * proves a whole real session made no external request at all - measured
+       * by the browser, not by a probe the code could route around - while the
+       * game really did hand lines to the voice bus.
+       *
+       * The TRANSPORT is deliberately not re-asserted here. Headless Chromium
+       * ships no speech synthesis, so a real player's transport cannot be
+       * observed in CI; `browserSpeechApiPresent` records that fact so "silent"
+       * in this artifact reads as D88's fallback working rather than as a gap.
+       * Which transport a machine WITH voices gets is settled by audio-graph.json
+       * above, where the platform voice list is injected.
+       */
+      wired: (w) => {
+        const n = w?.network ?? {};
+        return (
+          Array.isArray(n.externalRequests) &&
+          n.externalRequests.length === 0 &&
+          Number(n.ttsNetworkCalls ?? -1) === 0 &&
+          Number(n.linesSpokenDuringSession ?? 0) > 0 &&
+          typeof w?.voice?.browserSpeechApiPresent === "boolean"
+        );
+      },
+      wiredWhat: "a real session spoke lines and made zero external network requests",
+    }),
+  },
+  {
+    id: "A-21.6",
+    source: "D88 / AC-21.6",
+    title: "Coach notes are spoken after the text renders, display identical either way",
+    kind: "audio",
+    needsBrowser: true,
+    run: async ({ evidence }) => {
+      if (!evidence.has(WIRING_ARTIFACT)) {
+        return todo("no audio-wiring.json evidence yet; run tests/e2e/audio-wiring.spec.ts");
+      }
+      return evidence.assertShape(
+        WIRING_ARTIFACT,
+        (w) => {
+          const c = w?.coachNote ?? {};
+          return (
+            Array.isArray(c.order) &&
+            c.order.join(">") === "text>speech" &&
+            typeof c.textRendered === "string" &&
+            c.textRendered.length > 0 &&
+            // The display carries the text and NOTHING a renderer could branch
+            // on, which is what makes "identical with or without speech"
+            // structural rather than promised.
+            Array.isArray(c.displayFields) &&
+            c.displayFields.join(",") === "text" &&
+            Array.isArray(c.spoken) &&
+            c.spoken.some((s) => s?.kind === "coachNote")
+          );
+        },
+        "the real warp screen rendered the note, then spoke it",
+      );
+    },
+  },
+  {
+    id: "A-21.8",
+    source: "audit.md 1.2 / AC-19.1 / AC-6e.2",
+    title: "The game is audible: cues reach the bus, sliders move it, silence never crashes",
+    kind: "audio",
+    needsBrowser: true,
+    run: async ({ evidence }) => {
+      if (!evidence.has(WIRING_ARTIFACT)) {
+        return todo("no audio-wiring.json evidence yet; run tests/e2e/audio-wiring.spec.ts");
+      }
+      const w = evidence.read(WIRING_ARTIFACT);
+      const ev = evidence.path(WIRING_ARTIFACT);
+      const problems = [];
+
+      // AC-6e.2: a real keystroke produced a scheduled sound, one per cue.
+      const f = w.flightCue ?? {};
+      if (!(Number(f.sfxPlaysAfter ?? 0) > Number(f.sfxPlaysBefore ?? 0))) {
+        problems.push("no sound was scheduled by a real flight cue");
+      }
+      if (!(Number(f.keystrokeCues ?? 0) > 0 && f.keystrokePlays === f.keystrokeCues)) {
+        problems.push("keystroke cues and keystroke sounds do not match one for one");
+      }
+      const scheduled = Array.isArray(f.scheduled) ? f.scheduled : [];
+      if (!scheduled.some((p) => Number(p?.peakGain) > 0 && String(p?.via ?? "").startsWith("flight-cue:"))) {
+        problems.push("no scheduled play carries a flight-cue call site and a non-zero gain");
+      }
+
+      // It came out of the master bus: an AnalyserNode on the live graph.
+      if (!(w.uiNav?.audible === true && Number(w.uiNav?.masterRmsPeak ?? 0) > 0)) {
+        problems.push("the master bus carried no signal while the game played");
+      }
+
+      // AC-19.1: the sliders move the real gains, in the right direction.
+      const s = w.settings ?? {};
+      if (s.musicGainFollowedSlider !== true || s.sfxGainFollowedSlider !== true) {
+        problems.push("a settings volume slider did not move its bus gain");
+      }
+      if (s.mutedSurvived !== true) problems.push("a muted game did not survive a burst of cues");
+
+      // D88 / graceful degradation: no Web Audio at all is silence, not a crash.
+      const n = w.noAudioContext ?? {};
+      if (n.contextKind !== "NullAudioContext" || n.degradedSilently !== true) {
+        problems.push("the game did not degrade silently with no AudioContext");
+      }
+
+      return problems.length === 0
+        ? ok(
+            `real cues scheduled ${scheduled.length} sounds, master RMS ${Number(w.uiNav.masterRmsPeak).toFixed(4)}, ` +
+            "sliders moved both bus gains, muted and context-less runs both survived",
+            ev,
+          )
+        : bad(problems.join("; "), ev);
+    },
   },
 ];
 
