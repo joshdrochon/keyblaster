@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
 import { DUR, EASE, INK, SPACE, TYPE } from "./theme.js";
 import { plate, strokePlate, FocusRing } from "./chrome.js";
-import { rgb } from "./palette.js";
+import { hexToNum } from "@game/render/palette";
 import { FocusList, handleFocusKey } from "./focus.js";
 import { type ControlStyle, MenuButton } from "./controls.js";
 import type { MirrorItem } from "./mirror.js";
@@ -51,7 +51,7 @@ export class ConfirmDialog {
     // Scrim: dims what is behind without hiding it, so the child keeps their
     // place in the screen they are answering about.
     const scrim = scene.add
-      .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, rgb(INK.bgDeep), 0.72)
+      .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, hexToNum(INK.bgDeep), 0.72)
       .setOrigin(0, 0);
     this.container.add(scrim);
 
@@ -71,8 +71,8 @@ export class ConfirmDialog {
     const py = Math.round((GAME_HEIGHT - panelH) / 2);
 
     const g = scene.add.graphics();
-    plate(g, px, py, panelW, panelH, rgb(INK.panel), 0.98, 24);
-    strokePlate(g, px, py, panelW, panelH, rgb(INK.line), 2, 24);
+    plate(g, px, py, panelW, panelH, hexToNum(INK.panel), 0.98, 24);
+    strokePlate(g, px, py, panelW, panelH, hexToNum(INK.line), 2, 24);
     this.container.add(g);
 
     text.setPosition(

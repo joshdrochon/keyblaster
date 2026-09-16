@@ -383,6 +383,18 @@ game. Consequences:
 
 - Scene-clock waits in e2e must be conditions, not sleeps. This lane's specs use
   `waitForSnapshot` / `waitForScene` / `waitForTweens` throughout for that reason.
+- A condition is not enough on its own if it is a SAMPLE of a transient render
+  state. `chargedLabelVisible` first read `label.visible`, which is true only
+  between the frame the warp starts and the cut to Beacon that destroys the
+  Text; at a quarter of wall speed that window is short and variable, so the
+  poll landed inside it on one config and not another. Lengthening the timeout
+  does not widen the window - it only makes the flake rarer and harder to
+  diagnose. The fix is `latchOnRender` in
+  `src/game/scenes/support/laneInit.ts`: latch on `Phaser.Scenes.Events.RENDER`,
+  which fires after `cameras.render(displayList)`, and never clear it. The
+  assertion then reads "this was drawn", which is what the AC claims, instead
+  of "this is drawn at the instant I looked", which nothing can promise. Any
+  lane asserting on `visible` / `alpha` of a live GameObject has the same bug.
 - It is NOT yet evidence against AC-22.9 (p95 frame time <= 16.7 ms): headless
   WebGL with `ReadPixels` stalls is not the target environment. But the P test
   must be run headed, or it will measure the harness rather than the game.

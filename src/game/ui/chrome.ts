@@ -3,7 +3,7 @@ import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
 import { idleDriftPx, layer } from "@game/render/layers";
 import { particleSpec } from "@game/render/particles";
 import { DUR, EASE, INK, SPACE } from "./theme.js";
-import { type StopPalette, rgb } from "./palette.js";
+import { type StopPalette, hexToNum } from "@game/render/palette";
 
 /**
  * Vector menu chrome (D83: everything is drawn in code, no raster ships).
@@ -70,13 +70,13 @@ export class Backdrop {
   }
 
   private paintSky(): void {
-    const top = rgb(INK.bgDeep);
-    const bottom = rgb(this.palette.colors[5] ?? INK.bg);
+    const top = hexToNum(INK.bgDeep);
+    const bottom = hexToNum(this.palette.colors[5] ?? INK.bg);
     this.g.fillGradientStyle(top, top, bottom, bottom, 1);
     this.g.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
     // A wide, very soft accent bloom at the top edge: the ship's own cabin
     // light. It is what stops the gradient reading as a flat web background.
-    this.g.fillStyle(rgb(this.palette.accent), 0.06);
+    this.g.fillStyle(hexToNum(this.palette.accent), 0.06);
     this.g.fillEllipse(GAME_WIDTH * 0.5, -160, GAME_WIDTH * 1.2, 760);
   }
 
@@ -92,14 +92,14 @@ export class Backdrop {
       const x = next() * GAME_WIDTH;
       const y = next() * GAME_HEIGHT;
       const r = 1 + next() * 2.2;
-      this.g.fillStyle(rgb(INK.text), 0.1 + next() * 0.35);
+      this.g.fillStyle(hexToNum(INK.text), 0.1 + next() * 0.35);
       this.g.fillCircle(x, y, r);
     }
   }
 
   /** A single flat silhouette band, the menu's version of layer L3. */
   private paintMidfield(): void {
-    const band = rgb(this.palette.colors[4] ?? INK.panel);
+    const band = hexToNum(this.palette.colors[4] ?? INK.panel);
     this.midfield.fillStyle(band, 0.16);
     this.midfield.beginPath();
     this.midfield.moveTo(0, GAME_HEIGHT);
@@ -124,7 +124,7 @@ export class Backdrop {
           x * GAME_WIDTH,
           y * GAME_HEIGHT,
           2 + (i % 3),
-          rgb(this.palette.accent),
+          hexToNum(this.palette.accent),
           0.28,
         )
         .setDepth(layer("nearField").depth);
@@ -186,7 +186,7 @@ export class FocusRing {
     const target = { x: x - o, y: y - o, w: w + o * 2, h: h + o * 2 };
     const redraw = (): void => {
       this.g.clear();
-      this.g.lineStyle(SPACE.focusRingWidth, rgb(INK.accent), 1);
+      this.g.lineStyle(SPACE.focusRingWidth, hexToNum(INK.accent), 1);
       this.g.strokeRoundedRect(
         this.box.x,
         this.box.y,
@@ -196,7 +196,7 @@ export class FocusRing {
       );
       // A second, softer ring outside the first: the state stays legible
       // against both the bright and the dark half of a gradient.
-      this.g.lineStyle(SPACE.focusRingWidth + 6, rgb(INK.accent), 0.18);
+      this.g.lineStyle(SPACE.focusRingWidth + 6, hexToNum(INK.accent), 0.18);
       this.g.strokeRoundedRect(
         this.box.x - 3,
         this.box.y - 3,
@@ -247,8 +247,8 @@ export function drawShip(
   const c = scene.add.container(x, y);
   const g = scene.add.graphics();
   const s = size / 100;
-  const hull = rgb(colors.hull);
-  const stripe = rgb(colors.stripe);
+  const hull = hexToNum(colors.hull);
+  const stripe = hexToNum(colors.stripe);
 
   // Fins first, so the fuselage overlaps them.
   g.fillStyle(stripe, 1);
@@ -257,7 +257,7 @@ export function drawShip(
   g.fillTriangle(-6 * s, 34 * s, 0, 62 * s, 6 * s, 34 * s);
 
   // Nozzle.
-  g.fillStyle(rgb(INK.panelSunken), 1);
+  g.fillStyle(hexToNum(INK.panelSunken), 1);
   g.fillRoundedRect(-11 * s, 44 * s, 22 * s, 16 * s, 5 * s);
 
   // Fuselage: rounded capsule with a pointed nose.
@@ -270,25 +270,25 @@ export function drawShip(
   g.fillRoundedRect(-18 * s, 6 * s, 36 * s, 11 * s, 4 * s);
 
   // Porthole.
-  g.fillStyle(rgb(colors.glass), 1);
+  g.fillStyle(hexToNum(colors.glass), 1);
   g.fillCircle(0, -4 * s, 8 * s);
-  g.lineStyle(2.5 * s, rgb(INK.panelSunken), 0.8);
+  g.lineStyle(2.5 * s, hexToNum(INK.panelSunken), 0.8);
   g.strokeCircle(0, -4 * s, 8 * s);
 
   // Emitter head: finned housing, three focusing rings, iris, lens.
-  g.fillStyle(rgb(INK.panelRaised), 1);
+  g.fillStyle(hexToNum(INK.panelRaised), 1);
   g.fillRoundedRect(-13 * s, -46 * s, 26 * s, 16 * s, 5 * s);
   for (let i = 0; i < 4; i += 1) {
-    g.fillStyle(rgb(INK.line), 1);
+    g.fillStyle(hexToNum(INK.line), 1);
     g.fillRect((-11 + i * 6) * s, -46 * s, 2.4 * s, 16 * s);
   }
   for (let r = 3; r >= 1; r -= 1) {
-    g.lineStyle(2 * s, rgb(colors.lens), 0.35 + r * 0.14);
+    g.lineStyle(2 * s, hexToNum(colors.lens), 0.35 + r * 0.14);
     g.strokeCircle(0, -42 * s, (4 + r * 3) * s);
   }
-  g.fillStyle(rgb(colors.lens), 1);
+  g.fillStyle(hexToNum(colors.lens), 1);
   g.fillCircle(0, -42 * s, 6 * s);
-  g.fillStyle(rgb(INK.text), 0.85);
+  g.fillStyle(hexToNum(INK.text), 0.85);
   g.fillCircle(-1.6 * s, -44 * s, 2 * s);
 
   c.add(g);
@@ -312,18 +312,18 @@ export function drawAvatar(
   const c = scene.add.container(x, y);
   const g = scene.add.graphics();
   const r = size / 2;
-  const tint = rgb(color);
+  const tint = hexToNum(color);
 
-  g.fillStyle(rgb(INK.panelSunken), 1);
+  g.fillStyle(hexToNum(INK.panelSunken), 1);
   g.fillCircle(0, 0, r);
-  g.lineStyle(3, rgb(INK.line), 1);
+  g.lineStyle(3, hexToNum(INK.line), 1);
   g.strokeCircle(0, 0, r);
   g.fillStyle(tint, 1);
 
   switch (avatarId) {
     case "avatar-2": // moon: crescent from two discs
       g.fillCircle(0, 0, r * 0.56);
-      g.fillStyle(rgb(INK.panelSunken), 1);
+      g.fillStyle(hexToNum(INK.panelSunken), 1);
       g.fillCircle(r * 0.26, -r * 0.16, r * 0.5);
       break;
     case "avatar-3": { // star: five points
@@ -385,9 +385,9 @@ export function drawBeacon(
   const c = scene.add.container(x, y);
   const g = scene.add.graphics();
   const s = size / 100;
-  const body = lit ? rgb(accent) : rgb(INK.locked);
+  const body = lit ? hexToNum(accent) : hexToNum(INK.locked);
 
-  g.fillStyle(rgb(INK.panelSunken), 1);
+  g.fillStyle(hexToNum(INK.panelSunken), 1);
   g.fillRoundedRect(-22 * s, 34 * s, 44 * s, 14 * s, 5 * s);
   g.fillStyle(body, lit ? 0.9 : 0.55);
   g.fillTriangle(-16 * s, 34 * s, 0, -12 * s, 16 * s, 34 * s);
@@ -397,7 +397,7 @@ export function drawBeacon(
   c.add(g);
 
   if (lit) {
-    const glow = scene.add.circle(0, -22 * s, 26 * s, rgb(accent), 0.22);
+    const glow = scene.add.circle(0, -22 * s, 26 * s, hexToNum(accent), 0.22);
     c.addAt(glow, 0);
     scene.tweens.add({
       targets: glow,
@@ -430,9 +430,9 @@ export function drawTrophy(
   const c = scene.add.container(x, y);
   const g = scene.add.graphics();
   const r = size / 2;
-  const tint = earned ? rgb(accent) : rgb(INK.locked);
+  const tint = earned ? hexToNum(accent) : hexToNum(INK.locked);
 
-  g.fillStyle(rgb(INK.panelSunken), 1);
+  g.fillStyle(hexToNum(INK.panelSunken), 1);
   g.fillCircle(0, 0, r);
   g.lineStyle(3, tint, earned ? 1 : 0.5);
   g.strokeCircle(0, 0, r);

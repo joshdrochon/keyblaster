@@ -41,6 +41,57 @@ async function pauseOver(page: Page, below: string): Promise<void> {
 }
 
 test.describe("row 13 - pause", () => {
+  /**
+   * The real wiring, end to end: Esc DURING FLIGHT (design brief 13).
+   *
+   * Everything below this test opens the overlay over another menu screen,
+   * which exercises PauseScene's own contract deterministically. This one
+   * exercises the binding in FlightScene that makes the row reachable at all -
+   * without it, Pause is a screen nothing can open.
+   */
+  test("Esc during flight freezes the belt and opens the overlay", async ({
+    page,
+  }) => {
+    test.slow();
+    await page.goto("/?scene=Flight");
+    await page.waitForFunction(
+      () => (window as any).__kb?.game?.scene.isActive("Flight") === true,
+      null,
+      { timeout: 20_000 },
+    );
+    // Let the belt actually start moving, so "freeze" means something.
+    await page.waitForTimeout(1500);
+
+    await press(page, "Escape");
+    await screen(page, PAUSE).waitFor({ state: "attached" });
+
+    const state = await page.evaluate(() => {
+      const sm = (window as any).__kb.game.scene;
+      return {
+        flightActive: sm.isActive("Flight") as boolean,
+        flightPaused: sm.isPaused("Flight") as boolean,
+        pauseActive: sm.isActive("Pause") as boolean,
+      };
+    });
+    expect(state.flightPaused).toBe(true);
+    expect(state.flightActive).toBe(false);
+    expect(state.pauseActive).toBe(true);
+    expect((await snapshot(page, PAUSE))["from"]).toBe("Flight");
+
+    // The key that opened the menu must not also have closed it.
+    await expect(screen(page, PAUSE)).toHaveCount(1);
+    await assertVisibleFocus(page, PAUSE);
+
+    // ...and Resume puts the belt back, rather than restarting the stage.
+    await focusItem(page, PAUSE, "pause.resume");
+    await press(page, "Enter");
+    await screen(page, PAUSE).waitFor({ state: "detached" });
+    const resumed = await page.evaluate(
+      () => (window as any).__kb.game.scene.isActive("Flight") as boolean,
+    );
+    expect(resumed).toBe(true);
+  });
+
   test("the scene underneath freezes while the overlay is up", async ({
     page,
   }) => {

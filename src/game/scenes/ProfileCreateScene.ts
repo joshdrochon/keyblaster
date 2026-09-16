@@ -9,7 +9,7 @@ import {
   Tile,
 } from "@game/ui/controls";
 import { drawAvatar, drawShip } from "@game/ui/chrome";
-import { drawShadow } from "@game/ui/shadowPortrait";
+import { SHADOW_HEIGHT, drawShadow } from "@game/render/shadow";
 import { AVATARS, SHIPS, SKINS, shipDef } from "@game/ui/catalog";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { uiText } from "@game/ui/text";
@@ -60,7 +60,14 @@ export class ProfileCreateScene extends MenuScene {
   protected build(): void {
     // C07: the default ship name is a TABLE VALUE, not a literal in a scene.
     this.shipName = this.t.t("profile.shipNameDefault");
-    drawShadow(this, GAME_WIDTH - 230, GAME_HEIGHT - 300, "pointing", 210, this.reducedMotion);
+    this.shadows.push(
+      drawShadow(this, GAME_WIDTH - 230, GAME_HEIGHT - 300, "pointing", {
+        scale: 210 / SHADOW_HEIGHT,
+        reducedMotion: this.reducedMotion,
+        facing: -1,
+        depth: this.depth - 2,
+      }),
+    );
     this.addHint();
     this.renderStep();
   }

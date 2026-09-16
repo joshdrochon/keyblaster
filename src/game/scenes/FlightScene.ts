@@ -8,6 +8,7 @@ import {
   layer,
 } from "@game/render/layers.js";
 import { particleSpec } from "@game/render/particles.js";
+import { PauseScene } from "./PauseScene.js";
 import {
   type DebrisType,
   asteroidSizePx,
@@ -739,6 +740,7 @@ export class FlightScene extends Phaser.Scene {
   }
 
   private readonly onComposition = (event: CompositionEvent): void => {
+    if (!this.scene.isActive()) return;
     if (this.stalled || this.stageComplete) return;
     if (event.data.length === 0) return;
     // performance.now() rather than this.time.now: Phaser's clock is the last
@@ -749,6 +751,23 @@ export class FlightScene extends Phaser.Scene {
   };
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
+    // These listeners are on `window`, not on Phaser's per-scene keyboard
+    // plugin, so `scene.pause()` does NOT stop them: without this guard the
+    // belt would keep eating keystrokes behind the pause overlay, and every
+    // arrow key the player used to choose "resume" would also be fed to the
+    // lock. Pausing the scene has to pause its input too.
+    if (!this.scene.isActive()) return;
+
+    // Esc during flight (design brief 13). Deliberately before the stalled /
+    // complete guard is NOT what happens: a stalled ship has its own card and a
+    // finished stage is on its way to the warp break, so pausing either would
+    // be pausing something that is no longer a belt.
+    if (event.key === "Escape" && !this.stalled && !this.stageComplete) {
+      event.preventDefault();
+      PauseScene.openFrom(this);
+      return;
+    }
+
     if (this.stalled || this.stageComplete) return;
     if (event.key === "Tab") return; // AC-18.1: focus must stay reachable.
     if (event.key === " " || event.key.startsWith("Arrow")) event.preventDefault();

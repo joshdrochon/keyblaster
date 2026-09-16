@@ -9,7 +9,7 @@ import {
   type StopId,
 } from "@engine/types";
 import { type MenuTranslator, createMenuTranslator } from "./i18n.js";
-import { type StopPalette, paletteFor } from "./palette.js";
+import { type StopPalette, paletteAt } from "@game/render/palette";
 import type { ControlStyle } from "./controls.js";
 
 /**
@@ -91,7 +91,7 @@ export function appFor(scene: Phaser.Scene): App {
       // the colourblind variant without editing a save (boot builds `context`).
       const colorblind =
         bundle.context.colorblindPalette || app.settings().colorblindPalette;
-      return paletteFor(stopId, colorblind);
+      return paletteAt(stopId, colorblind);
     },
 
     applySettings(patch): Settings {

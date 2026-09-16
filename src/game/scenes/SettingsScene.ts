@@ -17,7 +17,7 @@ import {
   ToggleRow,
 } from "@game/ui/controls";
 import { plate, strokePlate } from "@game/ui/chrome";
-import { rgb } from "@game/ui/palette";
+import { hexToNum } from "@game/render/palette";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { uiText } from "@game/ui/text";
 import type { MenuKey } from "@game/ui/i18n";
@@ -320,12 +320,12 @@ export class SettingsScene extends MenuScene {
   /** The console plate behind a column: this is a panel, not a page. */
   private panelPlate(x: number, y: number, w: number, h: number): void {
     const g = this.add.graphics().setDepth(this.depth - 1);
-    plate(g, x, y, w, h, rgb(INK.panelSunken), 0.55, 26);
-    strokePlate(g, x, y, w, h, rgb(INK.line), 2, 26);
+    plate(g, x, y, w, h, hexToNum(INK.panelSunken), 0.55, 26);
+    strokePlate(g, x, y, w, h, hexToNum(INK.line), 2, 26);
     // A row of indicator pips along the top edge, like a real desk. Decorative
     // and deliberately not a status: nothing here can read as an alarm.
     for (let i = 0; i < 6; i += 1) {
-      g.fillStyle(rgb(this.uiStyle.accent), i % 2 === 0 ? 0.5 : 0.18);
+      g.fillStyle(hexToNum(this.uiStyle.accent), i % 2 === 0 ? 0.5 : 0.18);
       g.fillCircle(x + 28 + i * 20, y + 22, 5);
     }
   }

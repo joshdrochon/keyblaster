@@ -4,7 +4,7 @@ import { STOP_IDS, type StopId } from "@engine/types";
 import { MenuScene } from "@game/ui/MenuScene";
 import { type Control, ListRow, Tile } from "@game/ui/controls";
 import { drawBeacon, drawTrophy } from "@game/ui/chrome";
-import { drawShadow } from "@game/ui/shadowPortrait";
+import { SHADOW_HEIGHT, drawShadow } from "@game/render/shadow";
 import { TROPHIES } from "@game/ui/catalog";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { uiText } from "@game/ui/text";
@@ -194,14 +194,13 @@ export class BeaconLogScene extends MenuScene {
   }
 
   private buildEmptyState(): void {
-    drawShadow(
-      this,
-      GAME_WIDTH * 0.5,
-      GAME_HEIGHT - 210,
+    this.shadows.push(
       // art-direction section 6 assigns the sleeping pose to the empty log.
-      "sleeping",
-      170,
-      this.reducedMotion,
+      drawShadow(this, GAME_WIDTH * 0.5, GAME_HEIGHT - 210, "asleep", {
+        scale: 170 / SHADOW_HEIGHT,
+        reducedMotion: this.reducedMotion,
+        depth: this.depth - 2,
+      }),
     );
     this.emptyLine = this.t.t("ui.log.emptyShadow");
     const line = uiText(

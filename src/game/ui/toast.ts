@@ -3,7 +3,7 @@ import { GAME_WIDTH } from "@game/sceneKeys";
 import { layer } from "@game/render/layers";
 import { DUR, EASE, INK, SPACE, TYPE } from "./theme.js";
 import { plate, strokePlate } from "./chrome.js";
-import { rgb } from "./palette.js";
+import { hexToNum } from "@game/render/palette";
 import { publishToasts } from "./mirror.js";
 import { plateWidth, uiText } from "./text.js";
 import type { ControlStyle } from "./controls.js";
@@ -21,6 +21,23 @@ import type { ControlStyle } from "./controls.js";
  *
  * `showToast` takes the calling scene, so Flight and Results can raise one
  * without owning any of this.
+ *
+ * ---------------------------------------------------------------------------
+ * DO NOT USE `scene.time.delayedCall` FOR ANYTHING A TEST CAN SEE.
+ *
+ * Phaser 3.90's Clock advances on the SMOOTHED frame delta. In a throttled
+ * headless browser that runs an order of magnitude behind the wall clock:
+ * measured here, a 600 ms timer had accumulated 185 ms of `elapsed` after
+ * 2.5 s of real time, and a 3.2 s timer simply never fired. Tweens run on the
+ * same delta and DO complete, which is why the toast's exit below is a delayed
+ * tween rather than a timer.
+ *
+ * This is worth knowing because of how it presents: the feature works on a real
+ * machine, the e2e goes red, and the failure looks like flake. The tempting fix
+ * is to weaken the assertion that appears to fail. It is not flake - it is a
+ * timer that never fires - and weakening the assertion would ship a toast that
+ * never leaves the screen.
+ * ---------------------------------------------------------------------------
  */
 
 const live: string[] = [];
@@ -57,11 +74,11 @@ export function showToast(
 
   const w = plateWidth(text, SPACE.rowPadX, 280);
   const h = text.height + SPACE.rowPadY * 2;
-  plate(g, 0, 0, w, h, rgb(INK.panelRaised), 0.96);
-  strokePlate(g, 0, 0, w, h, rgb(style.accent), 3);
+  plate(g, 0, 0, w, h, hexToNum(INK.panelRaised), 0.96);
+  strokePlate(g, 0, 0, w, h, hexToNum(style.accent), 3);
   // A filled pip on the leading edge: the toast reads as an award even in a
   // desaturated frame (rubric 4).
-  g.fillStyle(rgb(style.accent), 1);
+  g.fillStyle(hexToNum(style.accent), 1);
   g.fillCircle(SPACE.rowPadX - 12, h / 2, 7);
   text.setPosition(SPACE.rowPadX + 6, SPACE.rowPadY);
 

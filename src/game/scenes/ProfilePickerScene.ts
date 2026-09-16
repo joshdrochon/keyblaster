@@ -4,7 +4,7 @@ import type { Profile } from "@engine/types";
 import { MenuScene } from "@game/ui/MenuScene";
 import { type Control, ListRow, MenuButton } from "@game/ui/controls";
 import { drawAvatar, drawBeacon } from "@game/ui/chrome";
-import { drawShadow } from "@game/ui/shadowPortrait";
+import { SHADOW_HEIGHT, drawShadow } from "@game/render/shadow";
 import { furthestBeacon, liveryFor } from "@game/ui/catalog";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { uiText } from "@game/ui/text";
@@ -68,7 +68,18 @@ export class ProfilePickerScene extends MenuScene {
    * starts a pilot.
    */
   private buildEmpty(): void {
-    drawShadow(this, GAME_WIDTH * 0.72, 520, "idle", 260, this.reducedMotion);
+    // `drawShadow` sizes by SCALE, not by pixels: SHADOW_HEIGHT is his drawn
+    // height at scale 1, so a wanted height divides through it. Keeping the
+    // arithmetic at the call site is deliberate - a helper that took a pixel
+    // height is how the second Shadow implementation started.
+    this.shadows.push(
+      drawShadow(this, GAME_WIDTH * 0.72, 520, "idle", {
+        scale: 260 / SHADOW_HEIGHT,
+        reducedMotion: this.reducedMotion,
+        facing: -1,
+        depth: this.depth - 2,
+      }),
+    );
     uiText(this, SPACE.gutter, 300, this.t.t("ui.pick.none"), {
       size: TYPE.heading,
       color: INK.textDim,
@@ -100,7 +111,15 @@ export class ProfilePickerScene extends MenuScene {
     const width = Math.min(1180, GAME_WIDTH - SPACE.gutter * 2);
     // Shadow stands beside the list, not in it. The "several" variant is the
     // busiest this screen gets, so he moves out of the column.
-    drawShadow(this, GAME_WIDTH - 260, 620, "pointing", 220, this.reducedMotion);
+    this.shadows.push(
+      drawShadow(this, GAME_WIDTH - 260, 620, "pointing", {
+        scale: 220 / SHADOW_HEIGHT,
+        reducedMotion: this.reducedMotion,
+        // He points back at the list, which is to his left.
+        facing: -1,
+        depth: this.depth - 2,
+      }),
+    );
 
     const controls: Control[] = [];
     this.profileIds = [];

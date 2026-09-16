@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
 import { layer } from "@game/render/layers";
+import type { ShadowFigure } from "@game/render/shadow";
 import type { StopId } from "@engine/types";
 import { type App, appFor } from "./app.js";
 import { Backdrop, FocusRing } from "./chrome.js";
@@ -35,6 +36,17 @@ export abstract class MenuScene extends Phaser.Scene {
   protected readonly list = new FocusList();
   protected ring!: FocusRing;
   protected dialog: ConfirmDialog | null = null;
+
+  /**
+   * Shadow figures drawn by this screen.
+   *
+   * `render/shadow.ts` returns a handle whose ambient life - the face-plate
+   * glow pulse and the hover bob (art-direction section 6) - is driven from the
+   * scene clock rather than by a tween, so it has to be stepped every frame. A
+   * figure that is never updated is a Shadow that has stopped breathing, which
+   * is rubric item 2 failing on four screens at once.
+   */
+  protected readonly shadows: ShadowFigure[] = [];
 
   private backdrop: Backdrop | null = null;
   private heading = "";
@@ -99,9 +111,10 @@ export abstract class MenuScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.teardown());
   }
 
-  override update(_time: number, delta: number): void {
+  override update(time: number, delta: number): void {
     this.elapsed += delta;
     this.backdrop?.update(this.elapsed);
+    for (const shadow of this.shadows) shadow.update(time);
   }
 
   protected get reducedMotion(): boolean {
@@ -341,6 +354,8 @@ export abstract class MenuScene extends Phaser.Scene {
   }
 
   private teardown(): void {
+    for (const shadow of this.shadows) shadow.destroy();
+    this.shadows.length = 0;
     if (this.onKey) this.input.keyboard?.off("keydown", this.onKey);
     this.onKey = null;
     this.dialog?.close();

@@ -4,7 +4,7 @@ import type { Focusable } from "./focus.js";
 import type { MirrorItem, MirrorRole } from "./mirror.js";
 import { DUR, EASE, INK, SPACE, TYPE, rowHeight } from "./theme.js";
 import { plate, strokePlate } from "./chrome.js";
-import { rgb } from "./palette.js";
+import { hexToNum } from "@game/render/palette";
 import { plateWidth, uiText } from "./text.js";
 
 /**
@@ -115,10 +115,10 @@ export abstract class Control implements Focusable {
   protected paintPlate(): void {
     this.g.clear();
     const fill = this.locked
-      ? rgb(INK.panelSunken)
+      ? hexToNum(INK.panelSunken)
       : this.focused
-        ? rgb(INK.panelRaised)
-        : rgb(INK.panel);
+        ? hexToNum(INK.panelRaised)
+        : hexToNum(INK.panel);
     plate(this.g, 0, 0, this.boxW, this.boxH, fill, this.locked ? 0.55 : 0.92);
     strokePlate(
       this.g,
@@ -126,7 +126,7 @@ export abstract class Control implements Focusable {
       0,
       this.boxW,
       this.boxH,
-      this.focused && !this.locked ? rgb(this.style.accent) : rgb(INK.line),
+      this.focused && !this.locked ? hexToNum(this.style.accent) : hexToNum(INK.line),
       this.focused && !this.locked ? 3 : 2,
     );
   }
@@ -445,7 +445,7 @@ export class Tile extends Control {
     if (this.selected && !this.locked) {
       // Selection is a filled bar under the tile, not a colour swap: it still
       // reads desaturated (rubric 4) and under the colourblind palette.
-      this.g.fillStyle(rgb(this.style.accent), 1);
+      this.g.fillStyle(hexToNum(this.style.accent), 1);
       this.g.fillRoundedRect(
         SPACE.rowPadX,
         this.boxH - 10,
@@ -561,7 +561,7 @@ export class ToggleRow extends Control {
     this.title.setColor(this.focused ? INK.text : INK.textDim);
     // A small filled pip beside the state word, so "on" is not carried by
     // colour alone (D41 colourblind rule applies to the menus too).
-    this.g.fillStyle(rgb(this.style.accent), this.value ? 1 : 0.22);
+    this.g.fillStyle(hexToNum(this.style.accent), this.value ? 1 : 0.22);
     this.g.fillCircle(
       this.boxW - SPACE.rowPadX - this.state.width - 22,
       this.boxH / 2,
@@ -680,9 +680,9 @@ export class SliderRow extends Control {
     this.paintPlate();
     this.title.setColor(this.focused ? INK.text : INK.textDim);
     const y = this.boxH / 2;
-    this.g.fillStyle(rgb(INK.panelSunken), 1);
+    this.g.fillStyle(hexToNum(INK.panelSunken), 1);
     this.g.fillRoundedRect(this.trackX, y - 7, this.trackW, 14, 7);
-    this.g.fillStyle(rgb(this.style.accent), this.focused ? 1 : 0.7);
+    this.g.fillStyle(hexToNum(this.style.accent), this.focused ? 1 : 0.7);
     this.g.fillRoundedRect(
       this.trackX,
       y - 7,
@@ -692,7 +692,7 @@ export class SliderRow extends Control {
     );
     // The knob is a second SHAPE, not just a colour change, so the value is
     // readable desaturated (rubric 4) and under the colourblind palette.
-    this.g.fillStyle(rgb(INK.text), 1);
+    this.g.fillStyle(hexToNum(INK.text), 1);
     this.g.fillCircle(this.trackX + this.trackW * this.value, y, 11);
   }
 
@@ -850,7 +850,7 @@ export class OptionRow<T extends string> extends Control {
     this.paintPlate();
     this.title.setColor(this.focused ? INK.text : INK.textDim);
     const y = SPACE.rowPadY + Math.max(this.title.height, this.readout.height) / 2;
-    const chevron = this.focused ? rgb(this.style.accent) : rgb(INK.textFaint);
+    const chevron = this.focused ? hexToNum(this.style.accent) : hexToNum(INK.textFaint);
     this.g.fillStyle(chevron, 1);
     const rx = this.boxW - SPACE.rowPadX - 18;
     this.g.fillTriangle(rx, y - 9, rx + 11, y, rx, y + 9);
@@ -983,7 +983,7 @@ export class TextField extends Control {
     }
     if (!this.caret) {
       this.caret = this.scene.add
-        .rectangle(0, 0, 3, this.entry.height * 0.8, rgb(this.style.accent))
+        .rectangle(0, 0, 3, this.entry.height * 0.8, hexToNum(this.style.accent))
         .setOrigin(0, 0);
       this.container.add(this.caret);
       this.scene.tweens.add({

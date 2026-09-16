@@ -3,8 +3,8 @@ import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { MenuScene } from "@game/ui/MenuScene";
 import { type Control, MenuButton } from "@game/ui/controls";
 import { plate, strokePlate } from "@game/ui/chrome";
-import { drawShadow } from "@game/ui/shadowPortrait";
-import { rgb } from "@game/ui/palette";
+import { SHADOW_HEIGHT, drawShadow } from "@game/render/shadow";
+import { hexToNum } from "@game/render/palette";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { uiText } from "@game/ui/text";
 
@@ -34,13 +34,29 @@ export class PauseScene extends MenuScene {
   /** The scene underneath, paused while this is up. */
   private from: string = SCENE_KEYS.flight;
   private frozen = false;
+  /**
+   * The overlay is opened BY a key and then closed by the same key, so the very
+   * event that opened it must not also reach the menu. Nothing is accepted
+   * until this scene has been stepped once; that is at most one frame, and it
+   * is the difference between Esc opening the pause menu and Esc appearing to
+   * do nothing at all.
+   */
+  private armed = false;
 
   constructor() {
     super({ key: SCENE_KEYS.pause });
   }
 
-  /** What the flight lane calls on Esc. One line, no knowledge of this class. */
+  /**
+   * What the flight lane calls on Esc. One line, no knowledge of this class.
+   *
+   * Guarded, because Flight is also booted standalone by its own perf harness,
+   * where only Flight itself is registered. An unregistered key would make
+   * Phaser log a warning every time a child pressed Esc; here it is simply a
+   * belt with no pause menu, which is what that harness is.
+   */
   static openFrom(scene: Phaser.Scene): void {
+    if (scene.scene.get(SCENE_KEYS.pause) === null) return;
     scene.scene.launch(SCENE_KEYS.pause, { from: scene.scene.key });
   }
 
@@ -59,7 +75,7 @@ export class PauseScene extends MenuScene {
     // The dim overlay. Dark enough that the menu reads, light enough that the
     // player can still see where their ship was - it is a pause, not an exit.
     this.add
-      .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, rgb(INK.bgDeep), 0.66)
+      .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, hexToNum(INK.bgDeep), 0.66)
       .setOrigin(0, 0)
       .setDepth(this.depth - 1);
 
@@ -68,8 +84,8 @@ export class PauseScene extends MenuScene {
     const px = Math.round((GAME_WIDTH - panelW) / 2);
     const py = Math.round((GAME_HEIGHT - panelH) / 2);
     const g = this.add.graphics().setDepth(this.depth - 1);
-    plate(g, px, py, panelW, panelH, rgb(INK.panel), 0.95, 26);
-    strokePlate(g, px, py, panelW, panelH, rgb(INK.line), 2, 26);
+    plate(g, px, py, panelW, panelH, hexToNum(INK.panel), 0.95, 26);
+    strokePlate(g, px, py, panelW, panelH, hexToNum(INK.line), 2, 26);
 
     const heading = this.t.t("ui.pause.heading");
     this.setHeadingText(heading);
@@ -82,7 +98,15 @@ export class PauseScene extends MenuScene {
     });
     title.setDepth(this.depth);
 
-    drawShadow(this, px + panelW - 110, py + 96, "idle", 120, this.reducedMotion);
+    this.shadows.push(
+      // Inside the panel, so he sits ON the plate rather than under it.
+      drawShadow(this, px + panelW - 110, py + 96, "idle", {
+        scale: 120 / SHADOW_HEIGHT,
+        reducedMotion: this.reducedMotion,
+        facing: -1,
+        depth: this.depth,
+      }),
+    );
 
     const rowW = panelW - SPACE.gutter * 2;
     let y = py + 180;
@@ -166,6 +190,16 @@ export class PauseScene extends MenuScene {
     this.frozen = false;
     this.scene.stop();
     this.goTo(SCENE_KEYS.map);
+  }
+
+  override update(time: number, delta: number): void {
+    super.update(time, delta);
+    this.armed = true;
+  }
+
+  /** Swallow everything until the opening keystroke has certainly passed. */
+  protected override extraKey(_event: KeyboardEvent): boolean {
+    return !this.armed;
   }
 
   /** Esc on the pause menu is Resume: the least surprising thing it can be. */
