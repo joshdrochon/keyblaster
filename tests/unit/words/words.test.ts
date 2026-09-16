@@ -16,6 +16,7 @@ import {
   isEligible,
   masteryOf,
   median,
+  firstFkLatency,
   medianFkLatency,
   medianIki,
   newEase,
@@ -191,6 +192,52 @@ describe("AC-7.1: every outcome updates the record deterministically", () => {
   });
 });
 
+describe("AC-20.3: the first exposure survives the rolling sample cap", () => {
+  // Found by an independent critic of the scoring module: reading
+  // fkLatencyMs[0] as "first exposure" is wrong, because pushCapped evicts the
+  // OLDEST samples. Retention words are by construction the high-exposure words
+  // (D21), so this broke on exactly the case AC-20.3 exists to measure.
+  it("records the first latency and never evicts it", () => {
+    let r = applyEvent(blankRecord(), hit(2000, 1, 1000));
+    expect(firstFkLatency(r)).toBe(2000);
+    for (let i = 0; i < SAMPLE_CAP + 5; i++) {
+      r = applyEvent(r, hit(590, 1, 2000 + i));
+    }
+    // The rolling window has forgotten it...
+    expect(r.fkLatencyMs).toHaveLength(SAMPLE_CAP);
+    expect(r.fkLatencyMs[0]).toBe(590);
+    // ...but the retention baseline has not.
+    expect(firstFkLatency(r)).toBe(2000);
+  });
+
+  it("is null before the first hit, and unset by miss or typo", () => {
+    expect(firstFkLatency(blankRecord())).toBeNull();
+    expect(firstFkLatency(applyEvent(blankRecord(), miss()))).toBeNull();
+    expect(firstFkLatency(applyEvent(blankRecord(), typo()))).toBeNull();
+  });
+
+  it("would understate a retention improvement by orders of magnitude if evicted", () => {
+    // The reproduction from the critic report, pinned as a regression.
+    let r = applyEvent(blankRecord(), hit(2000, 1, 1000));
+    for (let i = 0; i < SAMPLE_CAP; i++) r = applyEvent(r, hit(590, 1, 2000 + i));
+    const wrong = r.fkLatencyMs[0]! - medianFkLatency(r)!;
+    const right = firstFkLatency(r)! - medianFkLatency(r)!;
+    expect(Math.abs(wrong)).toBeLessThan(50);
+    expect(right).toBeGreaterThan(1400);
+  });
+});
+
+describe("median is total against corrupt samples (AC-18.4)", () => {
+  it("discards non-finite samples instead of poisoning the sort", () => {
+    // A comparator of (a-b) is undefined for NaN: one bad sample does not skew
+    // the median, it corrupts the whole ordering. Corrupted localStorage is a
+    // live path for this, not a hypothetical.
+    expect(median([100, NaN, 300])).toBe(200);
+    expect(median([NaN, NaN])).toBeNull();
+    expect(median([Infinity, 100, 200])).toBe(150);
+  });
+});
+
 describe("AC-9.3 / AC-9.4: retention eligibility (D21, D23)", () => {
   it("uses the documented stage intervals", () => {
     expect(intervalStages(1.6)).toBe(1); // weak
@@ -280,7 +327,7 @@ describe("D31: a word's record carries no notion of failure", () => {
     // like a grade the child could be shown.
     const r = blankRecord();
     expect(Object.keys(r).sort()).toEqual([
-      "ease", "exposures", "fkLatencyMs", "hits", "ikiMs",
+      "ease", "exposures", "firstFkLatencyMs", "fkLatencyMs", "hits", "ikiMs",
       "lastSeen", "misses", "nextEligibleStage", "typos",
     ]);
   });

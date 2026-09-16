@@ -78,6 +78,7 @@ function record(partial: Partial<WordRecord> = {}): WordRecord {
     typos: 0,
     fkLatencyMs: [],
     ikiMs: [],
+    firstFkLatencyMs: null,
     ease: EASE_NEW,
     lastSeen: null,
     nextEligibleStage: 0,
@@ -92,6 +93,8 @@ function stop(partial: Partial<StopProgress> = {}): StopProgress {
     stars: 0,
     bestWpm: 0,
     bestAccuracy: 0,
+    lastWpm: 0,
+    lastAccuracy: 0,
     beaconPlacedAt: null,
     ...partial,
   };

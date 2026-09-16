@@ -6,10 +6,18 @@
  * that single sample redefine their whole baseline (D51, D19).
  */
 
-/** Median of a sample set. Returns null for an empty set - never NaN. */
+/**
+ * Median of a sample set. Returns null for an empty set - never NaN.
+ *
+ * Non-finite samples are discarded before sorting. A comparator of (a-b) is
+ * undefined for NaN, so a single NaN does not merely skew the result, it
+ * corrupts the sort and poisons every downstream number. Corrupt storage is a
+ * live path for this (AC-18.4), not a hypothetical.
+ */
 export function median(values: readonly number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
+  const clean = values.filter((v) => Number.isFinite(v));
+  if (clean.length === 0) return null;
+  const sorted = [...clean].sort((a, b) => a - b);
   const mid = sorted.length >> 1;
   if (sorted.length % 2 === 1) return sorted[mid]!;
   return (sorted[mid - 1]! + sorted[mid]!) / 2;

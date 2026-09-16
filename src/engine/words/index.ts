@@ -32,6 +32,7 @@ export function blankRecord(): WordRecord {
     fkLatencyMs: [],
     ikiMs: [],
     ease: EASE_NEW,
+    firstFkLatencyMs: null,
     lastSeen: null,
     nextEligibleStage: 0,
   };
@@ -61,6 +62,9 @@ export function applyEvent(record: WordRecord, event: WordEvent): WordRecord {
       next.exposures += 1;
       next.hits += 1;
       next.fkLatencyMs = pushCapped(next.fkLatencyMs, event.fkLatencyMs, SAMPLE_CAP);
+      // Never evicted: AC-20.3's retention line measures against the FIRST
+      // exposure, and the rolling window above forgets it after SAMPLE_CAP hits.
+      next.firstFkLatencyMs = record.firstFkLatencyMs ?? event.fkLatencyMs;
       for (const iki of event.ikiMs) {
         next.ikiMs = pushCapped(next.ikiMs, iki, SAMPLE_CAP);
       }
@@ -88,6 +92,9 @@ export function applyEvent(record: WordRecord, event: WordEvent): WordRecord {
     }
   }
 }
+
+/** First-ever first-key latency, or null if never hit (AC-20.3 baseline). */
+export const firstFkLatency = (r: WordRecord): number | null => r.firstFkLatencyMs;
 
 /** Median first-key latency, or null if this word has never been hit. */
 export const medianFkLatency = (r: WordRecord): number | null => median(r.fkLatencyMs);

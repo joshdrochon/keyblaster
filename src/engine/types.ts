@@ -65,9 +65,21 @@ export interface WordRecord {
   hits: number;
   misses: number;
   typos: number;
-  /** Samples, newest last. Median is what the engine reads. */
+  /**
+   * Rolling samples, newest last, CAPPED (see words/pushCapped). Median is what
+   * the engine reads. Because the cap evicts the oldest entries, `fkLatencyMs[0]`
+   * is NOT the first exposure once a word passes the cap - use
+   * `firstFkLatencyMs` for that. Retention words are by construction the
+   * high-exposure words (D21), so this distinction is load-bearing for AC-20.3.
+   */
   fkLatencyMs: number[];
   ikiMs: number[];
+  /**
+   * First-key latency at the word's FIRST ever exposure, never evicted.
+   * AC-20.3 compares retention against first exposure; the rolling window
+   * cannot answer that question.
+   */
+  firstFkLatencyMs: number | null;
   /** Clamped to [EASE_MIN, EASE_MAX]; new words start at EASE_NEW. */
   ease: number;
   /** Epoch ms of the last exposure, or null if never seen. */
@@ -135,8 +147,26 @@ export interface StopProgress {
   stars: Stars;
   bestWpm: number;
   bestAccuracy: number;
+  /**
+   * The MOST RECENT run's figures, kept separately from the bests. AC-20.1 asks
+   * for the delta "vs previous stage", which is that stage's result, not its
+   * all-time best: comparing against a best turns steady improvement after one
+   * lucky run into a negative delta, which is the D31 failure mode exactly.
+   */
+  lastWpm: number;
+  lastAccuracy: number;
   beaconPlacedAt: number | null;
 }
+
+/**
+ * Stops that have a belt, i.e. everything except the Earth launchpad (D57).
+ * Earth is cleared by typing one word (AC-12.1) and has no flight, so it has
+ * no WPM and no accuracy - it must never be used as a "previous stage" for a
+ * results delta.
+ */
+export const BELT_STOP_IDS: readonly StopId[] = STOP_IDS.slice(1);
+
+export const isBeltStop = (stop: StopId): boolean => stop !== "earth";
 
 /**
  * A profile, not an account (D43). Name + avatar only: no email, no PII.

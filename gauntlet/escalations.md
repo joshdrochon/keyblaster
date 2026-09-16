@@ -59,3 +59,48 @@ option A would define them out of scope rather than serve them.
 NOT PASSED. The controller ships implementing the documented rules exactly; the
 assertion remains in the suite, named as escalated, and will start failing loudly
 again the moment the spec changes.
+
+## AC-20.1 / FR-15 — `accuracy` mixes words and keystrokes
+
+- **Escalated:** 2026-09-16 (build night 1)
+- **Source:** PRD AC-3.2, AC-3.4, AC-20.1; D31
+- **Found by:** independent critic review of `src/engine/scoring`
+- **Attempts:** n/a — inherited from the PRD, not a code defect. Implemented as documented.
+
+### The problem
+
+`accuracy = hits / (hits + typos)` is the documented formula. But the two counters
+are in different units:
+
+- `hits` increments once per **word completed** (AC-3.4)
+- `typos` increments once per **keystroke** (AC-3.2)
+
+So the denominator adds words to keystrokes. A player who completes 19 words
+(about 100 characters) with 1 wrong keystroke is reported at **95%**. Their
+per-keystroke accuracy is about **99%**.
+
+### Why it matters rather than being pedantic
+
+This is the number printed on a child's results screen (AC-20.1). D31 is explicit
+that the player should feel like the best typer in the world, and that measured
+success near 85% should feel near 100%. A formula that reads roughly five times
+harsher than the intuitive meaning of "accuracy" pushes in exactly the wrong
+direction, and it does so more the *longer* the words are — penalising the
+stronger readers the length knob is supposed to reward.
+
+### Options (user decision — none taken)
+
+| # | Option | Cost |
+|---|---|---|
+| A | Keep as documented. It matches Type Storm's own `hits/(hits+typos)`. | Free, but ships a misleading number to the learner. |
+| B | Count keystrokes on both sides: `correctKeystrokes / (correctKeystrokes + typos)`. | Small change to FR-7/scoring; needs `correctKeystrokes` on the stage tally. Reads as an accuracy a child and a parent would recognise. |
+| C | Keep `hits/(hits+typos)` for the engine's internal signal, display the keystroke figure. | Two numbers to keep straight; clearest split between "what tunes difficulty" and "what we tell the child". |
+
+**Lean: B.** The engine does not actually need the word-level ratio — the
+controller runs on HIT RATE (blasted / spawned, FR-10), which is a different
+quantity and unaffected. So B changes only what is displayed, and makes the
+displayed number mean what its label says.
+
+### Status
+
+NOT PASSED. Shipped as documented.
