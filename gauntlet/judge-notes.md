@@ -56,3 +56,31 @@ as a rocket now, which was the whole of round 1.
 Items 1 and 2 are single numbers. Nothing structural remains.
 
 Attempt 2 of 8.
+
+---
+
+## R-shadow — round 1 — REWORK
+
+- **Reference:** `design-reference/refs/shadow-sheet.png` (D91)
+- **Render:** `gauntlet/evidence/shadow-render.png`
+- **Verdict:** recognisably Shadow, and the construction is right. The face is
+  underweight, and the face is the character.
+
+**Right already, keep it:** round charcoal body, cream face rim, dark plate with
+pale-blue eyes, antenna with a glowing tip, side ear pods, stubby arms, round
+flank port, hover glow, and all six poses present (idle, pointing, cheering,
+worried, asleep, saluting). Bottom-row colourways correctly NOT used - Shadow
+has one look, per D91.
+
+| # | Difference | Fix |
+|---|---|---|
+| 1 | **Eyes too small.** The reference eyes are large rounded pills that fill most of the plate; they carry the whole expression. Combined eye width is ~55-60% of plate width in the reference, ~45% here, and the shape is narrower. | Enlarge and round them. This is the highest-value single change on the sheet. |
+| 2 | **Face plate too narrow.** The reference plate is a rounded rectangle spanning most of the head width inside its cream rim; here there is too much dark body around it, which shrinks the face further. | Widen the plate toward the rim. |
+| 3 | **Body reads flat.** The reference is a lighter charcoal with a clear highlight on the upper body, giving soft roundness. Here it is near-black and flat, so the silhouette loses its volume. | Lift the base value and add the upper highlight. |
+| 4 | Arms are thin and hug the body; reference arms are chunkier and angle slightly outward. | Thicken, angle out. |
+| 5 | Ear pods are small nubs; reference pods are larger with a visible blue ring. | Enlarge, add the ring. |
+| 6 | Evidence quality: the six poses render very small, and the sheet is on a blue field. | Render the poses larger and on transparent, as the Lantern lane now does. |
+
+Items 1-3 are the character. Do those and re-render before the rest.
+
+Attempt 1 of 8.

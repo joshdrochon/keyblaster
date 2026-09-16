@@ -1,0 +1,27 @@
+{
+  "stopId": "jupiter",
+  "lang": "en",
+  "planetName": "Jupiter",
+  "chapterTitle": "The Giant",
+  "briefing": [
+    "Jupiter is the biggest planet of all.",
+    "You could fit every other planet inside it.",
+    "It has no ground to land on, only clouds in stripes of orange, white, and brown.",
+    "A giant storm called the great red spot has been spinning for hundreds of years.",
+    "Jupiter has so many moons that we are still counting, so keep your distance: even its gravity is big."
+  ],
+  "pool": [
+    "jupiter", "biggest", "planet", "fit", "every", "other", "inside",
+    "ground", "land", "clouds", "stripes", "orange", "white", "brown",
+    "giant", "storm", "great", "red", "spot", "spinning", "hundreds",
+    "years", "many", "moons", "still", "counting", "keep", "distance",
+    "gravity", "big"
+  ],
+  "properNouns": ["Jupiter"],
+  "preflightLine": "Jupiter's pull is strong. More rocks, faster rocks. Keep your eyes on the words, not the storm.",
+  "activationWord": null,
+  "warpSentence": "Jupiter is the biggest planet of all.",
+  "beaconHeadline": "JUPITER BEACON",
+  "beaconState": "PLACED",
+  "beaconFlavor": "Big enough to hide the whole map. We found it anyway."
+}

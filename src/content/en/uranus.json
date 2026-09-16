@@ -1,0 +1,26 @@
+{
+  "stopId": "uranus",
+  "lang": "en",
+  "planetName": "Uranus",
+  "chapterTitle": "The Sideways Planet",
+  "briefing": [
+    "Uranus is a planet that spins on its side.",
+    "Most planets spin like a top, but Uranus rolls like a ball.",
+    "That means its seasons last for years: one pole faces the sun for a very long time while the other pole sits in the dark.",
+    "Uranus is pale blue and very cold.",
+    "Its rings are thin and dark, and hard to see."
+  ],
+  "pool": [
+    "uranus", "planet", "spins", "side", "most", "planets", "spin", "top",
+    "rolls", "ball", "means", "seasons", "last", "years", "pole", "faces",
+    "sun", "very", "long", "time", "other", "sits", "dark", "pale", "blue",
+    "cold", "rings", "thin", "hard", "see"
+  ],
+  "properNouns": ["Uranus"],
+  "preflightLine": "Everything out here is tilted. Don't worry about which way is up. Just read.",
+  "activationWord": null,
+  "warpSentence": "Uranus is a planet that spins on its side.",
+  "beaconHeadline": "URANUS BEACON",
+  "beaconState": "PLACED",
+  "beaconFlavor": "Sideways is still a direction."
+}

@@ -1,0 +1,403 @@
+/**
+ * TITLE e2e - screen 1 of the screen inventory.
+ *
+ * Three of these tests are the ONLY producers of evidence the gauntlet reads:
+ *   gauntlet/evidence/title-idle-diff.json   -> rubric V-22.2  (AC-22.2)
+ *   gauntlet/evidence/parallax-overlay.json  -> rubric V-22.1b (AC-22.1)
+ *   gauntlet/evidence/lantern-render.png     -> rubric R-lantern (AC-24.2)
+ * The key names below are the ones rubric.mjs asserts on; they are a contract,
+ * not a convenience.
+ *
+ * The pixel diff is computed from two REAL screenshots of the canvas, decoded
+ * and compared inside the page (the repo has no image-diff dependency and this
+ * lane may not add one). Decoding a PNG in a browser is not an approximation.
+ */
+
+import { expect, test, type Page } from "@playwright/test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * Traces off for THIS file only.
+ *
+ * playwright.config.ts sets `trace: "retain-on-failure"` and every lane's suite
+ * shares one `test-results/` directory. While lanes run concurrently a second
+ * run clears that directory mid-flight and `browserContext.close` then dies on
+ * ENOENT writing its trace - the assertions have already passed. Until the
+ * config gives each run its own outputDir (not this lane's file to change),
+ * dropping the trace is what keeps a green suite green.
+ */
+test.use({ trace: "off" });
+
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const EVIDENCE = join(REPO, "gauntlet", "evidence");
+
+function writeEvidence(name: string, body: string | Buffer): void {
+  mkdirSync(EVIDENCE, { recursive: true });
+  writeFileSync(join(EVIDENCE, name), body);
+}
+
+/**
+ * Kill Vite's HMR socket before anything loads.
+ *
+ * Six lanes write into src/ while this suite runs, and every save makes the dev
+ * server push a full reload. A reload mid-measurement detaches the canvas and
+ * fails the test for a reason that has nothing to do with the screen. The game
+ * itself opens no WebSocket, so stubbing the constructor costs nothing.
+ */
+async function freezeReloads(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    class DeadSocket extends EventTarget {
+      readonly readyState = 3;
+      send(): void {}
+      close(): void {}
+    }
+    (window as unknown as Record<string, unknown>)["WebSocket"] = DeadSocket;
+  });
+}
+
+/** A frame of the game. Viewport-level, so an HMR swap cannot detach it. */
+async function frame(page: Page): Promise<Buffer> {
+  return page.screenshot();
+}
+
+/** Game-clock reading, in ms. */
+async function elapsed(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const t = (window as unknown as Record<string, Record<string, unknown>>)["__kb"]?.[
+      "title"
+    ] as { motion: () => { elapsedMs: number } };
+    return t.motion().elapsedMs;
+  });
+}
+
+/**
+ * Wait for the RENDER LOOP to advance by `ms`, not just the wall clock.
+ *
+ * Eight WebGL contexts run in parallel in this suite and a headless GPU can
+ * stall one of them. Sleeping on the wall clock through a stall would compare
+ * two identical frames and fail AC-22.2 for a reason that has nothing to do
+ * with the screen; "one second apart" means one second of the animation.
+ */
+async function advanceGameTime(page: Page, ms: number): Promise<void> {
+  const from = await elapsed(page);
+  await page.waitForFunction(
+    ([start, span]: [number, number]) => {
+      const t = (window as unknown as Record<string, Record<string, unknown>>)["__kb"]?.[
+        "title"
+      ] as { motion: () => { elapsedMs: number } };
+      return t.motion().elapsedMs - start >= span;
+    },
+    [from, ms] as [number, number],
+    { timeout: 20_000 },
+  );
+}
+
+/** Wait for boot AND for the Title scene to have published its debug bag. */
+async function openTitle(page: Page, query = ""): Promise<void> {
+  await freezeReloads(page);
+  await page.goto(`/?scene=Title${query}`);
+  await expect(page.getByTestId("app")).toHaveAttribute("data-booted", "true");
+  await page.waitForFunction(() => {
+    const bag = (window as unknown as Record<string, Record<string, unknown>>)["__kb"];
+    return bag !== undefined && bag["title"] !== undefined;
+  });
+  // One extra beat so the entrance tweens have settled before anything is measured.
+  await page.waitForTimeout(700);
+}
+
+/** Percentage of pixels that differ between two base64 PNGs, decoded in-page. */
+async function pixelDiffPercent(page: Page, a: string, b: string): Promise<number> {
+  return page.evaluate(
+    async ([first, second]: [string, string]) => {
+      const load = (data: string): Promise<HTMLImageElement> =>
+        new Promise((res, rej) => {
+          const img = new Image();
+          img.onload = () => res(img);
+          img.onerror = rej;
+          img.src = `data:image/png;base64,${data}`;
+        });
+      const [ia, ib] = await Promise.all([load(first), load(second)]);
+      const w = Math.min(ia.width, ib.width);
+      const h = Math.min(ia.height, ib.height);
+      const pixels = (img: HTMLImageElement): Uint8ClampedArray => {
+        const c = document.createElement("canvas");
+        c.width = w;
+        c.height = h;
+        const ctx = c.getContext("2d");
+        if (ctx === null) throw new Error("no 2d context");
+        ctx.drawImage(img, 0, 0);
+        return ctx.getImageData(0, 0, w, h).data;
+      };
+      const da = pixels(ia);
+      const db = pixels(ib);
+      // 12/255 ignores encoder noise; anything a person could see clears it.
+      const T = 12;
+      let differing = 0;
+      for (let i = 0; i < da.length; i += 4) {
+        if (
+          Math.abs((da[i] ?? 0) - (db[i] ?? 0)) > T ||
+          Math.abs((da[i + 1] ?? 0) - (db[i + 1] ?? 0)) > T ||
+          Math.abs((da[i + 2] ?? 0) - (db[i + 2] ?? 0)) > T
+        ) {
+          differing++;
+        }
+      }
+      return (differing / (w * h)) * 100;
+    },
+    [a, b] as [string, string],
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+test("AC-22.2 two Title frames 1 s apart differ by more than 2% of pixels", async ({ page }) => {
+  await openTitle(page);
+
+  const shotA = await frame(page);
+  await advanceGameTime(page, 1000);
+  const shotB = await frame(page);
+
+  const diffPercent = await pixelDiffPercent(
+    page,
+    shotA.toString("base64"),
+    shotB.toString("base64"),
+  );
+
+  // The judge step wants to SEE the two frames, not just the number (D85).
+  writeEvidence("title-idle-a.png", shotA);
+  writeEvidence("title-idle-b.png", shotB);
+  // Shape is fixed by tests/gauntlet/rubric.mjs item V-22.2: key "diffPercent".
+  writeEvidence(
+    "title-idle-diff.json",
+    `${JSON.stringify(
+      {
+        diffPercent,
+        gapMs: 1000,
+        threshold: 2,
+        channelTolerance: 12,
+        frames: ["gauntlet/evidence/title-idle-a.png", "gauntlet/evidence/title-idle-b.png"],
+        capturedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  expect(diffPercent).toBeGreaterThan(2);
+});
+
+test("AC-22.1 at least five parallax layers actually move on the Title", async ({ page }) => {
+  await openTitle(page);
+
+  const read = (): Promise<Record<string, { x: number; y: number }>> =>
+    page.evaluate(() => {
+      const t = (window as unknown as Record<string, Record<string, unknown>>)["__kb"]?.[
+        "title"
+      ] as { parallaxOffsets: () => Record<string, { x: number; y: number }> };
+      return t.parallaxOffsets();
+    });
+
+  const before = await read();
+  await advanceGameTime(page, 600);
+  const after = await read();
+
+  const moved = Object.keys(before).filter((id) => {
+    const a = before[id];
+    const b = after[id];
+    if (a === undefined || b === undefined) return false;
+    return Math.abs(a.x - b.x) > 0.05 || Math.abs(a.y - b.y) > 0.05;
+  });
+
+  // Shape is fixed by rubric.mjs item V-22.1b: key "movingLayers".
+  writeEvidence(
+    "parallax-overlay.json",
+    `${JSON.stringify(
+      {
+        movingLayers: moved.length,
+        layers: moved,
+        sampleGapMs: 600,
+        scene: "Title",
+        capturedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  expect(moved.length).toBeGreaterThanOrEqual(5);
+});
+
+test("AC-18.1 the Title is operable with the keyboard alone and shows focus", async ({ page }) => {
+  await openTitle(page);
+
+  const focus = (): Promise<number> =>
+    page.evaluate(
+      () =>
+        (
+          (window as unknown as Record<string, Record<string, unknown>>)["__kb"]?.["title"] as {
+            focusIndex: number;
+          }
+        ).focusIndex,
+    );
+
+  expect(await focus()).toBe(0);
+  await page.keyboard.press("ArrowDown");
+  expect(await focus()).toBe(1);
+  await page.keyboard.press("Tab");
+  expect(await focus()).toBe(2);
+  // Wraps, so a child cannot get stuck at the end of the list.
+  await page.keyboard.press("ArrowDown");
+  expect(await focus()).toBe(0);
+  await page.keyboard.press("ArrowUp");
+  expect(await focus()).toBe(2);
+
+  // The focus ring is drawn, not implied: the frame must change when focus moves.
+  const a = await frame(page);
+  await page.keyboard.press("ArrowUp");
+  await advanceGameTime(page, 350);
+  const b = await frame(page);
+  expect(await pixelDiffPercent(page, a.toString("base64"), b.toString("base64"))).toBeGreaterThan(0);
+});
+
+test("D45 the language switch is visible and changes the UI language", async ({ page }) => {
+  await openTitle(page);
+
+  const lang = (): Promise<string> =>
+    page.evaluate(
+      () =>
+        (
+          (window as unknown as Record<string, Record<string, unknown>>)["__kb"]?.["title"] as {
+            lang: string;
+          }
+        ).lang,
+    );
+
+  expect(await lang()).toBe("en");
+  // Third item is the language row; Right steps along it.
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(500);
+  expect(await lang()).toBe("es");
+});
+
+test("AC-19.3 reduced motion removes camera sway and keeps ambient drift", async ({ page }) => {
+  await openTitle(page, "&reducedMotion=1");
+
+  const motion = (): Promise<{ swayPx: number; reducedMotion: boolean }> =>
+    page.evaluate(() => {
+      const t = (window as unknown as Record<string, Record<string, unknown>>)["__kb"]?.[
+        "title"
+      ] as { motion: () => { swayPx: number; reducedMotion: boolean } };
+      return t.motion();
+    });
+
+  const first = await motion();
+  expect(first.reducedMotion).toBe(true);
+  for (let i = 0; i < 4; i++) {
+    await page.waitForTimeout(250);
+    expect((await motion()).swayPx).toBe(0);
+  }
+
+  // Drift is KEPT: the world must still be alive, just not swaying.
+  const a = await frame(page);
+  await advanceGameTime(page, 1000);
+  const b = await frame(page);
+  const diff = await pixelDiffPercent(page, a.toString("base64"), b.toString("base64"));
+  writeEvidence(
+    "title-reduced-motion.json",
+    `${JSON.stringify({ diffPercent: diff, swayPx: 0, reducedMotion: true }, null, 2)}\n`,
+  );
+  expect(diff).toBeGreaterThan(2);
+});
+
+test("returning pilots get Continue and their furthest beacon", async ({ page }) => {
+  const progress = [
+    "earth",
+    "mars",
+    "jupiter",
+    "saturn",
+    "uranus",
+    "neptune",
+    "pluto",
+  ].map((stopId, i) => ({
+    stopId,
+    cleared: i <= 2,
+    stars: i <= 2 ? 3 : 0,
+    bestWpm: 0,
+    bestAccuracy: 0,
+    lastWpm: 0,
+    lastAccuracy: 0,
+    beaconPlacedAt: i <= 2 ? 1_700_000_000_000 + i : null,
+  }));
+
+  await page.addInitScript(
+    ([key, payload]: [string, string]) => {
+      window.localStorage.setItem(key, payload);
+    },
+    [
+      "kb:v1:profiles",
+      JSON.stringify({
+        version: 2,
+        activeProfileId: "pilot-test",
+        profiles: [
+          {
+            id: "pilot-test",
+            name: "Ada",
+            avatar: "avatar-1",
+            shipId: "ship-1",
+            shipName: "Lantern",
+            createdAt: 1_700_000_000_000,
+            calibration: { ikiMs: 350, fkLatencyMs: 500 },
+            progress,
+            trophies: [],
+            unlockedShips: ["ship-1"],
+            unlockedSkins: [],
+            words: {},
+          },
+        ],
+      }),
+    ] as [string, string],
+  );
+
+  await openTitle(page);
+  const bag = await page.evaluate(
+    () =>
+      (window as unknown as Record<string, Record<string, unknown>>)["__kb"]?.["title"] as {
+        primary: string;
+        furthestBeacon: string | null;
+      },
+  );
+  expect(bag.primary).toBe("continue");
+  expect(bag.furthestBeacon).toBe("jupiter");
+});
+
+test("AC-24.2 the vector Lantern renders for the reference compare", async ({ page }) => {
+  await freezeReloads(page);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto("/?lantern=1");
+  // index.html paints the page dark; clearing it lets omitBackground produce a
+  // genuinely transparent PNG, so the judge sees silhouette and nothing else.
+  await page.addStyleTag({ content: "html,body{background:transparent !important}" });
+  await expect(page.getByTestId("app")).toHaveAttribute("data-booted", "true");
+  await page.waitForFunction(
+    () => (window as unknown as { __kbLanternShot?: boolean }).__kbLanternShot === true,
+  );
+  await page.waitForTimeout(600);
+
+  // Filename is fixed by rubric.mjs item R-lantern.
+  writeEvidence("lantern-render.png", await page.screenshot({ omitBackground: true }));
+});
+
+test("no UI string is missing from the active language table", async ({ page }) => {
+  await openTitle(page);
+  const misses = await page.evaluate(
+    () =>
+      ((window as unknown as Record<string, Record<string, unknown>>)["__kb"]?.[
+        "i18nMisses"
+      ] as string[]) ?? [],
+  );
+  expect(misses).toEqual([]);
+});

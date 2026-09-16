@@ -14,3 +14,11 @@ playwright-report/
 test-results/
 gauntlet/state.json
 gauntlet/evidence/
+
+# Lane scratch: temporary Playwright configs and debug scripts created by
+# parallel build agents. Kept out of the repo rather than deleted, because the
+# lanes that own them may still be running.
+kbdbg.mjs
+pw.*.ts
+pw.*.mjs
+pw.*.config.ts

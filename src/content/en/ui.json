@@ -1,0 +1,38 @@
+{
+  "lang": "en",
+  "note": "UI copy for the story screens (Earth activation, Director map, Briefing, Pre-flight). It lives beside the stage bundles because architecture section 8 puts i18n tables in content/<lang>/ and because src/engine/i18n/strings.ts is owned by the engine and its StringKey union is closed. Scene code reads these through src/game/scenes/lib/strings.ts and never inlines English.",
+  "strings": {
+    "earth.heading": "earth beacon",
+    "earth.status.dark": "offline",
+    "earth.status.lit": "online",
+    "earth.typePrompt": "type {word} to wake the beacon",
+    "earth.lit": "the beacon is lit.",
+    "earth.continue": "open the map",
+
+    "map.subheading": "seven stops, one lit path",
+    "map.personalBest": "personal best",
+    "map.bestWpm": "{wpm} wpm",
+    "map.bestAccuracy": "{accuracy}% accurate",
+    "map.noRunYet": "no run yet",
+    "map.charted": "beacon lit",
+    "map.travel": "fly here",
+    "map.hint": "left and right to choose a stop, enter to fly",
+    "map.progress": "{lit} of {total} beacons lit",
+
+    "briefing.heading": "mission briefing",
+    "briefing.window": "through the window",
+    "briefing.hint": "enter to launch",
+
+    "preflight.step.hull": "hull check",
+    "preflight.step.systems": "systems check",
+    "preflight.step.engines": "engines",
+    "preflight.line.opening": "Starting the ship. Stay with me.",
+    "preflight.line.hull": "Hull, check.",
+    "preflight.line.systems": "Systems, check.",
+    "preflight.line.engines": "Engines, warm.",
+    "preflight.line.done": "Pilot... that's you.",
+    "preflight.line.returning": "You know the drill. Let's go and light one more.",
+    "preflight.ready": "all systems lit",
+    "preflight.hint": "type the word you see"
+  }
+}

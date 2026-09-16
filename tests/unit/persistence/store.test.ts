@@ -156,6 +156,25 @@ describe("storage failure degrades, never crashes", () => {
     expect(storage.map.has(STORAGE_KEY)).toBe(false);
   });
 
+  it("a storage that throws a non-Error is still handled", () => {
+    // Browsers throw DOMExceptions, but an extension shim can throw anything.
+    const storage = new FakeStorage();
+    const clock = new FakeClock();
+    const hostile = {
+      getItem: () => null,
+      setItem: () => {
+        throw "nope";
+      },
+      removeItem: () => undefined,
+    };
+    const store = createProfileStore({ storage: { ...storage, ...hostile }, clock });
+    store.createProfile({ name: "Ada" });
+    const result = store.flush();
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("nope");
+    expect(store.degraded).toBe(true);
+  });
+
   it("AC-18.4: a corrupt payload at construction yields a playable store", () => {
     const { store } = setup("}{ not json");
     expect(store.profiles).toHaveLength(1);

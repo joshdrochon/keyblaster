@@ -1,0 +1,50 @@
+{
+  "stopId": "mars",
+  "lang": "en",
+  "planetName": "Mars",
+  "chapterTitle": "The Red Planet",
+  "briefing": [
+    "Mars is the red planet.",
+    "It is red because its dust is full of rust.",
+    "Mars is cold and dry, and its sky looks pink in the day.",
+    "Two tiny moons spin around it, and long ago rivers may have run across the surface.",
+    "Now the land is empty, and you are the first pilot to place a beacon here."
+  ],
+  "pool": [
+    "mars",
+    "red",
+    "planet",
+    "dust",
+    "rust",
+    "cold",
+    "dry",
+    "sky",
+    "pink",
+    "day",
+    "tiny",
+    "moons",
+    "spin",
+    "long",
+    "ago",
+    "rivers",
+    "run",
+    "across",
+    "surface",
+    "now",
+    "land",
+    "empty",
+    "first",
+    "pilot",
+    "place",
+    "beacon"
+  ],
+  "properNouns": [
+    "Mars"
+  ],
+  "preflightLine": "Belt ahead. Rocks with words on them. Type the word, the blaster does the rest. Ready when you are.",
+  "activationWord": null,
+  "warpSentence": "Mars is the red planet.",
+  "beaconHeadline": "MARS BEACON",
+  "beaconState": "PLACED",
+  "beaconFlavor": "Rust and rivers. Someone will come back for those."
+}

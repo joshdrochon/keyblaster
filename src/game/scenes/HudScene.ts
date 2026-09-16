@@ -1,0 +1,183 @@
+import Phaser from "phaser";
+import { SCENE_KEYS } from "@game/sceneKeys.js";
+import { layer } from "@game/render/layers.js";
+import { hexToInt } from "@game/render/wordPlate.js";
+import { FLIGHT_EVENTS, type HudSnapshot } from "@game/flight/stage.js";
+import { type FlightCopy, createFlightCopy } from "@game/flight/copy.js";
+import type { Lang } from "@engine/types.js";
+
+/**
+ * The HUD (design-brief-v2.md section 6, art-direction section 2 layer L7).
+ *
+ * Its own scene, so it renders above every flight layer without competing for
+ * the debris container's depth, and so a paused or stalled Flight scene can
+ * keep the readouts on screen unchanged.
+ *
+ * THREE CONSTRAINTS SHAPE EVERY PIXEL HERE.
+ *
+ * L7 "own contrast plate, never over debris" - the readouts sit on plates in
+ * the top corners, inside a keep-out the rocks never enter.
+ *
+ * AC-8.3 "no UI element maps size to speed" - there is no fall-time readout, no
+ * speed bar, no timer and no size legend anywhere in this file. Fall time is
+ * this child's private history with a word (D19); drawing it would turn an
+ * adaptive system into a public judgement about them.
+ *
+ * D31 "nothing reads as punishment" - the hull is three marks that DIM, never a
+ * bar that empties and never a count of what was lost, and the multiplier comes
+ * from `hudMultiplierFor` so the screen never shows "x0".
+ */
+export class HudScene extends Phaser.Scene {
+  private copy!: FlightCopy;
+  private snapshot: HudSnapshot | null = null;
+
+  private wpmValue!: Phaser.GameObjects.Text;
+  private wpmLabel!: Phaser.GameObjects.Text;
+  private comboValue!: Phaser.GameObjects.Text;
+  private comboLabel!: Phaser.GameObjects.Text;
+  private scoreValue!: Phaser.GameObjects.Text;
+  private scoreLabel!: Phaser.GameObjects.Text;
+  private hullLabel!: Phaser.GameObjects.Text;
+  private hullMarks: Phaser.GameObjects.Graphics[] = [];
+  private lastCombo = 0;
+
+  private readonly font =
+    "'Atkinson Hyperlegible', 'Noto Sans', 'Segoe UI', system-ui, sans-serif";
+
+  constructor() {
+    super(SCENE_KEYS.hud);
+  }
+
+  init(data: { snapshot?: HudSnapshot; uiLang?: Lang; shipName?: string }): void {
+    this.snapshot = data.snapshot ?? null;
+    this.copy = createFlightCopy(data.uiLang ?? "en", {
+      shipName: data.shipName ?? "Lantern",
+    });
+  }
+
+  create(): void {
+    const snap = this.snapshot;
+    const accent = snap?.accent ?? "#FFC857";
+    const plate = snap?.plate ?? "#0E1116";
+    const plateText = snap?.plateText ?? "#F7FAFF";
+
+    this.cameras.main.setRoundPixels(true);
+    this.scene.bringToTop();
+
+    const left = this.plate(24, 22, 236, 92, plate, accent);
+    left.setDepth(layer("hud").depth);
+
+    this.wpmValue = this.text(44, 40, "0", plateText, 34);
+    this.wpmLabel = this.text(44, 78, this.copy.t("hud.wpm"), accent, 16);
+    this.comboValue = this.text(150, 40, "x1", accent, 34);
+    this.comboLabel = this.text(150, 78, this.copy.t("hud.combo"), plateText, 16);
+
+    const right = this.plate(
+      this.scale.width - 260,
+      22,
+      236,
+      92,
+      plate,
+      accent,
+    );
+    right.setDepth(layer("hud").depth);
+
+    this.scoreValue = this.text(this.scale.width - 240, 40, "0", plateText, 34);
+    this.scoreLabel = this.text(
+      this.scale.width - 240,
+      78,
+      this.copy.t("hud.score"),
+      accent,
+      16,
+    );
+
+    this.hullLabel = this.text(
+      this.scale.width - 132,
+      78,
+      this.copy.t("flight.hull"),
+      plateText,
+      16,
+    );
+    this.buildHullMarks(this.scale.width - 132, 48, accent);
+
+    this.game.events.on(FLIGHT_EVENTS.hud, this.onSnapshot, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.game.events.off(FLIGHT_EVENTS.hud, this.onSnapshot, this);
+    });
+
+    if (snap !== null) this.onSnapshot(snap);
+  }
+
+  private plate(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    fill: string,
+    accent: string,
+  ): Phaser.GameObjects.Graphics {
+    const g = this.add.graphics();
+    g.fillStyle(hexToInt(fill), 0.86);
+    g.fillRoundedRect(x, y, w, h, 12);
+    g.lineStyle(1, hexToInt(accent), 0.3);
+    g.strokeRoundedRect(x, y, w, h, 12);
+    return g;
+  }
+
+  private text(
+    x: number,
+    y: number,
+    value: string,
+    colour: string,
+    size: number,
+  ): Phaser.GameObjects.Text {
+    return this.add
+      .text(x, y, value, {
+        fontFamily: this.font,
+        fontSize: `${size}px`,
+        color: colour,
+      })
+      .setDepth(layer("hud").depth + 1);
+  }
+
+  /** D31: three marks that dim. Never a bar, never a counter of what was lost. */
+  private buildHullMarks(x: number, y: number, accent: string): void {
+    this.hullMarks = [];
+    for (let i = 0; i < 3; i += 1) {
+      const g = this.add.graphics();
+      g.fillStyle(hexToInt(accent), 1);
+      g.fillRoundedRect(x + i * 24, y, 16, 16, 5);
+      g.setDepth(layer("hud").depth + 1);
+      this.hullMarks.push(g);
+    }
+  }
+
+  private onSnapshot(snapshot: HudSnapshot): void {
+    this.snapshot = snapshot;
+    this.wpmValue.setText(Math.round(snapshot.wpm).toString());
+    this.scoreValue.setText(snapshot.score.toString());
+    this.comboValue.setText(`x${snapshot.multiplier}`);
+
+    this.hullMarks.forEach((mark, i) => {
+      mark.setAlpha(i < snapshot.hull ? 1 : 0.16);
+    });
+
+    // The combo readout "climbs" with the keystroke tone (design brief 6).
+    if (snapshot.combo > this.lastCombo) {
+      this.tweens.add({
+        targets: this.comboValue,
+        scale: { from: 1.22, to: 1 },
+        duration: 240,
+        ease: "Back.Out",
+      });
+    }
+    this.lastCombo = snapshot.combo;
+
+    // Used only to keep the labels in the active language when settings change
+    // mid-stage (AC-19.1); nothing here is computed from gameplay.
+    this.wpmLabel.setText(this.copy.t("hud.wpm"));
+    this.comboLabel.setText(this.copy.t("hud.combo"));
+    this.scoreLabel.setText(this.copy.t("hud.score"));
+    this.hullLabel.setText(this.copy.t("flight.hull"));
+  }
+}

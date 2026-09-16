@@ -1,0 +1,21 @@
+{
+  "stopId": "earth",
+  "lang": "en",
+  "planetName": "Earth",
+  "chapterTitle": "Launchpad",
+  "briefing": [
+    "Every ship in the solar system flies the same way: slowly, and a little bit lost.",
+    "Nobody has charted the path, and nobody has left a light on.",
+    "Today that changes.",
+    "Your ship is the {shipName}, and your job is to fly out past the last planet, placing a beacon at every stop so the ships behind you can follow.",
+    "Earth already has a beacon. It just needs someone to switch it on."
+  ],
+  "pool": [],
+  "properNouns": ["Earth"],
+  "preflightLine": "Hull, check. Blaster, check. Pilot... that's you.",
+  "activationWord": "launch",
+  "warpSentence": null,
+  "beaconHeadline": "EARTH BEACON",
+  "beaconState": "ONLINE",
+  "beaconFlavor": "Every map starts with a home."
+}

@@ -1,0 +1,502 @@
+import Phaser from "phaser";
+import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
+import { hexToNum, paletteAt } from "@game/render/palette";
+import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
+import { ensureTextures, fillShape, starPoints } from "@game/render/textures";
+import { INK, SPACE, TYPE } from "@game/ui/theme";
+import { drawShadow, type ShadowFigure } from "@game/render/shadow";
+import { STOP_IDS, isBeltStop, type StopId, type StopProgress } from "@engine/types";
+import {
+  createFocusRing,
+  createKeyboardMenu,
+  label,
+  plate,
+  visibleText,
+  type FocusTarget,
+  type KeyboardMenu,
+  type SceneSnapshot,
+  type Snapshotable,
+} from "./lib/kit";
+import { hasStageBundle, stageBundle } from "./lib/content";
+import {
+  goTo,
+  isCharted,
+  progressFor,
+  resolveInit,
+  unlockedStops,
+  type ResolvedInit,
+  type StoryInit,
+} from "./lib/init";
+
+/**
+ * Screen inventory row 3 - Director map (D13, D40, D27, D43).
+ *
+ * Earth to Pluto in a line, Destiny-style: a route, not a level select. The
+ * screen's whole job is the sense of progress, so the blink is the design.
+ *
+ * WHY THE BLINK IS STAGGERED. A row of beacons all pulsing on the same beat
+ * reads as decoration - a loading spinner with seven dots. Here each charted
+ * beacon fires on the same period but phase-shifted by its distance from
+ * Earth, so the light RUNS outward along the route and stops dead at the
+ * furthest beacon the child has placed. The dark half of the line is visibly
+ * waiting for the next one. That is what makes the blink feel earned, and it
+ * costs one subtraction per node.
+ *
+ * Locked stops are drawn, not hidden, and stay focusable: a child can look at
+ * Pluto from day one. Locked is "not yet", never "denied" (D31, AC-22b.1) -
+ * there is no cross, no red and no lock icon that reads as a refusal.
+ *
+ * Entry points to the Beacon Log and Settings live here (design brief 3), and
+ * so does the per-stop personal-best board (D43). The board is personal-best
+ * only; no global rank is rendered anywhere on this screen (AC-18.3).
+ */
+const ROUTE_Y = 430;
+const ROUTE_X0 = 210;
+const ROUTE_X1 = GAME_WIDTH - 210;
+const NODE_R = 46;
+const PANEL = { x: 200, y: 700, w: GAME_WIDTH - 400, h: 250 };
+const CHIP = { w: 262, h: 66, y: 74, gap: 22 };
+const BLINK_PERIOD_MS = 2600;
+const BLINK_STAGGER = 0.085;
+
+interface NodeView {
+  readonly stopId: StopId;
+  readonly x: number;
+  readonly charted: boolean;
+  readonly locked: boolean;
+  readonly accent: string;
+  readonly beacon: Phaser.GameObjects.Graphics;
+}
+
+export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
+  private story!: ResolvedInit;
+  private parallax!: Parallax;
+  private shadow!: ShadowFigure;
+  private menu!: KeyboardMenu;
+  private nodes: NodeView[] = [];
+  private routeG!: Phaser.GameObjects.Graphics;
+  private open!: ReadonlySet<StopId>;
+  private panelTitle!: Phaser.GameObjects.Text;
+  private panelChapter!: Phaser.GameObjects.Text;
+  private panelBoard!: Phaser.GameObjects.Text;
+  private panelAction!: Phaser.GameObjects.Text;
+  private panelStars!: Phaser.GameObjects.Graphics;
+  private selected: StopId = "earth";
+  /** How many star glyphs the screen has actually drawn (D27 evidence). */
+  private starGlyphs = 0;
+
+  constructor() {
+    super(SCENE_KEYS.map);
+  }
+
+  init(data: StoryInit): void {
+    this.story = resolveInit(data, "earth");
+    this.nodes = [];
+    this.starGlyphs = 0;
+  }
+
+  create(): void {
+    const { text, ctx, progress } = this.story;
+    ensureTextures(this);
+    this.open = unlockedStops(progress, STOP_IDS);
+    this.cameras.main.setBackgroundColor(INK.bgDeep);
+
+    // The chart's own sky: Earth's night palette, no planet framing and no
+    // debris plane - this is a map, not a place.
+    this.parallax = buildParallax(this, {
+      palette: paletteAt("earth", ctx.colorblindPalette),
+      reducedMotion: ctx.reducedMotion,
+      width: GAME_WIDTH,
+      height: GAME_HEIGHT,
+      decorate: ["sky", "farField", "midField", "nearField"],
+      seed: 0x0d13,
+    });
+
+    const litCount = STOP_IDS.filter((s) => isCharted(progress, s)).length;
+
+    label(this, 96, 68, text.text("map.heading"), {
+      size: TYPE.heading,
+      color: INK.text,
+      lang: this.story.lang,
+    }).setDepth(10);
+    label(this, 98, 132, text.text("map.subheading"), {
+      size: TYPE.caption,
+      color: INK.textFaint,
+      lang: this.story.lang,
+    }).setDepth(10);
+    label(
+      this,
+      96,
+      170,
+      text.text("map.progress", { lit: litCount, total: STOP_IDS.length }),
+      { size: TYPE.caption, color: INK.lit, lang: this.story.lang },
+    ).setDepth(10);
+
+    this.routeG = this.add.graphics().setDepth(3);
+    this.buildNodes();
+
+    // --- the personal-best board (D43) -----------------------------------
+    plate(this, PANEL.x, PANEL.y, PANEL.w, PANEL.h, { alpha: 0.92 }).setDepth(9);
+    this.panelTitle = label(this, PANEL.x + 40, PANEL.y + 34, "", {
+      size: TYPE.heading,
+      color: INK.text,
+      lang: this.story.lang,
+    }).setDepth(10);
+    this.panelChapter = label(this, PANEL.x + 42, PANEL.y + 96, "", {
+      size: TYPE.caption,
+      color: INK.textFaint,
+      lang: this.story.lang,
+    }).setDepth(10);
+    this.panelBoard = label(this, PANEL.x + 42, PANEL.y + 146, "", {
+      size: TYPE.body,
+      color: INK.textDim,
+      lang: this.story.lang,
+    }).setDepth(10);
+    this.panelStars = this.add.graphics().setDepth(10);
+    this.panelAction = label(this, PANEL.x + PANEL.w - 40, PANEL.y + 40, "", {
+      size: TYPE.label,
+      color: INK.accent,
+      align: "right",
+      lang: this.story.lang,
+    })
+      .setOrigin(1, 0)
+      .setDepth(10);
+
+    label(this, GAME_WIDTH / 2, GAME_HEIGHT - 52, text.text("map.hint"), {
+      size: TYPE.caption,
+      color: INK.textFaint,
+      align: "center",
+      lang: this.story.lang,
+    })
+      .setOrigin(0.5)
+      .setDepth(10);
+
+    this.shadow = drawShadow(this, GAME_WIDTH - 150, GAME_HEIGHT - 190, "idle", {
+      scale: 0.8,
+      reducedMotion: ctx.reducedMotion,
+      depth: 11,
+    });
+
+    // --- focus order: seven stops, then the two entry points --------------
+    const targets: FocusTarget[] = this.nodes.map((n) => ({
+      id: n.stopId,
+      x: n.x - NODE_R - 14,
+      y: ROUTE_Y - NODE_R - 14,
+      w: (NODE_R + 14) * 2,
+      h: (NODE_R + 14) * 2,
+      locked: n.locked,
+      activate: () => this.travel(n),
+    }));
+    targets.push(...this.buildChips());
+
+    const ring = createFocusRing(this, 40);
+    const startIndex = Math.max(
+      0,
+      this.nodes.findIndex((n) => !n.locked && !n.charted),
+    );
+    this.menu = createKeyboardMenu(this, ring, targets, {
+      axis: "horizontal",
+      startIndex: startIndex === -1 ? 0 : startIndex,
+    });
+    this.events.on("kb-focus", (_index: number, target: FocusTarget | undefined) => {
+      if (target !== undefined) this.select(target.id);
+    });
+    this.select(targets[this.menu.index]?.id ?? "earth");
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.teardown());
+  }
+
+  private buildChips(): FocusTarget[] {
+    const { text } = this.story;
+    const right = GAME_WIDTH - 96;
+    const settingsX = right - CHIP.w;
+    const logX = settingsX - CHIP.gap - CHIP.w;
+    const make = (
+      id: string,
+      x: number,
+      copy: string,
+      onGo: () => void,
+    ): FocusTarget => {
+      plate(this, x, CHIP.y, CHIP.w, CHIP.h, { fill: INK.panelRaised }).setDepth(9);
+      label(this, x + CHIP.w / 2, CHIP.y + CHIP.h / 2, copy, {
+        size: TYPE.label,
+        color: INK.text,
+        align: "center",
+        lang: this.story.lang,
+      })
+        .setOrigin(0.5)
+        .setDepth(10);
+      return { id, x, y: CHIP.y, w: CHIP.w, h: CHIP.h, activate: onGo };
+    };
+    return [
+      make("beaconLog", logX, text.text("title.beaconLog"), () =>
+        goTo(this, SCENE_KEYS.beaconLog, this.forward()),
+      ),
+      make("settings", settingsX, text.text("title.settings"), () =>
+        goTo(this, SCENE_KEYS.settings, this.forward()),
+      ),
+    ];
+  }
+
+  private buildNodes(): void {
+    const { progress, ctx } = this.story;
+    const step = (ROUTE_X1 - ROUTE_X0) / (STOP_IDS.length - 1);
+
+    STOP_IDS.forEach((stopId, i) => {
+      const x = ROUTE_X0 + step * i;
+      const pal = paletteAt(stopId, ctx.colorblindPalette);
+      const charted = isCharted(progress, stopId);
+      const locked = !this.open.has(stopId);
+      const entry = progressFor(progress, stopId);
+
+      // The planet disc. A locked stop keeps its silhouette and loses its
+      // colour: it is still recognisably Pluto, just not lit yet.
+      const disc = this.add.graphics().setDepth(4);
+      const body = locked ? INK.locked : (pal.colorRoles["sky"] ?? pal.colors[0] ?? INK.locked);
+      const shade = locked ? INK.panelSunken : (pal.colors[pal.colors.length - 1] ?? INK.bgDeep);
+      disc.fillStyle(hexToNum(INK.bgDeep), 1);
+      disc.fillCircle(x, ROUTE_Y, NODE_R + 8);
+      disc.fillStyle(hexToNum(body), 1);
+      disc.fillCircle(x, ROUTE_Y, NODE_R);
+      disc.fillStyle(hexToNum(shade), 0.55);
+      disc.fillCircle(x + NODE_R * 0.34, ROUTE_Y + NODE_R * 0.28, NODE_R * 0.92);
+      disc.lineStyle(3, hexToNum(locked ? INK.line : pal.accent), locked ? 0.7 : 0.95);
+      disc.strokeCircle(x, ROUTE_Y, NODE_R);
+
+      const beacon = this.add.graphics().setDepth(6);
+
+      label(this, x, ROUTE_Y + NODE_R + 34, this.stopName(stopId), {
+        size: TYPE.label,
+        color: locked ? INK.locked : INK.text,
+        align: "center",
+        lang: this.story.lang,
+      })
+        .setOrigin(0.5, 0)
+        .setDepth(7);
+
+      if (locked) {
+        label(this, x, ROUTE_Y + NODE_R + 74, this.story.text.text("map.locked"), {
+          size: TYPE.caption,
+          color: INK.locked,
+          align: "center",
+          lang: this.story.lang,
+        })
+          .setOrigin(0.5, 0)
+          .setDepth(7);
+      } else if (charted && isBeltStop(stopId)) {
+        // D27: each charted stop shows its star rating, right on the map.
+        // Earth is exempt by construction: it has no belt, so it has no hull
+        // hits and therefore no rating (types.ts, BELT_STOP_IDS). Drawing three
+        // empty stars under Earth would invent a nought out of nothing.
+        this.drawStars(
+          this.add.graphics().setDepth(7),
+          x,
+          ROUTE_Y + NODE_R + 82,
+          14,
+          entry.stars,
+          pal.accent,
+        );
+      }
+
+      this.nodes.push({ stopId, x, charted, locked, accent: pal.accent, beacon });
+    });
+  }
+
+  /** Three stars, `earned` of them filled. Never a zero-score readout (D31). */
+  private drawStars(
+    g: Phaser.GameObjects.Graphics,
+    cx: number,
+    cy: number,
+    r: number,
+    earned: number,
+    accent: string,
+  ): void {
+    const gap = r * 2.6;
+    for (let i = 0; i < 3; i += 1) {
+      this.starGlyphs += 1;
+      const x = cx - gap + gap * i;
+      const pts = starPoints(x, cy, r, r * 0.46);
+      if (i < earned) {
+        g.fillStyle(hexToNum(accent), 1);
+        fillShape(g, pts);
+      } else {
+        g.lineStyle(2, hexToNum(INK.locked), 1);
+        g.beginPath();
+        pts.forEach((p, idx) => (idx === 0 ? g.moveTo(p.x, p.y) : g.lineTo(p.x, p.y)));
+        g.closePath();
+        g.strokePath();
+      }
+    }
+  }
+
+  private stopName(stopId: StopId): string {
+    return hasStageBundle(stopId)
+      ? stageBundle(stopId).planetName
+      : paletteAt(stopId, false).name;
+  }
+
+  private select(stopId: string): void {
+    if (!STOP_IDS.includes(stopId as StopId)) {
+      // A chip is focused, not a stop: leave the board showing the last stop.
+      return;
+    }
+    const stop = stopId as StopId;
+    this.selected = stop;
+    const { text, progress } = this.story;
+    const entry: StopProgress = progressFor(progress, stop);
+    const bundle = hasStageBundle(stop) ? stageBundle(stop) : null;
+    const locked = !this.open.has(stop);
+
+    this.panelTitle.setText(this.stopName(stop));
+    this.panelChapter.setText(bundle?.chapterTitle ?? "");
+
+    // Earth has no flight, so it has no WPM and no accuracy to be best at.
+    const hasRun = entry.cleared && isBeltStop(stop);
+    const board = hasRun
+      ? `${text.text("map.personalBest")}  ·  ${text.text("map.bestWpm", {
+          wpm: Math.round(entry.bestWpm),
+        })}  ·  ${text.text("map.bestAccuracy", {
+          accuracy: Math.round(entry.bestAccuracy),
+        })}`
+      : text.text("map.noRunYet");
+    this.panelBoard.setText(board);
+
+    this.panelStars.clear();
+    if (hasRun) {
+      this.drawStars(
+        this.panelStars,
+        PANEL.x + PANEL.w - 140,
+        PANEL.y + PANEL.h - 62,
+        16,
+        entry.stars,
+        paletteAt(stop, this.story.ctx.colorblindPalette).accent,
+      );
+    }
+
+    this.panelAction.setText(
+      locked ? text.text("map.locked") : text.text("map.travel"),
+    );
+    this.panelAction.setColor(locked ? INK.locked : INK.accent);
+  }
+
+  private travel(node: NodeView): void {
+    if (node.locked) {
+      // Nothing happens, and nothing tells the child off for asking (D31).
+      return;
+    }
+    if (node.stopId === "earth") {
+      goTo(this, SCENE_KEYS.earthActivation, this.forward(node.stopId));
+      return;
+    }
+    goTo(this, SCENE_KEYS.briefing, this.forward(node.stopId));
+  }
+
+  private forward(stopId?: StopId): StoryInit {
+    return {
+      ctx: stopId === undefined ? this.story.ctx : { ...this.story.ctx, stopId },
+      progress: this.story.progress,
+      shipName: this.story.shipName,
+      lang: this.story.lang,
+      newProfile: this.story.newProfile,
+      calibration: this.story.calibration,
+      ...(stopId === undefined ? {} : { stopId }),
+    };
+  }
+
+  override update(time: number, delta: number): void {
+    this.parallax.update(delta);
+    this.shadow.update(time);
+    this.drawRoute(time);
+    for (const node of this.nodes) this.drawBeacon(node, time);
+  }
+
+  /**
+   * The route line. A segment between two charted stops is lit and carries a
+   * pulse travelling outward; everything past the furthest beacon is a quiet
+   * dotted guide, so the unlit half of the map reads as "still to draw".
+   */
+  private drawRoute(time: number): void {
+    const g = this.routeG;
+    g.clear();
+    for (let i = 0; i < this.nodes.length - 1; i += 1) {
+      const a = this.nodes[i];
+      const b = this.nodes[i + 1];
+      if (a === undefined || b === undefined) continue;
+      const x0 = a.x + NODE_R + 10;
+      const x1 = b.x - NODE_R - 10;
+      const bothLit = a.charted && b.charted;
+      if (bothLit) {
+        g.lineStyle(4, hexToNum(a.accent), 0.55);
+        g.lineBetween(x0, ROUTE_Y, x1, ROUTE_Y);
+        const phase = ((time / BLINK_PERIOD_MS) - i * BLINK_STAGGER) % 1;
+        const px = x0 + (x1 - x0) * ((phase + 1) % 1);
+        g.fillStyle(hexToNum(INK.accentSoft), 0.9);
+        g.fillCircle(px, ROUTE_Y, 6);
+        g.fillStyle(hexToNum(INK.accentSoft), 0.25);
+        g.fillCircle(px, ROUTE_Y, 14);
+      } else {
+        g.fillStyle(hexToNum(INK.line), 0.85);
+        const dots = Math.floor((x1 - x0) / 26);
+        for (let d = 0; d <= dots; d += 1) {
+          g.fillCircle(x0 + d * 26, ROUTE_Y, 3);
+        }
+      }
+    }
+  }
+
+  /**
+   * The beacon on a charted stop: a lamp on a short mast that pulses on the
+   * shared period, phase-shifted by distance from Earth.
+   */
+  private drawBeacon(node: NodeView, time: number): void {
+    const g = node.beacon;
+    g.clear();
+    if (!node.charted) return;
+    const i = STOP_IDS.indexOf(node.stopId);
+    const phase = ((time / BLINK_PERIOD_MS - i * BLINK_STAGGER) % 1 + 1) % 1;
+    // Sharp attack, long decay: a lighthouse, not a sine.
+    const strength = phase < 0.12 ? phase / 0.12 : Math.max(0, 1 - (phase - 0.12) / 0.88) ** 2;
+    const lx = node.x;
+    const ly = ROUTE_Y - NODE_R - 38;
+    const c = hexToNum(node.accent);
+    g.lineStyle(3, c, 0.8);
+    g.lineBetween(lx, ROUTE_Y - NODE_R + 4, lx, ly + 8);
+    g.fillStyle(c, 0.1 + 0.22 * strength);
+    g.fillCircle(lx, ly, 34 + 16 * strength);
+    g.fillStyle(c, 0.35 + 0.45 * strength);
+    g.fillCircle(lx, ly, 15);
+    g.fillStyle(hexToNum(INK.accentSoft), 0.5 + 0.5 * strength);
+    g.fillCircle(lx, ly, 7);
+  }
+
+  snapshot(): SceneSnapshot {
+    return {
+      scene: SCENE_KEYS.map,
+      selected: this.selected,
+      focusIndex: this.menu.index,
+      focusId: this.menu.targets[this.menu.index]?.id ?? null,
+      litCount: this.nodes.filter((n) => n.charted).length,
+      starGlyphs: this.starGlyphs,
+      entryPoints: this.menu.targets
+        .map((t) => t.id)
+        .filter((id) => id === "beaconLog" || id === "settings"),
+      stops: this.nodes.map((n) => ({
+        stopId: n.stopId,
+        charted: n.charted,
+        locked: n.locked,
+        stars: progressFor(this.story.progress, n.stopId).stars,
+        bestWpm: progressFor(this.story.progress, n.stopId).bestWpm,
+      })),
+      text: visibleText(this),
+    };
+  }
+
+  private teardown(): void {
+    this.menu.destroy();
+    this.shadow.destroy();
+    this.parallax.destroy();
+  }
+}
+
+/** Focus-ring geometry, exported so the e2e can assert it is on screen. */
+export const MAP_GEOMETRY = { ROUTE_Y, ROUTE_X0, ROUTE_X1, NODE_R, PANEL, SPACE };

@@ -317,3 +317,13 @@ satisfies the AC as written and B is an upgrade, not a fix.
 ### Status
 
 NOT PASSED as D63 writes it. Shipping A; C12 stays open in the decision log.
+
+## FOUNDATION lane (boot / render / Title) — decisions taken, review requested
+
+| # | Decision | Options | What I did and why |
+|---|---|---|---|
+| F1 | Title palette for a FIRST-TIME player | (a) Earth, (b) Mars (the design brief's worked example) | **(a) Earth.** Narratively you are on the launchpad and the gold beacon accent is the brand colour. (b) is warmer and would likely photograph better for a judge. One-line change in `TitleScene.create`. |
+| F2 | Secondary actions on the Title | (a) primary only, (b) primary + Settings, (c) primary + Settings + Beacon Log | **(b).** The brief says "one primary action" and puts the Beacon Log and Settings entries on the Director map, but a title screen with nothing to Tab to reads unfinished. |
+| F3 | i18n translator mode in the game layer | (a) `dev` (throws on a missing key), (b) `prod` + a loud miss log | **(b).** A missing string must not take a screen down at 3am (D94). Misses are pushed to `window.__kb.i18nMisses`, logged as console errors, and the Title e2e asserts the list is empty — so nothing is hidden. |
+| F4 | Wordmark typeface | (a) system font stack, (b) load a Google Font (D81) | **(a).** No lane owns font loading and a webfont fetch would make the offline/headless runs flaky. D81 wants a rounded geometric display face; this is a real gap against art-direction section 7, not a finished answer. |
+| F5 | `trace: "off"` in `tests/e2e/title.spec.ts` | (a) leave the config default, (b) disable traces for this file | **(b), as a workaround, not a fix.** All lanes share one `test-results/` directory; a concurrent run clears it mid-flight and `browserContext.close` dies on ENOENT *after* the assertions pass. The real fix is a per-run `outputDir` in `playwright.config.ts`, which this lane may not edit. |

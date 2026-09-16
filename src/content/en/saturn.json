@@ -1,0 +1,26 @@
+{
+  "stopId": "saturn",
+  "lang": "en",
+  "planetName": "Saturn",
+  "chapterTitle": "The Ringed World",
+  "briefing": [
+    "Saturn wears rings.",
+    "They look solid from far away, but up close they are made of ice and rock, from tiny bits of dust to chunks as big as a house.",
+    "Saturn is so light that it would float in a bathtub, if you could find one big enough.",
+    "Its moon Titan has lakes, but they are not made of water.",
+    "Fly between the rings, not through them."
+  ],
+  "pool": [
+    "saturn", "wears", "rings", "look", "solid", "far", "away", "close",
+    "made", "ice", "rock", "tiny", "bits", "dust", "chunks", "big", "house",
+    "light", "float", "bathtub", "find", "enough", "moon", "lakes", "water",
+    "between", "through", "fly"
+  ],
+  "properNouns": ["Saturn", "Titan"],
+  "preflightLine": "Rings are pretty. Rings are also rocks. Same rule as always: type it before it reaches us.",
+  "activationWord": null,
+  "warpSentence": "Saturn wears rings made of ice and rock.",
+  "beaconHeadline": "SATURN BEACON",
+  "beaconState": "PLACED",
+  "beaconFlavor": "Threaded the rings. The next ship won't have to."
+}
