@@ -44,6 +44,17 @@ async function typeWord(page: import("@playwright/test").Page, word: string): Pr
 test("a player can get from the Title to a placed beacon using only the keyboard", async ({
   page,
 }) => {
+  // A dozen scenes in one test means a bare timeout tells you nothing. `step`
+  // is carried into every failure message so a red run says WHERE the route
+  // died, not just that it did.
+  const trail: string[] = [];
+  let step = "boot";
+  const mark = async (name: string): Promise<void> => {
+    step = name;
+    trail.push(`${name} @ ${(await activeScenes(page)).join("+") || "none"}`);
+  };
+  const where = (): string => `failed during "${step}"\ntrail:\n  ${trail.join("\n  ")}`;
+
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => {
@@ -55,9 +66,11 @@ test("a player can get from the Title to a placed beacon using only the keyboard
   await expect(page.getByTestId("app")).toHaveAttribute("data-booted", "true");
   await waitForScene(page, "Title");
   await settle(page, 900);
+  await mark("title shown");
 
   // --- Title -------------------------------------------------------------
   expect(await activeScenes(page)).toContain("Title");
+  await mark("pressing Enter on Title");
   await press(page, "Enter");
 
   // Whatever the Title routes to, it must LEAVE the Title. This is the exact
@@ -70,7 +83,10 @@ test("a player can get from the Title to a placed beacon using only the keyboard
     },
     undefined,
     { timeout: 60_000 },
-  );
+  ).catch(async (e) => {
+    throw new Error(`Title never handed off. ${where()}\n${String(e)}`);
+  });
+  await mark("left Title");
 
   const afterTitle = (await activeScenes(page))[0];
   expect(
@@ -102,7 +118,10 @@ test("a player can get from the Title to a placed beacon using only the keyboard
   }
 
   // --- Director map: fly the first belt ----------------------------------
-  await waitForScene(page, "DirectorMap", 60_000);
+  await waitForScene(page, "DirectorMap", 60_000).catch(async (e) => {
+    throw new Error(`never reached the Director map. ${where()}\n${String(e)}`);
+  });
+  await mark("director map");
   await settle(page, 700);
 
   // The map must be able to LEAVE for a stop. Try Enter on the focused stop,
@@ -188,7 +207,11 @@ test("a player can get from the Title to a placed beacon using only the keyboard
     }
   }
 
-  await waitForScene(page, "Flight", 90_000);
+  await mark("waiting for Flight");
+  await waitForScene(page, "Flight", 90_000).catch(async (e) => {
+    throw new Error(`never reached Flight. ${where()}\n${String(e)}`);
+  });
+  await mark("flight reached");
   expect(await activeScenes(page)).toContain("Flight");
 
   await expect(errors, `console/page errors during the run:\n${errors.join("\n")}`).toEqual([]);
