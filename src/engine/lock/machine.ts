@@ -496,10 +496,14 @@ function applyChar(d: Draft, ch: string, nowMs: number, timed: boolean): void {
     // AC-3.2: wrong key. Count it, shake, keep the lock — and keep any park,
     // because a fat finger is not consent to fire the short word.
     d.typos += 1;
-    // No candidate can be exhausted here: an exact match is either blasted or
-    // parked by resolveCompletion, and a parked word keeps its rivals.
     const expected = [
-      ...new Set(candidatesOf(d).map((a) => chars(typedFormOf(a))[index] as string)),
+      ...new Set(
+        candidatesOf(d)
+          .map((a) => chars(typedFormOf(a))[index])
+          // A parked candidate has no next character — it is finished and
+          // waiting — so it contributes nothing to highlight.
+          .filter((c): c is string => c !== undefined),
+      ),
     ];
     d.emitted.push({
       type: "typo",

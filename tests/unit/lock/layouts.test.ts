@@ -9,18 +9,92 @@ const LAYOUTS: readonly KeyboardLayout[] = [
   "dvorak",
 ];
 
+/**
+ * The physical keys, restated independently of the engine table so that a
+ * permutation of the map cannot pass these tests. Each expectation below was
+ * checked against the real national layout, key by key.
+ */
+const ROW_CODES: readonly (readonly string[])[] = [
+  [
+    "Backquote", "Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6",
+    "Digit7", "Digit8", "Digit9", "Digit0", "Minus", "Equal",
+  ],
+  [
+    "KeyQ", "KeyW", "KeyE", "KeyR", "KeyT", "KeyY", "KeyU", "KeyI", "KeyO",
+    "KeyP", "BracketLeft", "BracketRight",
+  ],
+  [
+    "KeyA", "KeyS", "KeyD", "KeyF", "KeyG", "KeyH", "KeyJ", "KeyK", "KeyL",
+    "Semicolon", "Quote", "Backslash",
+  ],
+  ["KeyZ", "KeyX", "KeyC", "KeyV", "KeyB", "KeyN", "KeyM", "Comma", "Period", "Slash"],
+];
+
+/** Unshifted output of each physical row, per layout. */
+const EXPECTED_ROWS: Readonly<Record<KeyboardLayout, readonly string[]>> = {
+  qwerty: ["`1234567890-=", "qwertyuiop[]", "asdfghjkl;'\\", "zxcvbnm,./"],
+  azerty: ["²&é\"'(-è_çà)=", "azertyuiop^$", "qsdfghjklmù*", "wxcvbn,;:!"],
+  qwertz: ["^1234567890ß´", "qwertzuiopü+", "asdfghjklöä#", "yxcvbnm,.-"],
+  dvorak: ["`1234567890[]", "',.pyfgcrl/=", "aoeuidhtns-\\", ";qjkxbmwvz"],
+};
+
 function input(partial: Partial<KeyInput>): KeyInput {
-  return {
-    key: "",
-    code: "",
-    ctrl: false,
-    alt: false,
-    meta: false,
-    ...partial,
-  };
+  return { key: "", code: "", ctrl: false, alt: false, meta: false, ...partial };
 }
 
 describe("AC-19.2: keyboard layout changes the key→char map", () => {
+  it("AC-19.2: every physical key on every layout types the pinned character", () => {
+    for (const layout of LAYOUTS) {
+      const rows = EXPECTED_ROWS[layout];
+      ROW_CODES.forEach((codes, rowIndex) => {
+        const expectedRow = [...(rows[rowIndex] as string)];
+        expect(expectedRow).toHaveLength(codes.length);
+        codes.forEach((code, i) => {
+          const expected = expectedRow[i] as string;
+          expect(LAYOUT_MAPS[layout].get(code), `${layout} ${code}`).toBe(expected);
+          expect(resolveChar(input({ code, key: "?" }), layout)).toBe(expected);
+        });
+      });
+      expect(LAYOUT_MAPS[layout].size).toBe(47);
+    }
+  });
+
+  it("AC-19.2: AZERTY moves a, z, w, q and m — the keys a French child types", () => {
+    const azerty = LAYOUT_MAPS.azerty;
+    // Semicolon → m is the one that silently breaks "maman", "moment", "comme".
+    expect(azerty.get("Semicolon")).toBe("m");
+    expect(azerty.get("KeyQ")).toBe("a");
+    expect(azerty.get("KeyA")).toBe("q");
+    expect(azerty.get("KeyZ")).toBe("w");
+    expect(azerty.get("KeyW")).toBe("z");
+    expect(azerty.get("KeyM")).toBe(",");
+    // The QWERTY positions of those letters must NOT still produce them.
+    expect(azerty.get("KeyM")).not.toBe("m");
+  });
+
+  it("AC-19.2: QWERTZ swaps y and z and puts the umlauts on the home row", () => {
+    const qwertz = LAYOUT_MAPS.qwertz;
+    expect(qwertz.get("KeyY")).toBe("z");
+    expect(qwertz.get("KeyZ")).toBe("y");
+    expect(qwertz.get("Semicolon")).toBe("ö");
+    expect(qwertz.get("Quote")).toBe("ä");
+    expect(qwertz.get("BracketLeft")).toBe("ü");
+    expect(qwertz.get("Minus")).toBe("ß");
+  });
+
+  it("AC-19.2: the Dvorak home row reads a-o-e-u-i-d-h-t-n-s", () => {
+    const codes = [
+      "KeyA", "KeyS", "KeyD", "KeyF", "KeyG", "KeyH", "KeyJ", "KeyK", "KeyL",
+      "Semicolon",
+    ];
+    expect(codes.map((c) => LAYOUT_MAPS.dvorak.get(c)).join(""))
+      .toBe("aoeuidhtns");
+    expect(LAYOUT_MAPS.dvorak.get("KeyQ")).toBe("'");
+    expect(LAYOUT_MAPS.dvorak.get("Semicolon")).toBe("s");
+    expect(LAYOUT_MAPS.dvorak.get("KeyZ")).toBe(";");
+    expect(LAYOUT_MAPS.dvorak.get("Slash")).toBe("z");
+  });
+
   it("AC-19.2: the same physical key types a different character per layout", () => {
     const code = "KeyQ";
     expect(resolveChar(input({ code, key: "q" }), "qwerty")).toBe("q");
@@ -37,20 +111,13 @@ describe("AC-19.2: keyboard layout changes the key→char map", () => {
     expect(resolveChar(input({ code: "KeyK", key: "k" }), "dvorak")).toBe("t");
   });
 
-  it("AC-19.2: each layout maps every physical key to exactly one character", () => {
-    for (const layout of LAYOUTS) {
-      const map = LAYOUT_MAPS[layout];
-      expect(map.size).toBe(47);
-      expect(new Set(map.values()).size).toBe(47);
-    }
-  });
-
   it("AC-19.2: every layout can type the whole Latin alphabet", () => {
     for (const layout of LAYOUTS) {
       const produced = new Set(LAYOUT_MAPS[layout].values());
       for (const ch of "abcdefghijklmnopqrstuvwxyz") {
         expect(produced.has(ch), `${layout} cannot type ${ch}`).toBe(true);
       }
+      expect(new Set(LAYOUT_MAPS[layout].values()).size).toBe(47);
     }
   });
 

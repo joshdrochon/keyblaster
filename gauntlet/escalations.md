@@ -157,3 +157,50 @@ collision rule forbids silently overwriting a decided AC.
 ### Status
 
 NOT PASSED. Build proceeds on A. C10 stays open in the decision log.
+
+## AC-9.2 — no guaranteed-catch word can exist on a fresh profile
+
+- **Escalated:** 2026-09-16 (build night 1)
+- **Source:** PRD FR-9 / AC-9.2, D22, architecture §4.2; interacts with `EASE_NEW` in FR-8
+- **Found by:** the selection lane, while implementing the rule as written
+- **Attempts:** n/a — arithmetic, not a bug. Implemented as documented.
+
+### The problem
+
+AC-9.2 requires at least one guaranteed-catch word in every 6 consecutive
+spawns. Guaranteed-catch is defined as:
+
+> mastered, OR ≤4 letters with ease ≤ 1.0
+
+A word the player has never seen starts at `EASE_NEW = 1.6` (PRD FR-8,
+architecture §4.1). On a brand-new profile every word in the stage pool is
+unseen, so **every word has ease 1.6** and none can qualify — not the mastered
+branch, not the ≤4-letters branch.
+
+So the first six asteroids a child ever sees are guaranteed to contain **no**
+guaranteed-catch word. The rule is unsatisfiable exactly when it matters most:
+D22 exists so that a struggling player always has something they can hit, and
+the very first wave is when a 7-year-old decides whether this game is for them.
+
+It self-corrects after a few hits pull some ease below 1.0, so it is invisible
+in any test that starts from a warmed-up profile — which is why it survived
+until someone implemented the predicate literally.
+
+### Options (user decision — none taken)
+
+| # | Option | Cost |
+|---|---|---|
+| A | Add a fallback: if no word qualifies, the shortest available word is the guaranteed catch | One clause. Makes AC-9.2 hold literally at all times. "Shortest available" is a reasonable proxy for "easiest" when nothing is known. |
+| B | Lower `EASE_NEW` below 1.0 | Cheap, but wrong: it would also shorten every new word's fall time through FR-8, making the game harder for a beginner — the opposite of the intent. |
+| C | Exempt the first stage from AC-9.2 | Honest but abandons D22 at the only moment it is load-bearing. |
+
+**Lean: A.** It is the smallest change, it preserves the ease semantics FR-8
+depends on, and "the shortest word you have" is exactly what a teacher would
+pick when they know nothing about the child yet.
+
+### Status
+
+NOT PASSED. The selection lane implements the documented predicate, degrades
+gracefully rather than stalling (it returns a normal word and flags
+`relaxed: ["catch"]`), and exports `poolHasCatchWord()` so content tooling can
+detect the state. Two tests pin the current behaviour.

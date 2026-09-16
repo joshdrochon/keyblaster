@@ -1,35 +1,48 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_PARK_GRACE_MS,
   LAYOUT_MAPS,
   type AdvancedEmit,
   type BlastEmit,
+  type IgnoredEmit,
   type KeyInput,
   type LiveAsteroid,
   type LockEmit,
   type LockEvent,
   type LockState,
   type LockedEmit,
+  type ParkedEmit,
   type TypoEmit,
   createLockState,
   phaseOf,
   reduce,
   reduceAll,
 } from "@engine/lock/index.js";
+import type { KeyboardLayout } from "@engine/types.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures. Every event carries an explicit nowMs: the engine never reads a
 // clock (CLAUDE.md), so every timing assertion below is exact, not tolerant.
 // ---------------------------------------------------------------------------
 
-/** char → physical code on QWERTY, so tests can spell words as keystrokes. */
-const CODE_FOR_CHAR = new Map<string, string>(
-  [...LAYOUT_MAPS.qwerty].map(([code, ch]) => [ch, code]),
-);
+const LAYOUTS: readonly KeyboardLayout[] = ["qwerty", "azerty", "qwertz", "dvorak"];
 
-function key(ch: string, mods: Partial<KeyInput> = {}): KeyInput {
+/** char → physical code, per layout, so tests can spell words as keystrokes. */
+const CODE_FOR_CHAR: Readonly<Record<KeyboardLayout, ReadonlyMap<string, string>>> = {
+  qwerty: new Map([...LAYOUT_MAPS.qwerty].map(([code, ch]) => [ch, code])),
+  azerty: new Map([...LAYOUT_MAPS.azerty].map(([code, ch]) => [ch, code])),
+  qwertz: new Map([...LAYOUT_MAPS.qwertz].map(([code, ch]) => [ch, code])),
+  dvorak: new Map([...LAYOUT_MAPS.dvorak].map(([code, ch]) => [ch, code])),
+};
+
+function key(
+  ch: string,
+  mods: Partial<KeyInput> = {},
+  layout: KeyboardLayout = "qwerty",
+): KeyInput {
   return {
     key: ch,
-    code: CODE_FOR_CHAR.get(ch) ?? "Unidentified",
+    code: CODE_FOR_CHAR[layout].get(ch) ?? "Unidentified",
     ctrl: false,
     alt: false,
     meta: false,
@@ -52,8 +65,12 @@ function spawn(asteroid: LiveAsteroid): LockEvent {
   return { type: "spawn", asteroid };
 }
 
-function press(ch: string, nowMs: number): LockEvent {
-  return { type: "key", input: key(ch), nowMs };
+function press(
+  ch: string,
+  nowMs: number,
+  layout: KeyboardLayout = "qwerty",
+): LockEvent {
+  return { type: "key", input: key(ch, {}, layout), nowMs };
 }
 
 /** Type a string, one key per step, starting at `startMs`. */
@@ -78,7 +95,7 @@ function only<T extends LockEmit["type"]>(
   );
 }
 
-/** Fixed-seed PRNG for the typo simulation (lane brief: no Math.random). */
+/** Fixed-seed PRNG for the simulations (lane brief: no Math.random). */
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -87,6 +104,10 @@ function mulberry32(seed: number): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+function pick<T>(rand: () => number, items: readonly T[]): T {
+  return items[Math.floor(rand() * items.length)] as T;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,20 +141,28 @@ describe("FR-3 / AC-3.1: auto-lock on the first keystroke", () => {
 
   it("D24: Enter itself is not typing and changes nothing", () => {
     const start = reduce(createLockState(), spawn(rock("a1", "red")));
-    const after = reduce(start, {
-      type: "key",
-      input: key("Enter"),
-      nowMs: 10,
-    });
+    const after = reduce(start, { type: "key", input: key("Enter"), nowMs: 10 });
     expect(after.emitted).toEqual([]);
     expect(phaseOf(after)).toBe("idle");
   });
 
-  it("D31: an idle keystroke that matches nothing is dropped, not punished", () => {
+  it("D31 / AC-6e.2: an idle keystroke matching nothing reports but never counts", () => {
     // There is nothing on screen to be wrong against, so it must not shake,
-    // count a typo, or (via scoring/) break the combo.
+    // count a typo, or (via scoring/) break the combo — but AC-6e.2 still
+    // wants a visible response to the keystroke.
     const { state, emitted } = run([spawn(rock("a1", "red")), press("z", 40)]);
-    expect(emitted).toEqual([]);
+    expect(emitted).toEqual([
+      {
+        type: "ignored",
+        asteroidId: null,
+        word: null,
+        typed: "",
+        actual: "z",
+        ignoredTargetIds: [],
+        shake: false,
+        nowMs: 40,
+      },
+    ]);
     expect(state.typos).toBe(0);
     expect(phaseOf(state)).toBe("idle");
   });
@@ -148,8 +177,7 @@ describe("AC-3.2: a wrong keystroke never drops the lock", () => {
     ]);
     const typos = only(emitted, "typo");
     expect(typos).toHaveLength(1);
-    const typo = typos[0] as TypoEmit;
-    expect(typo).toMatchObject({
+    expect(typos[0] as TypoEmit).toMatchObject({
       asteroidId: "a1",
       word: "red",
       typed: "r",
@@ -173,74 +201,44 @@ describe("AC-3.2: a wrong keystroke never drops the lock", () => {
       press("z", 500),
       press("d", 600),
     ]);
-    const blast = only(emitted, "blast")[0] as BlastEmit;
-    expect(blast.typos).toBe(3);
-    expect(blast.word).toBe("red");
+    expect((only(emitted, "blast")[0] as BlastEmit).typos).toBe(3);
     expect(phaseOf(state)).toBe("idle");
   });
 
-  it("AC-3.2 / D31: no failure emission exists in the vocabulary", () => {
+  it("AC-3.2 / D31: the emission vocabulary has no failure event", () => {
     const { emitted } = run([
       spawn(rock("a1", "red")),
       spawn(rock("a2", "blue")),
       ...typeWord("rxexd", 100),
     ]);
-    const kinds = new Set(emitted.map((e) => e.type));
-    expect([...kinds].every((k) =>
-      ["locked", "advanced", "typo", "blast"].includes(k),
-    )).toBe(true);
-  });
-
-  it("AC-3.2: 200 seeded runs of random typos never drop the lock", () => {
-    const rand = mulberry32(0x5eed);
-    const pool = ["red", "planet", "dust", "rivers", "beacon", "sky"];
-    const alphabet = [..."abcdefghijklmnopqrstuvwxyz"];
-
-    for (let run_ = 0; run_ < 200; run_ += 1) {
-      const word = pool[Math.floor(rand() * pool.length)] as string;
-      const letters = [...word];
-      let state = reduce(createLockState(), spawn(rock("a1", word, 0)));
-      let nowMs = 100;
-      let injected = 0;
-
-      state = reduce(state, press(letters[0] as string, nowMs));
-      expect(state.lockedId).toBe("a1");
-
-      for (let i = 1; i < letters.length; i += 1) {
-        const expectedChar = letters[i] as string;
-        const bursts = Math.floor(rand() * 3);
-        for (let b = 0; b < bursts; b += 1) {
-          const wrong = alphabet.filter((c) => c !== expectedChar);
-          const ch = wrong[Math.floor(rand() * wrong.length)] as string;
-          nowMs += 90;
-          state = reduce(state, press(ch, nowMs));
-          injected += 1;
-          // The load-bearing invariant of D31: still locked, still mid-word.
-          expect(state.lockedId).toBe("a1");
-          expect(state.typed).toBe(letters.slice(0, i).join(""));
-        }
-        nowMs += 90;
-        state = reduce(state, press(expectedChar, nowMs));
-      }
-
-      const blast = only(state.emitted, "blast")[0] as BlastEmit;
-      expect(blast.word).toBe(word);
-      expect(blast.typos).toBe(injected);
-      expect(state.live).toHaveLength(0);
-    }
+    const allowed = ["locked", "advanced", "parked", "typo", "ignored", "blast"];
+    expect(emitted.every((e) => allowed.includes(e.type))).toBe(true);
   });
 });
 
-describe("AC-3.3: no switching targets", () => {
-  it("AC-3.3: a keystroke matching another live asteroid is ignored", () => {
+describe("AC-3.3: no switching targets (collision C10)", () => {
+  it("AC-3.3: a keystroke matching another live asteroid is ignored, not charged", () => {
+    // Literal AC-3.3: it shakes (AC-6e.2) but must not reach scoring/'s combo
+    // reset or words/' ease bump, or brushing a rival's key would punish the
+    // player for a word they are not typing (D31).
     const { state, emitted } = run([
       spawn(rock("a1", "red")),
       spawn(rock("a2", "blue")),
       press("r", 100),
       press("b", 200),
     ]);
-    const typo = only(emitted, "typo")[0] as TypoEmit;
-    expect(typo.ignoredTargetIds).toEqual(["a2"]);
+    expect(only(emitted, "typo")).toHaveLength(0);
+    const ignored = only(emitted, "ignored");
+    expect(ignored).toHaveLength(1);
+    expect(ignored[0] as IgnoredEmit).toMatchObject({
+      asteroidId: "a1",
+      word: "red",
+      typed: "r",
+      actual: "b",
+      ignoredTargetIds: ["a2"],
+      shake: true,
+    });
+    expect(state.typos).toBe(0);
     expect(state.lockedId).toBe("a1");
     expect(state.candidateIds).toEqual(["a1"]);
   });
@@ -254,7 +252,9 @@ describe("AC-3.3: no switching targets", () => {
       press("e", 300),
       press("d", 400),
     ]);
-    expect((only(emitted, "blast")[0] as BlastEmit).asteroidId).toBe("a1");
+    const blast = only(emitted, "blast")[0] as BlastEmit;
+    expect(blast.asteroidId).toBe("a1");
+    expect(blast.typos).toBe(0);
     expect(state.live.map((a) => a.id)).toEqual(["a2"]);
   });
 
@@ -276,14 +276,13 @@ describe("AC-3.4: completing the word fires the blast", () => {
       spawn(rock("a1", "red", 200)),
       ...typeWord("red", 700, 120),
     ]);
-    const blast = only(emitted, "blast")[0] as BlastEmit;
-    expect(blast).toMatchObject({
+    expect(only(emitted, "blast")[0] as BlastEmit).toMatchObject({
       asteroidId: "a1",
       word: "red",
       typos: 0,
       fkLatencyMs: 500,
       ikiMs: [120, 120],
-      durationMs: 240,
+      typingMs: 240,
       nowMs: 940,
     });
     // AC-3.4 "marks asteroid dead": it leaves the live set. hits and combo are
@@ -295,6 +294,8 @@ describe("AC-3.4: completing the word fires the blast", () => {
   it("AC-3.4: a one-letter word emits locked, advanced and blast in order", () => {
     const { emitted } = run([spawn(rock("a1", "a", 0)), press("a", 300)]);
     expect(emitted.map((e) => e.type)).toEqual(["locked", "advanced", "blast"]);
+    // Nothing may divide by typingMs: a single keystroke has no duration.
+    expect((only(emitted, "blast")[0] as BlastEmit).typingMs).toBe(0);
   });
 
   it("AC-3.4: two live asteroids carrying the same word blast one at a time", () => {
@@ -323,18 +324,29 @@ describe("AC-2.2 / D25: shared-prefix tier", () => {
     const { state, emitted } = run([...flowField, ...typeWord("flow", 100)]);
     expect(state.candidateIds).toEqual(["a1", "a2"]);
     expect(state.lockedId).toBeNull();
-    expect(phaseOf(state)).toBe("narrowing");
     expect(only(emitted, "locked")).toHaveLength(0);
     expect(only(emitted, "blast")).toHaveLength(0);
-    // The exact match is parked, not thrown away.
-    expect(state.pendingExactId).toBe("a1");
+    expect(phaseOf(state)).toBe("parked");
+  });
+
+  it("AC-2.2: the parked word is emitted so the scene can render it", () => {
+    // A state-only park is invisible: the player would have no way to tell
+    // "your word landed and is about to fire" from "still ambiguous".
+    const { emitted } = run([...flowField, ...typeWord("flow", 100)]);
+    const parked = only(emitted, "parked");
+    expect(parked).toHaveLength(1);
+    expect(parked[0] as ParkedEmit).toMatchObject({
+      asteroidId: "a1",
+      word: "flow",
+      typed: "flow",
+      rivalIds: ["a2"],
+      nowMs: 400,
+      firesAtMs: 400 + DEFAULT_PARK_GRACE_MS,
+    });
   });
 
   it("AC-2.2: typing 'e' locks 'flower'", () => {
-    const { state, emitted } = run([
-      ...flowField,
-      ...typeWord("flowe", 100),
-    ]);
+    const { state, emitted } = run([...flowField, ...typeWord("flowe", 100)]);
     const locked = only(emitted, "locked");
     expect(locked).toHaveLength(1);
     expect(locked[0] as LockedEmit).toMatchObject({
@@ -344,6 +356,7 @@ describe("AC-2.2 / D25: shared-prefix tier", () => {
     });
     expect(state.pendingExactId).toBeNull();
     expect(state.lockedId).toBe("a2");
+    expect(phaseOf(state)).toBe("locked");
   });
 
   it("AC-2.2: 'flower' then completes and 'flow' is still falling", () => {
@@ -352,35 +365,102 @@ describe("AC-2.2 / D25: shared-prefix tier", () => {
     expect(state.live.map((a) => a.id)).toEqual(["a1"]);
   });
 
-  it("AC-2.2 / D31: a parked exact match fires when the next key fits nothing", () => {
-    // The player meant "flow". Charging a typo here would make AC-2.2 a trap
-    // the player can only leave by being punished, which D31 forbids.
+  it("AC-2.2: the parked word fires on a tick once the grace window passes", () => {
+    const before = run([...flowField, ...typeWord("flow", 100)]);
+    const early = reduce(before.state, { type: "tick", nowMs: 400 + 100 });
+    expect(early.emitted).toEqual([]);
+    expect(phaseOf(early)).toBe("parked");
+
+    const late = reduce(early, { type: "tick", nowMs: 400 + DEFAULT_PARK_GRACE_MS });
+    expect(late.emitted.map((e) => e.type)).toEqual(["locked", "blast"]);
+    expect((only(late.emitted, "blast")[0] as BlastEmit)).toMatchObject({
+      asteroidId: "a1",
+      word: "flow",
+      typos: 0,
+      // The wait is excluded: this measures typing, not hesitation.
+      typingMs: 300,
+    });
+    expect(phaseOf(late)).toBe("idle");
+    expect(late.live.map((a) => a.id)).toEqual(["a2"]);
+  });
+
+  it("AC-2.2: a tick with nothing parked does nothing", () => {
+    const { state, emitted } = run([
+      ...flowField,
+      { type: "tick", nowMs: 5_000 },
+      ...typeWord("fl", 100),
+      { type: "tick", nowMs: 9_000 },
+    ]);
+    expect(only(emitted, "blast")).toHaveLength(0);
+    expect(state.typed).toBe("fl");
+  });
+
+  it("AC-3.2: a wrong key while parked is a TYPO — it does not fire the park", () => {
+    // The player is typing "flower" and fat-fingers. Reading that keystroke as
+    // consent would destroy "flow", a word they never asked for, and leave
+    // their real target untouched on screen.
     const { state, emitted } = run([
       ...flowField,
       ...typeWord("flow", 100),
       press("z", 600),
     ]);
-    expect(only(emitted, "typo")).toHaveLength(0);
-    const blast = only(emitted, "blast")[0] as BlastEmit;
-    expect(blast).toMatchObject({ asteroidId: "a1", word: "flow", typos: 0 });
-    expect(state.live.map((a) => a.id)).toEqual(["a2"]);
-    expect(phaseOf(state)).toBe("idle");
+    expect(only(emitted, "blast")).toHaveLength(0);
+    const typo = only(emitted, "typo");
+    expect(typo).toHaveLength(1);
+    expect(typo[0] as TypoEmit).toMatchObject({
+      typed: "flow",
+      actual: "z",
+      expected: ["e"],
+      typos: 1,
+      shake: true,
+    });
+    // AC-3.2's three promises: shake, count, and the attempt survives.
+    expect(state.typed).toBe("flow");
+    expect(state.pendingExactId).toBe("a1");
+    expect(state.live.map((a) => a.id)).toEqual(["a1", "a2"]);
+    expect(phaseOf(state)).toBe("parked");
   });
 
-  it("AC-2.2: the key that resolves a parked match can start the next word", () => {
+  it("AC-3.2: after the typo the player still finishes 'flower'", () => {
     const { state, emitted } = run([
       ...flowField,
-      spawn(rock("a3", "sun", 0)),
       ...typeWord("flow", 100),
-      press("s", 600),
+      press("z", 600),
+      press("e", 700),
+      press("r", 800),
     ]);
-    expect(emitted.map((e) => e.type)).toEqual([
-      "advanced", "advanced", "advanced", "advanced", // f l o w
-      "locked", "blast", // flow resolves
-      "locked", "advanced", // s starts "sun"
+    const blast = only(emitted, "blast")[0] as BlastEmit;
+    expect(blast).toMatchObject({ asteroidId: "a2", word: "flower", typos: 1 });
+    expect(state.live.map((a) => a.id)).toEqual(["a1"]);
+  });
+
+  it("AC-3.2: a typo while parked restarts the grace window", () => {
+    // Evidence the player is still at the keyboard, so the parked word must
+    // not fire out from under them on the very next frame.
+    const typed = run([...flowField, ...typeWord("flow", 100), press("z", 600)]);
+    const early = reduce(typed.state, {
+      type: "tick",
+      nowMs: 400 + DEFAULT_PARK_GRACE_MS,
+    });
+    expect(early.emitted).toEqual([]);
+    const late = reduce(early, { type: "tick", nowMs: 600 + DEFAULT_PARK_GRACE_MS });
+    expect(only(late.emitted, "blast")).toHaveLength(1);
+  });
+
+  it("AC-3.3: a rival's key while parked switches nothing and fires nothing", () => {
+    const { state, emitted } = run([
+      ...flowField,
+      spawn(rock("a3", "water", 0)),
+      ...typeWord("flow", 100),
+      press("w", 600),
     ]);
-    expect(state.lockedId).toBe("a3");
-    expect(state.typed).toBe("s");
+    expect(only(emitted, "blast")).toHaveLength(0);
+    expect(only(emitted, "typo")).toHaveLength(0);
+    expect((only(emitted, "ignored")[0] as IgnoredEmit).ignoredTargetIds)
+      .toEqual(["a3"]);
+    expect(state.typed).toBe("flow");
+    expect(state.pendingExactId).toBe("a1");
+    expect(state.live.map((a) => a.id)).toEqual(["a1", "a2", "a3"]);
   });
 
   it("AC-2.2: losing the longer rival fires the parked match with no keystroke", () => {
@@ -389,14 +469,14 @@ describe("AC-2.2 / D25: shared-prefix tier", () => {
       ...typeWord("flow", 100),
       { type: "despawn", id: "a2", nowMs: 900 },
     ]);
-    const blast = only(emitted, "blast")[0] as BlastEmit;
-    expect(blast).toMatchObject({ asteroidId: "a1", nowMs: 900 });
+    expect(only(emitted, "blast")[0] as BlastEmit).toMatchObject({
+      asteroidId: "a1",
+      nowMs: 900,
+    });
     expect(state.live).toEqual([]);
   });
 
-  it("AC-2.2: losing the parked exact match hands the lock to the longer word", () => {
-    // "flow" crosses the breach line while it is parked; "flower" is still a
-    // live candidate, so the half-typed prefix carries straight on.
+  it("AC-2.2: losing the parked match hands the lock to the longer word", () => {
     const { state, emitted } = run([
       ...flowField,
       ...typeWord("flow", 100),
@@ -406,6 +486,18 @@ describe("AC-2.2 / D25: shared-prefix tier", () => {
     expect(state.pendingExactId).toBeNull();
     expect((only(emitted, "locked")[0] as LockedEmit).asteroidId).toBe("a2");
     expect((only(emitted, "blast")[0] as BlastEmit).word).toBe("flower");
+  });
+
+  it("AC-2.2: a third candidate leaving does not restart the park animation", () => {
+    const { state, emitted } = run([
+      spawn(rock("a1", "flow", 0)),
+      spawn(rock("a2", "flower", 0)),
+      spawn(rock("a3", "flowing", 0)),
+      ...typeWord("flow", 100),
+      { type: "despawn", id: "a3", nowMs: 500 },
+    ]);
+    expect(only(emitted, "parked")).toHaveLength(1);
+    expect(state.parkedAtMs).toBe(400);
   });
 
   it("D25: losing a rival resolves the lock mid-word", () => {
@@ -482,8 +574,12 @@ describe("AC-3.5 / D46: composition and modifier handling", () => {
     expect(emitted.map((e) => e.type)).toEqual([
       "locked", "advanced", "advanced", "blast",
     ]);
-    const blast = only(emitted, "blast")[0] as BlastEmit;
-    expect(blast).toMatchObject({ word: "घर", fkLatencyMs: 600, ikiMs: [] });
+    expect(only(emitted, "blast")[0] as BlastEmit).toMatchObject({
+      word: "घर",
+      fkLatencyMs: 600,
+      ikiMs: [],
+      typingMs: 0,
+    });
     expect(state.live).toEqual([]);
   });
 
@@ -498,11 +594,11 @@ describe("AC-3.5 / D46: composition and modifier handling", () => {
   });
 
   it("D46: composed and decomposed Devanagari commits match the same word", () => {
-    const decomposed = run([
+    const { emitted } = run([
       spawn(rock("a1", "क़र", 0)),
       { type: "composition", text: "क़र", nowMs: 500 },
     ]);
-    expect(only(decomposed.emitted, "blast")).toHaveLength(1);
+    expect(only(emitted, "blast")).toHaveLength(1);
   });
 
   it("D46: transliterated Hindi is typed in Latin and blasts the Devanagari word", () => {
@@ -510,8 +606,7 @@ describe("AC-3.5 / D46: composition and modifier handling", () => {
       spawn(rock("a1", "घर", 0, "ghar")),
       ...typeWord("ghar", 400),
     ]);
-    const blast = only(emitted, "blast")[0] as BlastEmit;
-    expect(blast.word).toBe("घर");
+    expect((only(emitted, "blast")[0] as BlastEmit).word).toBe("घर");
   });
 });
 
@@ -520,26 +615,32 @@ describe("AC-19.2: the layout map is applied before matching", () => {
     // "art" on AZERTY is the physical keys KeyQ, KeyR, KeyT.
     const events: LockEvent[] = [
       spawn(rock("a1", "art", 0)),
-      { type: "key", input: { key: "a", code: "KeyQ", ctrl: false, alt: false, meta: false }, nowMs: 100 },
-      { type: "key", input: { key: "r", code: "KeyR", ctrl: false, alt: false, meta: false }, nowMs: 200 },
-      { type: "key", input: { key: "t", code: "KeyT", ctrl: false, alt: false, meta: false }, nowMs: 300 },
+      ...["a", "r", "t"].map((ch, i) => press(ch, 100 + i * 100, "azerty")),
     ];
     const azerty = run(events, createLockState({ layout: "azerty" }));
     expect(only(azerty.emitted, "blast")).toHaveLength(1);
 
     // The same physical keys on QWERTY spell "qrt" and never lock.
     const qwerty = run(events, createLockState({ layout: "qwerty" }));
-    expect(qwerty.emitted).toEqual([]);
+    expect(only(qwerty.emitted, "locked")).toHaveLength(0);
+  });
+
+  it("AC-19.2: 'maman' types correctly on AZERTY (Semicolon → m)", () => {
+    const { emitted } = run(
+      [
+        spawn(rock("a1", "maman", 0)),
+        ...[..."maman"].map((ch, i) => press(ch, 100 + i * 100, "azerty")),
+      ],
+      createLockState({ layout: "azerty" }),
+    );
+    expect((only(emitted, "blast")[0] as BlastEmit).word).toBe("maman");
   });
 
   it("AC-19.2: Dvorak physical keys type the Dvorak characters", () => {
-    // "the" on Dvorak is KeyK, KeyJ, KeyD.
     const { emitted } = run(
       [
         spawn(rock("a1", "the", 0)),
-        { type: "key", input: { key: "k", code: "KeyK", ctrl: false, alt: false, meta: false }, nowMs: 100 },
-        { type: "key", input: { key: "j", code: "KeyJ", ctrl: false, alt: false, meta: false }, nowMs: 200 },
-        { type: "key", input: { key: "d", code: "KeyD", ctrl: false, alt: false, meta: false }, nowMs: 300 },
+        ...[..."the"].map((ch, i) => press(ch, 100 + i * 100, "dvorak")),
       ],
       createLockState({ layout: "dvorak" }),
     );
@@ -551,7 +652,7 @@ describe("AC-19.2: the layout map is applied before matching", () => {
       spawn(rock("a1", "zoo", 0)),
       { type: "layout", layout: "qwertz" },
       // On QWERTZ the physical KeyY types "z".
-      { type: "key", input: { key: "y", code: "KeyY", ctrl: false, alt: false, meta: false }, nowMs: 100 },
+      press("z", 100, "qwertz"),
     ]);
     expect(state.layout).toBe("qwertz");
     expect(only(emitted, "locked")).toHaveLength(1);
@@ -586,8 +687,7 @@ describe("timing samples for words/ and calibration/", () => {
       press("s", 810),
       press("t", 930),
     ]);
-    const blast = only(emitted, "blast")[0] as BlastEmit;
-    expect(blast.ikiMs).toEqual([140, 170, 120]);
+    expect((only(emitted, "blast")[0] as BlastEmit).ikiMs).toEqual([140, 170, 120]);
     expect(state.ikiMs).toEqual([]);
   });
 
@@ -602,8 +702,21 @@ describe("timing samples for words/ and calibration/", () => {
       press("s", 3000),
       press("t", 3100),
     ]);
-    const advances = only(emitted, "advanced");
-    expect(advances.map((a) => a.ikiMs)).toEqual([null, 100, null, 100]);
+    expect(only(emitted, "advanced").map((a) => a.ikiMs))
+      .toEqual([null, 100, null, 100]);
+    expect((only(emitted, "blast")[0] as BlastEmit).ikiMs).toEqual([100, 100]);
+  });
+
+  it("FR-7: an ignored rival key breaks the chain the same way", () => {
+    const { emitted } = run([
+      spawn(rock("a1", "dust", 0)),
+      spawn(rock("a2", "moon", 0)),
+      press("d", 500),
+      press("m", 600),
+      press("u", 2000),
+      press("s", 2100),
+      press("t", 2200),
+    ]);
     expect((only(emitted, "blast")[0] as BlastEmit).ikiMs).toEqual([100, 100]);
   });
 
@@ -666,32 +779,48 @@ describe("registry and reducer hygiene", () => {
   });
 
   it("an untypeable entry is refused at spawn rather than jamming the matcher", () => {
-    const { state } = run([spawn(rock("a1", "---", 0))]);
+    expect(run([spawn(rock("a1", "---", 0))]).state.live).toEqual([]);
+  });
+
+  it("a duplicate asteroid id is refused, so the lock can still resolve", () => {
+    // Two entries under one id would sit in candidateIds twice and the
+    // one-candidate test would never be true again.
+    const { state, emitted } = run([
+      spawn(rock("a1", "red", 0)),
+      spawn(rock("a1", "red", 10)),
+      ...typeWord("red", 100),
+    ]);
     expect(state.live).toEqual([]);
+    expect(only(emitted, "blast")).toHaveLength(1);
   });
 
-  it("AC-4.1: reset clears the belt and the attempt but keeps the layout", () => {
+  it("AC-4.1: reset clears the belt and the attempt but keeps the settings", () => {
+    const options = { layout: "dvorak", parkGraceMs: 900 } as const;
     const { state } = run(
-      [
-        spawn(rock("a1", "red")),
-        press("r", 100),
-        { type: "reset" },
-      ],
-      createLockState({ layout: "dvorak" }),
+      [spawn(rock("a1", "red")), press("r", 100), { type: "reset" }],
+      createLockState(options),
     );
-    expect(state).toEqual(createLockState({ layout: "dvorak" }));
+    expect(state).toEqual(createLockState(options));
   });
 
-  it("phaseOf reports idle, narrowing and locked", () => {
+  it("the park grace window defaults to FR-8's keystroke budget", () => {
+    // 1.5 x the default median inter-key interval (350 ms).
+    expect(DEFAULT_PARK_GRACE_MS).toBe(525);
+    expect(createLockState().parkGraceMs).toBe(525);
+  });
+
+  it("phaseOf reports idle, narrowing, parked and locked", () => {
     let state = createLockState();
     expect(phaseOf(state)).toBe("idle");
     state = reduce(state, spawn(rock("a1", "cat")));
-    state = reduce(state, spawn(rock("a2", "car")));
+    state = reduce(state, spawn(rock("a2", "cattle")));
     state = reduce(state, press("c", 100));
     expect(phaseOf(state)).toBe("narrowing");
     state = reduce(state, press("a", 200));
     state = reduce(state, press("t", 300));
-    expect(phaseOf(state)).toBe("idle");
+    expect(phaseOf(state)).toBe("parked");
+    state = reduce(state, press("t", 400));
+    expect(phaseOf(state)).toBe("locked");
   });
 
   it("reduceAll folds a script and collects every emission", () => {
@@ -703,5 +832,182 @@ describe("registry and reducer hygiene", () => {
       "locked", "advanced", "blast",
     ]);
     expect(result.state.live).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Simulation. The point of this one is the D25 tier: shared prefixes are where
+// the lock can actually be dropped, so every run has real rivals on screen,
+// plus a second word family to supply AC-3.3 keystrokes and despawns.
+// ---------------------------------------------------------------------------
+
+/** Families with distinct first letters, so cross-family keys are never candidates. */
+const FAMILIES: readonly (readonly string[])[] = [
+  ["flow", "flower", "flows", "flowing"],
+  ["cat", "car", "cart", "carts"],
+  ["red", "read", "ready"],
+  ["sun", "sung", "sunset"],
+  ["moon", "moons"],
+];
+
+const ALPHABET = [..."abcdefghijklmnopqrstuvwxyz"];
+
+describe("AC-3.2 / AC-3.3 / D25: seeded flight simulation", () => {
+  it("AC-3.2: 300 seeded runs with shared prefixes never drop the lock", () => {
+    const rand = mulberry32(0xb1a57);
+    let sawPark = 0;
+    let sawIgnored = 0;
+    let sawComposition = 0;
+    let sawTickBlast = 0;
+
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      const [famA, famB] = [...FAMILIES]
+        .map((f) => ({ f, k: rand() }))
+        .sort((x, y) => x.k - y.k)
+        .slice(0, 2)
+        .map((x) => x.f) as [readonly string[], readonly string[]];
+
+      // 2-3 rivals sharing a prefix, plus 1-2 rocks from the other family.
+      const rivals = famA.slice(0, 2 + Math.floor(rand() * 2));
+      const others = famB.slice(0, 1 + Math.floor(rand() * 2));
+      const layoutStart = pick(rand, LAYOUTS);
+
+      let state = createLockState({ layout: layoutStart, parkGraceMs: 500 });
+      let layout = layoutStart;
+      const ids = new Map<string, string>();
+      rivals.concat(others).forEach((word, i) => {
+        const id = `r${i}`;
+        ids.set(word, id);
+        state = reduce(state, spawn(rock(id, word, i * 10)));
+      });
+
+      const target = pick(rand, rivals);
+      const targetId = ids.get(target) as string;
+      const letters = [...target];
+      let nowMs = 1_000;
+      let injectedTypos = 0;
+      let injectedIgnored = 0;
+      const emitted: LockEmit[] = [];
+
+      const step = (event: LockEvent): void => {
+        const lockedBefore = state.lockedId;
+        const typedBefore = state.typed;
+        state = reduce(state, event);
+        emitted.push(...state.emitted);
+        const blasted = only(state.emitted, "blast").length > 0;
+        if (lockedBefore !== null && !blasted) {
+          // The load-bearing invariant of D31: a lock is never handed to
+          // another rock and never silently released.
+          expect(state.lockedId).toBe(lockedBefore);
+        }
+        if (!blasted && typedBefore.length > 0) {
+          expect(state.typed.startsWith(typedBefore)).toBe(true);
+        }
+      };
+
+      for (let i = 0; i < letters.length; i += 1) {
+        const expectedChar = letters[i] as string;
+
+        // Characters that would legitimately advance some candidate: a
+        // generator that used one of these would be testing nothing.
+        const advancing = new Set(
+          state.candidateIds
+            .map((id) => state.live.find((a) => a.id === id) as LiveAsteroid)
+            .map((a) => [...a.word][i]),
+        );
+
+        if (rand() < 0.35 && i > 0) {
+          // A key that belongs to a rock the player is NOT typing: AC-3.3
+          // says ignored, so it must not touch the typo count.
+          const liveOther = state.live
+            .filter((a) => !state.candidateIds.includes(a.id))
+            .map((a) => [...a.word][0] as string)
+            .filter((c) => !advancing.has(c));
+          const ch = liveOther[0];
+          if (ch !== undefined) {
+            nowMs += 80;
+            const typosBefore = state.typos;
+            const parkBefore = state.pendingExactId;
+            step(press(ch, nowMs, layout));
+            expect(state.typos).toBe(typosBefore);
+            expect(state.pendingExactId).toBe(parkBefore);
+            injectedIgnored += 1;
+            sawIgnored += 1;
+          }
+        }
+
+        if (rand() < 0.4 && i > 0) {
+          // A key that matches nothing at all: AC-3.2 typo.
+          const liveFirsts = new Set(state.live.map((a) => [...a.word][0] as string));
+          const ch = pick(
+            rand,
+            ALPHABET.filter((c) => !advancing.has(c) && !liveFirsts.has(c)),
+          );
+          nowMs += 80;
+          const parkBefore = state.pendingExactId;
+          const liveBefore = state.live.length;
+          step(press(ch, nowMs, layout));
+          injectedTypos += 1;
+          expect(state.typos).toBe(injectedTypos);
+          // A fat finger never fires the parked word and never kills a rock.
+          expect(state.pendingExactId).toBe(parkBefore);
+          expect(state.live).toHaveLength(liveBefore);
+        }
+
+        if (rand() < 0.15) {
+          layout = pick(rand, LAYOUTS);
+          step({ type: "layout", layout });
+        }
+
+        if (rand() < 0.12) {
+          // A rock the player is not typing crosses the breach line.
+          const doomed = state.live.find(
+            (a) => !state.candidateIds.includes(a.id) && a.id !== targetId,
+          );
+          if (doomed !== undefined) {
+            nowMs += 20;
+            step({ type: "despawn", id: doomed.id, nowMs });
+          }
+        }
+
+        nowMs += 120;
+        if (rand() < 0.15 && i + 1 < letters.length) {
+          // D46: the rest of the word arrives as one committed composition.
+          step({
+            type: "composition",
+            text: letters.slice(i).join(""),
+            nowMs,
+          });
+          sawComposition += 1;
+          break;
+        }
+        step(press(expectedChar, nowMs, layout));
+      }
+
+      if (state.pendingExactId !== null) {
+        sawPark += 1;
+        expect(state.pendingExactId).toBe(targetId);
+        nowMs += 500;
+        step({ type: "tick", nowMs });
+        sawTickBlast += 1;
+      }
+
+      const blasts = only(emitted, "blast");
+      expect(blasts).toHaveLength(1);
+      expect(blasts[0] as BlastEmit).toMatchObject({
+        asteroidId: targetId,
+        word: target,
+        typos: injectedTypos,
+      });
+      expect(only(emitted, "ignored")).toHaveLength(injectedIgnored);
+      expect(state.live.some((a) => a.id === targetId)).toBe(false);
+      expect(phaseOf(state)).toBe("idle");
+    }
+
+    // The simulation is only worth anything if it reached the hard states.
+    expect(sawPark).toBeGreaterThan(20);
+    expect(sawTickBlast).toBeGreaterThan(20);
+    expect(sawIgnored).toBeGreaterThan(50);
+    expect(sawComposition).toBeGreaterThan(20);
   });
 });
