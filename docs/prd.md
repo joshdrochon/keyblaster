@@ -187,14 +187,15 @@ KeyBlaster is a 2D high-fidelity vertical scroller for grades 2–5 in which the
 - AC-20.3 Retention line: for retention words in this stage, % hit and mean latency delta vs first exposure. → U.
 - AC-20.4 Stars per §3.1 AC-4.4. → U.
 
-### 3.9 Audio (D62, D63)
+### 3.9 Audio (D62, D63, D88)
 
 - AC-21.1 Per-planet ambient bed file exists and plays on that stop; crossfades on transition. → E (audio node graph assertion).
 - AC-21.2 Music has ≥ 3 intensity layers; intensity index is a function of live asteroid count and combo. → U.
 - AC-21.3 Every event (lock, keystroke, typo, blast, hit, shield, warp charge, warp, beacon, UI nav) has ≥ 3 SFX variants; consecutive plays never repeat a variant. → U.
 - AC-21.4 Music ducks by ≥ 6 dB while a Shadow voice line plays. → U.
 - AC-21.5 Shadow speaks via Web Speech API (system voice) with a per-platform voice preference list and fallback; no network TTS call at runtime unless `ELEVENLABS_API_KEY` is set at build time (then pre-rendered files replace system voice for scripted lines). → U (network mock asserts zero TTS calls) + build test.
-- AC-21.6 Coach notes are spoken via system voice after the text renders; text remains the source of truth and the display is identical with or without speech. → E.
+- AC-21.6 Coach notes are spoken via system voice after the text renders; text remains the source of truth and the display is identical with or without speech. → E
+- AC-21.7 The voice path is complete against the system-voice stand-in (D88): voice bus, ducking (AC-21.4) and spoken coach notes all work with no ElevenLabs key present, and the swap to pre-rendered files is confined to one module. → U (module boundary test) + build test..
 
 ### 3.10 Visual rubric (D60) — all V unless noted
 
@@ -207,6 +208,28 @@ KeyBlaster is a 2D high-fidelity vertical scroller for grades 2–5 in which the
 - AC-22.7 Each stage palette ≤ 7 colors + 1 accent in config; screenshot dominant colors ⊆ palette ± tolerance. → U + E.
 - AC-22.8 Word label contrast ratio ≥ 4.5:1 against its plate. → U.
 - AC-22.9 60 fps: p95 frame time ≤ 16.7 ms over a 60 s scripted flight in headless Chromium. → P.
+
+### 3.11 Craft and safety invariants (D31, D83, D89, D90, D91)
+
+These decisions already have executable checks in `tests/gauntlet/rubric.mjs`; this
+section is the acceptance criteria they were missing, so the trace holds (D61).
+
+**FR-22 Nothing reads as punishment (D31, D28).**
+- AC-22b.1 No red failure state, lives counter, or "wrong" label/sound exists anywhere in `src/game`. → U (static scan; gauntlet `G-nored`).
+- AC-22b.2 A hull strike renders as shake + spark with no full-screen red flash (restates AC-4.2 as a rendering invariant). → V.
+
+**FR-23 All art is vector drawn in code (D83, D84).**
+- AC-23.1 No raster file is referenced from anywhere in `src/`; reference images in `design-reference/refs/` are looked at, never loaded. → U (static scan; gauntlet `G-raster`).
+
+**FR-24 The Lantern (D89, D90).**
+- AC-24.1 The beam emitter renders as engineered tech: large lens, iris aperture that opens on fire, three concentric focusing rings, finned heat housing, pivot mount that tracks the locked target. One beam source, no gun barrel. → V.
+- AC-24.2 The rendered vector Lantern matches `design-reference/refs/lantern-topdown.png` in silhouette, orientation, proportion and emitter treatment, judged side by side at matched scale. → V (reference compare; gauntlet `R-lantern`).
+- AC-24.3 The four colorways in that reference are the four base ships (D79); no text is drawn on the hull and `{shipName}` renders dynamically. → U + V.
+
+**FR-25 Shadow (D91, D66).**
+- AC-25.1 The rendered vector Shadow matches `design-reference/refs/shadow-sheet.png`: charcoal body, cream face rim, glowing pale-blue eyes and antenna tip, stubby arms, hover glow, round flank port. → V (reference compare; gauntlet `R-shadow`).
+- AC-25.2 Six poses exist (idle, pointing, cheering, shy/worried, asleep, saluting) and the sheet's bottom-row colorways are NOT used - Shadow has one look (D91). → U (pose table) + V.
+- AC-25.3 No Shadow line, scripted or generated, ever contains the word "wrong" (D31, story note 6). → U (line-table scan + coach output filter).
 
 ---
 
