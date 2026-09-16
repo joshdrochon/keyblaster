@@ -109,6 +109,30 @@ async function bootFlight(page: Page, options: BootOptions = {}): Promise<void> 
   );
 }
 
+/** Wait for N rendered frames. A loaded headless box can take a second over
+ * each one, so "wait 40 ms" is not the same thing as "wait for a new frame". */
+async function waitFrames(page: Page, count: number): Promise<void> {
+  await page.evaluate(async (n) => {
+    const game = window.__kbGame as unknown as {
+      events: {
+        on(e: string, f: () => void): void;
+        off(e: string, f: () => void): void;
+      };
+    };
+    await new Promise<void>((resolve) => {
+      let seen = 0;
+      const onRender = (): void => {
+        seen += 1;
+        if (seen >= (n as number)) {
+          game.events.off("postrender", onRender);
+          resolve();
+        }
+      };
+      game.events.on("postrender", onRender);
+    });
+  }, count);
+}
+
 const state = (page: Page): Promise<FlightState> =>
   page.evaluate(() => window.__kbFlight?.state() as FlightState);
 
@@ -193,6 +217,7 @@ test.describe("Flight - screen 6", () => {
   test("AC-3.1 + AC-3.4: the first keystroke locks a rock and completing the word blasts it, scoring at x1 (AC-6c.1)", async ({
     page,
   }) => {
+    test.setTimeout(90_000);
     await bootFlight(page, { knobs: { maxLive: 2 } });
 
     const before = await state(page);
@@ -201,21 +226,44 @@ test.describe("Flight - screen 6", () => {
     // A real browser keystroke, to prove the shipped input path works end to
     // end (AC-3.5, AC-18.1) and not just the dispatched events used elsewhere.
     await page.keyboard.press(target.word[0] as string);
-    const locked = await state(page);
-    expect(locked.typed.length).toBe(1);
-    // Art-direction section 7: the typed letters light to the accent. The
-    // plate's typed count is what drives that colour, per letter.
-    expect(locked.rocks.find((r) => r.id === target.id)?.typedCount).toBe(1);
 
-    await typeWord(page, target.word.slice(1));
-    await page.waitForTimeout(80);
+    // The rest of the word goes in one round trip: on a loaded box a per-key
+    // round trip can outlast the rock's fall, and the point here is the lock,
+    // not the harness.
+    const run = await page.evaluate(() => {
+      const api = window.__kbFlight as NonNullable<typeof window.__kbFlight>;
+      const locked = api.state();
+      const rock = locked.rocks.find((r) => r.id === locked.lockedId);
+      const typedCount = rock?.typedCount ?? 0;
+      for (const ch of (rock?.word ?? "").slice(locked.typed.length)) {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", { key: ch, code: `Key${ch.toUpperCase()}` }),
+        );
+      }
+      const after = api.state();
+      return {
+        word: rock?.word ?? "",
+        lockedId: locked.lockedId,
+        typedAfterFirstKey: locked.typed,
+        typedCount,
+        hits: after.hits,
+        combo: after.combo,
+        multiplier: after.multiplier,
+        score: after.score,
+        stillLive: after.rocks.some((r) => r.id === locked.lockedId),
+      };
+    });
 
-    const after = await state(page);
-    expect(after.hits).toBe(1);
-    expect(after.combo).toBe(1);
-    expect(after.multiplier).toBe(1); // never x0 on screen
-    expect(after.score).toBe(target.word.length * 20);
-    expect(after.rocks.some((r) => r.id === target.id)).toBe(false);
+    expect(run.lockedId).not.toBeNull();
+    expect(run.typedAfterFirstKey.length).toBe(1);
+    // Art-direction section 7: typed letters light to the accent, per letter.
+    expect(run.typedCount).toBe(1);
+
+    expect(run.hits).toBe(1);
+    expect(run.combo).toBe(1);
+    expect(run.multiplier).toBe(1); // never x0 on screen
+    expect(run.score).toBe(run.word.length * 20);
+    expect(run.stillLive).toBe(false);
   });
 
   test("AC-3.2: a wrong key shakes, counts once and keeps the lock; AC-3.3 + C10: a key belonging to another rock does neither", async ({
@@ -397,6 +445,7 @@ test.describe("Flight - screen 6", () => {
   test("AC-4.2 + AC-22b.2: a strike costs exactly one hull mark, with no full-screen red flash", async ({
     page,
   }) => {
+    test.setTimeout(90_000);
     await bootFlight(page, { pixelReadback: true, knobs: { maxLive: 2 } });
 
     const sampleMeans = async (): Promise<{ r: number; g: number; b: number }> =>
@@ -420,15 +469,17 @@ test.describe("Flight - screen 6", () => {
         return { r: r / n, g: g / n, b: b / n };
       });
 
-    const before = await state(page);
     const pixelsBefore = await sampleMeans();
-
-    await page.evaluate(() => window.__kbFlight?.strike());
-    await page.waitForTimeout(40);
+    const hull = await page.evaluate(() => {
+      const api = window.__kbFlight as NonNullable<typeof window.__kbFlight>;
+      const before = api.state().hull;
+      api.strike();
+      return { before, after: api.state().hull };
+    });
+    await waitFrames(page, 2);
     const pixelsDuring = await sampleMeans();
-    const after = await state(page);
 
-    expect(after.hull).toBe(before.hull - 1);
+    expect(hull.after).toBe(hull.before - 1);
     // D28: shake and spark, never a flash. A full-screen red flash would move
     // the mean red channel hard and move it further than green and blue.
     const dr = pixelsDuring.r - pixelsBefore.r;

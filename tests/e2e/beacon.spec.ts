@@ -192,27 +192,33 @@ test("AC-18.1 the beacon is operable with the keyboard alone and shows focus", a
 test("screen 12 Pluto's beacon hands over to the ending card, not to Results", async ({
   page,
 }) => {
-  // The ending card runs ~3.8 s of scene time, which headless stretches well
-  // past the default per-test budget.
-  test.setTimeout(120_000);
+  test.setTimeout(90_000);
   await openBeacon(page, "pluto");
   expect((await snap<BeaconSnapshot>(page, "beacon")).nextScene).toBe("Ending");
 
   await page.keyboard.press("Enter");
   await waitForScene(page, "Ending");
   expect(await activeScenes(page)).toContain("Ending");
+});
 
-  // The ending card blinks seven beacons and says Shadow's closing line. The
-  // beacons light on the scene clock, which headless runs far slower than wall
-  // time, so this waits on the state rather than on a stopwatch.
-  await waitForSnapshot(page, "ending", "litCount", 7, 60_000);
-  await waitForSnapshot(page, "ending", "shadowLineVisible", true, 60_000);
-  const ending = await page.evaluate(() => {
-    const e = (window as unknown as { __kb: Record<string, unknown> }).__kb["ending"] as { snapshot: () => Record<string, unknown> };
-    return e.snapshot();
-  });
+test("screen 12 the ending card blinks seven beacons Earth to Pluto and Shadow closes", async ({
+  page,
+}) => {
+  // Opened with reduced motion (AC-19.3): the map zoom is camera motion and is
+  // dropped, while the beacons still light in sequence, because the sequence IS
+  // the card rather than decoration. It also keeps the 3.8 s of scene time this
+  // card runs inside a budget headless can actually reach.
+  test.setTimeout(150_000);
+  await bootScene(page, "Ending", "ending", "&stop=pluto&reducedMotion=1");
+
+  await waitForSnapshot(page, "ending", "litCount", 7, 90_000);
+  await waitForSnapshot(page, "ending", "shadowLineVisible", true, 30_000);
+
+  const ending = await snap<Record<string, unknown>>(page, "ending");
+  expect(ending["reducedMotion"]).toBe(true);
+  expect(ending["zoom"]).toBe(1);
   expect(ending["beacons"]).toBe(7);
-  expect(ending["litCount"]).toBe(7);
+  // Earth to Pluto, in route order (D56).
   expect(ending["litOrder"]).toEqual([
     "earth",
     "mars",
@@ -222,11 +228,15 @@ test("screen 12 Pluto's beacon hands over to the ending card, not to Results", a
     "neptune",
     "pluto",
   ]);
-  expect(ending["shadowLineVisible"]).toBe(true);
   expect(String(ending["shadowLine"])).toBe(
     "Every ship that comes after us will see these. You drew the map.",
   );
   expect(ending["nextScene"]).toBe("Results");
+
+  // ...and then Results, by keyboard alone.
+  await page.keyboard.press("Enter");
+  await waitForScene(page, "Results");
+  expect(await activeScenes(page)).toContain("Results");
 });
 
 test("AC-22b.1 nothing on the beacon screen reads as punishment", async ({ page }) => {

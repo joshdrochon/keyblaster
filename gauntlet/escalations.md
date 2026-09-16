@@ -327,3 +327,95 @@ NOT PASSED as D63 writes it. Shipping A; C12 stays open in the decision log.
 | F3 | i18n translator mode in the game layer | (a) `dev` (throws on a missing key), (b) `prod` + a loud miss log | **(b).** A missing string must not take a screen down at 3am (D94). Misses are pushed to `window.__kb.i18nMisses`, logged as console errors, and the Title e2e asserts the list is empty — so nothing is hidden. |
 | F4 | Wordmark typeface | (a) system font stack, (b) load a Google Font (D81) | **(a).** No lane owns font loading and a webfont fetch would make the offline/headless runs flaky. D81 wants a rounded geometric display face; this is a real gap against art-direction section 7, not a finished answer. |
 | F5 | `trace: "off"` in `tests/e2e/title.spec.ts` | (a) leave the config default, (b) disable traces for this file | **(b), as a workaround, not a fix.** All lanes share one `test-results/` directory; a concurrent run clears it mid-flight and `browserContext.close` dies on ENOENT *after* the assertions pass. The real fix is a per-run `outputDir` in `playwright.config.ts`, which this lane may not edit. |
+
+## Warp / Beacon / Results / Ending lane — four decisions and one measurement
+
+- **Escalated:** 2026-09-16 (build night 1)
+- **Source:** screens 7, 8, 9, 12 of the design brief's screen inventory
+- **Status:** all five SHIPPED with the documented behaviour; none blocked the loop (D94).
+
+### 1. Two rules live in `src/game` because the lane could not write `src/engine`
+
+`src/game/scenes/support/warpSentence.ts` (D30 / AC-16.2 / AC-16.3) and
+`src/game/scenes/support/relativeBoard.ts` (D43's "up to two above and two
+below") are RULES. CLAUDE.md says rules live in `src/engine`; the lane brief
+says a scene lane may not write there. Both files are written to engine rules -
+pure, no Phaser, no DOM, no clock - so moving them is a `git mv` plus an import
+rewrite, and they then fall under the 95% coverage gate they currently escape.
+
+| Option | Cost |
+|---|---|
+| A | Move both into `src/engine/warp/` and `src/engine/board/` and unit-test them | one commit; closes the coverage gap |
+| B | Leave them in the scene lane | rules outside the tested engine, which is the thing the hard rule exists to prevent |
+
+**Lean: A.** They are already engine-shaped; only the folder is wrong.
+
+### 2. The relative board has no data source
+
+D43 asks for "you and the nearest players". There are no accounts and no
+network, so there is nothing to populate it with. `ResultsScene` takes the rows
+as input, `relativeWindow` picks the window, and with none supplied the board
+renders its empty-state line. The opt-in prompt, the two-above-two-below rule
+and the no-rank guarantee are all built and tested; only the feed is missing.
+
+### 3. A slower stage is still reported, in neutral ink
+
+AC-20.1 asks for a delta against the previous stage, and a real delta is
+sometimes negative. D74 says the screen must never read as a grade. The shipped
+compromise: the line reads "down 4 from mars", in the panel's dim ink, with no
+arrow, no colour change and no red anywhere (`tests/e2e/results.spec.ts` asserts
+that no text on the screen is drawn in a red that is not the stage accent).
+The alternative - hiding a negative delta - was rejected because a screen that
+only reports good news stops being evidence.
+
+### 4. "Not now" on the board prompt hides the panel
+
+The brief says "one calm prompt the first time Results would show it". Re-asking
+on the same screen after a decline is nagging, so declining removes the board
+panel for that visit rather than re-rendering the prompt.
+
+### 5. MEASUREMENT: headless Chromium runs the game at ~12 real frames/second
+
+Measured with `game.loop.frame` sampled one wall second apart, on Title, Beacon,
+Warp and Ending alike. Phaser's own `actualFps` reports ~47 because it is
+computed from its smoothed delta, so the shortfall is invisible from inside the
+game. Consequences:
+
+- Scene-clock waits in e2e must be conditions, not sleeps. This lane's specs use
+  `waitForSnapshot` / `waitForScene` / `waitForTweens` throughout for that reason.
+- It is NOT yet evidence against AC-22.9 (p95 frame time <= 16.7 ms): headless
+  WebGL with `ReadPixels` stalls is not the target environment. But the P test
+  must be run headed, or it will measure the harness rather than the game.
+
+## C13 — planet names in the asteroid pool (collision, user decision)
+
+- **Logged:** 2026-09-16 (build night 1)
+- **Source:** `docs/story-draft-v1.md` note 4 vs PRD AC-12.3
+- **Found by:** the story lane, while building the stage bundles
+
+Two rules that cannot both hold:
+
+- **Story note 4:** proper nouns appear in briefings but are excluded from
+  asteroid pools. Kids read them; they do not have to type them.
+- **AC-12.3:** every content word in a warp sentence must exist in that stage's
+  pool.
+
+Every warp sentence in the story draft opens with the planet's name — "**Mars**
+is the red planet", "**Saturn wears rings** made of **ice** and **rock**". So
+the planet name is a content word of the warp sentence and therefore must be in
+the pool, which note 4 forbids.
+
+| # | Option | Cost |
+|---|---|---|
+| A | Planet's own name goes in the pool; moons stay readable-only | Shipped. A 4-7 letter proper noun the child has just read three times in the briefing. |
+| B | Reword the warp sentences so they never open with the planet name | Costs the story's voice, and the beat is "name the place you just charted". |
+| C | Exempt a sentence's first word from AC-12.3 | Cheapest in code, but it is a hole in the check that exists to stop unvetted words reaching the screen. |
+
+**Lean: A.** It is the narrowest exception, the word is the most-rehearsed thing
+on the screen by the time they type it, and typing the name of the place you
+just charted is the point of the warp beat. Moons — Phobos, Deimos, Titan,
+Triton, Charon — remain readable-only, so note 4's actual intent is preserved.
+
+### Status
+
+Shipped as A. C13 open in the decision log.

@@ -6,6 +6,7 @@ import {
   expectNoPunishment,
   mount,
   snapshot,
+  transitions,
   typeWord,
 } from "./story-lane";
 

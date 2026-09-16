@@ -59,6 +59,7 @@ type WarpSnapshot = {
   chargePercent: number;
   percentLabel: string;
   chargedLabelVisible: boolean;
+  chargedShown: boolean;
   focusId: string;
   focusRingVisible: boolean;
   highlightedText: string[];
@@ -163,6 +164,7 @@ test("D30 the sentence highlights the words the player just blasted", async ({ p
 test("AC-16.2 a typo does not reset the sentence and re-highlights the current letter", async ({
   page,
 }) => {
+  test.setTimeout(90_000);
   await openWarp(page);
   await page.keyboard.type("Mars", { delay: 25 });
 
@@ -190,6 +192,7 @@ test("AC-16.2 a typo does not reset the sentence and re-highlights the current l
 test("AC-16.3 the charge meter reaches exactly 100% on the final character", async ({
   page,
 }) => {
+  test.setTimeout(90_000);
   await openWarp(page);
   const body = MARS_SENTENCE.slice(0, -1);
   const last = MARS_SENTENCE.slice(-1);
@@ -201,7 +204,12 @@ test("AC-16.3 the charge meter reaches exactly 100% on the final character", asy
   expect(penultimate.chargePercent).toBeLessThan(100);
 
   await page.keyboard.press(last === "." ? "Period" : last);
-  await page.waitForTimeout(120);
+  await waitForSnapshot(page, "warp", "charged", true);
+  // The "charged" line goes up in the same frame the warp starts. Waiting on
+  // the rendered flag is the assertion that it was really drawn; the latched
+  // flag is what the snapshot below can still see once the cut to Beacon has
+  // destroyed the Text.
+  await waitForSnapshot(page, "warp", "chargedLabelVisible", true);
 
   const done = await snap<WarpSnapshot>(page, "warp");
   expect(done.charged).toBe(true);
@@ -209,17 +217,18 @@ test("AC-16.3 the charge meter reaches exactly 100% on the final character", asy
   expect(done.chargeFraction).toBe(1);
   expect(done.chargePercent).toBe(100);
   expect(done.percentLabel).toContain("100");
-  expect(done.chargedLabelVisible).toBe(true);
+  expect(done.chargedShown).toBe(true);
 });
 
 test("AC-16.3 a typo on the way does not cost the player 100%", async ({ page }) => {
+  test.setTimeout(90_000);
   await openWarp(page);
   await page.keyboard.type("Mars", { delay: 20 });
   await page.keyboard.press("q");
   await page.keyboard.press("q");
   await page.keyboard.type(" is the red planet", { delay: 20 });
   await page.keyboard.press("Period");
-  await page.waitForTimeout(120);
+  await waitForSnapshot(page, "warp", "charged", true);
 
   const s = await snap<WarpSnapshot>(page, "warp");
   expect(s.typos).toBe(2);

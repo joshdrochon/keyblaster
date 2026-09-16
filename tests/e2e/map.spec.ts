@@ -42,6 +42,9 @@ const rows = (s: Awaited<ReturnType<typeof snapshot>>): StopRow[] =>
   s["stops"] as StopRow[];
 
 test.describe("Director map (row 3, D13/D40)", () => {
+  // Software WebGL under parallel workers; see the note on mount().
+  test.setTimeout(120_000);
+
   test("D13 variant: Mars only unlocked - Earth blinks, everything past Mars is dark but visible", async ({
     page,
   }) => {

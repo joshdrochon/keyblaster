@@ -142,7 +142,7 @@ test.describe("row 2 - profile create", () => {
       expect((await snapshot(page, CREATE))["step"]).toBe(step);
       await assertNoEmailField(page);
       if (step < 2) {
-        await focusItem(page, CREATE, step === 0 ? "create.next" : "create.next");
+        await focusItem(page, CREATE, `create.next.${step}`);
         await press(page, "Enter");
       }
     }
@@ -168,8 +168,9 @@ test.describe("row 2 - profile create", () => {
     await press(page, "Enter");
     expect((await snapshot(page, CREATE))["avatarId"]).toBe("avatar-3");
 
-    await focusItem(page, CREATE, "create.next");
+    await focusItem(page, CREATE, "create.next.0");
     await press(page, "Enter");
+    await item(page, CREATE, "create.next.1").waitFor({ state: "attached" });
     expect((await snapshot(page, CREATE))["step"]).toBe(1);
 
     // Beat 2: the starting hull is the only choosable one on a new pilot.
@@ -177,8 +178,9 @@ test.describe("row 2 - profile create", () => {
     await press(page, "Enter");
     expect((await snapshot(page, CREATE))["shipId"]).toBe("ship-1");
 
-    await focusItem(page, CREATE, "create.next");
+    await focusItem(page, CREATE, "create.next.1");
     await press(page, "Enter");
+    await item(page, CREATE, "create.shipName").waitFor({ state: "attached" });
     expect((await snapshot(page, CREATE))["step"]).toBe(2);
 
     // Beat 3: C07 - the default ship name comes from the string table, never
@@ -204,9 +206,9 @@ test.describe("row 2 - profile create", () => {
     await seed(page, [], CREATE);
     await page.keyboard.type("Kit");
     await page.waitForTimeout(80);
-    await focusItem(page, CREATE, "create.next");
+    await focusItem(page, CREATE, "create.next.0");
     await press(page, "Enter");
-    await focusItem(page, CREATE, "create.next");
+    await focusItem(page, CREATE, "create.next.1");
     await press(page, "Enter");
     await focusItem(page, CREATE, "create.launch");
     await press(page, "Enter");
@@ -220,8 +222,9 @@ test.describe("row 2 - profile create", () => {
     page,
   }) => {
     await seed(page, [], CREATE);
-    await focusItem(page, CREATE, "create.next");
+    await focusItem(page, CREATE, "create.next.0");
     await press(page, "Enter");
+    await item(page, CREATE, "create.ship.ship-1").waitFor({ state: "attached" });
 
     // All four ships and all four skins are on screen for a brand-new pilot.
     await expect(item(page, CREATE, "create.ship.ship-1")).toHaveCount(1);

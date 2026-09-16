@@ -90,7 +90,16 @@ declare global {
   }
 }
 
-/** Boot the game and put `key` on screen with `data`. */
+/**
+ * Boot the game and put `key` on screen with `data`.
+ *
+ * Every wait here is generous on purpose. Boot dynamically imports seventeen
+ * scene modules over HTTP and the page then renders 1920x1080 WebGL in
+ * software; with several workers sharing one machine, "the scene is stepping"
+ * can be twenty seconds behind "the page loaded". Short timeouts here produce
+ * failures that look like the scene is broken when it is only late, and the
+ * tempting fix for those is to weaken a real assertion.
+ */
 export async function mount(
   page: Page,
   key: string,
@@ -99,7 +108,7 @@ export async function mount(
   if (page.url() === "about:blank" || !page.url().includes("scene=")) {
     await page.goto(`/?scene=${key}`);
   }
-  await page.waitForFunction(() => window.__kb !== undefined, null, { timeout: 20_000 });
+  await page.waitForFunction(() => window.__kb !== undefined, null, { timeout: 60_000 });
   // Record transitions before anything can fire one.
   await page.evaluate(() => {
     if (window.__kbTransitions !== undefined) return;
@@ -118,7 +127,7 @@ export async function mount(
       return scene !== null && scene.scene?.isActive() === true;
     },
     key,
-    { timeout: 20_000 },
+    { timeout: 60_000 },
   );
   await page.evaluate(
     ({ k, d }) => {
@@ -142,7 +151,7 @@ export async function waitForSnapshot(page: Page, key: string): Promise<void> {
       return typeof scene?.snapshot === "function" && scene.snapshot() !== null;
     },
     key,
-    { timeout: 20_000 },
+    { timeout: 60_000 },
   );
 }
 

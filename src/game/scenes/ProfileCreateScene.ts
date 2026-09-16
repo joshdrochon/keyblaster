@@ -185,7 +185,7 @@ export class ProfileCreateScene extends MenuScene {
       controls.push(tile);
     });
 
-    controls.push(this.nextButton("create.next", this.t.t("ui.create.next"), 760));
+    controls.push(this.nextButton(this.t.t("ui.create.next"), 760));
     return controls;
   }
 
@@ -263,7 +263,7 @@ export class ProfileCreateScene extends MenuScene {
       controls.push(tile);
     });
 
-    controls.push(this.nextButton("create.next", this.t.t("ui.create.next"), 900));
+    controls.push(this.nextButton(this.t.t("ui.create.next"), 900));
     return controls;
   }
 
@@ -327,12 +327,22 @@ export class ProfileCreateScene extends MenuScene {
     return controls;
   }
 
-  private nextButton(id: string, label: string, y: number): MenuButton {
-    return new MenuButton(this, this.uiStyle, id, SPACE.gutter, y, this.depth, {
-      label,
-      minWidth: 280,
-      onPress: () => this.advance(),
-    });
+  /**
+   * The id carries the step. Every beat has a "next", and one shared id would
+   * make the three of them indistinguishable to anything reading the screen -
+   * a screen reader announcing the same control, or a test that cannot tell
+   * whether the beat it asked for has actually been drawn yet.
+   */
+  private nextButton(label: string, y: number): MenuButton {
+    return new MenuButton(
+      this,
+      this.uiStyle,
+      `create.next.${this.step}`,
+      SPACE.gutter,
+      y,
+      this.depth,
+      { label, minWidth: 280, onPress: () => this.advance() },
+    );
   }
 
   private advance(): void {

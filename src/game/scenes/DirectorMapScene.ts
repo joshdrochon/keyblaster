@@ -252,7 +252,12 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       // The planet disc. A locked stop keeps its silhouette and loses its
       // colour: it is still recognisably Pluto, just not lit yet.
       const disc = this.add.graphics().setDepth(4);
-      const body = locked ? INK.locked : (pal.colorRoles["sky"] ?? pal.colors[0] ?? INK.locked);
+      // The lit face of the planet. Earth's sky role is night navy, which on a
+      // navy chart reads as a hole rather than a world, so its atmosphere role
+      // wins where a palette defines one.
+      const body = locked
+        ? INK.locked
+        : (pal.colorRoles["atmosphere"] ?? pal.colorRoles["sky"] ?? pal.colors[2] ?? INK.locked);
       const shade = locked ? INK.panelSunken : (pal.colors[pal.colors.length - 1] ?? INK.bgDeep);
       disc.fillStyle(hexToNum(INK.bgDeep), 1);
       disc.fillCircle(x, ROUTE_Y, NODE_R + 8);

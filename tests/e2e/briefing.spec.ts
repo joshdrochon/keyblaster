@@ -169,6 +169,9 @@ test.describe("Stage bundles (AC-12.2, AC-12.3, AC-13.2, AC-25.3)", () => {
 // ---------------------------------------------------------------------------
 
 test.describe("Briefing (row 4)", () => {
+  // Software WebGL under parallel workers; see the note on mount().
+  test.setTimeout(120_000);
+
   test("the page is 3-5 story sentences, not a worksheet", async ({ page }) => {
     await mount(page, KEY, { stopId: "mars" });
     const s = await snapshot(page, KEY);

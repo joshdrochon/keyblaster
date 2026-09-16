@@ -14,6 +14,7 @@ import path from "node:path";
  * invocation its own directory removes the collision instead.
  */
 const runId = process.env["PW_RUN_ID"] ?? String(process.pid);
+const port = Number(process.env["PW_PORT"] ?? 5183);
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -23,14 +24,18 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
-    baseURL: "http://localhost:5183",
+    baseURL: `http://localhost:${port}`,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    command: "npm run dev -- --port 5183 --strictPort",
-    url: "http://localhost:5183",
+    // Port derived from PW_PORT so concurrent lanes do not collide. A fixed
+    // port plus reuseExistingServer:false means the second lane to start finds
+    // 5183 taken and fails - which is what drove one lane to hand-roll its own
+    // config on 5199. Lanes set PW_PORT; the default keeps single-run use simple.
+    command: `npm run dev -- --port ${port} --strictPort`,
+    url: `http://localhost:${port}`,
     // Never reuse: port 5173 is taken by an unrelated project on this machine,
     // and a reused foreign server silently passes/fails the whole suite.
     reuseExistingServer: false,

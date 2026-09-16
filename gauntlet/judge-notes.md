@@ -115,3 +115,34 @@ It is a small change in one function and does not touch the ship silhouette this
 item exists to check, so it should not hold the item at FAIL for a fourth round.
 
 Passed at attempt 3 of 8.
+
+---
+
+## R-shadow — round 2 — PASS
+
+- **Render:** `gauntlet/evidence/shadow-render.png` (transparent, larger scale)
+- **Verdict:** matches. Recorded in `gauntlet/judge-verdicts.json`, bound to the
+  render's byte size.
+
+All three round-1 findings are closed, and they were the right three:
+
+| Round 1 finding | Round 2 |
+|---|---|
+| Eyes ~45% of plate width, too narrow | Large rounded pills filling the plate, as the reference |
+| Plate too small inside the cream rim | Spans most of the head width |
+| Body flat near-black, no volume | Lifted charcoal with a rim highlight |
+
+Also improved without being asked: arms chunkier and angled out, ear pods
+enlarged with their blue ring, and raised arms now draw IN FRONT of the body so
+the pointing and cheering gestures actually read.
+
+Six poses present and correct - idle, pointing, cheering, worried, asleep,
+saluting - and the sheet's bottom-row colourways remain unused, so Shadow has
+one look per D91.
+
+**Residual, logged not corrected:** the ear pods and flank port read a little
+hotter in cyan than the reference, which is more muted there. At game size
+Shadow is small on screen and the extra saturation arguably helps him read, so
+this is a defensible departure rather than a miss.
+
+Passed at attempt 2 of 8.

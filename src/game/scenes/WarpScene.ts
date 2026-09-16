@@ -120,6 +120,13 @@ export class WarpScene extends Phaser.Scene {
 
   private multiplier = 0;
   private warping = false;
+  /**
+   * Latched when the "charged" line goes up. The Text's own `visible` flag is
+   * the truth while the scene is alive, but it reads false again once the cut
+   * to Beacon destroys it - so a test that samples a moment too late would see
+   * a line that was shown as a line that never was.
+   */
+  private chargedShown = false;
   private debrisCount = 0;
   private debrisSignature = "";
   private debrisMoved = false;
@@ -136,6 +143,7 @@ export class WarpScene extends Phaser.Scene {
     this.coachCalls = 0;
     this.multiplier = 0;
     this.warping = false;
+    this.chargedShown = false;
     this.debrisMoved = false;
     this.debrisSignature = "";
   }
@@ -574,6 +582,7 @@ export class WarpScene extends Phaser.Scene {
     if (this.warping) return;
     this.warping = true;
     this.chargedLabel.setVisible(true);
+    this.chargedShown = true;
     this.shadow.setPose("cheering");
     this.lantern.setIris(1);
 
@@ -695,6 +704,7 @@ export class WarpScene extends Phaser.Scene {
       chargePercent: chargePercent(this.sentence),
       percentLabel: this.percentLabel.text,
       chargedLabelVisible: this.chargedLabel.visible,
+      chargedShown: this.chargedShown,
       highlights: this.sentence.highlights.map(([a, b]) => [a, b]),
       highlightedText: this.sentence.highlights.map(([a, b]) =>
         this.sentence.text.slice(a, b),
