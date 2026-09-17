@@ -119,6 +119,9 @@ describe("AC-15.1 failure modes", () => {
       source: "fallback",
       failure: "timeout",
       transport: "proxy",
+      // A note-only request never asks for a composed warp sentence, so the
+      // scene keeps the stop's shipped static one (D09, E-AI-1).
+      sentence: { ok: false, reason: "absent" },
     });
     // A request nobody is listening to must not hold a socket open (D32).
     expect(abort.aborted()).toBe(1);

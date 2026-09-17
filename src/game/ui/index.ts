@@ -22,7 +22,14 @@
  *   chrome.ts         vector menu parts: backdrop, plate, focus ring, ship,
  *                     avatar, beacon, trophy
  *   focus.ts          the keyboard focus list and the shared key map
- *   controls.ts       button, list row, tile, toggle, slider, option, text field
+ *   controls.ts       button, list row, gallery tile, text field
+ *   panel.ts          THE CONSOLE'S maths and inks: knob sweep, switch throw,
+ *                     detent spacing, and which ink goes on which surface. Pure
+ *                     - no Phaser - so the parts a child would notice first are
+ *                     unit-tested rather than eyeballed in a capture
+ *   cockpit.ts        the console itself, drawn: rotary knob, illuminated
+ *                     toggle, detented selector, panel key, console face. This
+ *                     is what Settings is built from (UR-11)
  *   dialog.ts         the in-game confirm - never `window.confirm`
  *   toast.ts          non-blocking unlock toasts, usable from any scene
  *   mirror.ts         the off-screen DOM shadow that makes a canvas screen
@@ -39,7 +46,10 @@ export * from "./text.js";
 export * from "./focus.js";
 export * from "./mirror.js";
 export * from "./chrome.js";
+export * from "./layout.js";
 export * from "./controls.js";
+export * from "./panel.js";
+export * from "./cockpit.js";
 export * from "./dialog.js";
 export * from "./toast.js";
 export * from "./catalog.js";

@@ -4,12 +4,12 @@
      computed from evidence on each run, and a hand-typed status is the
      exact failure this board exists to prevent. -->
 
-Generated: 2026-09-17T04:28:29.276Z
-Tickets: **360**
+Generated: 2026-09-17T04:49:36.421Z
+Tickets: **361**
 
 | DONE | OPEN | UNVERIFIED | FALSE-PASS | BLOCKED | EXEMPT |
 |---|---|---|---|---|---|
-| 157 | 23 | 65 | 10 | 65 | 40 |
+| 158 | 22 | 65 | 10 | 66 | 40 |
 
 **DONE** means an assertion names it and the evidence is fresher than the
 code. **UNVERIFIED** means something claims it but the binding is weak or
@@ -62,7 +62,7 @@ measure its claim — read those first.
 | DONE | `KB-AC-11.3` | Feels like narrative, not a test: no score, no accuracy shown during it. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-12.1` | Earth has no belt; typing `launch` activates its beacon and advances to the Director map. | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-12.2` | Each of the six belt stops has: briefing, asteroid pool, pre-flight line, warp sentence, beacon text, in all … | named by an assertion in 2 test file(s) | docs/prd.md |
-| DONE | `KB-AC-12.3` | Every content word in a warp sentence exists in that stage's asteroid pool. | named by an assertion in 5 test file(s) | docs/prd.md |
+| DONE | `KB-AC-12.3` | Every content word in a warp sentence exists in that stage's asteroid pool. | named by an assertion in 6 test file(s) | docs/prd.md |
 | DONE | `KB-AC-12b.1` | Each stop's spawn config references only debris types listed for that stop. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-12b.2` | Each debris type has its own sprite set (≥ 3 shape variants) and palette entry. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-13.1` | Any word reaching the screen (asteroid or sentence) is in the allowlist; violations throw in dev and are drop… | named by an assertion in 3 test file(s) | docs/prd.md |
@@ -72,8 +72,8 @@ measure its claim — read those first.
 | DONE | `KB-AC-14.2` | Romanized transliteration matches Devanagari targets per a deterministic mapping table; ambiguous romanizatio… | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-14.3` | All UI strings come from i18n files; no hard-coded English in scenes. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-14.4` | The shipped build offers English only, in **both** the content-language row and the UI-language row (D95); no… | named by an assertion in 3 test file(s) | docs/prd.md |
-| DONE | `KB-AC-15.1` | Timeout 1500 ms; on timeout/error/invalid JSON, fallback bundle is used and UI is identical. | named by an assertion in 4 test file(s) | docs/prd.md |
-| DONE | `KB-AC-15.2` | Output is validated: schema, allowlist, word count, banned-term scan. | named by an assertion in 6 test file(s) | docs/prd.md |
+| DONE | `KB-AC-15.1` | Timeout 1500 ms; on timeout/error/invalid JSON, fallback bundle is used and UI is identical. | named by an assertion in 5 test file(s) | docs/prd.md |
+| DONE | `KB-AC-15.2` | Output is validated: schema, allowlist, word count, banned-term scan. | named by an assertion in 8 test file(s) | docs/prd.md |
 | DONE | `KB-AC-15.3` | No AI call during flight; exactly one per warp break; zero on Earth. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-15.4` | Three transport paths behind one interface: serverless proxy, local mock, direct-with-dev-flag; direct path i… | named by an assertion in 6 test file(s) | docs/prd.md |
 | DONE | `KB-AC-15.5` | Demo: two scripted misses produce a coach note that names those words. | named by an assertion in 3 test file(s) | docs/prd.md |
@@ -102,7 +102,7 @@ measure its claim — read those first.
 | DONE | `KB-AC-24.1` | The beam emitter renders as engineered tech: large lens, iris aperture that opens on fire, three concentric f… | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-24.3` | The four colorways in that reference are the four base ships (D79); no text is drawn on the hull and `{shipNa… | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-25.2` | Six poses exist (idle, pointing, cheering, shy/worried, asleep, saluting) and the sheet's bottom-row colorway… | named by an assertion in 1 test file(s) | docs/prd.md |
-| DONE | `KB-AC-25.3` | No Shadow line, scripted or generated, ever contains the word "wrong" (D31, story note 6). | named by an assertion in 6 test file(s) | docs/prd.md |
+| DONE | `KB-AC-25.3` | No Shadow line, scripted or generated, ever contains the word "wrong" (D31, story note 6). | named by an assertion in 7 test file(s) | docs/prd.md |
 | DONE | `KB-AC-3.1` | First keystroke matching a live word's first letter locks that asteroid. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-3.2` | A wrong keystroke while locked triggers shake, increments typo count, does not drop the lock. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-3.4` | Completing the word fires the blast, marks asteroid dead, increments hits, advances combo. | named by an assertion in 2 test file(s) | docs/prd.md |
@@ -244,7 +244,7 @@ measure its claim — read those first.
 | DONE | `KB-D97` | The parallax world drops terrain grammar entirely. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:120 |
 | DONE | `KB-D98` | Web Speech is removed from the shipped build. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:122 |
 
-## escalation (50) — 4 DONE · 46 BLOCKED
+## escalation (51) — 4 DONE · 47 BLOCKED
 
 | state | id | title | why | source |
 |---|---|---|---|---|
@@ -291,6 +291,7 @@ measure its claim — read those first.
 | BLOCKED | `KB-ESC-the-e2e-suite-s-verdict-is-load-dependent-at` | The e2e suite's verdict is load-dependent at three workers | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:795 |
 | BLOCKED | `KB-ESC-two-shadows-the-reference-compare-pass-did-n` | Two Shadows — the reference-compare pass did not cover what menus draw | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:559 |
 | BLOCKED | `KB-ESC-u-ships-four-ships-and-four-skins-exist-and-` | U-ships — four ships and four skins exist, and not one of them can ever be unlocked | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1748 |
+| BLOCKED | `KB-ESC-ur-10-follow-on-an-interrupted-ambient-cross` | UR-10 follow-on — an interrupted AMBIENT crossfade cuts a bed dead | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2930 |
 | BLOCKED | `KB-ESC-ur-11-cockpit-settings-four-calls-taken-per-` | UR-11 cockpit settings — four calls taken, per D94 | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2805 |
 | BLOCKED | `KB-ESC-v-22-4-the-check-now-measures-what-it-names-` | V-22.4 — the check now measures what it names, and the art fails it: a rock reads 0.0002 in the near-terrain band | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1515 |
 | BLOCKED | `KB-ESC-warp-beacon-results-ending-lane-four-decisio` | Warp / Beacon / Results / Ending lane — four decisions and one measurement | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:331 |
@@ -397,9 +398,9 @@ measure its claim — read those first.
 | DONE | `KB-SCREEN-settings` | Settings | driven by 7 e2e spec(s): tests/e2e/aspect.spec.ts, tests/e2e/audio-wiring.spec.ts | docs/design-brief-v2.md (screen inventory) |
 | DONE | `KB-SCREEN-stall-card` | Stall card | driven by 4 e2e spec(s): tests/e2e/blast-history.spec.ts, tests/e2e/default-focus.spec.ts | docs/design-brief-v2.md (screen inventory) |
 | DONE | `KB-SCREEN-title` | Title | driven by 9 e2e spec(s): tests/e2e/aspect.spec.ts, tests/e2e/audio-wiring.spec.ts | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-warp-break` | Warp break | driven by 5 e2e spec(s): tests/e2e/audio-wiring.spec.ts, tests/e2e/blast-history.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-warp-break` | Warp break | driven by 6 e2e spec(s): tests/e2e/audio-wiring.spec.ts, tests/e2e/blast-history.spec.ts | docs/design-brief-v2.md (screen inventory) |
 
-## user-reported (12) — 4 DONE · 8 OPEN
+## user-reported (12) — 5 DONE · 7 OPEN
 
 | state | id | title | why | source |
 |---|---|---|---|---|
@@ -408,11 +409,11 @@ measure its claim — read those first.
 | OPEN | `KB-UR-06-asteroid-over-wordmark` | A black asteroid is drawn on top of the 'B' in KEYBLASTER, and a moon disc sits inside the wordmark. | reported 1x by the user: "(visible in the Title screenshot)" | gauntlet/user-reported.json |
 | OPEN | `KB-UR-08-sun-keepout-column` | A bright vertical band / light region on the right of the frame. | reported 2x by the user: "what is this thing on the right, its like a brighter portion shape." | gauntlet/user-reported.json |
 | OPEN | `KB-UR-09-parallax-quality` | Overall parallax quality. | reported 1x by the user: "Can you do some research on how paralex should behave." | gauntlet/user-reported.json |
-| OPEN | `KB-UR-10-audio-pop` | An audible pop/click recurs during play, characteristic of a loop seam in the ambient bed. | reported 1x by the user: "theres a pop every so often in the game like its being looped." | gauntlet/user-reported.json |
 | OPEN | `KB-UR-11-cockpit-settings` | Settings reads as a generic web form — flat rows, a pill slider, a percentage readout. | reported 1x by the user: "in the settings, the menu should look like the inside of a space ship." | gauntlet/user-reported.json |
 | OPEN | `KB-UR-12-no-music` | There is no music. | reported 1x by the user: "How are we doing on music as well, did we get that settled? ..." | gauntlet/user-reported.json |
 | DONE | `KB-UR-01-edge-bars` | Vertical bars flank the picture at any window that is not 16:9. | FIXED AT THE SOURCE. | gauntlet/user-reported.json |
 | DONE | `KB-UR-02-floating-bases` | Landform masses ended in a dead-flat horizontal edge suspended in mid-air with sky visible underneath, scroll… | D97: terrain grammar dropped entirely for space grammar. | gauntlet/user-reported.json |
 | DONE | `KB-UR-03-tagline` | Tagline pointed the wrong direction on a game whose arc is Earth OUTWARD to Pluto. | Changed in en/es/hi. | gauntlet/user-reported.json |
 | DONE | `KB-UR-07-parallax-strips` | Visible vertical seams across the sky; the world reads as stitched panels drifting sideways. | atmospherePass called the RNG inside the wrap loop, so the three 'wrapped' copies of each streak had different y values — they were never c… | gauntlet/user-reported.json |
+| DONE | `KB-UR-10-audio-pop` | An audible pop/click recurs during play. | Two renders of the real MusicBus layer trajectory, differenced (identical oscillators, so the difference IS the artifact): 1.49e-8 in the 2… | gauntlet/user-reported.json |
 

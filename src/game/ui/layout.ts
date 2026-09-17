@@ -301,3 +301,47 @@ export function needsOwnBackdrop(below: SceneBelow | null): boolean {
   if (!below.visible) return true;
   return !(below.active || below.paused);
 }
+
+// ---------------------------------------------------------------------------
+// Settings' console frame
+// ---------------------------------------------------------------------------
+
+/**
+ * SCREEN 11's two console panels (UR-11).
+ *
+ * The old screen stacked its rows on a fixed 14 px gap inside two plates of a
+ * hard-coded 700 and 760 px - the same "a fixed pitch is a promise about text
+ * that nothing measures" defect the Beacon Log shipped, and it survived only
+ * because a flat row is short. Every control on the console is TALLER than the
+ * row it replaced (a knob is 130 px against the pill slider's 59), and a label
+ * that wraps to two lines in Devanagari adds another 40 - so the left column's
+ * six rows now come within 6 px of the keyboard hint in Hindi.
+ *
+ * So the column is flowed by `fitPlan` / `flowColumn`, exactly like the Beacon
+ * Log's, and `bottom` is where the panel's BEZEL may reach rather than where
+ * the last control may: the panel is drawn 26 px past the stack on every side,
+ * and a panel edge printed across the hint line is the same defect as a control
+ * printed across it.
+ */
+export const SETTINGS_CONSOLE = {
+  /**
+   * Under the heading, with the bezel clear of it. `addHeading` draws at y=84
+   * at `TYPE.display`, whose ink box plus leading is ~98 px, so the face's top
+   * edge at `top - bezel` = 190 sits 8 px below the title.
+   */
+  top: 216,
+  rowGap: 18,
+  minRowGap: 6,
+  /** How far the console face extends past the stack on every side. */
+  bezel: 26,
+  /** The gap between the last toggle and the one destructive key. */
+  keyGap: 28,
+  /** Unused here: the column has no glyph to shrink. Text is NEVER shrunk. */
+  glyph: 0,
+  minGlyph: 0,
+  columns: 1,
+  /** The lowest the BEZEL may reach, which is the hint line. */
+  get bottom(): number {
+    return BEACON_LOG.hintTop - 26;
+  },
+} as const;

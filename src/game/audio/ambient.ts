@@ -185,9 +185,18 @@ export const WIND_WRAP_SECONDS = 0.25;
  * guarantees a STEP at the wrap: the old buffer went from -0.2485 back to
  * +0.0389, a jump of 0.2873 where the largest step the noise takes anywhere
  * else in 192,000 samples is 0.0844. Rendered through Neptune's bed that
- * arrived as a 0.0579 level change in 0.54 ms - 47% of the whole bed's RMS -
- * once every 4.000 s. That is the pop the user heard, and no amount of
+ * arrived as a 0.0579 level change in 0.54 ms, once every 4.000 s. No amount of
  * reseeding or re-tuning removes it, because it is a property of walks.
+ *
+ * IT IS NOT, HOWEVER, THE POP UR-10 REPORTED. That one was `MusicBus.setIndex`;
+ * see the UR-10 block in music.ts. Recording the live game's master output
+ * through an AudioWorklet and phase-averaging the high-passed envelope at the
+ * 4 s lap, with this wrap off and then on, gave 5.0x and 6.1x the phase median
+ * - indistinguishable, and both explained by the capture's own start. The seam
+ * is masked because the walk's INCREMENTS are white noise of comparable size,
+ * so the bed is already full of broadband edge at every sample. Fixed anyway: a
+ * loop that does not join is a defect whether or not this mix hides it, and the
+ * evidence is one measurement rather than an argument about audibility.
  *
  * So the walk is run for `length + wrap` samples and its last `wrap` samples
  * are equal-power crossfaded over its first `wrap`. Read what that does at the

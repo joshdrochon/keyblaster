@@ -112,6 +112,20 @@ export interface AudioContextLike {
    * name a DOM type. The one real call site casts, in index.ts.
    */
   createMediaElementSource?(element: unknown): AudioNodeLike;
+  /**
+   * Decode compressed bytes (a composed music track) into a buffer.
+   *
+   * Optional for the same reason as `createMediaElementSource`: the null
+   * context has no decoder, and a build with no music never needs one. A
+   * context without it plays no composed track, which under `MusicBus` means
+   * the synthesised layers or silence - never an error.
+   *
+   * Declared with one parameter although the browser's takes three: the two
+   * callback forms are the pre-promise API and nothing in this package uses
+   * them. A real `AudioContext` is still assignable, because extra OPTIONAL
+   * parameters on the implementation are fine.
+   */
+  decodeAudioData?(data: ArrayBuffer): Promise<AudioBufferLike>;
 }
 
 // ---------------------------------------------------------------------------

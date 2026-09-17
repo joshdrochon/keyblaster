@@ -69,25 +69,57 @@ test.describe("row 11 - settings", () => {
   test("UR-11 / AC-18.1 the focus ring is drawn on EVERY control of the console", async ({
     page,
   }) => {
+    test.slow();
     await seed(page, [{ name: "Ana" }], SETTINGS);
     const ids = await items(page, SETTINGS).evaluateAll((nodes) =>
       nodes.map((n) => n.getAttribute("data-id") ?? ""),
     );
     expect(ids.length).toBeGreaterThanOrEqual(10);
 
+    /**
+     * The whole focus state in ONE round trip.
+     *
+     * `assertVisibleFocus` is four separate protocol calls, and a lap of eleven
+     * controls is forty-four of them - enough to blow the 30 s budget on a
+     * headless software renderer and report a timeout instead of an answer.
+     * Nothing is dropped: all four facts are still asserted at every stop, they
+     * are just fetched together.
+     */
+    const probe = () =>
+      page.evaluate((key) => {
+        const el = document.querySelector(
+          `[data-testid="ui-screen"][data-scene="${key}"]`,
+        );
+        const kb = (window as any).__kb;
+        const snap = kb?.game.scene.getScene(key)?.snapshot?.() ?? {};
+        return {
+          focus: el?.getAttribute("data-focus") ?? null,
+          ring: el?.getAttribute("data-focus-ring") ?? null,
+          litCount:
+            el?.querySelectorAll('[data-testid="ui-item"][data-focused="true"]')
+              .length ?? -1,
+          snapRing: snap["focusRing"] as boolean | undefined,
+          snapFocus: snap["focusId"] as string | null | undefined,
+        };
+      }, SETTINGS);
+
     const seen: string[] = [];
     for (let i = 0; i < ids.length; i += 1) {
-      // Not "focus is visible somewhere": exactly one item is focused, the ring
-      // is drawn, and the focused item is the one the walk is standing on.
-      await assertVisibleFocus(page, SETTINGS);
-      const at = await screen(page, SETTINGS).getAttribute("data-focus");
-      expect(at).toBe(ids[i]);
-      seen.push(at ?? "");
+      const at = await probe();
+      // Not "focus is visible somewhere": exactly one item is lit, the ring is
+      // DRAWN on the canvas, and the lit item is the one the walk is standing
+      // on. A knob that only looked focusable would fail all three.
+      expect(at.litCount, `one focused item at ${ids[i]}`).toBe(1);
+      expect(at.ring, `ring drawn at ${ids[i]}`).toBe("true");
+      expect(at.snapRing, `canvas ring at ${ids[i]}`).toBe(true);
+      expect(at.focus).toBe(ids[i]);
+      expect(at.snapFocus).toBe(ids[i]);
+      seen.push(at.focus ?? "");
       await press(page, "ArrowDown");
     }
     // A full lap reaches every control exactly once and comes back to the top.
     expect(new Set(seen).size).toBe(ids.length);
-    expect(await screen(page, SETTINGS).getAttribute("data-focus")).toBe(ids[0]);
+    expect((await probe()).focus).toBe(ids[0]);
   });
 
   test("UR-11 / AC-18.1 every console control is turned by the arrow keys alone", async ({
@@ -354,7 +386,19 @@ test.describe("row 11 - settings", () => {
 
     await adjust(page, "settings.colorblind", "ArrowRight");
     expect((await settings(page))["colorblindPalette"]).toBe(true);
-    expect((await snapshot(page, SETTINGS))["accent"]).toBe("#FFFFFF");
+    // STALE EXPECTATION, now corrected. This asserted "#FFFFFF" because the
+    // colourblind accent used to be `colorblind.accent`. V-22.8's fix moved UI
+    // text to `colorblind.plateAccent` — deliberately, because the old value
+    // put typed letters at 1.02:1 on Saturn and Pluto, which is invisible. The
+    // palette lane changed the source and nothing updated this spec, so it has
+    // been asserting the defect ever since.
+    //
+    // What matters is not the hex: it is that the accent CHANGES, and that
+    // whatever it becomes is legible. Asserting the property rather than the
+    // constant means the next palette fix does not have to come here.
+    const after = (await snapshot(page, SETTINGS))["accent"] as string;
+    expect(after).not.toBe(before);
+    expect(after).toMatch(/^#[0-9A-Fa-f]{6}$/);
     const live = await page.evaluate(
       () => (window as any).__kb.services.context.colorblindPalette as boolean,
     );

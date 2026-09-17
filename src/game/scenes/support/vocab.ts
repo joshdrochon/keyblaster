@@ -32,6 +32,20 @@ const SIGHT_MODULES = import.meta.glob("../../../content/en/sight-words.json", {
   import: "default",
 }) as Record<string, unknown>;
 
+/**
+ * The sight-word list, exported because the warp-sentence gate needs it.
+ *
+ * AC-12.3 splits a sentence into CONTENT words, which must be in the stage's
+ * own pool, and everything else. "Everything else" is this list, so the gate in
+ * `engine/coach/sentence.ts` has to be handed it. Only English ships one; the
+ * other two languages get an empty list, which makes every token a content
+ * word and every generated sentence fail the pool gate. That is the same
+ * honest degrade as the empty allowlist below, not a hole.
+ */
+export function sightWordList(lang: Lang): readonly string[] {
+  return lang === "en" ? sightWords() : [];
+}
+
 function sightWords(): string[] {
   for (const value of Object.values(SIGHT_MODULES)) {
     if (typeof value !== "object" || value === null) continue;

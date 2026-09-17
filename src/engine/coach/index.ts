@@ -42,6 +42,7 @@ export type {
   AbortPort,
   CoachClient,
   CoachFailure,
+  ComposeContext,
   CoachFetch,
   CoachPayload,
   CoachRequest,
@@ -89,6 +90,23 @@ export {
   type FallbackNoteLine,
   type LangFallback,
 } from "./fallback.js";
+
+/**
+ * D09 / E-AI-1: the warp sentence composed from the words THAT child just
+ * practised, and the six gates that decide whether one is safe to put in front
+ * of them. The generator is the same single `/api/coach` call; this is the
+ * bar it has to clear.
+ */
+export {
+  NO_SENTENCE,
+  SENTENCE_LIMITS,
+  practisedWords,
+  validateComposedSentence,
+  type SentenceFailure,
+  type SentenceLimits,
+  type SentenceOutcome,
+  type SentenceValidatorOptions,
+} from "./sentence.js";
 
 export { COACH_TIMEOUT_MS, fallbackResult, postJson, settle } from "./pipeline.js";
 export type { PostOptions, PostOutcome } from "./pipeline.js";

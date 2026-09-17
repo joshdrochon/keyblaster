@@ -3,9 +3,9 @@ import {
   createCoachGate,
   type CoachClient,
   type CoachGate,
-  type CoachRequest,
   type CoachResult,
 } from "@engine/coach";
+import { coachRequestFor } from "./support/composeRequest";
 import { createCoachClient } from "@game/coach/transport";
 import { blastedWords, type BlastHistory } from "@game/flight/blastHistory";
 import { FLIGHT_EVENTS, type WarpSpeedPayload } from "@game/flight/stage";
@@ -177,6 +177,26 @@ export class WarpScene extends Phaser.Scene {
   private chargedLabel!: Phaser.GameObjects.Text;
   private chargedPlate: Phaser.GameObjects.Graphics | null = null;
   private noteText!: Phaser.GameObjects.Text;
+  /**
+   * THE HONESTY MARKER (E-AI-1).
+   *
+   * Created empty with the rest of the panel and filled by exactly one line of
+   * code, in `useComposedSentence`, on the one path where a live model wrote
+   * this sentence for this run. Empty is the shipped state: an unconfigured
+   * build, an offline demo, a timeout and a refused sentence all leave it
+   * blank, so the screen never claims an AI wrote something it did not.
+   *
+   * It exists because the fallback is otherwise INDISTINGUISHABLE from the
+   * real thing, and a submission whose premise is "AI-powered" cannot have a
+   * demo where a judge is unable to tell whether the model ever ran.
+   */
+  private composedMark!: Phaser.GameObjects.Text;
+  /** The composed string, once one has been accepted. Test surface. */
+  private composedText: string | null = null;
+  /** Which of this run's words the composed sentence gave back (D09). */
+  private composedReused: readonly string[] = [];
+  /** Why a good composed sentence was not used after all. Test surface. */
+  private composedRefused: string | null = null;
 
   private coachResult: CoachResult | null = null;
   private coachSettled = false;
@@ -241,6 +261,9 @@ export class WarpScene extends Phaser.Scene {
     this.coachResult = null;
     this.coachSettled = false;
     this.coachCalls = 0;
+    this.composedText = null;
+    this.composedReused = [];
+    this.composedRefused = null;
     // A restart IS a new warp break (a new stage ended), so the gate is new.
     this.gate = null;
     this.multiplier = 0;
@@ -465,8 +488,29 @@ export class WarpScene extends Phaser.Scene {
       }),
     );
 
-    // D09. The sentence is content (D30, D67) and comes from the stage bundle.
-    // The HIGHLIGHT is not content: it is the run. See `blastedThisRun`.
+    // E-AI-1. Created NOW, empty, at a fixed place, exactly the way the coach
+    // note's Text is (AC-33's discipline). The fallback screen is therefore
+    // byte-identical to the screen that shipped before this feature existed,
+    // and the only thing that can ever put a string in it is a live composed
+    // sentence that passed every gate.
+    this.composedMark = label(
+      this,
+      PANEL.x + PANEL.w - 40,
+      PANEL.y + 24,
+      "",
+      {
+        size: TYPE.caption,
+        color: pal.accent,
+        alpha: 0.9,
+        lang: this.lane.lang,
+      },
+    );
+    this.composedMark.setOrigin(1, 0);
+    made.push(this.composedMark);
+
+    // D09. The sentence starts as the stop's shipped string (D30, D67) and is
+    // replaced by a composed one when the coach returns a safe one. The
+    // HIGHLIGHT is not content: it is the run. See `blastedThisRun`.
     this.sentence = createWarpSentence({
       text: this.warpSentenceText(),
       blasted: this.blastedThisRun(),
@@ -847,18 +891,103 @@ export class WarpScene extends Phaser.Scene {
     // spent and get the memoised result back rather than buying another call.
     const gate = (this.gate ??= createCoachGate({ client, phase: "warp-break" }));
 
-    const request: CoachRequest = {
+    // ONE call, and it now carries two asks: Shadow's note, and this break's
+    // warp sentence composed from the words this child just practised (D09,
+    // E-AI-1). `composeRequest.ts` decides whether the second ask is possible;
+    // the scene does not, because that decision has to be testable without a
+    // browser. Still one transport call either way (AC-15.3).
+    const request = coachRequestFor({
       stopId: this.stopId,
       lang,
       missed: this.initData?.missed ?? [],
       slow: this.initData?.slow ?? [],
       hitRate: this.initData?.hitRate ?? 1,
-    };
+      blasted: this.blastedThisRun(),
+    });
 
     const result = await gate.request(request);
     this.coachCalls = gate.calls;
     if (!this.scene.isActive()) return;
+    this.useComposedSentence(result);
     this.showNote(result);
+  }
+
+  /**
+   * D09 / E-AI-1 - THE FEATURE THIS PROJECT WAS FOUNDED ON.
+   *
+   * Decision log, Origin: Type Storm's end-of-level sentence "doesn't reuse the
+   * words just typed. We fix both." Until this method existed we did not: the
+   * screen typed `stageBundle(stop).warpSentence`, one hardcoded string per
+   * stop, identical for every child on every run.
+   *
+   * WHAT IT REPLACES AND WHEN. The static sentence is laid out at `create()`
+   * and stays unless ALL of these hold:
+   *
+   *   - a live model wrote a sentence for this run and it passed all six gates
+   *     in `engine/coach/sentence.ts` (allowlist, length, AC-12.3 pool, banned
+   *     terms, shape, and reuse of this child's own words);
+   *   - the player has not typed a character yet;
+   *   - the warp has not started.
+   *
+   * THE "NOTHING TYPED YET" RULE IS NOT A TECHNICALITY. Swapping the sentence
+   * under a child mid-word would invalidate the letters they have already
+   * typed and read as the game taking something away - which D31 forbids more
+   * strongly than it wants this feature. A child fast enough to beat the call
+   * types the shipped sentence, and that is a good sentence. The alternative -
+   * holding the panel blank until the call settles - spends up to 1500 ms of
+   * the "most important five seconds in the game" on a spinner, and is logged
+   * as the rejected option in gauntlet/escalations.md (E-AI-2).
+   *
+   * THE MARKER IS SET HERE AND NOWHERE ELSE, and only on this path, so it is
+   * true exactly when it is shown. There is no branch below that can print it
+   * for a fallback.
+   */
+  private useComposedSentence(result: CoachResult): void {
+    // `result` can come from an INJECTED client (`initData.coach`), which is
+    // an object a test wrote rather than a `CoachResult` the pipeline built,
+    // so the field may genuinely be missing however the type reads. A thrown
+    // TypeError here would take the warp break down - D33's "degrades to
+    // exactly nothing" has to survive its own seam.
+    const composed = result.sentence as CoachResult["sentence"] | undefined;
+    if (composed === undefined || !composed.ok) return;
+    if (this.warping) return;
+    if (this.sentence.index > 0 || this.sentence.typos > 0) {
+      this.composedRefused = "typing-started";
+      return;
+    }
+    if (composed.text === this.sentence.text) return;
+
+    this.composedText = composed.text;
+    this.composedReused = [...composed.reused];
+    this.relayoutSentence(composed.text);
+    this.composedMark.setText(this.lane.copy.text("warp.composed"));
+  }
+
+  /**
+   * Rebuild the typed line for a new string, in place.
+   *
+   * Everything else on the screen is untouched: same plate, same meter, same
+   * coach area, same focus ring, same geometry. Only the per-character Text
+   * objects are rebuilt, because there is one per character and the character
+   * count changed.
+   */
+  private relayoutSentence(text: string): void {
+    for (const letter of this.letters) letter.destroy();
+    this.letters = [];
+    this.sentence = createWarpSentence({
+      text,
+      blasted: this.blastedThisRun(),
+    });
+    this.panelRoot.add(this.layoutLetters());
+    this.paintLetters();
+    // The meter is driven by `chargeFraction`, which is index/length; index is
+    // 0 and the length changed, so the drawn fill has to be told the new zero
+    // rather than left holding a fraction of the old string.
+    this.meterShown = 0;
+    this.easeMeterTo(0);
+    this.percentPlated.setText(
+      this.lane.copy.text("warp.chargePercent", { percent: chargePercent(this.sentence) }),
+    );
   }
 
   /**
@@ -1221,6 +1350,25 @@ export class WarpScene extends Phaser.Scene {
         failure: result?.failure ?? null,
         transport: result?.transport ?? null,
         calls: this.coachCalls,
+      },
+      /**
+       * D09 / E-AI-1. The claim this feature makes, as data.
+       *
+       * `live` is the ONE fact the marker stands for and it is read off the
+       * drawn Text rather than off a flag, so a test cannot be told the marker
+       * is showing by a variable that disagrees with the screen.
+       */
+      composed: {
+        live: this.composedMark.text.length > 0,
+        marker: this.composedMark.text,
+        text: this.composedText,
+        reused: [...this.composedReused],
+        // TEST-ONLY, like the three coach fields above. Nothing in the render
+        // path reads these.
+        outcome: result === null ? null : (result.sentence ?? null),
+        refused: this.composedRefused,
+        /** The stop's shipped sentence - what the fallback puts on screen. */
+        shipped: this.warpSentenceText(),
       },
       coachArea: {
         ...COACH,

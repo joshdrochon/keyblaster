@@ -1,4 +1,25 @@
 import type { Lang, StopId } from "../types.js";
+import type { SentenceOutcome } from "./sentence.js";
+
+/**
+ * What the coach needs in order to COMPOSE this break's warp sentence out of
+ * the words this child just practised (D09, FR-16, E-AI-1).
+ *
+ * Present on a request only at a warp break, and only when there is something
+ * to compose from. Its absence is the note-only request the endpoint has
+ * always taken, so nothing that does not ask for a sentence changes shape.
+ */
+export interface ComposeContext {
+  /** This stage's typeable asteroid pool. AC-12.3 is checked against it. */
+  readonly pool: readonly string[];
+  /**
+   * Words exempt from AC-12.3's "content word" rule - the sight-word list.
+   * Never sent over the wire; it is the client-side gate's own vocabulary.
+   */
+  readonly sightWords: readonly string[];
+  /** Words the child actually shot down this run (D09, `blastHistory`). */
+  readonly blasted: readonly string[];
+}
 
 /**
  * The coach contract (architecture section 4.6, PRD FR-15, D33, D47).
@@ -23,6 +44,11 @@ export interface CoachRequest {
   readonly slow: readonly string[];
   /** Fraction in [0, 1]. */
   readonly hitRate: number;
+  /**
+   * Ask for this break's warp sentence to be composed from the run (D09).
+   * Absent = the note-only request this endpoint has always taken.
+   */
+  readonly compose?: ComposeContext;
 }
 
 /**
@@ -36,6 +62,8 @@ export interface SanitizedCoachRequest {
   readonly missed: readonly string[];
   readonly slow: readonly string[];
   readonly hitRate: number;
+  /** Filtered the same way: an unfiltered pool word must not reach a prompt. */
+  readonly compose?: ComposeContext;
 }
 
 /** Exactly two variants. FR-15 says two, so the type says two. */
@@ -86,6 +114,21 @@ export interface CoachResult {
   /** null when `source` is "live". */
   readonly failure: CoachFailure | null;
   readonly transport: TransportName;
+  /**
+   * This break's warp sentence, composed from the words this child just
+   * practised, or the reason there is not one (D09, FR-16, E-AI-1).
+   *
+   * INDEPENDENT OF `source` AND `failure`, which describe the NOTE. A model
+   * can hand back a note that fails the banned-term scan and a sentence that
+   * passes every gate, and refusing the good sentence because of the bad note
+   * would cost the child the practice for no safety gain. `pipeline.settle`
+   * gates the two separately and this field is the sentence's own verdict.
+   *
+   * `ok: true` is the ONLY thing the on-screen "written for you" marker is
+   * allowed to key on, and it is true exactly when a live model wrote this
+   * string for this run and it survived all six gates in `sentence.ts`.
+   */
+  readonly sentence: SentenceOutcome;
 }
 
 /**

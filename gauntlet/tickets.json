@@ -815,6 +815,16 @@
     "refs": []
   },
   {
+    "id": "KB-ESC-ur-10-follow-on-an-interrupted-ambient-cross",
+    "kind": "escalation",
+    "title": "UR-10 follow-on — an interrupted AMBIENT crossfade cuts a bed dead",
+    "source": "gauntlet/escalations.md:2930",
+    "state": "BLOCKED",
+    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
+    "evidence": [],
+    "refs": []
+  },
+  {
     "id": "KB-ESC-ur-11-cockpit-settings-four-calls-taken-per-",
     "kind": "escalation",
     "title": "UR-11 cockpit settings — four calls taken, per D94",
@@ -1235,16 +1245,6 @@
     "evidence": [
       "Research gathered; the gap between our implementation and standard practice is written up in the queue under UR-07/UR-08."
     ],
-    "refs": []
-  },
-  {
-    "id": "KB-UR-10-audio-pop",
-    "kind": "user-reported",
-    "title": "An audible pop/click recurs during play, characteristic of a loop seam in the ambient bed.",
-    "source": "gauntlet/user-reported.json",
-    "state": "OPEN",
-    "why": "reported 1x by the user: \"theres a pop every so often in the game like its being looped.\"",
-    "evidence": [],
     "refs": []
   },
   {
@@ -2773,7 +2773,7 @@
     "title": "Every content word in a warp sentence exists in that stage's asteroid pool.",
     "source": "docs/prd.md",
     "state": "DONE",
-    "why": "named by an assertion in 5 test file(s)",
+    "why": "named by an assertion in 6 test file(s)",
     "testTypes": [
       "U"
     ],
@@ -2781,6 +2781,7 @@
       "tests/e2e/blast-history.spec.ts",
       "tests/e2e/briefing.spec.ts",
       "tests/unit/allowlist/allowlist.test.ts",
+      "tests/unit/coach/sentence.test.ts",
       "tests/unit/content/allowlist.test.ts",
       "tests/unit/flight/blastHistory.test.ts"
     ],
@@ -2938,12 +2939,13 @@
     "title": "Timeout 1500 ms; on timeout/error/invalid JSON, fallback bundle is used and UI is identical.",
     "source": "docs/prd.md",
     "state": "DONE",
-    "why": "named by an assertion in 4 test file(s)",
+    "why": "named by an assertion in 5 test file(s)",
     "testTypes": [
       "U",
       "E"
     ],
     "evidence": [
+      "tests/e2e/warp-composed.spec.ts",
       "tests/unit/coach/direct.test.ts",
       "tests/unit/coach/fallback.test.ts",
       "tests/unit/coach/proxy.test.ts",
@@ -2957,15 +2959,17 @@
     "title": "Output is validated: schema, allowlist, word count, banned-term scan.",
     "source": "docs/prd.md",
     "state": "DONE",
-    "why": "named by an assertion in 6 test file(s)",
+    "why": "named by an assertion in 8 test file(s)",
     "testTypes": [
       "U"
     ],
     "evidence": [
+      "tests/e2e/warp-composed.spec.ts",
       "tests/unit/allowlist/allowlist.test.ts",
       "tests/unit/coach/fallback.test.ts",
       "tests/unit/coach/mock.test.ts",
       "tests/unit/coach/proxy.test.ts",
+      "tests/unit/coach/sentence.test.ts",
       "tests/unit/coach/validate.test.ts",
       "tests/unit/coach/voice.test.ts"
     ],
@@ -3455,7 +3459,7 @@
     "title": "No Shadow line, scripted or generated, ever contains the word \"wrong\" (D31, story note 6).",
     "source": "docs/prd.md",
     "state": "DONE",
-    "why": "named by an assertion in 6 test file(s)",
+    "why": "named by an assertion in 7 test file(s)",
     "testTypes": [
       "U"
     ],
@@ -3464,6 +3468,7 @@
       "tests/unit/coach/direct.test.ts",
       "tests/unit/coach/fallback.test.ts",
       "tests/unit/coach/mock.test.ts",
+      "tests/unit/coach/sentence.test.ts",
       "tests/unit/coach/validate.test.ts",
       "tests/unit/content/allowlist.test.ts"
     ],
@@ -4826,11 +4831,12 @@
     "title": "Warp break",
     "source": "docs/design-brief-v2.md (screen inventory)",
     "state": "DONE",
-    "why": "driven by 5 e2e spec(s): tests/e2e/audio-wiring.spec.ts, tests/e2e/blast-history.spec.ts",
+    "why": "driven by 6 e2e spec(s): tests/e2e/audio-wiring.spec.ts, tests/e2e/blast-history.spec.ts",
     "evidence": [
       "tests/e2e/audio-wiring.spec.ts",
       "tests/e2e/blast-history.spec.ts",
       "tests/e2e/playthrough.spec.ts",
+      "tests/e2e/warp-composed.spec.ts",
       "tests/e2e/warp.spec.ts",
       "tests/e2e/world-frame.spec.ts"
     ],
@@ -4883,6 +4889,18 @@
     "why": "atmospherePass called the RNG inside the wrap loop, so the three 'wrapped' copies of each streak had different y values — they were never copies. Every 256px carried a hard discontinuity: 7.5 joins at 1920 wide, and the user counted 'about 8'. Endpoints are now computed once, copies are pure translations wrapped in both axes, texture 256->512, and the sideways drift is gone — a weather pass sliding horizontally in a vertically-scrolling world was motion in an axis nothing else moves in.",
     "evidence": [
       "atmospherePass called the RNG inside the wrap loop, so the three 'wrapped' copies of each streak had different y values — they were never copies. Every 256px carried a hard discontinuity: 7.5 joins at 1920 wide, and the user counted 'about 8'. Endpoints are now computed once, copies are pure translations wrapped in both axes, texture 256->512, and the sideways drift is gone — a weather pass sliding horizontally in a vertically-scrolling world was motion in an axis nothing else moves in."
+    ],
+    "refs": []
+  },
+  {
+    "id": "KB-UR-10-audio-pop",
+    "kind": "user-reported",
+    "title": "An audible pop/click recurs during play.",
+    "source": "gauntlet/user-reported.json",
+    "state": "DONE",
+    "why": "Two renders of the real MusicBus layer trajectory, differenced (identical oscillators, so the difference IS the artifact): 1.49e-8 in the 2 ms before the interrupt, 0.0154 one sample later, peaking at 0.0184 = 23% of the music bus RMS (0.0799). Zero to a quarter of the mix in one sample. The gain step at the interrupt frame was 0.04099 against the ramp's own largest per-frame move of 0.00299 - 13.7x - and 0.155 (52x) with the belt thrashing across both thresholds. After the fix: gain step 0.0000198 (0.01x), rendered artifact 2.7% of RMS, and the interrupted trajectory's max per-frame move equals the smooth ramp's exactly. Tests watched fail first: tests/unit/audio/music.test.ts 'UR-10: an intensity change never steps a layer gain' - 3 tests, bar is the ramp's OWN measured max per-frame move, not a constant. C12 ELIMINATED: the wind loop seam is real (0.2873 jump vs 0.0844 largest interior step, every 4.000 s) and is fixed by folding the walk's tail over its head, but it is NOT audible - recording the live game's master through an AudioWorklet and phase-averaging the high-passed envelope at the 4 s lap with the wrap off then on gave 5.0x and 6.1x the phase median, indistinguishable. No pre-rendered bed is needed for this ticket. AmbientBus has the identical defect (54.7x gain step on an interrupted bed crossfade) but fixing it overturns a tested behaviour; escalated in gauntlet/escalations.md.",
+    "evidence": [
+      "Two renders of the real MusicBus layer trajectory, differenced (identical oscillators, so the difference IS the artifact): 1.49e-8 in the 2 ms before the interrupt, 0.0154 one sample later, peaking at 0.0184 = 23% of the music bus RMS (0.0799). Zero to a quarter of the mix in one sample. The gain step at the interrupt frame was 0.04099 against the ramp's own largest per-frame move of 0.00299 - 13.7x - and 0.155 (52x) with the belt thrashing across both thresholds. After the fix: gain step 0.0000198 (0.01x), rendered artifact 2.7% of RMS, and the interrupted trajectory's max per-frame move equals the smooth ramp's exactly. Tests watched fail first: tests/unit/audio/music.test.ts 'UR-10: an intensity change never steps a layer gain' - 3 tests, bar is the ramp's OWN measured max per-frame move, not a constant. C12 ELIMINATED: the wind loop seam is real (0.2873 jump vs 0.0844 largest interior step, every 4.000 s) and is fixed by folding the walk's tail over its head, but it is NOT audible - recording the live game's master through an AudioWorklet and phase-averaging the high-passed envelope at the 4 s lap with the wrap off then on gave 5.0x and 6.1x the phase median, indistinguishable. No pre-rendered bed is needed for this ticket. AmbientBus has the identical defect (54.7x gain step on an interrupted bed crossfade) but fixing it overturns a tested behaviour; escalated in gauntlet/escalations.md."
     ],
     "refs": []
   }

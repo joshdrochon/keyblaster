@@ -35,7 +35,7 @@ import {
 } from "./context.js";
 import { label } from "./nullContext.js";
 import { AmbientBus } from "./ambient.js";
-import { MusicBus } from "./music.js";
+import { MusicBus, type MusicTrackCatalog } from "./music.js";
 import { SfxBus } from "./sfx.js";
 import { KeystrokeTone } from "./keystrokeTone.js";
 import {

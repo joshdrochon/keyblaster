@@ -129,12 +129,26 @@ export function createCoachValidator(
     },
 
     sanitize(req: CoachRequest): SanitizedCoachRequest {
-      return {
+      const base = {
         stopId: req.stopId,
         lang: req.lang,
         missed: filterWords(req.missed, allowlist).accepted,
         slow: filterWords(req.slow, allowlist).accepted,
         hitRate: clampRate(req.hitRate),
+      };
+      const compose = req.compose;
+      // The compose context reaches a prompt too, so it goes through the same
+      // filter as the missed list. A pool word that is not on the allowlist is
+      // a content bug, and handing it to a model would have it read back out
+      // in a sentence a child is then asked to type (D34).
+      if (compose === undefined) return base;
+      return {
+        ...base,
+        compose: {
+          pool: filterWords(compose.pool, allowlist).accepted,
+          sightWords: filterWords(compose.sightWords, allowlist).accepted,
+          blasted: filterWords(compose.blasted, allowlist).accepted,
+        },
       };
     },
   };

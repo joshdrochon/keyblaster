@@ -1,0 +1,42 @@
+{
+  "generatedAt": "2026-09-17T04:39:14.774Z",
+  "lengthMs": 40000,
+  "note": "One piece per stop. The three AC-21.2 intensity layers are derived from this same buffer at playback; generated clips cannot stack.",
+  "tracks": [
+    {
+      "stopId": "earth",
+      "file": "earth.mp3",
+      "prompt": "Instrumental background music for a children's space typing game, ages 7 to 11. hopeful and close to home, a gentle send-off, warm and safe. A simple memorable melody a child could hum, soft synth pads, light gentle percussion, warm and encouraging, never tense, never sad, no vocals, no speech, no sudden loud hits. Steady tempo, loops seamlessly with no gap or change at the loop point."
+    },
+    {
+      "stopId": "mars",
+      "file": "mars.mp3",
+      "prompt": "Instrumental background music for a children's space typing game, ages 7 to 11. dusty red frontier, curious and a little brave, first real distance. A simple memorable melody a child could hum, soft synth pads, light gentle percussion, warm and encouraging, never tense, never sad, no vocals, no speech, no sudden loud hits. Steady tempo, loops seamlessly with no gap or change at the loop point."
+    },
+    {
+      "stopId": "jupiter",
+      "file": "jupiter.mp3",
+      "prompt": "Instrumental background music for a children's space typing game, ages 7 to 11. vast and stormy but not frightening, big slow awe. A simple memorable melody a child could hum, soft synth pads, light gentle percussion, warm and encouraging, never tense, never sad, no vocals, no speech, no sudden loud hits. Steady tempo, loops seamlessly with no gap or change at the loop point."
+    },
+    {
+      "stopId": "saturn",
+      "file": "saturn.mp3",
+      "prompt": "Instrumental background music for a children's space typing game, ages 7 to 11. weightless and glittering, ice and rings, delicate wonder. A simple memorable melody a child could hum, soft synth pads, light gentle percussion, warm and encouraging, never tense, never sad, no vocals, no speech, no sudden loud hits. Steady tempo, loops seamlessly with no gap or change at the loop point."
+    },
+    {
+      "stopId": "uranus",
+      "file": "uranus.mp3",
+      "prompt": "Instrumental background music for a children's space typing game, ages 7 to 11. cold tilted quiet, strange and still, patient. A simple memorable melody a child could hum, soft synth pads, light gentle percussion, warm and encouraging, never tense, never sad, no vocals, no speech, no sudden loud hits. Steady tempo, loops seamlessly with no gap or change at the loop point."
+    },
+    {
+      "stopId": "neptune",
+      "file": "neptune.mp3",
+      "prompt": "Instrumental background music for a children's space typing game, ages 7 to 11. deep blue distance, far from home, steady resolve. A simple memorable melody a child could hum, soft synth pads, light gentle percussion, warm and encouraging, never tense, never sad, no vocals, no speech, no sudden loud hits. Steady tempo, loops seamlessly with no gap or change at the loop point."
+    },
+    {
+      "stopId": "pluto",
+      "file": "pluto.mp3",
+      "prompt": "Instrumental background music for a children's space typing game, ages 7 to 11. the edge of everything, small and triumphant, the long way back. A simple memorable melody a child could hum, soft synth pads, light gentle percussion, warm and encouraging, never tense, never sad, no vocals, no speech, no sudden loud hits. Steady tempo, loops seamlessly with no gap or change at the loop point."
+    }
+  ]
+}

@@ -217,17 +217,18 @@ describe("AC-21.1: beds crossfade on transition", () => {
 describe("UR-10: the wind loop is continuous across its seam", () => {
   // WHY THIS FILE HAS A SIGNAL-PROCESSING TEST.
   //
-  // The user heard "a pop every so often in the game like its being looped".
   // `wind.loop = true` on the ambient bed's noise buffer is the ONLY looping
   // source in src/ - every other voice is a continuous oscillator or a
-  // one-shot. So "every so often" has exactly one candidate period, and it is
-  // measurable: a loop whose last sample does not join its first sample steps
-  // the wind's DC level once per lap, which is a click.
+  // one-shot - so it was UR-10's prime suspect. IT WAS NOT THE POP: recording
+  // the live game and phase-averaging at the 4 s lap with the wrap off and on
+  // gave 5.0x and 6.1x the phase median, i.e. no difference. UR-10's pop was
+  // `MusicBus.setIndex`; see the UR-10 block in music.test.ts.
   //
-  // MEASURED, NOT ASSUMED. Offline render of the Neptune bed in Chromium
-  // (windLevel 0.42, windFilterHz 480, filterHz 620, level 0.48) put the old
-  // seam at 0.2873 in the buffer, arriving at the output as a 0.0579 level
-  // step in 0.54 ms - 47% of that bed's whole RMS (0.1224), once every 4.000 s.
+  // This test stays because the seam is a real defect either way, and unlike
+  // audibility it is a measurement. Offline render of the Neptune bed in
+  // Chromium (windLevel 0.42, windFilterHz 480, filterHz 620, level 0.48) put
+  // the old seam at 0.2873 in the buffer, arriving at the output as a 0.0579
+  // level step in 0.54 ms, once every 4.000 s.
   //
   // The thresholds below are the signal's OWN statistics, not tuned constants:
   // the seam has to be no worse than the biggest step the noise takes on its

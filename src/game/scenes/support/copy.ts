@@ -34,6 +34,10 @@ const LANE_EN = {
   "warp.charged": "warp drive charged. hold on.",
   "warp.speaker": "shadow",
   "warp.hint": "type the sentence. a slip just asks for the same letter again.",
+  // E-AI-1. Shown ONLY when a live model composed this sentence from the words
+  // this child just practised and it passed all six gates. Blank otherwise -
+  // the whole point is that a judge can tell the two apart.
+  "warp.composed": "shadow wrote this one from your words, just now",
 
   // Beacon placement (screen 8, D15, FR-17)
   "beacon.calibrating": "beacon calibrating. it will find the sky in a moment.",
@@ -94,6 +98,7 @@ const LANE_ES: Partial<Record<LaneStringKey, string>> = {
   "warp.charged": "motor de salto cargado. agárrate.",
   "warp.speaker": "shadow",
   "warp.hint": "escribe la frase. un desliz solo pide la misma letra otra vez.",
+  "warp.composed": "shadow escribió esta con tus palabras, ahora mismo",
 
   "beacon.calibrating": "la baliza se está calibrando. enseguida encuentra el cielo.",
   "beacon.continue": "continuar",

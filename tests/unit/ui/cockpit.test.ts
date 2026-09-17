@@ -7,13 +7,23 @@ import {
   contrastRatio,
 } from "@engine/contrast/index.js";
 import { PALETTE_STOP_IDS, paletteAt } from "@game/render/palette";
-import { INK } from "@game/ui/theme";
+import {
+  SETTINGS_CONSOLE,
+  bottomOf,
+  fitPlan,
+  flowColumn,
+} from "@game/ui/layout";
+import { BEACON_LOG } from "@game/ui/layout";
+import { INK, SPACE, TYPE, lineHeightEm, rowHeight } from "@game/ui/theme";
 import {
   KNOB,
   LABEL_SURFACE,
   PANEL,
   READOUT_SURFACE,
   SWITCH,
+  HARDWARE,
+  HARDWARE_SPAN,
+  KNOB_SPAN,
   TEXT_SURFACES,
   detentStops,
   knobAngleDeg,
@@ -403,5 +413,129 @@ describe("how the console is allowed to be drawn", () => {
     expect(controls).not.toContain("class SliderRow");
     expect(controls).not.toContain("class ToggleRow");
     expect(controls).not.toContain("class OptionRow");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The console has to fit the frame, in the tallest script there is
+// ---------------------------------------------------------------------------
+
+/**
+ * SETTINGS' OWN COLUMN, FLOWED FROM THE REAL NUMBERS.
+ *
+ * Every control on this panel is taller than the flat row it replaced - a knob
+ * row is 130 px against the pill slider's 59 - and the left column has six of
+ * them. The old screen stacked on a fixed 14 px gap inside two hard-coded
+ * plates; the Beacon Log shipped that same defect and printed its bottom row
+ * off the frame (layout.test.ts). This is the same check for screen 11, and it
+ * is done here rather than in a capture because a capture only ever shows one
+ * language.
+ *
+ * Line heights are modelled the way layout.test.ts models a trophy tile:
+ * Phaser's text metrics are about 1.05 em of ink and `uiText` adds
+ * `lineHeightEm(lang) - 1` of leading (theme.ts LINE_HEIGHT).
+ */
+const textLine = (fontPx: number, lang: "en" | "hi"): number =>
+  Math.round(fontPx * 1.05) + Math.round(fontPx * (lineHeightEm(lang) - 1));
+
+/** A control's measured height: the taller of its hardware and its label. */
+const row = (span: number, labelLines: number, lang: "en" | "hi"): number =>
+  Math.max(
+    rowHeight(TYPE.label, lang),
+    span,
+    labelLines * textLine(TYPE.label, lang) + SPACE.rowPadY * 2,
+  );
+
+/** The reset key, which is `PanelButton`: a body-size row plus its bevel. */
+const key = (lang: "en" | "hi"): number => rowHeight(TYPE.body, lang) + 6;
+
+/** A selector carrying AC-14.1's one calm note line under it. */
+const withNote = (h: number, lang: "en" | "hi", lines: number): number =>
+  h + lines * textLine(TYPE.caption, lang) + 10;
+
+function fits(
+  column: readonly number[],
+  tail: readonly number[],
+  tailGap: number,
+): { fits: boolean; bottom: number } {
+  const plan = fitPlan([...column, ...tail], {
+    ...SETTINGS_CONSOLE,
+    bottom: SETTINGS_CONSOLE.bottom - tailGap,
+  });
+  const rects = flowColumn(column, {
+    left: 0,
+    top: SETTINGS_CONSOLE.top,
+    width: 0,
+    rowGap: plan.rowGap,
+  });
+  const tailRects = flowColumn(tail, {
+    left: 0,
+    top: bottomOf(rects) + tailGap,
+    width: 0,
+    rowGap: plan.rowGap,
+  });
+  const bottom = tail.length === 0 ? bottomOf(rects) : bottomOf(tailRects);
+  // The BEZEL is what may not cross the hint, not the last control: the console
+  // face is drawn `bezel` px past the stack on every side.
+  return {
+    fits: bottom + SETTINGS_CONSOLE.bezel <= BEACON_LOG.hintTop,
+    bottom,
+  };
+}
+
+describe("the settings console fits the frame", () => {
+  for (const lang of ["en", "hi"] as const) {
+    it(`the sound-and-language column clears the keyboard hint (${lang})`, () => {
+      // music, sound, keyboard, how-you-type, menu language, typing language -
+      // with every label wrapped to two lines, which is the worst the copy can
+      // do, and AC-14.1's note under the content-language row.
+      const column = [
+        row(HARDWARE_SPAN.knob, 2, lang),
+        row(HARDWARE_SPAN.knob, 2, lang),
+        row(HARDWARE_SPAN.selector, 2, lang),
+        row(HARDWARE_SPAN.selector, 2, lang),
+        row(HARDWARE_SPAN.selector, 2, lang),
+        withNote(row(HARDWARE_SPAN.selector, 2, lang), lang, 2),
+      ];
+      const plan = fits(column, [], 0);
+      expect(plan.fits, `bottom ${plan.bottom}`).toBe(true);
+    });
+
+    it(`the flight-deck column and the reset key clear it too (${lang})`, () => {
+      const column = [
+        row(HARDWARE_SPAN.selector, 2, lang),
+        row(HARDWARE_SPAN.switch, 2, lang),
+        row(HARDWARE_SPAN.switch, 2, lang),
+        row(HARDWARE_SPAN.switch, 2, lang),
+      ];
+      const plan = fits(column, [key(lang)], SETTINGS_CONSOLE.keyGap);
+      expect(plan.fits, `bottom ${plan.bottom}`).toBe(true);
+    });
+  }
+
+  it("NEGATIVE CONTROL: a column the frame cannot hold is reported as such", () => {
+    // Without this the check could pass by being impossible to fail.
+    const absurd = new Array(9).fill(row(HARDWARE_SPAN.knob, 3, "hi"));
+    expect(fits(absurd, [], 0).fits).toBe(false);
+  });
+
+  it("gives the white space up before anything else, and never the type", () => {
+    // `fitPlan` tightens the gap first and has no glyph to shrink on this
+    // screen, so the ONLY thing it can spend is the space between modules -
+    // which is exactly the guarantee a 7-year-old's type size needs.
+    const tight = new Array(6).fill(row(HARDWARE_SPAN.knob, 2, "hi"));
+    const plan = fitPlan(tight, { ...SETTINGS_CONSOLE });
+    expect(plan.rowGap).toBeLessThanOrEqual(SETTINGS_CONSOLE.rowGap);
+    expect(plan.rowGap).toBeGreaterThanOrEqual(SETTINGS_CONSOLE.minRowGap);
+    expect(SETTINGS_CONSOLE.glyph).toBe(0);
+    expect(SETTINGS_CONSOLE.minGlyph).toBe(0);
+  });
+
+  it("the hardware column is the same width on every control", () => {
+    // The eye reads one instrument stack down the right of each panel only if
+    // the three hardware types occupy a comparable column.
+    expect(KNOB_SPAN).toBe((HARDWARE.knobR + HARDWARE.arcOuter) * 2);
+    expect(HARDWARE_SPAN.knob).toBeGreaterThan(HARDWARE_SPAN.switch);
+    expect(HARDWARE_SPAN.switch).toBeGreaterThan(HARDWARE_SPAN.selector);
   });
 });

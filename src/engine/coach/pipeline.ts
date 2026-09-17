@@ -1,4 +1,10 @@
 import { fallbackFor, type FallbackBundle } from "./fallback.js";
+import {
+  NO_SENTENCE,
+  practisedWords,
+  validateComposedSentence,
+  type SentenceOutcome,
+} from "./sentence.js";
 import type { CoachValidator } from "./validate.js";
 import type {
   CoachFailure,
@@ -21,12 +27,19 @@ import type {
 /** AC-15.1, CLAUDE.md, architecture 4.6. Not a suggestion, not per-transport. */
 export const COACH_TIMEOUT_MS = 1500;
 
-/** Build a fallback result. `note` is never empty (see fallback.ts). */
+/**
+ * Build a fallback result. `note` is never empty (see fallback.ts).
+ *
+ * `sentence` defaults to "there isn't one", which is what every transport
+ * failure means for the warp sentence: the scene keeps the shipped static
+ * string it laid out at `create()` and shows no marker.
+ */
 export function fallbackResult(
   bundle: FallbackBundle,
   req: CoachRequest,
   transport: TransportName,
   failure: CoachFailure,
+  sentence: SentenceOutcome = NO_SENTENCE,
 ): CoachResult {
   const payload = fallbackFor(bundle, req.lang, req.stopId);
   return {
@@ -35,12 +48,49 @@ export function fallbackResult(
     source: "fallback",
     failure,
     transport,
+    sentence,
   };
+}
+
+/**
+ * Pull the composed warp sentence out of a raw payload and put it through
+ * `sentence.ts`'s six gates (D09, AC-12.3, AC-15.2).
+ *
+ * Returns `absent` whenever the caller did not ask for one, so a note-only
+ * request and every mock keep exactly the shape they had before this existed.
+ */
+function composedSentence(
+  raw: unknown,
+  req: CoachRequest,
+  validator: CoachValidator,
+): SentenceOutcome {
+  if (req.compose === undefined) return NO_SENTENCE;
+  if (typeof raw !== "object" || raw === null) return NO_SENTENCE;
+  // Sanitized, not raw: the pool and the practised list are matched against
+  // here, and an unfiltered word in either is a word the gate would otherwise
+  // be willing to admit into a sentence a child types (D34).
+  const safe = validator.sanitize(req);
+  const compose = safe.compose;
+  if (compose === undefined) return NO_SENTENCE;
+  return validateComposedSentence((raw as { sentence?: unknown }).sentence, {
+    allowlist: validator.allowlist,
+    pool: compose.pool,
+    sightWords: compose.sightWords,
+    practised: practisedWords(safe.missed, safe.slow, compose),
+  });
 }
 
 /**
  * Validate a raw payload and turn it into a result. A validation failure is
  * not an error the caller handles - it is just the fallback (AC-15.2).
+ *
+ * THE NOTE AND THE SENTENCE ARE GATED SEPARATELY, and that is deliberate.
+ * They are two strings with two jobs: the note is READ and lands on the
+ * shipped fallback bundle when it fails; the sentence is TYPED and lands on
+ * the stop's shipped static sentence when it fails. One model reply can fail
+ * one and pass the other, and collapsing them would throw away a perfectly
+ * safe sentence because the note said "wrong" - or, far worse, invite a later
+ * change that shows a sentence because the NOTE passed.
  */
 export function settle(
   raw: unknown,
@@ -49,14 +99,18 @@ export function settle(
   bundle: FallbackBundle,
   transport: TransportName,
 ): CoachResult {
+  const sentence = composedSentence(raw, req, validator);
   const outcome = validator.validate(raw);
-  if (!outcome.ok) return fallbackResult(bundle, req, transport, outcome.reason);
+  if (!outcome.ok) {
+    return fallbackResult(bundle, req, transport, outcome.reason, sentence);
+  }
   return {
     note: outcome.value.note,
     variants: outcome.value.variants,
     source: "live",
     failure: null,
     transport,
+    sentence,
   };
 }
 

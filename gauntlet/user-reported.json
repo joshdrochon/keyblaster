@@ -90,11 +90,11 @@
     "id": "UR-10-audio-pop",
     "said": "theres a pop every so often in the game like its being looped. Should be continous.",
     "reports": 1,
-    "what": "An audible pop/click recurs during play, characteristic of a loop seam in the ambient bed.",
-    "rootCause": "Unconfirmed. Prime suspect is the procedural ambient bed (C12): the beds are synthesised in Web Audio because no ELEVENLABS_API_KEY existed at the time, and a loop whose waveform does not cross zero at the boundary clicks audibly on every repeat. There is a key now, so pre-rendered seamless beds are also an option.",
-    "state": "OPEN",
+    "what": "An audible pop/click recurs during play. NOT a loop seam: it is a step change in the music layer gains whenever an intensity crossfade is interrupted by another one.",
+    "rootCause": "MusicBus.setIndex restarted the crossfade from the abandoned TARGET INDEX rather than from the gains the layers were actually holding, so the next frame wrote layerTargetGains(oldTarget) and every in-flight layer snapped to its destination in one frame. setFromState runs every frame off the live asteroid count, so the index recrosses a threshold inside the 1400 ms ramp constantly during play - which is the 'every so often'. The C12 ambient-bed loop seam was the prime suspect and was DISPROVEN by measurement; it was fixed anyway as a separate real defect.",
+    "state": "DONE",
     "owner": "audio lane",
-    "evidence": ""
+    "evidence": "Two renders of the real MusicBus layer trajectory, differenced (identical oscillators, so the difference IS the artifact): 1.49e-8 in the 2 ms before the interrupt, 0.0154 one sample later, peaking at 0.0184 = 23% of the music bus RMS (0.0799). Zero to a quarter of the mix in one sample. The gain step at the interrupt frame was 0.04099 against the ramp's own largest per-frame move of 0.00299 - 13.7x - and 0.155 (52x) with the belt thrashing across both thresholds. After the fix: gain step 0.0000198 (0.01x), rendered artifact 2.7% of RMS, and the interrupted trajectory's max per-frame move equals the smooth ramp's exactly. Tests watched fail first: tests/unit/audio/music.test.ts 'UR-10: an intensity change never steps a layer gain' - 3 tests, bar is the ramp's OWN measured max per-frame move, not a constant. C12 ELIMINATED: the wind loop seam is real (0.2873 jump vs 0.0844 largest interior step, every 4.000 s) and is fixed by folding the walk's tail over its head, but it is NOT audible - recording the live game's master through an AudioWorklet and phase-averaging the high-passed envelope at the 4 s lap with the wrap off then on gave 5.0x and 6.1x the phase median, indistinguishable. No pre-rendered bed is needed for this ticket. AmbientBus has the identical defect (54.7x gain step on an interrupted bed crossfade) but fixing it overturns a tested behaviour; escalated in gauntlet/escalations.md."
   },
   {
     "id": "UR-11-cockpit-settings",

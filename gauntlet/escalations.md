@@ -2924,3 +2924,68 @@ trade on the board.
 
 **Status: blocked on the user.** Upgrading a paid plan is theirs, the same as
 deploy. Tracked as `UR-12-no-music`.
+
+---
+
+## UR-10 follow-on — an interrupted AMBIENT crossfade cuts a bed dead
+
+`UR-10` ("theres a pop every so often in the game like its being looped") was
+root-caused to `MusicBus.setIndex` restarting a crossfade from the abandoned
+TARGET INDEX rather than from the gains the layers were actually holding. Fixed,
+with tests. `AmbientBus` has the **identical defect** and it is not fixed,
+because fixing it overturns a documented behaviour that has its own test.
+
+### The measurement
+
+`AmbientBus.transitionTo` calls `settle()` when a transition is already in
+flight, which snaps the outgoing bed to 0 and the incoming bed to full level in
+the same instant. Driven at 60 fps, `earth -> mars`, then `-> jupiter`, then
+`-> saturn` 1.1 s into that second fade:
+
+| | |
+|---|---|
+| crossfade's own largest per-frame gain move | 0.00595 |
+| Mars' gain the frame before the third transition | 0.32527 |
+| Mars' gain one frame later | **0** |
+| ratio | **54.7x** |
+
+A whole bed removed in one frame. Same mechanism as the music pop, larger step.
+
+### Why it is not fixed in this pass
+
+`tests/unit/audio/ambient.test.ts` — *"never stacks three beds when a transition
+interrupts another"* — asserts `gainOf("earth") === 0` immediately after the
+interrupting call, with no `advance`. The snap is not an oversight; it is the
+tested behaviour, and its comment says so: *"The interrupted move lands
+immediately; only two beds are ever live."*
+
+Fading the abandoned bed out instead means three beds are audible for up to
+2.2 s. That is a change to what the module promises, not a bug fix, so it is not
+mine to take. **Never weaken an assertion to make something pass** cuts both
+ways: rewriting that assertion is exactly what it forbids unless the spec
+changes first.
+
+### How reachable is it
+
+Low. It needs two different stops inside one 2.2 s fade. `ambientFor` is called
+per frame with the on-screen stop, so it takes two warps in under 2.2 s. This is
+almost certainly NOT what the user heard — the music path fires whenever the
+belt's pressure recrosses a threshold inside 1400 ms, which is constant during
+play. But it is a real pop on a real path.
+
+### Options
+
+| | | cost | gets |
+|---|---|---|---|
+| A | Per-bed `fromGains` snapshot, exactly the music fix. Every bed fades from where it is. | Rewrite one assertion + its comment; up to 3 beds live for <2.2 s | No pop on any path; one mechanism for both buses |
+| B | Keep the snap, but ramp the abandoned bed to 0 over ~60 ms instead of cutting | Extra per-voice ramp state | Two beds live as documented, no audible click |
+| C | Leave it | 0 | A 54.7x gain step survives on a rare path |
+
+**Lean: A.** "Only two beds are ever live" is an implementation detail; AC-21.1
+says *"crossfades on transition"*, and a cut is not a crossfade. The beds are
+cached and never torn down, so a third live bed costs nothing the graph was not
+already paying — the AC-22.9 frame-budget argument for lazy beds is about
+*building* them, not about how many are fading. And it is the same mechanism as
+the music fix, so the game gets one rule instead of two.
+
+**Status: needs the user.** Tracked under `UR-10-audio-pop`.

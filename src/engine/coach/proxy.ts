@@ -7,6 +7,7 @@ import type {
   CoachRequest,
   CoachResult,
   CreateAbort,
+  SanitizedCoachRequest,
   Timer,
 } from "./types.js";
 
@@ -42,6 +43,36 @@ export interface ProxyCoachOptions {
   readonly createAbort?: CreateAbort;
 }
 
+/**
+ * What actually goes on the wire.
+ *
+ * A note-only request is byte-for-byte what it has always been - five fields,
+ * no `mode` - so a deployed endpoint that predates the warp sentence still
+ * answers it. Asking for a sentence adds `mode: "warp"` and the two lists the
+ * second prompt shape needs (E-AI-1: one endpoint, two prompt shapes).
+ *
+ * `sightWords` is deliberately NOT sent. It is 149 entries of Fry-tier filler
+ * whose only job is to tell the CLIENT which tokens are exempt from AC-12.3;
+ * putting it in the prompt would spend latency inside a 1200 ms server budget
+ * to tell the model something a short curated hint already covers.
+ */
+function wireBody(safe: SanitizedCoachRequest): Record<string, unknown> {
+  const base = {
+    stopId: safe.stopId,
+    lang: safe.lang,
+    missed: safe.missed,
+    slow: safe.slow,
+    hitRate: safe.hitRate,
+  };
+  if (safe.compose === undefined) return base;
+  return {
+    ...base,
+    mode: "warp",
+    pool: safe.compose.pool,
+    blasted: safe.compose.blasted,
+  };
+}
+
 export function createProxyCoach(options: ProxyCoachOptions): CoachClient {
   const bundle = options.fallback ?? DEFAULT_FALLBACK_BUNDLE;
   const url = options.url ?? COACH_ENDPOINT;
@@ -60,7 +91,7 @@ export function createProxyCoach(options: ProxyCoachOptions): CoachClient {
         timeoutMs,
         url,
         headers: { "content-type": "application/json" },
-        body: safe,
+        body: wireBody(safe),
         createAbort: options.createAbort,
       });
 

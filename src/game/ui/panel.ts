@@ -1,4 +1,5 @@
-import { INK } from "./theme.js";
+import type { Rect } from "./layout.js";
+import { INK, SPACE } from "./theme.js";
 
 /**
  * THE LANTERN'S CONSOLE — tokens and maths (UR-11, D83, D84, AC-18.1, AC-22.8).
@@ -42,8 +43,9 @@ import { INK } from "./theme.js";
  *
  * `face` is deliberately LIGHTER than `INK.panel`. The controls are recessed
  * into it and the recesses are the dark things; a panel darker than its own
- * cutouts is a hole, not a surface. It still measures 16.35:1 against
- * `INK.text` and 7.75:1 against `INK.textDim`, both well over the bar.
+ * cutouts is a hole, not a surface. It still measures 15.27:1 against
+ * `INK.text` and 7.75:1 against `INK.textDim`, both well over the bar. Every
+ * pair is measured as a cross product in tests/unit/ui/cockpit.test.ts.
  */
 export const PANEL = {
   /** The console face: charcoal, matte, lit from above. */
@@ -291,14 +293,64 @@ export function labelSpan(
   return Math.max(floor, hardwareLeft - padX - gap);
 }
 
-// -- panel frame ------------------------------------------------------------
+// -- hardware sizes ---------------------------------------------------------
 
-export interface Rect {
-  readonly x: number;
-  readonly y: number;
-  readonly w: number;
-  readonly h: number;
-}
+/**
+ * How big each piece of hardware is drawn, in design px.
+ *
+ * HERE RATHER THAN IN `cockpit.ts` so the layout maths and the drawing code
+ * cannot disagree. `tests/unit/ui/cockpit.test.ts` flows the real Settings
+ * column from these numbers and checks it clears the keyboard hint in
+ * Devanagari; if that test read a copy of them it would be checking a layout
+ * the screen does not draw.
+ */
+export const HARDWARE = {
+  /** Knob body radius; the detent arc sits outside it. */
+  /**
+   * Knob body radius, with the detent arc outside it.
+   *
+   * SIZED BY THE FRAME, not by taste. At r=38 the knob row is 130 px tall and
+   * six of those plus a wrapped Devanagari label and AC-14.1's note ran the
+   * left column 30 px past the keyboard hint - `cockpit.test.ts` flows the real
+   * column and caught it. 34 gives the same read (the pointer is carried by the
+   * value structure, not by the diameter) and gives the frame back its margin.
+   */
+  knobR: 34,
+  arcInner: 8,
+  arcOuter: 16,
+  /** The switch guard. */
+  guardW: 58,
+  guardH: 82,
+  leverCap: 9,
+  /** One of a selector's position lamps. */
+  lampSize: 13,
+  /** A readout window. */
+  glassPadX: 16,
+  glassH: 42,
+  glassMinW: 96,
+  /** A chevron's half-height. */
+  chevron: 9,
+  /** Bezel thickness around a console panel. */
+  bezel: 14,
+  /** Between a selector's readout window and its position lamps. */
+  lampGap: 9,
+} as const;
+
+/** The knob plus its detent arc, corner to corner. */
+export const KNOB_SPAN = (HARDWARE.knobR + HARDWARE.arcOuter) * 2;
+
+/**
+ * The height each control type needs for its HARDWARE alone, before its label
+ * is measured. A row is the taller of this and its text.
+ */
+export const HARDWARE_SPAN = {
+  knob: KNOB_SPAN + 16,
+  switch: HARDWARE.guardH + 16,
+  selector:
+    HARDWARE.glassH + HARDWARE.lampGap + HARDWARE.lampSize + SPACE.rowPadY * 2,
+} as const;
+
+// -- panel frame ------------------------------------------------------------
 
 /**
  * Screw heads: one at each corner, plus one at the middle of each long edge

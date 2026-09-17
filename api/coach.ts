@@ -20,6 +20,8 @@ const MODEL = "claude-haiku-4-5-20251001";
 /** Keep well inside the client's 1500 ms so it is the client that gives up. */
 const UPSTREAM_TIMEOUT_MS = 1200;
 const MAX_TOKENS = 300;
+/** A warp reply carries the note, both variants AND the practice sentence. */
+const WARP_MAX_TOKENS = 420;
 
 /** Per-IP rate limit (architecture §1: "Rate-limited per IP"). */
 const RATE_LIMIT = { windowMs: 60_000, maxRequests: 12 } as const;
@@ -42,29 +44,90 @@ function rateLimited(ip: string, now: number): boolean {
   return recent.length > RATE_LIMIT.maxRequests;
 }
 
+/**
+ * Two request shapes, one endpoint (E-AI-1).
+ *
+ *   mode omitted / "note"  the coach note this endpoint has always returned.
+ *   mode "warp"            the SAME call, plus the warp sentence composed from
+ *                          the words this child just practised (D09, FR-16).
+ *
+ * It is one call either way, because D33 allows exactly one per warp break and
+ * AC-15.3 counts them. The warp shape is a different SYSTEM PROMPT and a
+ * bigger reply, not a second round trip.
+ */
+export type CoachMode = "note" | "warp";
+
 export interface CoachRequest {
   stopId: string;
   lang: string;
   missed: string[];
   slow: string[];
   hitRate: number;
+  mode: CoachMode;
+  /** The stage's asteroid pool. Only these words may appear in the sentence. */
+  pool: string[];
+  /** Words the child shot down this run. */
+  blasted: string[];
 }
 
 const STOPS = ["mars", "jupiter", "saturn", "uranus", "neptune", "pluto"];
 const LANGS = ["en", "es", "hi"];
 
+/**
+ * The sight words the warp prompt offers as filler.
+ *
+ * A HAND-PICKED SUBSET of `src/content/en/sight-words.json`, not the whole
+ * 149-word list: the prompt is inside a 1200 ms budget and every word here is
+ * prompt tokens. `tests/unit/coach/warpPrompt.test.ts` asserts every entry is
+ * in the shipped sight list AND on the runtime allowlist, so a word added here
+ * that the client would then refuse fails a test rather than quietly turning
+ * every live sentence into a fallback.
+ */
+export const WARP_SIGHT_WORDS: readonly string[] = [
+  "a", "all", "and", "are", "as", "at", "back", "before", "behind", "but",
+  "can", "does", "every", "for", "from", "has", "have", "here", "if", "in",
+  "is", "it", "its", "just", "last", "left", "like", "little", "looks", "may",
+  "more", "next", "no", "not", "of", "on", "one", "only", "out", "past",
+  "pretty", "ready", "rest", "same", "so", "still", "than", "that", "the",
+  "them", "they", "this", "those", "to", "two", "up", "us", "way", "we",
+  "when", "which", "while", "whole", "will", "with", "you", "your",
+];
+
+/**
+ * The band the client gate enforces (`src/engine/coach/sentence.ts`), restated
+ * to the model. Stating it here does not make it true - the client measures
+ * the string it is handed - but a model told the shape returns it far more
+ * often, and every fallback is a child who did not get their own sentence.
+ */
+const WARP_MIN_WORDS = 4;
+const WARP_MAX_WORDS = 10;
+const WARP_MAX_CHARS = 48;
+
 /** Reject anything that is not the documented shape, before spending a token. */
 function parseRequest(body: unknown): CoachRequest | null {
   if (typeof body !== "object" || body === null) return null;
   const b = body as Record<string, unknown>;
-  const words = (v: unknown): string[] | null => {
-    if (!Array.isArray(v) || v.length > 12) return null;
+  const list = (v: unknown, cap: number): string[] | null => {
+    if (!Array.isArray(v) || v.length > cap) return null;
     if (!v.every((w) => typeof w === "string" && w.length > 0 && w.length <= 20)) return null;
     return v as string[];
   };
+  const words = (v: unknown): string[] | null => list(v, 12);
   const missed = words(b["missed"]);
   const slow = words(b["slow"]);
   if (!missed || !slow) return null;
+
+  // A stage pool is ~26 words; 48 is headroom, not an invitation. `blasted`
+  // is one run's worth of a single belt.
+  const rawMode = b["mode"];
+  if (rawMode !== undefined && rawMode !== "note" && rawMode !== "warp") return null;
+  const mode: CoachMode = rawMode === "warp" ? "warp" : "note";
+  const pool = b["pool"] === undefined ? [] : list(b["pool"], 48);
+  const blasted = b["blasted"] === undefined ? [] : list(b["blasted"], 48);
+  if (!pool || !blasted) return null;
+  // A warp request with no pool cannot produce a sentence that satisfies
+  // AC-12.3, so it is a client bug rather than a request worth paying for.
+  if (mode === "warp" && pool.length === 0) return null;
   // Earth is the launchpad and has no belt, so it never produces a coach call
   // (AC-15.3, D57). A request naming it is a client bug, not a valid input.
   if (typeof b["stopId"] !== "string" || !STOPS.includes(b["stopId"])) return null;
@@ -73,7 +136,16 @@ function parseRequest(body: unknown): CoachRequest | null {
   if (typeof hitRate !== "number" || !Number.isFinite(hitRate) || hitRate < 0 || hitRate > 1) {
     return null;
   }
-  return { stopId: b["stopId"], lang: b["lang"], missed, slow, hitRate };
+  return {
+    stopId: b["stopId"],
+    lang: b["lang"],
+    missed,
+    slow,
+    hitRate,
+    mode,
+    pool,
+    blasted,
+  };
 }
 
 /**
@@ -109,6 +181,69 @@ function userPrompt(req: CoachRequest): string {
   return `Words that got past us: ${missed}\nWords that took a moment: ${slow}`;
 }
 
+/**
+ * THE SECOND PROMPT SHAPE (E-AI-1, D09, decision-log line 18).
+ *
+ * The thing this project was built to fix: Type Storm's end-of-level sentence
+ * does not reuse the words just typed. This prompt is the fix. It asks for one
+ * sentence made out of THIS child's hard words, and the client then refuses it
+ * unless every word is on the allowlist, every content word is in this stage's
+ * own pool (AC-12.3), and it sits inside the length band the shipped sentences
+ * occupy (`src/engine/coach/sentence.ts`).
+ *
+ * EVERY RULE BELOW IS ALSO ENFORCED BY CODE THAT RUNS ON THE REPLY. This is
+ * D34's third layer, the backup, exactly as `engine/coach/prompt.ts` says. A
+ * prompt that is the only thing between a language model and a seven-year-old
+ * is a design error.
+ *
+ * THE WORKED EXAMPLES ARE THE SHIPPED SENTENCES, verbatim from
+ * `src/content/en/mars.json` and `saturn.json`. They are the calibration for
+ * "typeable by a 7-11 year old", so they are what the model is shown.
+ */
+function warpSystemPrompt(req: CoachRequest): string {
+  return [
+    ...systemPrompt(req).split("\n"),
+    "",
+    "THEN, as well as the note, write ONE practice sentence for this pilot to",
+    "type right now, at the warp break. This is the sentence they will actually",
+    "type, so every rule is hard:",
+    "",
+    `- Use ONLY words from POOL and SIGHT below. Nothing else, not even a very`,
+    "  common word. A single outside word means the sentence is thrown away.",
+    "- It MUST contain at least one word from HARD. Those words are the point:",
+    "  the pilot just struggled with them and this is how they meet them again.",
+    `- ${WARP_MIN_WORDS} to ${WARP_MAX_WORDS} words, at most ${WARP_MAX_CHARS} characters, one plain sentence.`,
+    "- Letters, spaces and commas only, ending in a single full stop. No digits,",
+    "  no quotes, no dashes, no brackets, no exclamation marks, no emoji.",
+    `- True about ${req.stopId}, and it must make sense read on its own.`,
+    "- Write it the way these are written:",
+    '    "Mars is the red planet."',
+    '    "Saturn wears rings made of ice and rock."',
+    "",
+    "Reply as JSON only:",
+    '{"note": "<=20 words", "variants": ["<sentence>", "<sentence>"], "sentence": "<the practice sentence>"}',
+  ].join("\n");
+}
+
+function warpUserPrompt(req: CoachRequest): string {
+  // HARD is ordered missed-first: retrieval practice is strongest on the words
+  // that actually got past the pilot (E-AI-1), and the model is told to prefer
+  // the front of the list.
+  const hard = [...req.missed, ...req.slow];
+  return [
+    userPrompt(req),
+    "",
+    `HARD (prefer the first of these): ${hard.length ? hard.join(", ") : "(none)"}`,
+    `BLASTED this run: ${req.blasted.length ? req.blasted.join(", ") : "(none)"}`,
+    `POOL (the only content words allowed): ${req.pool.join(", ")}`,
+    `SIGHT (filler words allowed): ${sightFor(req)}`,
+  ].join("\n");
+}
+
+function sightFor(req: CoachRequest): string {
+  return req.lang === "en" ? WARP_SIGHT_WORDS.join(", ") : "(none)";
+}
+
 export default async function handler(request: Request): Promise<Response> {
   const json = (body: unknown, status: number) =>
     new Response(JSON.stringify(body), {
@@ -135,6 +270,7 @@ export default async function handler(request: Request): Promise<Response> {
   }
   if (!parsed) return json({ error: "bad_request" }, 400);
 
+  const warp = parsed.mode === "warp";
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), UPSTREAM_TIMEOUT_MS);
   try {
@@ -148,9 +284,11 @@ export default async function handler(request: Request): Promise<Response> {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: MAX_TOKENS,
-        system: systemPrompt(parsed),
-        messages: [{ role: "user", content: userPrompt(parsed) }],
+        max_tokens: warp ? WARP_MAX_TOKENS : MAX_TOKENS,
+        system: warp ? warpSystemPrompt(parsed) : systemPrompt(parsed),
+        messages: [
+          { role: "user", content: warp ? warpUserPrompt(parsed) : userPrompt(parsed) },
+        ],
       }),
     });
 
@@ -180,7 +318,22 @@ export default async function handler(request: Request): Promise<Response> {
 
     // The client validates again against the compiled allowlist (AC-15.2).
     // This is a cheap first pass, not the guardrail.
-    return json({ note: p["note"], variants: p["variants"] }, 200);
+    //
+    // THE SENTENCE IS PASSED THROUGH UNJUDGED, and deliberately so. Every rule
+    // that decides whether a child ever sees it - allowlist, stage pool
+    // (AC-12.3), length band, banned terms, and whether it reuses any of their
+    // own words - needs the shipped content and the compiled allowlist, and
+    // neither exists in this function. Half-checking it here would only invite
+    // someone to believe it had been checked. The client's six gates are the
+    // guardrail; a missing or malformed sentence simply never passes them and
+    // the child types the stop's shipped sentence instead.
+    const sentence = warp && typeof p["sentence"] === "string" ? p["sentence"] : undefined;
+    return json(
+      sentence === undefined
+        ? { note: p["note"], variants: p["variants"] }
+        : { note: p["note"], variants: p["variants"], sentence },
+      200,
+    );
   } catch {
     return json({ error: "timeout" }, 504);
   } finally {

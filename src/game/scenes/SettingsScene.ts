@@ -16,6 +16,7 @@ import {
   SwitchRow,
   drawConsoleFace,
 } from "@game/ui/cockpit";
+import { SETTINGS_CONSOLE, bottomOf, fitPlan, flowColumn } from "@game/ui/layout";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { uiText } from "@game/ui/text";
 import type { MenuKey } from "@game/ui/i18n";
@@ -75,11 +76,6 @@ import { audioFrom } from "@game/audio/wiring";
  * triangle, no shouting - it asks twice, in plain words, and the safe answer
  * has focus both times.
  */
-/** Where the first control sits, and how much panel shows around the stack. */
-const TOP = 228;
-const ROW_GAP = 18;
-const BEZEL = 26;
-
 export class SettingsScene extends MenuScene {
   static readonly KEY = SCENE_KEYS.settings;
 
@@ -105,15 +101,18 @@ export class SettingsScene extends MenuScene {
     const leftX = SPACE.gutter;
     const rightX = SPACE.gutter * 2 + colW;
 
-    const controls: Control[] = [];
-    let y = TOP;
-    const advance = (c: Control): void => {
-      controls.push(c);
-      y += c.ringBounds().h + ROW_GAP;
-    };
+    // EVERY CONTROL IS BUILT AT THE TOP OF ITS COLUMN AND POSITIONED AFTERWARDS.
+    // A control's height is not known until its label has been wrapped and
+    // measured, and on this screen a label that wraps to two lines in Devanagari
+    // adds 40 px to a row that is already half again the height of the one it
+    // replaced. Stacking as we go is the fixed-pitch defect `layout.ts` exists
+    // to prevent; `layoutColumn` flows the measured heights instead.
+    const left: Control[] = [];
+    const right: Control[] = [];
+    const y = SETTINGS_CONSOLE.top;
 
     // --- sound desk --------------------------------------------------------
-    advance(
+    left.push(
       new KnobRow(this, this.uiStyle, "settings.music", leftX, y, this.depth, {
         label: this.t.t("ui.settings.music"),
         width: colW,
@@ -125,7 +124,7 @@ export class SettingsScene extends MenuScene {
         },
       }),
     );
-    advance(
+    left.push(
       new KnobRow(this, this.uiStyle, "settings.sfx", leftX, y, this.depth, {
         label: this.t.t("ui.settings.sfx"),
         width: colW,
@@ -139,7 +138,7 @@ export class SettingsScene extends MenuScene {
     );
 
     // --- keyboard and language --------------------------------------------
-    advance(
+    left.push(
       new SelectorRow<KeyboardLayout>(
         this,
         this.uiStyle,
@@ -164,7 +163,7 @@ export class SettingsScene extends MenuScene {
         },
       ),
     );
-    advance(
+    left.push(
       new SelectorRow<InputMethod>(
         this,
         this.uiStyle,
@@ -188,7 +187,7 @@ export class SettingsScene extends MenuScene {
         },
       ),
     );
-    advance(
+    left.push(
       new SelectorRow<Lang>(this, this.uiStyle, "settings.uiLang", leftX, y, this.depth, {
         label: this.t.t("settings.uiLang"),
         width: colW,
@@ -200,7 +199,7 @@ export class SettingsScene extends MenuScene {
     );
 
     const typeable = availableContentLangs(s.inputMethod);
-    advance(
+    left.push(
       new SelectorRow<Lang>(
         this,
         this.uiStyle,
@@ -236,20 +235,9 @@ export class SettingsScene extends MenuScene {
       ),
     );
 
-    // The left console is only as tall as the controls that were MEASURED onto
-    // it. A hard-coded 700 was a promise about wrapped text that nothing
-    // measured, and a knob row is half again the height of the pill-slider row
-    // it replaced - so the panel would have ended in the middle of a control.
-    const leftBottom = y - ROW_GAP;
-
     // --- flight deck -------------------------------------------------------
-    y = TOP;
-    const advanceRight = (c: Control): void => {
-      controls.push(c);
-      y += c.ringBounds().h + ROW_GAP;
-    };
 
-    advanceRight(
+    right.push(
       new SelectorRow<"lower" | "upper">(
         this,
         this.uiStyle,
@@ -270,7 +258,7 @@ export class SettingsScene extends MenuScene {
         },
       ),
     );
-    advanceRight(
+    right.push(
       new SwitchRow(
         this,
         this.uiStyle,
@@ -288,7 +276,7 @@ export class SettingsScene extends MenuScene {
         },
       ),
     );
-    advanceRight(
+    right.push(
       new SwitchRow(
         this,
         this.uiStyle,
@@ -308,7 +296,7 @@ export class SettingsScene extends MenuScene {
         },
       ),
     );
-    advanceRight(
+    right.push(
       new SwitchRow(
         this,
         this.uiStyle,
@@ -327,35 +315,36 @@ export class SettingsScene extends MenuScene {
       ),
     );
 
-    y += 24;
-    advanceRight(
-      new PanelButton(
-        this,
-        this.uiStyle,
-        "settings.resetProgress",
-        rightX,
-        y,
-        this.depth,
-        {
-          label: this.t.t("ui.settings.resetProgress"),
-          minWidth: colW,
-          onPress: () => this.askReset(),
-        },
-      ),
+    const resetKey = new PanelButton(
+      this,
+      this.uiStyle,
+      "settings.resetProgress",
+      rightX,
+      y,
+      this.depth,
+      {
+        label: this.t.t("ui.settings.resetProgress"),
+        minWidth: colW,
+        onPress: () => this.askReset(),
+      },
     );
 
-    const rightBottom = y - ROW_GAP;
-
-    this.consoleFace(leftX - BEZEL, TOP - BEZEL, colW + BEZEL * 2, leftBottom - TOP + BEZEL * 2);
-    this.consoleFace(
-      rightX - BEZEL,
-      TOP - BEZEL,
-      colW + BEZEL * 2,
-      rightBottom - TOP + BEZEL * 2,
+    // The one destructive action is set apart from the toggles by a wider gap
+    // and is the last thing in the column (D31: it is not hidden, and it is not
+    // shouted at either - it simply is not mixed in with the switches).
+    const leftBottom = this.layoutColumn(left, leftX);
+    const rightBottom = this.layoutColumn(
+      right,
+      rightX,
+      [resetKey],
+      SETTINGS_CONSOLE.keyGap,
     );
+
+    this.consoleFace(leftX, leftBottom, colW);
+    this.consoleFace(rightX, rightBottom, colW);
 
     this.addHint("ui.common.hintAdjust");
-    this.setControls(controls);
+    this.setControls([...left, ...right, resetKey]);
     if (this.restoreFocus) this.list.focus(this.restoreFocus);
   }
 
@@ -387,9 +376,55 @@ export class SettingsScene extends MenuScene {
    * nothing is a row of lights a child will try to interpret - which is the one
    * thing a console in a game for seven-year-olds must not do.
    */
-  private consoleFace(x: number, y: number, w: number, h: number): void {
+  private consoleFace(x: number, stackBottom: number, w: number): void {
+    const b = SETTINGS_CONSOLE.bezel;
     const g = this.add.graphics().setDepth(this.depth - 1);
-    drawConsoleFace(g, { x, y, w, h });
+    drawConsoleFace(g, {
+      x: x - b,
+      y: SETTINGS_CONSOLE.top - b,
+      w: w + b * 2,
+      h: stackBottom - SETTINGS_CONSOLE.top + b * 2,
+    });
+  }
+
+  /**
+   * Flow one column of already-built controls and return where it ends.
+   *
+   * The gap is chosen by `fitPlan`, which tightens the white space - and only
+   * the white space, never the type - until the stack plus the console's bezel
+   * clears the keyboard hint at the foot of the screen. `tail` is laid out
+   * after a wider gap, which is how the reset key is set apart from the
+   * switches without a hard-coded offset that a taller row would swallow.
+   */
+  private layoutColumn(
+    controls: readonly Control[],
+    x: number,
+    tail: readonly Control[] = [],
+    tailGap = 0,
+  ): number {
+    const heights = controls.map((c) => c.ringBounds().h);
+    const tailHeights = tail.map((c) => c.ringBounds().h);
+    const plan = fitPlan([...heights, ...tailHeights], {
+      ...SETTINGS_CONSOLE,
+      bottom: SETTINGS_CONSOLE.bottom - tailGap,
+    });
+    const rects = flowColumn(heights, {
+      left: x,
+      top: SETTINGS_CONSOLE.top,
+      width: 0,
+      rowGap: plan.rowGap,
+    });
+    controls.forEach((c, i) => c.node.setPosition(x, rects[i]?.y ?? 0));
+    if (tail.length === 0) return bottomOf(rects);
+
+    const tailRects = flowColumn(tailHeights, {
+      left: x,
+      top: bottomOf(rects) + tailGap,
+      width: 0,
+      rowGap: plan.rowGap,
+    });
+    tail.forEach((c, i) => c.node.setPosition(x, tailRects[i]?.y ?? 0));
+    return bottomOf(tailRects);
   }
 
   private langChoices(langs: readonly Lang[]): SelectorChoice<Lang>[] {

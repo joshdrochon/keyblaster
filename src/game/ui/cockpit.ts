@@ -1,12 +1,15 @@
 import Phaser from "phaser";
 import { hexToNum } from "@game/render/palette";
 import { Control, type ControlStyle } from "./controls.js";
+import type { Rect } from "./layout.js";
 import type { MirrorItem } from "./mirror.js";
 import {
+  HARDWARE,
+  HARDWARE_SPAN,
   KNOB,
+  KNOB_SPAN,
   PANEL,
   type Point,
-  type Rect,
   SHADOW_ALPHA,
   clamp01,
   detentStops,
@@ -60,28 +63,8 @@ import { plateWidth, uiText } from "./text.js";
 // Hardware sizes
 // ---------------------------------------------------------------------------
 
-const HW = {
-  /** Knob body radius; the detent arc sits outside it. */
-  knobR: 38,
-  arcInner: 9,
-  arcOuter: 19,
-  /** The switch guard. */
-  guardW: 58,
-  guardH: 82,
-  leverCap: 9,
-  /** The selector's position lamps. */
-  lampSize: 13,
-  /** A readout window. */
-  glassPadX: 16,
-  glassH: 42,
-  glassMinW: 96,
-  /** Chevron half-height and reach. */
-  chevron: 9,
-  /** Bezel thickness around a console panel. */
-  bezel: 14,
-} as const;
-
-const KNOB_SPAN = (HW.knobR + HW.arcOuter) * 2;
+/** Hardware sizes live in `panel.ts`, beside the layout maths that use them. */
+const HW = HARDWARE;
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -233,11 +216,11 @@ function drawKnob(
 /**
  * THE ILLUMINATED TOGGLE.
  *
- * Up is on. The lamp under the lever burns and an amber wash spills onto the
- * face behind the guard, which is the thing the reference plate does and the
- * thing a flat "on / off" caption cannot do. The WORD is still printed beside
- * it (D41: colour is never the only carrier), and the lever's own position is a
- * third encoding that survives a greyscale print.
+ * Up is on. The whole slot behind the lever burns, and an amber wash spills
+ * onto the metal around the guard - which is the thing the reference plate does
+ * and the thing a flat "on / off" caption cannot. The WORD is still printed
+ * beside it (D41: colour is never the only carrier), and the lever's own
+ * position is a third encoding that survives a greyscale print.
  */
 function drawSwitch(
   g: Phaser.GameObjects.Graphics,
@@ -597,7 +580,7 @@ export class KnobRow extends PanelControl {
     });
     this.boxH = Math.max(
       rowHeight(TYPE.label, style.lang),
-      KNOB_SPAN + 16,
+      HARDWARE_SPAN.knob,
       this.title.height + SPACE.rowPadY * 2,
     );
     this.centreTitle();
@@ -718,7 +701,7 @@ export class SwitchRow extends PanelControl {
     });
     this.boxH = Math.max(
       rowHeight(TYPE.label, style.lang),
-      HW.guardH + 16,
+      HARDWARE_SPAN.switch,
       this.title.height + SPACE.rowPadY * 2,
     );
     this.centreTitle();
@@ -878,7 +861,7 @@ export class SelectorRow<T extends string> extends PanelControl {
 
     this.headH = Math.max(
       rowHeight(TYPE.label, style.lang),
-      HW.glassH + 9 + HW.lampSize + SPACE.rowPadY * 2,
+      HARDWARE_SPAN.selector,
       this.title.height + SPACE.rowPadY * 2,
     );
     this.boxH = this.headH + (this.note ? this.note.height + 10 : 0);
@@ -895,7 +878,7 @@ export class SelectorRow<T extends string> extends PanelControl {
   }
 
   private get glassY(): number {
-    return Math.round((this.headH - (HW.glassH + 9 + HW.lampSize)) / 2);
+    return Math.round((this.headH - (HW.glassH + HW.lampGap + HW.lampSize)) / 2);
   }
 
   private layout(): void {
@@ -935,7 +918,7 @@ export class SelectorRow<T extends string> extends PanelControl {
     drawPositionLamps(
       this.g,
       this.glassX,
-      gy + HW.glassH + 9,
+      gy + HW.lampGap + HW.glassH,
       this.glassW,
       this.index,
       this.choices.length,
@@ -1019,7 +1002,7 @@ export class PanelButton extends Control {
   protected redraw(): void {
     this.g.clear();
     const r = SPACE.radius;
-    g_key(this.g, this.boxW, this.boxH, r, this.focused, this.style.accent);
+    drawKey(this.g, this.boxW, this.boxH, r, this.focused, this.style.accent);
     // Always the full-strength ink: focus is carried by the ring, the lit bevel
     // and the raised cap, never by dimming the only word on the key.
     this.text.setColor(INK.text);
@@ -1031,7 +1014,7 @@ export class PanelButton extends Control {
 }
 
 /** The key's material, kept out of the class so it reads as one shape. */
-function g_key(
+function drawKey(
   g: Phaser.GameObjects.Graphics,
   w: number,
   h: number,
