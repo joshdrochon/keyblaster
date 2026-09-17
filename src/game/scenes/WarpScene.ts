@@ -18,6 +18,8 @@ import { hexToNum, mixHex } from "@game/render/palette";
 import { LANTERN_DESIGN_HEIGHT, drawLantern, type LanternRig } from "@game/render/lantern";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import { DUR, INK, TYPE } from "@game/ui/theme";
+import { headerText } from "@game/ui/grid";
+import { highlightSpans, prefixOf, quotedWords } from "./support/coachHighlight";
 import { hasStageBundle, stageBundle } from "./lib/content";
 import { goTo, type StoryInit } from "./lib/init";
 import {
@@ -122,10 +124,30 @@ const CALM_LAYERS: readonly LayerId[] = [
   "nearField",
 ];
 
-/** Fixed geometry. The coach area's numbers are AC-33's contract. */
-const PANEL = { x: 160, y: 286, w: 1600, h: 250 } as const;
-const METER = { x: 160, y: 622, w: 1600, h: 30 } as const;
-const COACH = { x: 160, y: 742, w: 1600, h: 236 } as const;
+/**
+ * Fixed geometry. The coach area's numbers are AC-33's contract.
+ *
+ * It lives in `support/warpLayout.ts` now, with the Lantern's stand, because
+ * the two are ONE constraint and nothing in this file can be asserted without a
+ * browser. The card used to be 1600 px wide and the ship stood at x=1660 inside
+ * it, one depth layer down - so the hero asset was drawn behind the panel at
+ * every stage transition. See that module's header.
+ */
+import {
+  PANEL,
+  METER,
+  COACH,
+  LANTERN,
+  SENTENCE_PX,
+  SENTENCE_STEP,
+  WORD_PULSE_MS,
+  WORD_PULSE_SCALE,
+  completedWordRange,
+  sentenceTop,
+  pulsedPosition,
+  wordPulseCentre,
+  type PulseBox,
+} from "./support/warpLayout";
 
 export interface WarpInit extends StoryInit {
   /**
@@ -158,6 +180,22 @@ export interface WarpInit extends StoryInit {
   readonly payload?: Record<string, unknown>;
 }
 
+/**
+ * One completed word, mid-pulse (UR-26).
+ *
+ * The ORIGINS ARE CAPTURED, not read back off the Texts while the tween runs.
+ * The tween writes both `scale` and `position` every frame, so "where was this
+ * letter before the pulse" stops being answerable from the object the moment
+ * the first frame lands - and the one thing this effect must never do is leave
+ * a letter a fraction of a pixel from where the line laid it out.
+ */
+interface WordPulse {
+  readonly letters: readonly Phaser.GameObjects.Text[];
+  readonly origins: readonly PulseBox[];
+  readonly centre: { readonly x: number; readonly y: number };
+  tween: Phaser.Tweens.Tween | null;
+}
+
 export class WarpScene extends Phaser.Scene {
   private lane!: LaneInit;
   private initData: WarpInit | undefined;
@@ -177,6 +215,8 @@ export class WarpScene extends Phaser.Scene {
   private chargedLabel!: Phaser.GameObjects.Text;
   private chargedPlate: Phaser.GameObjects.Graphics | null = null;
   private noteText!: Phaser.GameObjects.Text;
+  /** UR-24: the accent-coloured copies of the words Shadow names. */
+  private namedWords: Phaser.GameObjects.Text[] = [];
   /**
    * THE HONESTY MARKER (E-AI-1).
    *
@@ -240,6 +280,41 @@ export class WarpScene extends Phaser.Scene {
    */
   private chargeStage = 0;
   /**
+   * UR-26. The pulses currently running, one per word the player finished and
+   * whose tween has not landed yet.
+   *
+   * A LIST, not a single tween. The words of a sentence are finished in order
+   * and the pulse is 240 ms out-and-back, so a child typing faster than that
+   * can start the second word's pulse while the first is still settling. Their
+   * letter sets are disjoint by construction (`completedWordRange` returns the
+   * word that just ended, and two words share no characters), so two live
+   * pulses cannot write to the same Text - but a single-slot field would have
+   * dropped the first one's reference and orphaned it mid-scale.
+   */
+  private pulses: WordPulse[] = [];
+  /** Which words have pulsed, in order. Test surface; see `snapshot`. */
+  private pulsedWords: string[] = [];
+  /**
+   * The largest scale any pulse has actually been DRAWN at, and how many frames
+   * a pulse has been redrawn on.
+   *
+   * Recorded rather than sampled, for the same reason `meterEaseFrames` is: the
+   * pulse is 240 ms and a snapshot round-trip is not reliably shorter, so "read
+   * the scale and assert it is above 1" is a race a test cannot be made to win
+   * by waiting longer. A high-water mark can only be moved by the effect
+   * actually running, and it is 1 and 0 on a screen where nothing pulsed.
+   */
+  private pulsePeakScale = 1;
+  private pulseFrames = 0;
+  /**
+   * The retry pop (`askAgain`) currently on a letter, with the letter it is on.
+   *
+   * Held rather than fired and forgotten because it and the word pulse can want
+   * the same Text's `scale` at the same time; `clearRetryPop` says why.
+   */
+  private retryPop: { tween: Phaser.Tweens.Tween; letter: Phaser.GameObjects.Text } | null =
+    null;
+  /**
    * "Was it drawn", latched on a real render pass (see `latchOnRender`). The
    * Text's own `visible` flag is the truth only while the scene is alive: it
    * reads false again once the cut to Beacon destroys the object, so sampling
@@ -274,6 +349,14 @@ export class WarpScene extends Phaser.Scene {
     this.meterShown = 0;
     this.meterTween = null;
     this.chargeStage = 0;
+    // A restart rebuilds every Text, so nothing that was mid-pulse still
+    // exists. The tweens themselves are gone with the old scene's tween
+    // manager; these are the records that would otherwise outlive them.
+    this.pulses = [];
+    this.pulsedWords = [];
+    this.pulsePeakScale = 1;
+    this.pulseFrames = 0;
+    this.retryPop = null;
   }
 
   create(): void {
@@ -308,8 +391,10 @@ export class WarpScene extends Phaser.Scene {
     // over it is the single most obvious way to say "this is a different
     // screen", which is exactly what D30 forbids.
     if (!this.overlay) {
-      this.lantern = drawLantern(this, 1660, 470, {
-        scale: 300 / LANTERN_DESIGN_HEIGHT,
+      // IN THE BAY, not inside the sentence card. `support/warpLayout.ts` owns
+      // both rectangles and `warpLayout.test.ts` asserts they are disjoint.
+      this.lantern = drawLantern(this, LANTERN.x, LANTERN.y, {
+        scale: LANTERN.height / LANTERN_DESIGN_HEIGHT,
         reducedMotion: this.lane.reducedMotion,
         idleBob: true,
         exhaust: true,
@@ -347,7 +432,16 @@ export class WarpScene extends Phaser.Scene {
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.input.keyboard?.off("keydown", this.onKey, this);
+      // UR-26. A word finished on the LAST character of the sentence starts a
+      // pulse on the same keystroke that starts the warp, and the warp ends by
+      // cutting to Beacon - so a pulse tween can still be running when this
+      // scene is torn down, writing scale and position into Texts that are
+      // being destroyed underneath it. Killed here, first.
+      this.stopWordPulses();
+      this.clearRetryPop();
       this.ring.destroy();
+      for (const t of this.namedWords) t.destroy();
+      this.namedWords = [];
       this.shadow.destroy();
       this.lantern?.destroy();
       this.parallax.destroy();
@@ -435,7 +529,8 @@ export class WarpScene extends Phaser.Scene {
    * so this header is now measured by V-22.8 along with everything else.
    */
   private buildHeader(): Phaser.GameObjects.GameObject[] {
-    const heading = skyText(this, 160, 96, this.lane.copy.text("warp.heading"), {
+    const at = headerText(0, undefined, 14);
+    const heading = skyText(this, at.x, at.y, this.lane.copy.text("warp.heading"), {
       screen: "warp",
       id: "warp.heading",
       size: TYPE.heading,
@@ -448,7 +543,8 @@ export class WarpScene extends Phaser.Scene {
     // "the belt is clear. everything is still out here.", which is atmosphere:
     // it never said that the asteroids were GONE because the player destroyed
     // them, and it never said what the typing below it was for.
-    const calm = skyText(this, 160, 172, this.lane.copy.text("warp.beltCleared"), {
+    const under = headerText(1, undefined, 10);
+    const calm = skyText(this, under.x, under.y, this.lane.copy.text("warp.beltCleared"), {
       screen: "warp",
       id: "warp.beltCleared",
       size: TYPE.body,
@@ -590,10 +686,16 @@ export class WarpScene extends Phaser.Scene {
    */
   private layoutLetters(): Phaser.GameObjects.Text[] {
     const left = PANEL.x + 40;
-    const top = PANEL.y + 78;
     const maxWidth = PANEL.w - 80;
-    const size = 52;
+    const size = SENTENCE_PX;
     const pal = this.lane.palette;
+
+    // COUNT THE LINES FIRST, so the block can be centred in the card rather
+    // than pinned to its top. A one-line sentence in a two-line card left a
+    // 140 px hole under it, which is the "large dead space below their content"
+    // a player reported on the stage report; the card keeps its shape and the
+    // content is distributed inside it (`support/warpLayout.sentenceTop`).
+    const top = sentenceTop(this.countSentenceLines(left, maxWidth, size));
 
     let x = left;
     let y = top;
@@ -607,7 +709,7 @@ export class WarpScene extends Phaser.Scene {
       const estimate = word.length * size * 0.58;
       if (x > left && x + estimate > left + maxWidth) {
         x = left;
-        y += size + 16;
+        y += SENTENCE_STEP;
       }
       for (const cell of [...word, ...(end < all.length ? [all[end]] : [])]) {
         if (cell === undefined) continue;
@@ -622,6 +724,31 @@ export class WarpScene extends Phaser.Scene {
       i = end + 1;
     }
     return this.letters;
+  }
+
+  /**
+   * How many lines the sentence wraps to, by the SAME rule `layoutLetters`
+   * wraps with - a word-width estimate of 0.58 em - so the count and the layout
+   * cannot disagree about where the breaks are.
+   */
+  private countSentenceLines(left: number, maxWidth: number, size: number): number {
+    const all = cells(this.sentence);
+    let x = left;
+    let lines = 1;
+    let i = 0;
+    while (i < all.length) {
+      let end = i;
+      while (end < all.length && all[end]?.char !== " ") end += 1;
+      const word = all.slice(i, end);
+      const estimate = word.length * size * 0.58;
+      if (x > left && x + estimate > left + maxWidth) {
+        x = left;
+        lines += 1;
+      }
+      x += estimate + size * 0.3;
+      i = end + 1;
+    }
+    return lines;
   }
 
   /**
@@ -644,7 +771,15 @@ export class WarpScene extends Phaser.Scene {
         letter.setAlpha(1);
       } else {
         letter.setColor(pal.plateText);
-        letter.setAlpha(cell.blasted ? 0.8 : 0.45);
+        // 0.55, NOT 0.45 (UR-41). At 0.45 the untyped filler composited to
+        // 4.39:1 against the panel - the ONLY text in the game under AC-22.8's
+        // 4.5, and a blind critic measured 4.33 off the pixels. It is large
+        // type, so WCAG would allow 3:1; the bar on this project is 4.5 for
+        // every size and re-baselining it quietly to win one number is not a
+        // trade this file gets to make. 0.55 measures 5.98:1 at the worst stop
+        // and the three-step read survives: filler 5.98, blasted 11.6,
+        // current 18.1.
+        letter.setAlpha(cell.blasted ? 0.8 : 0.55);
       }
     }
   }
@@ -872,6 +1007,68 @@ export class WarpScene extends Phaser.Scene {
     return made;
   }
 
+  /**
+   * UR-24 - THE WORDS SHADOW NAMES ARE DRAWN IN THE STOP ACCENT.
+   *
+   * A player: "solid and rock should genuinely be a different color like gold
+   * or something that stands out". Those two words are what the child meets
+   * again on the next belt, so this is a learning affordance rather than a
+   * swatch, and in a flat line they were carried by two straight quotes alone.
+   *
+   * ================== WHY AN OVERLAY AND NOT A RESTYLE ==================
+   * Phaser's `Text` has ONE style for the whole object and the only per-glyph
+   * tinting it offers is on `BitmapText`, which needs a raster font (D83
+   * forbids one). Splitting the note into per-word objects was the other
+   * option, and AC-33 forbids it by name: the coach area is laid out before the
+   * note arrives and does not change when it does, "same Text object at the
+   * same position with the same style and wrap", which `warp.spec.ts` asserts
+   * by comparing the live and fallback screens field by field.
+   *
+   * So `noteText` is untouched - same object, same style, same wrap, same
+   * snapshot - and each named word is drawn AGAIN on top of itself, in the
+   * accent, at the same size and font. The overlay covers the base glyphs
+   * exactly, because it is the same string in the same face at the same place.
+   *
+   * ================== THE QUOTES STAY ==================
+   * That was the judgement call. D41 does not allow colour to be the only
+   * carrier of a distinction anywhere in this game - it is why the colourblind
+   * palette exists, why the hull dims rather than reddening, and why a switch
+   * prints "on" beside its lamp. The quotes are the non-colour encoding, so
+   * they stay and the word is marked twice.
+   */
+  private markNamedWords(): Phaser.GameObjects.Text[] {
+    for (const old of this.namedWords) old.destroy();
+    this.namedWords = [];
+
+    const words = quotedWords(this.noteText.text);
+    if (words.length === 0) return this.namedWords;
+
+    // The paragraph AS DRAWN, not as written: a word that wrapped onto the next
+    // line has a different x, and a highlight placed from the unwrapped string
+    // lands on nothing. `coachHighlight` maps the spans; this measures them.
+    const lines = this.noteText.getWrappedText();
+    const spans = highlightSpans(lines, words);
+    const lineStep = this.noteText.height / Math.max(1, lines.length);
+
+    const ruler = this.make.text(
+      { text: "", style: this.noteText.style as unknown as object },
+      false,
+    );
+    for (const span of spans) {
+      ruler.setText(prefixOf(lines, span));
+      const t = label(this, this.noteText.x + ruler.width, this.noteText.y + span.line * lineStep, span.text, {
+        size: TYPE.body,
+        color: this.lane.palette.accent,
+        lang: this.lane.lang,
+      });
+      t.setDepth(this.noteText.depth + 1).setAlpha(0);
+      this.panelRoot.add(t);
+      this.namedWords.push(t);
+    }
+    ruler.destroy();
+    return this.namedWords;
+  }
+
   // -------------------------------------------------------------------------
   // Shadow's note
   // -------------------------------------------------------------------------
@@ -972,6 +1169,12 @@ export class WarpScene extends Phaser.Scene {
    * count changed.
    */
   private relayoutSentence(text: string): void {
+    // Before the Texts go. A live pulse holds references to them and writes to
+    // them every frame; destroying them out from under it is the same crash as
+    // the shutdown one, on a path that fires whenever the coach lands a
+    // composed sentence.
+    this.stopWordPulses();
+    this.clearRetryPop();
     for (const letter of this.letters) letter.destroy();
     this.letters = [];
     this.sentence = createWarpSentence({
@@ -1015,13 +1218,15 @@ export class WarpScene extends Phaser.Scene {
 
     const render = (display: { text: string }): void => {
       this.noteText.setText(display.text);
+      const named = this.markNamedWords();
       if (this.lane.reducedMotion) {
         this.noteText.setAlpha(1);
+        for (const t of named) t.setAlpha(1);
         settle();
         return;
       }
       this.tweens.add({
-        targets: this.noteText,
+        targets: [this.noteText, ...named],
         alpha: 1,
         duration: DUR.panel,
         ease: EASE.arrive,
@@ -1065,6 +1270,10 @@ export class WarpScene extends Phaser.Scene {
     this.soundCharge(chargeFraction(this.sentence));
 
     this.paintLetters();
+    // AFTER the repaint, so the word is already in its typed colour when it
+    // grows: the scale is a second reading of the same fact, not a different
+    // one arriving a frame early.
+    this.pulseCompletedWord();
     this.easeMeterTo(chargeFraction(this.sentence));
     // Through the plated wrapper: "9%" and "100%" are different widths, and a
     // plate cut for the first leaves the last hanging off its own edge.
@@ -1125,14 +1334,172 @@ export class WarpScene extends Phaser.Scene {
       letter.setAlpha(1);
       return;
     }
+    this.clearRetryPop();
     letter.setScale(1);
-    this.tweens.add({
+    const tween = this.tweens.add({
       targets: letter,
       scale: 1.22,
       duration: 160,
       yoyo: true,
       ease: EASE.pop,
+      onComplete: () => {
+        this.retryPop = null;
+      },
     });
+    this.retryPop = { tween, letter };
+  }
+
+  /**
+   * Take the retry pop off a letter and put its scale back.
+   *
+   * IT OVERLAPS THE WORD PULSE, and that is the whole reason this exists. The
+   * pop is 320 ms out and back on the letter the player got wrong; the letter
+   * they got wrong is the letter they are about to get right, and it can be the
+   * last letter of a word. A child who fixes a typo and finishes the word
+   * inside that window has two tweens writing `scale` on one Text, and the
+   * word flickers for a frame as the pop's own return to 1 stomps the pulse.
+   */
+  private clearRetryPop(): void {
+    const pop = this.retryPop;
+    if (pop === null) return;
+    pop.tween.remove();
+    if (pop.letter.active) pop.letter.setScale(1);
+    this.retryPop = null;
+  }
+
+  // -------------------------------------------------------------------------
+  // UR-26 - a finished word says so
+  // -------------------------------------------------------------------------
+
+  /**
+   * "When a word is complete in the warp drive sequence it should expand
+   * slightly and go back to original size to indicate its been typed out."
+   *
+   * The screen already recolours a typed letter to the accent, which is a
+   * per-CHARACTER signal; there was nothing at all for the unit the child is
+   * actually working in, which is the word. This is that.
+   *
+   * WHAT THIS METHOD IS CAREFUL ABOUT, all of it in `support/warpLayout.ts`:
+   *
+   *   IT CANNOT MOVE THE LINE. Only the Texts between `start` and `end` are
+   *   ever passed to `pulsedPosition`. Every other letter of the sentence keeps
+   *   the x `layoutLetters` gave it, so no scale, however wrong, can shift the
+   *   words after this one. A sentence that jitters while a child is reading it
+   *   is worse than no effect at all, and "the layout box is untouched" is a
+   *   property of the code path rather than of the chosen numbers.
+   *
+   *   IT GROWS ABOUT THE WORD'S OWN CENTRE. Phaser Text's origin is its
+   *   top-left corner, so a bare `setScale` would grow each glyph rightwards
+   *   into the fixed position of the next one and the word would visibly
+   *   tighten. Each letter is repositioned around the word's union centre so
+   *   the word breathes symmetrically in place.
+   *
+   *   IT FIRES ONCE PER WORD. `completedWordRange` returns non-null on exactly
+   *   the keystroke that ends a word - never mid-word, never on the punctuation
+   *   after it - so seven words is seven pulses, not seven per character.
+   */
+  private pulseCompletedWord(): void {
+    const event = this.sentence.lastEvent;
+    if (event !== "advance" && event !== "charged") return;
+    const range = completedWordRange(this.sentence.text, this.sentence.index);
+    if (range === null) return;
+    // D41 / AC-19.3. Reduced motion turns off decoration, and this is
+    // decoration: the word is already in the accent and the meter already
+    // moved, so nothing the player needs is carried by the scale alone. The
+    // snapshot reports `suppressed` so a test can tell "the rule did not fire"
+    // apart from "the rule fired and was deliberately silent".
+    if (this.lane.reducedMotion) return;
+    const [start, end] = range;
+    const letters = this.letters.slice(start, end).filter((t) => t.active);
+    if (letters.length === 0) return;
+    // See `clearRetryPop`: the retry pop and this pulse can want the same
+    // letter's scale at the same time, and the pop always loses - it is the
+    // older event and it is about a keystroke the player has since fixed.
+    this.clearRetryPop();
+
+    const origins: PulseBox[] = letters.map((t) => ({
+      x: t.x,
+      y: t.y,
+      // `width`/`height`, never `displayWidth`: the display size already has
+      // the scale in it, and these are the resting metrics.
+      w: t.width,
+      h: t.height,
+    }));
+    const run: WordPulse = {
+      letters,
+      origins,
+      centre: wordPulseCentre(origins),
+      tween: null,
+    };
+    this.pulses.push(run);
+    this.pulsedWords.push(this.sentence.text.slice(start, end));
+
+    // The tween drives a PLAIN NUMBER, not the Texts. Phaser would happily
+    // tween `scale` on the letters directly, but the position has to move with
+    // it - that is the whole "about its own centre" part - and two tweens on
+    // one object that must agree frame for frame is a way to be subtly wrong.
+    const holder = { s: 1 };
+    run.tween = this.tweens.add({
+      targets: holder,
+      s: WORD_PULSE_SCALE,
+      duration: WORD_PULSE_MS,
+      yoyo: true,
+      // Sine in-out, never Back.Out. An overshoot is a bounce and a bounce is a
+      // celebration; this is an acknowledgement, and it has to be able to
+      // happen seven times in eight seconds without wearing the player out.
+      ease: EASE.drift,
+      onUpdate: () => this.applyPulse(run, holder.s),
+      onComplete: () => this.settlePulse(run),
+    });
+  }
+
+  /** One frame of one pulse. Guarded: a destroyed Text is simply skipped. */
+  private applyPulse(run: WordPulse, scale: number): void {
+    this.pulsePeakScale = Math.max(this.pulsePeakScale, scale);
+    this.pulseFrames += 1;
+    for (const [i, letter] of run.letters.entries()) {
+      const origin = run.origins[i];
+      if (origin === undefined || !letter.active) continue;
+      const at = pulsedPosition(origin, run.centre, scale);
+      letter.setScale(scale);
+      letter.setPosition(at.x, at.y);
+    }
+  }
+
+  /**
+   * Put the word back exactly where the line put it.
+   *
+   * FROM THE CAPTURED ORIGINS, not from `pulsedPosition(..., 1)`. The round
+   * trip through the centre is `c + (x - c) * 1`, which is x for most values
+   * and x plus a float ulp for some of them; over the words of a sentence that
+   * is a line that drifts. Idempotent, because `stopWordPulses` may call it on
+   * a run whose tween has already completed.
+   */
+  private settlePulse(run: WordPulse): void {
+    for (const [i, letter] of run.letters.entries()) {
+      const origin = run.origins[i];
+      if (origin === undefined || !letter.active) continue;
+      letter.setScale(1);
+      letter.setPosition(origin.x, origin.y);
+    }
+    run.tween = null;
+    this.pulses = this.pulses.filter((other) => other !== run);
+  }
+
+  /**
+   * Stop every pulse and restore every letter.
+   *
+   * Called from SHUTDOWN and from `relayoutSentence`, the two places where the
+   * Texts a running tween holds are about to stop existing. `tween.remove()`
+   * takes it off the manager immediately rather than letting it live to the end
+   * of the frame, which is the difference between this and `tween.stop()`.
+   */
+  private stopWordPulses(): void {
+    for (const run of [...this.pulses]) {
+      run.tween?.remove();
+      this.settlePulse(run);
+    }
+    this.pulses = [];
   }
 
   // -------------------------------------------------------------------------
@@ -1332,7 +1699,43 @@ export class WarpScene extends Phaser.Scene {
       // player never blasted it".
       blastedWords: [...this.blastedThisRun()],
       missedWords: [...(this.initData?.missed ?? [])],
-      letters: this.letters.map((l) => ({ char: l.text, color: l.style.color, alpha: l.alpha })),
+      letters: this.letters.map((l) => ({
+        char: l.text,
+        color: l.style.color,
+        alpha: l.alpha,
+        // UR-26's evidence, per letter. `x` is what proves the claim that
+        // matters: the words AFTER a pulsing one must report the same x during
+        // the pulse as before it. Reported for every letter rather than for the
+        // pulsing word, because "nothing else moved" is the assertion.
+        x: l.x,
+        y: l.y,
+        scaleX: l.scaleX,
+      })),
+      /**
+       * UR-26. "When a word is complete... it should expand slightly and go
+       * back to original size."
+       *
+       * `peakScale` and `frames` are HIGH-WATER MARKS written by the tween, not
+       * instantaneous reads: the pulse is 240 ms out and back and a snapshot
+       * round-trip is not reliably shorter than that, so a test that sampled
+       * the live scale would be racing its own transport. A screen where the
+       * effect never ran reports 1 and 0, and nothing but the effect running
+       * can move them.
+       */
+      wordPulse: {
+        /** Every word that has pulsed, in the order the player finished them. */
+        words: [...this.pulsedWords],
+        fired: this.pulsedWords.length,
+        /** Pulses still in flight. 0 once everything has settled. */
+        running: this.pulses.length,
+        peakScale: this.pulsePeakScale,
+        frames: this.pulseFrames,
+        /** The tuning, so a test asserts against the shipped numbers. */
+        scale: WORD_PULSE_SCALE,
+        durationMs: WORD_PULSE_MS,
+        /** D41: the effect is decoration and reduced motion turns it off. */
+        suppressed: this.lane.reducedMotion,
+      },
       debris: { count: this.debrisCount, moved: this.debrisMoved },
       warping: this.warping,
       multiplier: this.multiplier,
@@ -1345,6 +1748,8 @@ export class WarpScene extends Phaser.Scene {
         received: result !== null,
         settled: this.coachSettled,
         note: this.noteText.text,
+        /** UR-24: the words drawn in the accent over the note. */
+        namedWords: this.namedWords.map((t) => t.text),
         // TEST-ONLY. Nothing in the render path above reads these three.
         source: result?.source ?? null,
         failure: result?.failure ?? null,
@@ -1389,6 +1794,24 @@ export class WarpScene extends Phaser.Scene {
   private publish(): void {
     publishBag("warp", {
       snapshot: () => this.snapshot(),
+      /**
+       * UR-26. The letter geometry ALONE, cheap enough to read every animation
+       * frame.
+       *
+       * `snapshot()` rebuilds the sky-text contrast samples, the highlight
+       * ranges and the coach block on every call; sampling it at 60 Hz to watch
+       * a 240 ms tween would change the thing it is measuring. This returns the
+       * three numbers the pulse is about and nothing else, so a spec can record
+       * where every letter was on every frame of the effect.
+       */
+      letterBoxes: () =>
+        this.letters.map((l) => ({
+          char: l.text,
+          x: l.x,
+          y: l.y,
+          scaleX: l.scaleX,
+          scaleY: l.scaleY,
+        })),
       texts: () => visibleText(this),
       textStyles: () => textStyles(this),
       parallaxOffsets: () => this.parallax.debugOffsets(),

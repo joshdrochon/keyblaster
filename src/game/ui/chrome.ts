@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
 import { idleDriftPx, layer } from "@game/render/layers";
+import { menuDebris, menuStars } from "./starfield.js";
 import { particleSpec } from "@game/render/particles";
 import { DUR, EASE, INK, SPACE } from "./theme.js";
 import type { TrophyGlyphId } from "./catalog.js";
@@ -45,12 +45,30 @@ export function strokePlate(
 
 /**
  * The menu backdrop: a vertical gradient from the stop palette, a sparse star
- * field, and drifting motes.
+ * field, a drifting debris field, and motes.
  *
  * Rubric item 2 ("nothing is ever still") applies to menus too - a frozen
  * screen reads as a crashed game. Under reduced motion the drift slows and the
  * sway stops, but it never stops entirely (AC-19.3 removes shake and camera
  * sway, not the world being alive; layers.ts documents the same rule).
+ *
+ * ================== IT USED TO DRAW HILLS ==================
+ * The midfield band was a rolling landform - `190 + sin(x/260)*46 +
+ * cos(x/97)*22` - along the bottom of every menu screen. D97 dropped terrain
+ * grammar for space grammar across the world screens; this was missed because
+ * it lives in the UI kit rather than in `render/`, so the game spoke one visual
+ * language while flying and another between flights, on five screens.
+ *
+ * It is DEBRIS now: the same thing the world draws at that depth, scattered
+ * rather than joined, so nothing can read as a horizon. The placement is in
+ * `starfield.ts`, away from Phaser, where "deterministic" and "scales with the
+ * world" are assertable - see `tests/unit/ui/starfield.test.ts`.
+ *
+ * ================== SIZE IS READ FROM THE SCENE ==================
+ * Every measurement below comes from `scene.scale`, not from a captured
+ * constant. The world's width moves with the window (D99, sceneKeys.ts) and at
+ * runtime `GAME_WIDTH === scene.scale.width` by construction, so asking the
+ * scene is the same number without the chance of freezing it.
  */
 export class Backdrop {
   private readonly g: Phaser.GameObjects.Graphics;
@@ -66,52 +84,71 @@ export class Backdrop {
     this.midfield = scene.add.graphics().setDepth(layer("midField").depth);
     this.paintSky();
     this.paintStars();
-    this.paintMidfield();
+    this.paintDebris();
     this.spawnMotes();
+  }
+
+  private get width(): number {
+    return this.scene.scale.width;
+  }
+
+  private get height(): number {
+    return this.scene.scale.height;
   }
 
   private paintSky(): void {
     const top = hexToNum(INK.bgDeep);
     const bottom = hexToNum(this.palette.colors[5] ?? INK.bg);
     this.g.fillGradientStyle(top, top, bottom, bottom, 1);
-    this.g.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    this.g.fillRect(0, 0, this.width, this.height);
     // A wide, very soft accent bloom at the top edge: the ship's own cabin
     // light. It is what stops the gradient reading as a flat web background.
-    this.g.fillStyle(hexToNum(this.palette.accent), 0.06);
-    this.g.fillEllipse(GAME_WIDTH * 0.5, -160, GAME_WIDTH * 1.2, 760);
+    //
+    // NESTED, NOT ONE ELLIPSE. A single flat-alpha ellipse has an EDGE, and a
+    // smooth curve across the top of a dark frame reads as the limb of
+    // something rather than as light - which on a screen that had a rolling
+    // hill band along its bottom edge was the second half of the same "is this
+    // a landscape?" problem. Eight steps is enough falloff that no boundary is
+    // visible, and it costs eight fills on a backdrop drawn once.
+    // Eight contours from the outside in, each at the same small alpha, so the
+    // pool of light keeps the SIZE the single ellipse had - it is what lifts
+    // the top fifth of a menu screen off the floor - while the outermost
+    // contour is faint enough that there is no boundary to see. The spacing is
+    // bunched at the rim, which is where a hard edge would otherwise be.
+    const RIM = [1, 0.97, 0.93, 0.88, 0.82, 0.74, 0.62, 0.44];
+    for (const t of RIM) {
+      this.g.fillStyle(hexToNum(this.palette.accent), 0.0085);
+      this.g.fillEllipse(this.width * 0.5, -160, this.width * 1.3 * t, 900 * t);
+    }
   }
 
   private paintStars(): void {
-    // Deterministic placement: a menu that reshuffles its stars on every
-    // navigation flickers. Seeded from a fixed constant, not Math.random.
-    let seed = 0x5eed;
-    const next = (): number => {
-      seed = (seed * 1664525 + 1013904223) >>> 0;
-      return seed / 0xffffffff;
-    };
-    for (let i = 0; i < 90; i += 1) {
-      const x = next() * GAME_WIDTH;
-      const y = next() * GAME_HEIGHT;
-      const r = 1 + next() * 2.2;
-      this.g.fillStyle(hexToNum(INK.text), 0.1 + next() * 0.35);
-      this.g.fillCircle(x, y, r);
+    // Placement is `starfield.menuStars`: deterministic, because a menu that
+    // reshuffles its stars on every navigation flickers, and sized to the
+    // scene rather than to a constant.
+    for (const star of menuStars(this.width, this.height)) {
+      this.g.fillStyle(hexToNum(INK.text), star.alpha);
+      this.g.fillCircle(star.x, star.y, star.r);
     }
   }
 
-  /** A single flat silhouette band, the menu's version of layer L3. */
-  private paintMidfield(): void {
-    const band = hexToNum(this.palette.colors[4] ?? INK.panel);
-    this.midfield.fillStyle(band, 0.16);
-    this.midfield.beginPath();
-    this.midfield.moveTo(0, GAME_HEIGHT);
-    this.midfield.lineTo(0, GAME_HEIGHT - 190);
-    for (let x = 0; x <= GAME_WIDTH; x += 120) {
-      const h = 190 + Math.sin(x / 260) * 46 + Math.cos(x / 97) * 22;
-      this.midfield.lineTo(x, GAME_HEIGHT - h);
+  /**
+   * The menu's version of layer L3: DEBRIS, drifting.
+   *
+   * Scattered discs rather than a joined band, so no horizon can emerge from
+   * them - see this class's header and `starfield.ts`. Each rock gets a soft
+   * lit crown on the side the cabin light comes from, which is the same
+   * one-light rule the world's rocks are drawn under (art-direction s5).
+   */
+  private paintDebris(): void {
+    const body = hexToNum(this.palette.colors[4] ?? INK.panel);
+    const rim = hexToNum(INK.text);
+    for (const rock of menuDebris(this.width, this.height)) {
+      this.midfield.fillStyle(body, rock.alpha);
+      this.midfield.fillCircle(rock.x, rock.y, rock.r);
+      this.midfield.fillStyle(rim, rock.alpha * 0.35);
+      this.midfield.fillCircle(rock.x - rock.r * 0.22, rock.y - rock.r * 0.26, rock.r * 0.58);
     }
-    this.midfield.lineTo(GAME_WIDTH, GAME_HEIGHT);
-    this.midfield.closePath();
-    this.midfield.fillPath();
   }
 
   private spawnMotes(): void {
@@ -122,8 +159,8 @@ export class Backdrop {
       const y = ((i * 71) % 100) / 100;
       const mote = this.scene.add
         .circle(
-          x * GAME_WIDTH,
-          y * GAME_HEIGHT,
+          x * this.width,
+          y * this.height,
           2 + (i % 3),
           hexToNum(this.palette.accent),
           0.28,
@@ -143,7 +180,7 @@ export class Backdrop {
     }
   }
 
-  /** Called from the scene's update loop; keeps the midfield band alive. */
+  /** Called from the scene's update loop; keeps the debris field alive. */
   update(elapsedMs: number): void {
     this.midfield.x = idleDriftPx(layer("midField"), elapsedMs, this.reducedMotion);
   }

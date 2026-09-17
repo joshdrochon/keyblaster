@@ -143,6 +143,161 @@ export function designWidthFor(viewWidth: number, viewHeight: number): number {
   return Math.round(GAME_HEIGHT * aspect);
 }
 
+// ---------------------------------------------------------------------------
+// The world's RESOLUTION (UR-18), which is not the world's SIZE
+// ---------------------------------------------------------------------------
+
+/**
+ * THE BUFFER SCALES WITH THE SCREEN. THE DESIGN SPACE DOES NOT. Both halves.
+ *
+ * `designWidthFor` above answers "how many design pixels wide is the world".
+ * This answers a different question that had never been asked: "how many REAL
+ * pixels do we rasterise those design pixels into". They were the same number,
+ * which is the whole defect - the canvas drew 1920x1080 whatever the display,
+ * so on a 2x screen a 1440 CSS-px canvas covering 2880 physical pixels was fed
+ * 1920 and the browser upscaled it ~1.5x. Every edge and every glyph soft.
+ *
+ * All the art here is vector drawn in code (D83), so it is pixel-perfect at
+ * any resolution; nothing was ever asking for one.
+ *
+ * NOTHING ABOUT THE DESIGN SPACE MOVES. `GAME_WIDTH` and `GAME_HEIGHT` are
+ * untouched by this, deliberately and by test: FR-8's fall distance, every
+ * scene's constants and the MIN_ASPECT lane guards all measure in design px.
+ * What changes is only the size of the drawing buffer those design px are
+ * rasterised into - see `installPixelDensity` in boot.ts for the mechanism.
+ *
+ * ================== WHY NOT JUST `devicePixelRatio` ==================
+ * DPR is the wrong number: it describes the SCREEN, not the canvas. `FIT`
+ * fits the world into the window, so the canvas is usually smaller than the
+ * world already - a 1920 world in a 1440 CSS-px box at DPR 1 is 1440 physical
+ * pixels being handed 1920, which is downsampling and already sharp. Asking
+ * for `dpr` there would render 2x the pixels for no visible gain.
+ *
+ * The number that matters is how many PHYSICAL pixels the canvas occupies:
+ * `cssWidth * dpr`. We ask for exactly that and never more, which is also the
+ * perf answer (see the cap below).
+ *
+ * ================== THE FLOOR IS 1 ==================
+ * Never below 1. A world downsampled into a smaller canvas is already sharp,
+ * and rendering BELOW the design size would be a new softness bug wearing this
+ * fix's clothes.
+ */
+export const MIN_RENDER_SCALE = 1;
+
+/**
+ * The cap, and it is an AREA because the constraint is an area (UR-35).
+ *
+ * ================== THE RATIO THAT WAS HERE WAS WRONG ==================
+ * This used to be `MAX_RENDER_SCALE = 2`, a ratio from design px to buffer px,
+ * justified with "3 would buy nothing a child can see on any shipping
+ * display". THAT SENTENCE WAS FALSE, and it is quoted here rather than quietly
+ * deleted because it read as measured and was not. Measured since, against the
+ * real pre-fix build, as 10-90% glyph edge rise in physical pixels:
+ *
+ *   FIXED    1440x810 DSF2   upscale 1.00   rise p25 0.83   <- native
+ *   FIXED    1440x810 DSF1   upscale 0.75   rise p25 0.85   <- native reference
+ *   FIXED    2560x1440 DSF2  upscale 1.33   rise p25 1.56   <- STILL BLURRED
+ *   PRE-FIX  1440x810 DSF2   upscale 1.50   rise p25 1.60   <- the filed defect
+ *
+ * On a 5K Studio Display or a retina iMac, the capped build was as soft as the
+ * build the user filed the complaint about. Going past 2 there buys exactly
+ * the difference between the complaint and the fix.
+ *
+ * ================== WHY A RATIO CANNOT EXPRESS THIS ==================
+ * The thing we are protecting is "how many fragments per frame", which is an
+ * area. A ratio measured against a design width that itself grows with the
+ * window is not that, and it produced an incoherent budget: at 32:9 a ratio of
+ * 2 already permitted 7680x2160 = 16.6 Mpx, while refusing a 16:9 5K display
+ * the 14.7 Mpx it needed. It was declining a SMALLER frame than it already
+ * allowed, purely because of the shape of the window.
+ *
+ * ================== WHERE THE NUMBER COMES FROM ==================
+ * It is that same 16.6 Mpx: the widest world (32:9 -> 3840 design px) at the
+ * old ratio of 2. Taking the old rule's own theoretical maximum as the new
+ * absolute budget means no window can now ask for a frame the previous code
+ * would have rejected as too expensive - it can only ask for one the previous
+ * code rejected for the wrong reason.
+ *
+ * BE PRECISE ABOUT WHAT THAT DOES AND DOES NOT CLAIM. It is a bound on the
+ * theoretical worst case, not on the practically-reached one. In practice this
+ * DOES increase fill on big displays, which is the entire point:
+ *
+ *   5K 16:9 @ DSF2       8.3 Mpx -> 14.7 Mpx   (and stops being blurry)
+ *   6K XDR @ DSF2        8.3 Mpx -> 16.6 Mpx   (capped; 1.10x residual)
+ *   32:9 5120x1440 DPR1  7.4 Mpx -> 7.4 Mpx    (unchanged, already 1:1)
+ *   2x laptop @ 1440 CSS 4.7 Mpx -> 4.7 Mpx    (unchanged, already 1:1)
+ *
+ * WHAT WOULD FALSIFY THIS: a headed p95 capture of the SCRIPTED FLIGHT - warp
+ * streaks plus a full rock population, the fill-heaviest moment in the game -
+ * exceeding 16.7 ms at 14.7 Mpx on target hardware. That measurement does not
+ * exist yet; the only real-GPU number we have is a critic's 6.8 ms median at
+ * 11.1 Mpx on a default `?scene=Flight`, which is not the fill-heavy case and
+ * is one machine. If it falsifies, this constant is the single thing to lower
+ * and `worldSize.test.ts` already sweeps every aspect against it.
+ * Logged in gauntlet/escalations.md.
+ */
+export const MAX_BUFFER_PIXELS = Math.round(GAME_HEIGHT * MAX_ASPECT) * GAME_HEIGHT * 4;
+
+/**
+ * How many real pixels per design pixel, for a canvas of `cssWidth` CSS px on
+ * a display of `dpr`. Pure; unit-tested.
+ *
+ * Quantised UP to quarter steps. Two reasons, both measured rather than
+ * stylistic: a window drag changes `cssWidth` by a pixel at a time and every
+ * distinct value reallocates the WebGL drawing buffer, and rounding up can
+ * only ever ask for more pixels than the screen has, never fewer - the
+ * direction that cannot reintroduce softness.
+ */
+export function renderScaleFor(designWidth: number, cssWidth: number, dpr: number): number {
+  if (!Number.isFinite(designWidth) || designWidth <= 0) return MIN_RENDER_SCALE;
+  if (!Number.isFinite(cssWidth) || cssWidth <= 0) return MIN_RENDER_SCALE;
+  const ratio = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
+  const want = (cssWidth * ratio) / designWidth;
+  const quantised = Math.ceil(want * 4) / 4;
+  /**
+   * The budget, as a scale. The world is `designWidth x GAME_HEIGHT` design
+   * px, so a scale of `s` costs `designWidth * GAME_HEIGHT * s^2` fragments;
+   * inverting that for the budget gives the largest `s` we can afford. Not
+   * quantised: it is a function of the design width alone, which only changes
+   * when the window's ASPECT changes, so it cannot churn the buffer during a
+   * drag the way an unquantised `want` would.
+   */
+  const maxByArea = Math.sqrt(MAX_BUFFER_PIXELS / (designWidth * GAME_HEIGHT));
+  // The floor wins over the budget. A buffer below the design size would be a
+  // new softness bug wearing this fix's clothes, not a saving.
+  return Math.max(MIN_RENDER_SCALE, Math.min(quantised, maxByArea));
+}
+
+/**
+ * The resolution a Phaser `Text` object should rasterise its own texture at.
+ *
+ * Text is NOT vector at draw time. Every `Text` renders its string to a
+ * private canvas texture at `style.resolution` and the WebGL renderer then
+ * draws that texture at `width / resolution` (Phaser's TextWebGLRenderer), so
+ * the display size is resolution-independent and a bigger drawing buffer on
+ * its own leaves every WORD exactly as soft as it was. Sharpening the canvas
+ * without this fixes the edges of shapes and nothing a child reads.
+ *
+ * Rounded UP to a whole number rather than tracking the buffer scale exactly.
+ * `canvas.width = w * resolution` truncates to an integer, so a fractional
+ * resolution leaves the glyph texture and the frame's UVs disagreeing by up to
+ * a pixel - a clipped right-hand column on some strings. A whole number cannot
+ * do that, and the cost of supersampling text slightly past the buffer is a
+ * few small textures.
+ *
+ * UR-35: this follows the buffer up to 3 now, because the buffer goes to 2.83
+ * at the narrowest world. It has to follow, or a 5K display gets sharp SHAPES
+ * and soft WORDS - which is most of what a child is actually looking at, and
+ * would be the original complaint surviving in the half that matters most.
+ */
+export function textResolutionFor(renderScale: number): number {
+  if (!Number.isFinite(renderScale) || renderScale <= 1) return 1;
+  // The ceiling is what the area budget can actually produce, so this can
+  // never ask for a texture density the buffer would not use.
+  const maxScale = Math.sqrt(MAX_BUFFER_PIXELS / (DESIGN_WIDTH * GAME_HEIGHT));
+  return Math.min(Math.ceil(maxScale), Math.ceil(renderScale));
+}
+
 /**
  * The world's width right now. Live binding - see the note above.
  *

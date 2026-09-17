@@ -20,23 +20,42 @@ export interface BootOptions {
   stopId?: string;
   seed?: number;
   debug?: boolean;
-  pixelReadback?: boolean;
   stageWordCount?: number;
   stageDurationMs?: number;
   reducedMotion?: boolean;
   colorblindPalette?: boolean;
+  /**
+   * UR-36: accepted and ignored, so the specs that still pass it keep
+   * compiling. There is no second render config any more - see
+   * `src/game/flight/boot.ts`. Pixels come from a decoded screenshot.
+   */
+  pixelReadback?: boolean;
+  /**
+   * FR-8 scales fall time by this, so it is also the only honest way for a spec
+   * to give a rock more rendered frames on a box that renders at 4.5 fps. A
+   * slow pilot's calibration is a shipped configuration, not a test hook.
+   */
+  calibration?: { ikiMs: number; fkLatencyMs: number };
+  /** UR-33's hold, ms. See `FlightConfig.hitStopMs` for why a spec sets it. */
+  hitStopMs?: number;
   knobs?: { maxLive?: number };
   book?: Record<string, unknown>;
 }
 
 /**
- * Vite's dev client and the app entry are stubbed out.
+ * Vite's dev client is stubbed out, and so is the app entry.
  *
  * The dev server is shared: a save anywhere in src/ pushes a full reload to
- * every open page, and a reload mid-flight destroys the execution context. And
- * `src/main.ts` would start the WHOLE game alongside the one scene under test,
- * so two Phaser instances would share a canvas stack, a keyboard and a frame
- * budget - and every number measured here would be measuring both.
+ * every open page, and a reload mid-flight destroys the execution context.
+ *
+ * `src/main.ts` is stubbed for a DIFFERENT reason now, and the old one is worth
+ * correcting because it was the argument that justified a second product.
+ * It used to read "main.ts would start the WHOLE game alongside the one scene
+ * under test, so two Phaser instances would share a canvas stack" - true, and
+ * the answer to it was to build a second `Phaser.Game`, which is UR-36. Since
+ * that boot is now an adapter over `bootGame`, letting `main.ts` run would
+ * start the shipping game and then `bootFlight` would start a second copy OF
+ * THE SAME GAME. One boot per page; the stub is what keeps it to one.
  */
 export async function muteHmr(page: Page): Promise<void> {
   await page.route("**/src/main.ts", (route) =>
@@ -81,6 +100,40 @@ export async function bootFlight(page: Page, options: BootOptions = {}): Promise
 
 export const flightState = (page: Page): Promise<FlightState> =>
   page.evaluate(() => window.__kbFlight?.state() as FlightState);
+
+/**
+ * The on-screen box of the canvas THIS BOOT created, by identity.
+ *
+ * `lane.gameCanvas` finds it with `canvas:not([data-testid="viewport-backdrop"])`,
+ * which is a guess about the document rather than a handle on the game, and in
+ * the full 3-worker run of 2026-09-16 the guess broke: a third canvas appeared
+ * on the page and `locator.boundingBox` failed with
+ *
+ *   strict mode violation: resolved to 2 elements
+ *
+ * BEFORE the spec had asserted anything - so `plate-legibility.spec.ts:128` was
+ * reported as a legibility failure while nothing about legibility had been
+ * measured. See `test-results/69955/.../error-context.md`.
+ *
+ * `bootFlight` already publishes the game it started, and a Phaser game owns
+ * its canvas, so the flight specs can ask the game under test which canvas is
+ * theirs instead of asking the DOM which canvas looks right. This is narrower
+ * than the locator, not looser: an extra canvas can no longer change the
+ * answer, and neither can a missing test id.
+ */
+export async function flightCanvasBox(
+  page: Page,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const box = await page.evaluate(() => {
+    const canvas = (window.__kbGame as unknown as { canvas?: HTMLCanvasElement } | undefined)
+      ?.canvas;
+    if (canvas === undefined) return null;
+    const r = canvas.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
+  if (box === null) throw new Error("the flight game has no canvas");
+  return box;
+}
 
 /** Put a KNOWN word on the belt, optionally at a KNOWN place. */
 export async function spawnAt(

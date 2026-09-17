@@ -53,6 +53,7 @@ export const SCENE_STRING_KEYS = [
   "map.progress",
   "briefing.heading",
   "briefing.window",
+  "briefing.back",
   "briefing.hint",
   "preflight.step.hull",
   "preflight.step.systems",
@@ -64,6 +65,8 @@ export const SCENE_STRING_KEYS = [
   "preflight.line.done",
   "preflight.line.returning",
   "preflight.ready",
+  "preflight.heading",
+  "preflight.back",
   "preflight.hint",
 ] as const;
 
@@ -116,6 +119,17 @@ export interface SceneText {
   readonly lang: Lang;
   /** Resolve a lane key or an engine key. See the resolution order above. */
   text(key: TextKey, params?: InterpolationParams): string;
+  /**
+   * Bind the same defaults into a string that is CONTENT rather than a key.
+   *
+   * A stage bundle's briefing sentences are shipped prose, not table entries,
+   * and one of them - Earth's "Your ship is the {shipName}..." - carries C07's
+   * token. `stageBundle` hands them over raw, so the Briefing page printed the
+   * token literally on the first screen of the game. This is the same
+   * interpolation the table path uses, which is the point: C07 says the ship's
+   * name is bound in one place, and that place is this module.
+   */
+  fill(template: string, params?: InterpolationParams): string;
   /** The underlying engine translator, for engine-only keys. */
   readonly engine: Translator;
 }
@@ -141,6 +155,9 @@ export function createSceneText(options: SceneTextOptions): SceneText {
         return interpolate(template, { ...defaults, ...params }, mode);
       }
       return engine.t(key as StringKey, params);
+    },
+    fill(template: string, params?: InterpolationParams): string {
+      return interpolate(template, { ...defaults, ...params }, mode);
     },
   };
 }

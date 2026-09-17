@@ -103,9 +103,12 @@ async function bootFlight(page: Page, options: BootOptions = {}): Promise<void> 
   await page.evaluate(
     async ([moduleUrl, opts]) => {
       const mod = (await import(moduleUrl as string)) as {
-        bootFlight: (o: unknown) => void;
+        // UR-36: the launcher now awaits `bootGame`, so this must be awaited.
+        // Before the fix it returned void and the spec raced a second game
+        // into existence; the boot it raced was not the shipping one either.
+        bootFlight: (o: unknown) => Promise<unknown>;
       };
-      mod.bootFlight({ debug: true, ...(opts as Record<string, unknown>) });
+      await mod.bootFlight({ debug: true, ...(opts as Record<string, unknown>) });
     },
     [BOOT_MODULE, options] as const,
   );

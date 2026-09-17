@@ -74,7 +74,20 @@ export interface AudioBufferSourceNodeLike extends AudioNodeLike {
   buffer: AudioBufferLike | null;
   loop: boolean;
   readonly playbackRate: AudioParamLike;
-  start(when?: number): void;
+  /**
+   * `offset` is WHERE IN THE BUFFER to begin, in seconds (UR-34).
+   *
+   * Declared because without it every noise burst in the game is the same
+   * bytes: a source started with no offset always reads from sample 0, so the
+   * keystroke tick's noise - and the blast's, and the warp's - was one fixed
+   * texture replayed hundreds of times a belt. A random offset into a looping
+   * noise buffer makes each one different for free.
+   *
+   * The browser's `start` takes a third `duration` argument as well; extra
+   * OPTIONAL parameters on the implementation keep a real
+   * `AudioBufferSourceNode` assignable to this, the same as `decodeAudioData`.
+   */
+  start(when?: number, offset?: number): void;
   stop(when?: number): void;
 }
 

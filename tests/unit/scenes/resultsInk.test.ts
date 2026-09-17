@@ -60,7 +60,7 @@ const SKY_SURFACE = compositeOver(SKY_PLATE.fill, SKY_PLATE.alpha, WORST_CASE_SK
  * source guard at the bottom of the file is what keeps them honest: it reads the
  * scene and fails if a literal appears there that is not one of these.
  */
-const PANEL_ALPHA = 0.94;
+const PANEL_ALPHA = 1;
 const PANEL_SURFACE = compositeOver(INK.panel, PANEL_ALPHA, WORST_CASE_SKY);
 const BUTTON_FILL = "#32445E";
 const BUTTON_STROKE = "#5A7195";
@@ -214,6 +214,60 @@ describe("a button on the stage report reads as pressable", () => {
         );
       }
     }
+  });
+});
+
+describe("the stage report's card is OPAQUE", () => {
+  /**
+   * THE DEFECT, measured off `results.png`.
+   *
+   * The card body read #1c1b1d (L* 10.0) and inside the moon's footprint it
+   * read #1d2024 (L* 11.9): a circle was visible THROUGH a panel that is
+   * supposed to be a solid surface. The panel is on the HUD layer and the moon
+   * is on `celestial`, six depths below it, so nothing was mis-ordered - the
+   * fill simply carried alpha. At 0.94 over the celestial disc, 6% of a
+   * near-white body comes through, which is about 2 L* of ghost.
+   *
+   * "Three per cent of sky comes through, which is the point" was the comment
+   * on the constant. It is the point for `SKY_PLATE`, which is a sheet of glass
+   * laid over the world behind a line of type. It is not the point for a card
+   * the size of a third of the screen: at that size the thing showing through
+   * is a shape, and a shape inside a panel is a rendering bug to anyone
+   * looking at it.
+   *
+   * Watch it fail: put `PANEL_ALPHA` back to 0.94 in `ResultsScene.ts`.
+   */
+  const declared = (): number => {
+    const m = readFileSync(resolve(SRC, "ResultsScene.ts"), "utf8").match(
+      /const PANEL_ALPHA = ([\d.]+);/,
+    );
+    if (m?.[1] === undefined) throw new Error("ResultsScene no longer declares PANEL_ALPHA");
+    return Number(m[1]);
+  };
+
+  it("draws the panel at alpha 1, so no sky reaches the card body", () => {
+    expect(declared()).toBe(1);
+  });
+
+  it("is what this file measures against", () => {
+    // The local copy above is only evidence if it is the scene's own number.
+    expect(PANEL_ALPHA).toBe(declared());
+  });
+
+  it("composites to the swatch itself over ANY sky", () => {
+    // The real claim: the surface under the card's text does not depend on what
+    // is behind the card. `WORST_CASE_SKY` is white, which is the brightest a
+    // celestial body can be.
+    // `compositeOver` returns lower-case hex; the token is upper-case.
+    const swatch = INK.panel.toLowerCase();
+    expect(compositeOver(INK.panel, PANEL_ALPHA, WORST_CASE_SKY)).toBe(swatch);
+    expect(compositeOver(INK.panel, PANEL_ALPHA, "#000000")).toBe(swatch);
+    expect(PANEL_SURFACE).toBe(swatch);
+  });
+
+  it("NEGATIVE CONTROL: the shipped alpha did let the sky through", () => {
+    // 0.94 over white is #1c1f24, which is the ghost the critic measured.
+    expect(compositeOver(INK.panel, 0.94, WORST_CASE_SKY)).not.toBe(INK.panel.toLowerCase());
   });
 });
 

@@ -20,7 +20,7 @@
  * A miss here is not a licence - the rule is "never quote", not "never trip
  * this script".
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 
 /** Phrases that introduce someone else's words. */
@@ -64,6 +64,11 @@ const files = execSync("git ls-files src tests docs scripts", { encoding: "utf8"
 const hits = [];
 for (const file of files) {
   if (file === "scripts/no-user-quotes.mjs") continue;
+  // A tracked path is not necessarily a path on disk: a lane may have deleted
+  // a file whose deletion is not staged yet. Skipping is right - a file that
+  // does not exist cannot quote anyone - and throwing here would break every
+  // commit in the repo, which this check has no business doing.
+  if (!existsSync(file)) continue;
   const lines = readFileSync(file, "utf8").split("\n");
   lines.forEach((line, i) => {
     for (const re of [...ATTRIBUTION, ...FINGERPRINTS]) {

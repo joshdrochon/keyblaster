@@ -53,7 +53,10 @@ export class ProfilePickerScene extends MenuScene {
         this.t.t("ui.pick.remove"),
         {
           size: TYPE.caption,
-          color: INK.textFaint,
+          // 2.82:1 in `INK.textFaint` against the menu backdrop, which is the
+          // least readable line on the screen and the only one that says a
+          // pilot can be deleted. AC-22.8 is 4.5:1 on a plate or off one.
+          color: INK.textDim,
           lang: this.uiStyle.lang,
           uppercase: this.uiStyle.uppercase,
           increasedLetterSpacing: this.uiStyle.increasedLetterSpacing,

@@ -97,6 +97,13 @@ export type FlightCueName =
   | "park"
   | "stall";
 
+/**
+ * The cues that END a word (UR-30). A rock destroyed, a rock that reached the
+ * bottom, a belt that ran out - after any of them the next key the child presses
+ * is the first key of a new word, and D75's ladder starts again at its root.
+ */
+export const WORD_ENDING_CUES: readonly FlightCueName[] = ["blast", "park", "stall"];
+
 export const FLIGHT_CUE_NAMES: readonly FlightCueName[] = [
   "keystroke",
   "lock",
@@ -191,6 +198,13 @@ export interface WiringSnapshot {
   readonly sfxPlays: number;
   /** Keystroke-tone (D75) steps taken, and the pitch index reached. */
   readonly toneSteps: number;
+  /**
+   * How many times the pitched ladder went back to its root (UR-30). Next to
+   * `toneSteps` on purpose: a run with hundreds of steps and no resets is the
+   * defect - a belt spent on one note - and it is visible here without anyone
+   * having to render the audio.
+   */
+  readonly toneResets: number;
   /** Stops whose ambient bed the running game started or faded to, in order. */
   readonly ambientStops: readonly string[];
   readonly ambientCrossfades: number;
@@ -376,6 +390,7 @@ export function installAudio(options: InstallAudioOptions): AudioService {
 
   let sfxPlays = 0;
   let toneSteps = 0;
+  let toneResets = 0;
   let ambientCrossfades = 0;
   let hudSamples = 0;
   let frames = 0;
@@ -430,6 +445,25 @@ export function installAudio(options: InstallAudioOptions): AudioService {
         toneSteps += 1;
       } else if (name === "typo") {
         graph.keystrokeTone.typo();
+      } else if (WORD_ENDING_CUES.includes(name)) {
+        // UR-30, REOPENED - THE LADDER HAD NO WORD BOUNDARY.
+        //
+        // `KeystrokeTone.reset()` is documented as "word finished, new word
+        // starting", and until now the only caller in src/ was
+        // `FlightScene.create()` via `resetTone()` - which runs ONCE PER STAGE.
+        // So the ladder never reset at a word boundary. Measured over a
+        // 290-key belt at 100% accuracy, `pitchIndexFor` caps at 14 and keys 15
+        // through 290 are all 2217.5 Hz: 95% of a belt on one note. And because
+        // only a typo cleared it, THE BETTER A CHILD TYPED THE MORE MONOTONOUS
+        // IT GOT - 2% of keys on the top note at 80% accuracy, 89% at 98%.
+        //
+        // The word boundary was already here and nobody read it. `blast` is a
+        // rock destroyed, `park` is one that reached the bottom, `stall` is a
+        // belt that ran out: every way a word can end, arriving on the same cue
+        // stream this function already owns. No scene has to remember anything,
+        // which is exactly why the old arrangement failed.
+        graph.keystrokeTone.reset();
+        toneResets += 1;
       }
 
       const event = CUE_SFX[name];
@@ -577,6 +611,7 @@ export function installAudio(options: InstallAudioOptions): AudioService {
         recent: [...recent],
         sfxPlays,
         toneSteps,
+        toneResets,
         ambientStops: [...ambientStops],
         ambientCrossfades,
         musicIndices: [...musicIndices].sort((a, b) => a - b),

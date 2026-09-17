@@ -67,6 +67,16 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
   private ringsG!: Phaser.GameObjects.Graphics;
   private statusText!: Phaser.GameObjects.Text;
   private litText!: Phaser.GameObjects.Text;
+  /**
+   * The "type launch to wake the beacon" instruction.
+   *
+   * HELD IN A FIELD BECAUSE IT HAS TO BE REMOVED. It sits at exactly the same
+   * y as `litText`, so once the beacon lights the two draw on top of each
+   * other and the result is unreadable — the user hit this in play and
+   * screenshotted it. It was a local, so nothing could reach it to take it
+   * away: the overlap was structurally guaranteed, not a timing accident.
+   */
+  private hintText!: Phaser.GameObjects.Text;
   private continueText!: Phaser.GameObjects.Text;
   private continuePlate!: Phaser.GameObjects.Graphics;
   private lit = false;
@@ -111,7 +121,7 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
 
     // --- status chip ------------------------------------------------------
     const chipW = 520;
-    plate(this, GAME_WIDTH / 2 - chipW / 2, 76, chipW, 76, { alpha: 0.92 }).setDepth(9);
+    plate(this, GAME_WIDTH / 2 - chipW / 2, 76, chipW, 76).setDepth(9);
     this.statusText = label(
       this,
       GAME_WIDTH / 2,
@@ -130,9 +140,17 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
     });
 
     const lineW = 760;
-    const lineX = 440;
+    // CENTRED, like every other object on this screen (UR-19). It was a literal
+    // 440, which is `(1920 - 760) / 2` - correct at the artboard width and
+    // nowhere else. Measured at a 2561-wide world: eight of this screen's nine
+    // texts moved +321 with the centre and this one did not, so Shadow's line
+    // drifted out from under the beacon it belongs to. One screen, two
+    // anchoring models, which is the defect `grid-conformance.spec.ts` exists
+    // to catch - and it caught this one rather than a human noticing.
+    const lineX = GAME_WIDTH / 2 - lineW / 2;
     const lineY = GAME_HEIGHT * 0.63 - 140;
-    plate(this, lineX, lineY, lineW, 156, { alpha: 0.92 }).setDepth(11);
+    // Opaque, like every other card: see `lib/kit.plate`.
+    plate(this, lineX, lineY, lineW, 156).setDepth(11);
     label(this, lineX + 36, lineY + 32, bundle.preflightLine, {
       size: TYPE.body,
       color: INK.text,
@@ -157,7 +175,7 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
     });
 
     // --- the one word -----------------------------------------------------
-    label(
+    this.hintText = label(
       this,
       GAME_WIDTH / 2,
       GAME_HEIGHT * 0.76,
@@ -284,6 +302,19 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
       duration: 900,
       ease: EASE.blast,
       onUpdate: () => this.paintLamp(accent, carrier.v),
+    });
+
+    // The instruction leaves BEFORE the result arrives. It is done being true
+    // the moment the beacon lights, and it occupies the same line, so it has
+    // to be gone rather than merely behind. Faded rather than destroyed on the
+    // frame, so the beat reads as one thought replacing another; the delay is
+    // under `litText`'s 650 so the line is clear before the new copy lands.
+    this.tweens.add({
+      targets: this.hintText,
+      alpha: 0,
+      duration: 280,
+      ease: EASE.arrive,
+      onComplete: () => this.hintText.setVisible(false),
     });
 
     this.tweens.add({

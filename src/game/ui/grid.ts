@@ -1,0 +1,264 @@
+import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
+import { SKY_PLATE, SPACE, TYPE } from "./theme.js";
+
+/**
+ * THE ONE GRID EVERY SCREEN LAYS OUT AGAINST.
+ *
+ * ================== WHY IT EXISTS ==================
+ * UR-19: the stage report did not read as aligned, and the requirement was that
+ * EVERY page follow the same system. That last clause is the defect. Each screen positioned itself from its own
+ * constants, so the product had three left margins and four heading heights:
+ *
+ *   96   the menu kit (`SPACE.gutter`), the Briefing page, the Director map
+ *   120  the Pre-flight system rows, the Ending's card margin
+ *   160  Results, the Warp break, Beacon placement
+ *
+ *   y 64 the Results heading      y 68 the map's
+ *   y 84 every menu heading       y 96 Warp's and Beacon's
+ *
+ * Nothing was wrong on any one screen. The product was wrong BETWEEN them: a
+ * heading jumped 64 px sideways and 32 px up when you walked from the Beacon
+ * Log into the stage report, which is exactly the kind of thing that reads as
+ * "not clean" without being nameable.
+ *
+ * ================== WHY 96 AND NOT 160 ==================
+ * Measured, not chosen. The Beacon Log's trophy block is three 340 px tiles
+ * plus two 24 px gaps, and it starts one beacon column plus a gap from the left
+ * margin: `gutter + 620 + 40`. At a 96 px gutter its right edge lands on 1824,
+ * exactly `1920 - 96`. At 160 it needs 2048 and runs off a 16:9 world, which
+ * `sceneKeys.MIN_ASPECT` documents as the case AC-18.1 forbids. So the widest
+ * screen in the game fixes the gutter for all of them, and the three story
+ * screens move in rather than the five menu screens moving out.
+ *
+ * ================== PLATED TEXT ==================
+ * Half the headings in the game are `skyText`, which draws a contrast plate cut
+ * from the text's own bounds plus padding. Putting the TEXT on the grid line
+ * puts the PLATE 22 px to the left of it, which is what made the Results
+ * heading look like it was hugging the corner while the panel under it was not.
+ * `headingText()` returns where the TEXT goes so that the PLATE lands on the
+ * line; anything drawn without a plate uses the line directly.
+ *
+ * Nothing here imports Phaser or the DOM. `GAME_WIDTH` is read at call time,
+ * never captured: the world widens with the window (D99, sceneKeys.ts).
+ */
+
+export interface Point {
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface Rect {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+// ---------------------------------------------------------------------------
+// The lines
+// ---------------------------------------------------------------------------
+
+/** The left and right margin. One number for the whole product. */
+export const GUTTER = SPACE.gutter;
+
+/**
+ * The top of a screen heading's INK - or of its plate, where it has one.
+ *
+ * 84 is `MenuScene.addHeading`'s default, i.e. the value five screens already
+ * used and the only one of the four that more than one screen agreed on.
+ */
+export const HEADING_TOP = 84;
+
+/** The top of the line under a heading (the stop name, the map's subtitle). */
+export const SUBHEADING_TOP = 168;
+
+/** A third header line, where a screen has one (the map's "1 of 7 lit"). */
+export const THIRD_LINE_TOP = 216;
+
+/**
+ * The tops of the header block's three lines, in order. A screen uses as many
+ * as it has; nothing may start a line the screen above it did not.
+ */
+export const HEADER_LINES: readonly number[] = [
+  HEADING_TOP,
+  SUBHEADING_TOP,
+  THIRD_LINE_TOP,
+];
+
+/**
+ * Where content may start once a heading and its subline have been drawn.
+ *
+ * Two lines, not three: the screens with a third header line (the Director map,
+ * Beacon placement) do not put a panel directly under it. `headerBlockBottom`
+ * is the honest lower bound for a screen that needs one.
+ */
+export const CONTENT_TOP = 236;
+
+/**
+ * The keyboard hint's line, bottom-left. `MenuScene.addHint` has drawn here
+ * since the menu kit landed; the story screens now do too.
+ */
+export const HINT_TOP = GAME_HEIGHT - 76;
+
+/** Vertical air between two stacked blocks. */
+export const BLOCK_GAP = 40;
+
+/** Horizontal air between two columns. */
+export const COLUMN_GAP = 40;
+
+// ---------------------------------------------------------------------------
+// Derived, at call time
+// ---------------------------------------------------------------------------
+
+/** The rightmost x any content may reach. */
+export function contentRight(): number {
+  return GAME_WIDTH - GUTTER;
+}
+
+/** How wide the content column is on this world. */
+export function contentWidth(): number {
+  return contentRight() - GUTTER;
+}
+
+/** The full content column, as a rectangle from the heading down to the hint. */
+export function contentBox(): Rect {
+  return {
+    x: GUTTER,
+    y: CONTENT_TOP,
+    w: contentWidth(),
+    h: HINT_TOP - BLOCK_GAP - CONTENT_TOP,
+  };
+}
+
+/**
+ * Split the content column in two at a ratio, with one gap between.
+ *
+ * Returns absolute x/w pairs, so a caller never adds a gutter to a width and
+ * gets it wrong. `ratio` is the LEFT column's share of the space either side of
+ * the gap.
+ */
+export function twoColumns(ratio: number, gap: number = COLUMN_GAP): [Rect, Rect] {
+  const usable = contentWidth() - gap;
+  const left = Math.round(usable * Math.min(1, Math.max(0, ratio)));
+  const box = contentBox();
+  return [
+    { x: GUTTER, y: box.y, w: left, h: box.h },
+    { x: GUTTER + left + gap, y: box.y, w: usable - left, h: box.h },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Plated text
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a PLATED heading's text object goes, so that its plate's top-left
+ * corner lands on the grid.
+ *
+ * The padding defaults are `SKY_PLATE`'s, which is what `skyText` uses unless a
+ * caller overrides them - and callers do override `padY`, so it is a parameter
+ * rather than a constant.
+ */
+export function headingText(padX: number = SKY_PLATE.padX, padY: number = SKY_PLATE.padY): Point {
+  return { x: GUTTER + padX, y: HEADING_TOP + padY };
+}
+
+/**
+ * Where line `i` of the header block's plated text goes. `0` is the heading.
+ */
+export function headerText(
+  line: number,
+  padX: number = SKY_PLATE.padX,
+  padY: number = SKY_PLATE.padY,
+): Point {
+  const top = HEADER_LINES[Math.min(Math.max(line, 0), HEADER_LINES.length - 1)];
+  return { x: GUTTER + padX, y: (top ?? HEADING_TOP) + padY };
+}
+
+/** The same, for the line under a heading. */
+export function subheadingText(
+  padX: number = SKY_PLATE.padX,
+  padY: number = SKY_PLATE.padY,
+): Point {
+  return { x: GUTTER + padX, y: SUBHEADING_TOP + padY };
+}
+
+/** The same, for the keyboard hint at the foot of a screen. */
+export function hintText(
+  padX: number = SKY_PLATE.padX,
+  padY: number = SKY_PLATE.padY,
+): Point {
+  return { x: GUTTER + padX, y: HINT_TOP + padY };
+}
+
+/**
+ * The lowest a plated heading's plate reaches, for a screen that has to keep
+ * something else clear of it.
+ *
+ * `TYPE.heading` at the Latin line height plus both paddings. Devanagari is
+ * taller, which `SUBHEADING_TOP` at 168 already absorbs.
+ */
+export function headingBottom(padY: number = SKY_PLATE.padY): number {
+  return HEADING_TOP + Math.round(TYPE.heading * 1.3) + padY * 2;
+}
+
+/**
+ * The lowest edge of a two-line header block: heading plus the line under it.
+ *
+ * This is the highest a panel may ride up to (the stage report pulls its top
+ * edge up to hide the stop's sun), so it is the number that keeps a card from
+ * being drawn through the stop's name.
+ */
+export function headerBlockBottom(padY: number = SKY_PLATE.padY): number {
+  return SUBHEADING_TOP + Math.round(TYPE.body * 1.3) + padY * 2;
+}
+
+// ---------------------------------------------------------------------------
+// The header and the hint, as a CONTRACT (UR-19)
+// ---------------------------------------------------------------------------
+
+/**
+ * WHAT "FOLLOWING SUIT" ACTUALLY MEANS, as three checkable claims.
+ *
+ * UR-19 asked that EVERY page follow one system. This module's first pass
+ * answered half of it: one gutter, one heading line, and a source
+ * guard against literal coordinates. A blind critic then measured the product
+ * and found that necessary was not sufficient -
+ *
+ *   HEADER   shared by 4 screens of 9. Map, Warp, Beacon and Results agree on a
+ *            44 px title whose plate starts at (96, 84). Briefing uses a 20 px
+ *            eyebrow over a 44 px title; Earth activation a 24 px centred chip;
+ *            the Ending 72 px centred; PRE-FLIGHT HAS NOTHING above y=320.
+ *   HINT     six different x positions and four different y values, and three
+ *            screens with no hint at all.
+ *   ANCHOR   Map reflows with the world; Title, Pre-flight and Ending do not,
+ *            so their right margin runs from 845 to 1485 at a 2560 window.
+ *
+ * None of that was assertable, because "does any text overlap" - which is what
+ * the UR-20 sweep asks - is a question a blank wireframe passes. These three
+ * constants are what a screen is measured against instead, and
+ * `tests/unit/ui/gridConformance.test.ts` measures every screen against them
+ * with a named, shrinking list of the ones that do not yet comply.
+ */
+export const HEADER_CONTRACT = {
+  /** The top-left corner of a screen title's PLATE, or of its ink if unplated. */
+  origin: { x: GUTTER, y: HEADING_TOP },
+  /** How far a title may sit from that corner and still count as on it. */
+  tolerance: 6,
+} as const;
+
+/**
+ * The band a screen's keyboard hint lives in.
+ *
+ * A BAND, not a line: `MenuScene.addHint` draws its ink at `HINT_TOP` and the
+ * story screens draw a plate whose ink sits a few px lower, so demanding one y
+ * would fail screens that are doing the right thing. The x is exact, because
+ * there is no reason for two screens to start their instructions at different
+ * left edges.
+ */
+export const HINT_CONTRACT = {
+  x: GUTTER,
+  top: HINT_TOP,
+  /** Ink may start anywhere in this many px below `top`. */
+  slack: 28,
+} as const;

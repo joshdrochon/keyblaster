@@ -20,6 +20,18 @@ const BOOT_MODULE = "/src/game/flight/boot.ts";
  * the render honestly: the shipped Flight scene, the shipped Mars palette, a
  * belt with rocks actually on it, at design resolution.
  *
+ * ================== IT DID NOT, UNTIL UR-36 ==================
+ * That paragraph was false for as long as it has existed. This spec booted
+ * `src/game/flight/boot.ts`, which was a SECOND `Phaser.Game` diverging from
+ * the shipping one in five ways - `Phaser.AUTO` rather than WEBGL, the
+ * double-centring `boot.ts` documents as a bug, no pixel density, the wrong
+ * clear colour, and `setGameWidth` never called, so the edge bars the player
+ * reported six times were alive in this harness. The image a human has been
+ * judging the world against was not the image the game draws.
+ *
+ * The boot is now an adapter over `bootGame`, so the sentence above is true.
+ * The numbers moved when it became true; see the note on the value thresholds.
+ *
  * It also asserts the two things about the frame that CAN be checked without a
  * pair of eyes, because an evidence producer that cannot fail is a screenshot
  * script, not a test:
@@ -38,18 +50,21 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
 }) => {
   test.setTimeout(120_000);
   await freezeReloads(page);
-  // The flight lane's own launcher, for the same reason flight.spec.ts uses it:
-  // `src/main.ts` boots the WHOLE game on page load, and two Phaser instances
-  // on one canvas stack is not the screen anyone wants to look at.
-  // `pixelReadback` keeps a back buffer so the canvas can be read back at all;
-  // it is gated because it costs frame time.
+  // The flight launcher, which since UR-36 starts the SHIPPING game on screen 6
+  // rather than building one of its own. `main.ts` is stubbed so the page boots
+  // once: the launcher calls `bootGame` itself, and letting the entry point run
+  // too would start the same game twice.
+  //
+  // `pixelReadback` is gone with the second render config. Nothing here reads a
+  // live WebGL canvas any more - every number below decodes a PNG screenshot,
+  // which is what the shipping renderer actually put on the screen.
   await page.route("**/src/main.ts", (route) =>
     route.fulfill({ status: 200, contentType: "application/javascript", body: "export {};" }),
   );
   await page.goto("/");
   await page.evaluate(async (moduleUrl) => {
-    const mod = (await import(moduleUrl)) as { bootFlight: (o: unknown) => void };
-    mod.bootFlight({ debug: true, pixelReadback: true, stopId: "mars", seed: 20260916 });
+    const mod = (await import(moduleUrl)) as { bootFlight: (o: unknown) => Promise<unknown> };
+    await mod.bootFlight({ debug: true, stopId: "mars", seed: 20260916 });
   }, BOOT_MODULE);
   // `window.__kbFlight` is declared by `src/game/scenes/FlightScene.ts`; these
   // predicates run in the page, so the shape only has to be right there.
@@ -72,21 +87,34 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
   );
   await page.waitForTimeout(2500);
 
-  const grid = (await page.evaluate(() => {
-    const canvas = document.querySelector("canvas") as HTMLCanvasElement;
+  // ONE FRAME, DECODED, USED FOR EVERYTHING BELOW.
+  //
+  // The 5x9 grid used to be read off the live canvas with `drawImage(canvas)`,
+  // which needs `preserveDrawingBuffer` and is the near-miss recorded in
+  // `docs/verification-gaps.md`: without it a WebGL canvas hands back uniform
+  // garbage, and it has produced two wrong measurements on this project. It
+  // also took `document.querySelector("canvas")`, which since UR-36 is the
+  // viewport backdrop rather than the game. Both problems disappear by
+  // measuring the same PNG a human looks at.
+  const shot = await page.screenshot({ type: "png" });
+
+  const grid = (await page.evaluate(async (b64: string) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
     const off = document.createElement("canvas");
-    off.width = canvas.width;
-    off.height = canvas.height;
+    off.width = img.naturalWidth;
+    off.height = img.naturalHeight;
     const ctx = off.getContext("2d") as CanvasRenderingContext2D;
-    ctx.drawImage(canvas, 0, 0);
+    ctx.drawImage(img, 0, 0);
     const rows: number[][] = [];
     let min = 1;
     let max = 0;
     for (let r = 0; r < 5; r += 1) {
       const row: number[] = [];
       for (let c = 0; c < 9; c += 1) {
-        const x = Math.round(canvas.width * (0.06 + 0.11 * c));
-        const y = Math.round(canvas.height * (0.08 + 0.2 * r));
+        const x = Math.round(off.width * (0.06 + 0.11 * c));
+        const y = Math.round(off.height * (0.08 + 0.2 * r));
         const patch = ctx.getImageData(x, y, 12, 12).data;
         let sum = 0;
         for (let i = 0; i < patch.length; i += 4) {
@@ -103,9 +131,9 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
       rows.push(row);
     }
     return { rows, min, max };
-  })) as Grid;
+  }, shot.toString("base64"))) as Grid;
 
-  const shot = await page.screenshot({ type: "png" });
+
 
   /**
    * THE MEASUREMENT THAT REPLACED "does it look flat".

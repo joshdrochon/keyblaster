@@ -21,7 +21,8 @@
 
     "briefing.heading": "mission briefing",
     "briefing.window": "through the window",
-    "briefing.hint": "enter to launch",
+    "briefing.back": "back to the map",
+    "briefing.hint": "enter to launch \u00b7 esc to go back",
 
     "preflight.step.hull": "hull check",
     "preflight.step.systems": "systems check",
@@ -33,6 +34,8 @@
     "preflight.line.done": "Pilot... that's you.",
     "preflight.line.returning": "You know the drill. Let's go and light one more.",
     "preflight.ready": "all systems lit",
-    "preflight.hint": "type the word you see"
+    "preflight.heading": "pre-flight",
+    "preflight.back": "back to the map",
+    "preflight.hint": "type the word you see \u00b7 esc to go back"
   }
 }

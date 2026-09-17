@@ -1,3 +1,10 @@
+import {
+  CONTENT_TOP,
+  HINT_TOP,
+  headerBlockBottom,
+  twoColumns,
+} from "@game/ui/grid";
+
 /**
  * WHERE THE STAGE REPORT'S PANELS GO (screen 9).
  *
@@ -64,13 +71,26 @@ export interface PlacedBlock extends Block {
 export const STAGE_W = 1920;
 export const STAGE_H = 1080;
 
-export const REPORT_X = 160;
-export const REPORT_W = 980;
-export const BOARD_X = 1180;
-export const BOARD_W = 580;
+/**
+ * The two columns, FROM THE GRID (`ui/grid.ts`).
+ *
+ * They were `160 / 980 / 1180 / 580`: a left margin of 160 that no menu screen
+ * shared, and a right edge at 1760 that no other screen shared either. A player
+ * looking at this screen said "make sure every page is following suit", and
+ * this was the screen they were looking at.
+ *
+ * `twoColumns(0.63)` is the same 63/37 split the old numbers made, laid on the
+ * product's one gutter, so the stage report now starts where the Beacon Log's
+ * beacon column starts and ends where the Briefing's window ends.
+ */
+const COLUMNS = twoColumns(0.63);
+export const REPORT_X = COLUMNS[0].x;
+export const REPORT_W = COLUMNS[0].w;
+export const BOARD_X = COLUMNS[1].x;
+export const BOARD_W = COLUMNS[1].w;
 
 /** Where a panel would start if nothing were in the way. */
-export const PANEL_TOP = 236;
+export const PANEL_TOP = CONTENT_TOP;
 /**
  * The highest a panel may be pushed to hide the sun. Above this it would eat
  * the heading and the stop name, which sit on their own contrast plates from
@@ -88,7 +108,7 @@ export const PANEL_TOP = 236;
  * moving the light back down, which would put the sun inside the wordmark
  * again — trading a reported defect for a reported defect.
  */
-export const PANEL_TOP_MIN = 181;
+export const PANEL_TOP_MIN = headerBlockBottom();
 
 /**
  * The bottom edge of the heading/stop-name contrast plates. Exported because
@@ -97,7 +117,7 @@ export const PANEL_TOP_MIN = 181;
  * leave no band between them. It was previously a number in a comment, which
  * is how the 15px gap at y=181..196 survived.
  */
-export const HEADING_PLATE_BOTTOM = 181;
+export const HEADING_PLATE_BOTTOM = headerBlockBottom();
 
 export const PANEL_PAD_X = 48;
 export const PANEL_PAD_Y = 44;
@@ -112,8 +132,18 @@ export const BLOCK_GAP = 28;
 export const REPORT_MIN_H = 430;
 export const BOARD_MIN_H = 380;
 
-/** No panel may reach below this; the button row and its air live under it. */
-export const PANEL_MAX_BOTTOM = 942;
+/**
+ * No panel may reach below this; the button row, its air and the keyboard hint
+ * all live under it.
+ *
+ * IT WAS 942, which left room for the button row and nothing else - so the
+ * keyboard hint was laid out BESIDE the buttons, on `skyText`'s rounded plate,
+ * at the same baseline. `results.png` therefore showed three pills in a row and
+ * only two of them were pressable. The hint is the same line every other screen
+ * carries bottom-left; it needed a band of its own, and this is where that band
+ * came from.
+ */
+export const PANEL_MAX_BOTTOM = 900;
 
 /**
  * The radius used when hiding the light source.
@@ -140,7 +170,13 @@ export const BUTTON_GAP_Y = 44;
  * between the report and the two things you can do about it.
  */
 export const BUTTON_Y_MIN = 740;
-export const BUTTON_Y_MAX = 966;
+/**
+ * The keyboard hint's line. The same one the menu lane uses
+ * (`MenuScene.addHint`: `GAME_HEIGHT - 76`), so a child finds the instructions
+ * in one place whichever screen they are on.
+ */
+export const HINT_Y = HINT_TOP;
+export const BUTTON_Y_MAX = 908;
 
 /** Clear air between a panel edge and Shadow. */
 export const SHADOW_GAP = 24;
@@ -359,7 +395,14 @@ export interface ResultsLayout {
   readonly boardContent: readonly PlacedBlock[];
   readonly replay: Rect;
   readonly proceed: Rect;
-  /** Baseline for the keyboard hint, which sits to the right of the buttons. */
+  /**
+   * Top-left of the keyboard hint, in its own band UNDER the button row.
+   *
+   * It used to be `{ x: proceed.x + proceed.w + BUTTON_GAP_X, y: buttonY + 20 }`
+   * - inline with the buttons - and `skyText` draws it on a rounded plate, so a
+   * line that cannot be pressed sat in the row of things that can. It is now at
+   * the line every other screen puts its hint on (`MenuScene.addHint`).
+   */
   readonly hint: { readonly x: number; readonly y: number };
   readonly shadow: Rect;
 }
@@ -431,7 +474,7 @@ export function resultsLayout(input: ResultsLayoutInput): ResultsLayout {
           ),
     replay,
     proceed,
-    hint: { x: proceed.x + proceed.w + BUTTON_GAP_X, y: buttonY + 20 },
+    hint: { x: REPORT_X, y: HINT_Y },
     shadow,
   };
 }

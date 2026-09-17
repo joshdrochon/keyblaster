@@ -35,6 +35,7 @@ import {
   type GainNodeLike,
 } from "./context.js";
 import { label } from "./nullContext.js";
+import { playChirp } from "./chirp.js";
 import { AmbientBus } from "./ambient.js";
 import { MusicBus, type MusicTrackCatalog } from "./music.js";
 import { SfxBus } from "./sfx.js";
@@ -310,11 +311,15 @@ export function buildAudioGraph(ctx: AudioContextLike, options: AudioGraphOption
 
   const voiceEnv: VoiceEnvironment = {
     ...options.voiceEnv,
-    chirp:
-      options.voiceEnv.chirp ??
-      ((): void => {
-        sfx.play("uiNav", { gainScale: 0.9 });
-      }),
+    // UR-25 - SHADOW'S OWN SOUND, ON SHADOW'S OWN BUS.
+    //
+    // This used to borrow `uiNav` from the SFX bus, which put "the robot said
+    // something" in the same voice, at the same level and on the same fader as
+    // "you moved the menu cursor" - and inside the stream the keystroke cue is
+    // firing in. It is now its own recipe routed to `buses.voice`, so it ducks,
+    // fades and mixes with Shadow's recorded lines because it IS one of them.
+    // See chirp.ts for how far it is held from the keystroke tick.
+    chirp: options.voiceEnv.chirp ?? ((): void => playChirp(ctx, buses.voice)),
     ...(clips !== null ? { clips } : {}),
   };
   // The bus serialises Shadow's lines and holds the AC-21.4 duck across the

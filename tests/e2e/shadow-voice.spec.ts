@@ -128,8 +128,21 @@ async function loadVoices(page: Page): Promise<void> {
   });
 }
 
+/**
+ * Boots the Title WITH the platform voice opted in (`?voice=system`).
+ *
+ * D98 cut Web Speech from the shipped build: an unrendered spoken line is a
+ * BUILD failure now, and silence is the runtime behaviour, because the wrong
+ * voice mid-game is worse than a missing one. The transport itself survives
+ * behind an opt-in for the one case that can never be pre-rendered — a live
+ * /api/coach note written for that child, that moment.
+ *
+ * These tests exercise THAT transport, so they ask for it explicitly. The
+ * default is asserted separately below; without that pairing this file would
+ * quietly be testing a code path no player can reach.
+ */
 async function bootTitle(page: Page): Promise<void> {
-  await page.goto("/?scene=Title");
+  await page.goto("/?scene=Title&voice=system");
   await expect(page.getByTestId("app")).toHaveAttribute("data-booted", "true");
   await page.waitForFunction(
     () => (window as unknown as { __kb?: { audio?: unknown } }).__kb?.audio !== undefined,
@@ -174,6 +187,25 @@ async function sfxCount(page: Page): Promise<number> {
 
 test.describe("AC-21.5: Shadow speaks through the system voice", () => {
   test.setTimeout(120_000);
+
+  test("AC-21.8 / D98: the shipped build does NOT speak through the platform", async ({
+    page,
+  }) => {
+    // The pairing that makes the rest of this file honest. Every other test
+    // here opts in with `?voice=system`; this one proves a child never gets
+    // that path. Without it, the opt-in could silently become the default and
+    // this suite would still be green.
+    await fakeSpeech(page, MAC_LOCAL);
+    await page.goto("/?scene=Title");
+    await expect(page.getByTestId("app")).toHaveAttribute("data-booted", "true");
+    await page.waitForFunction(
+      () => (window as unknown as { __kb?: { audio?: unknown } }).__kb?.audio !== undefined,
+      null,
+      { timeout: 60_000 },
+    );
+    await loadVoices(page);
+    expect(await transportId(page)).toBe("silent");
+  });
 
   test("AC-21.5: a voice list that arrives AFTER boot is still used", async ({
     page,

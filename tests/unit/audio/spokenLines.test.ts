@@ -278,14 +278,29 @@ describe("AC-21.8 / D98: the system voice is OFF, and silence is what an unrende
     expect(spoken).toEqual([]);
   });
 
-  it("boot.ts does not opt in - the shipped game has no system voice", () => {
-    // There is no runtime surface for the opt-in today: it is an option on
-    // `createAudioSystem` and boot does not pass it. If a `?voice=system` flag
-    // is ever added (see gauntlet/escalations.md E-VOICE-1.5), this assertion
-    // is the thing that forces whoever adds it to prove it is CONDITIONAL
-    // rather than to slip the default back on.
+  it("boot.ts opts in CONDITIONALLY, never by default", () => {
+    // This assertion used to be `not.toContain("allowSystemVoice")`, because
+    // there was no runtime surface for the opt-in at all. Its own comment
+    // named what would happen next: "if a `?voice=system` flag is ever added,
+    // this assertion is the thing that forces whoever adds it to prove it is
+    // CONDITIONAL rather than to slip the default back on."
+    //
+    // The flag was added (E-VOICE-1.5) so a live /api/coach note — the one case
+    // D98 keeps the platform voice for, and the one that can never be
+    // pre-rendered — can be switched on from a browser. So this now proves the
+    // stronger thing: boot passes the option, and passes it as a COMPARISON
+    // against the URL rather than as a literal `true`.
     const boot = readFileSync(join(REPO, "src/game/boot.ts"), "utf8");
-    expect(boot).not.toContain("allowSystemVoice");
+    expect(boot).toContain("allowSystemVoice");
+
+    const line = boot
+      .split("\n")
+      .find((l) => l.includes("allowSystemVoice:"));
+    expect(line, "boot.ts does not pass allowSystemVoice").toBeDefined();
+    // The defect this guards is a one-character edit: `=== "system"` becoming
+    // `true`. Any literal there ships the platform voice to every child.
+    expect(line).toMatch(/allowSystemVoice:\s*params\.get\("voice"\)\s*===/);
+    expect(line).not.toMatch(/allowSystemVoice:\s*(true|1)\b/);
   });
 
   it("AC-21.8: the opt-in exists, off by default, for a genuinely novel live note", () => {

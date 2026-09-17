@@ -752,11 +752,21 @@ export function silentTransport(schedule: Scheduler): VoiceTransport {
  * `voice.transportId`, and a field frozen at construction would report "silent"
  * on a machine that is, right now, speaking.
  *
- * WHEN THE LINE IS NOT VOICED, IT CHIRPS - but only when the platform HAS a
- * speech API and we declined to use it (no local voice, or a refused
- * utterance). A browser with no speech synthesis at all keeps the original
- * quiet fallback: a chirp there would be a new sound on every Shadow line for
- * a player who never had a voice to lose.
+ * WHEN THE LINE IS NOT VOICED, IT CHIRPS. ALWAYS (UR-25).
+ *
+ * It used to chirp only when the platform HAD a speech API and we declined to
+ * use it, on the argument that "a chirp would be a new sound on every Shadow
+ * line for a player who never had a voice to lose". D98 retired that argument
+ * without retiring the code: the platform voice is off unless the URL asks for
+ * it, so `web` is null in every shipped session and the condition below could
+ * never be true. Shadow therefore made NO SOUND on any unrendered line -
+ * including all seven coach templates at the warp break, which interpolate the
+ * child's own missed word and so can never be pre-rendered. A player asked
+ * "Does Shadow talk? I thought he was supposed to at least chirp or something",
+ * which is the whole of UR-25.
+ *
+ * The condition is now the honest one: this line is about to make no sound, so
+ * make the small one. A rendered clip is sound and never chirps.
  */
 export function adaptiveTransport(env: VoiceEnvironment): VoiceTransport {
   const silent = silentTransport(env.schedule);
@@ -820,8 +830,10 @@ export function adaptiveTransport(env: VoiceEnvironment): VoiceTransport {
       if (next !== active) active.cancel();
       active = next;
       // The chirp is the "he said something" stand-in for a line that will make
-      // no sound at all. A clip is sound, so it never chirps.
-      if (active === silent && web !== null) env.chirp?.();
+      // no sound at all. A clip is sound, so it never chirps. UR-25: the old
+      // `&& web !== null` made this unreachable in every shipped build; see the
+      // header.
+      if (active === silent) env.chirp?.();
       active.speak(line, onDone);
     },
     cancel() {

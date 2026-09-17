@@ -6,7 +6,7 @@ import { INK, SPACE } from "./theme.js";
  *
  * Settings used to be the cleanest web form in the build: flat rows, a pill
  * slider with a white dot, a "70%" caption. Correct, legible, and plainly not
- * part of a ship. The user asked for the inside of a space ship, and the name
+ * part of a ship. The request was for the inside of a space ship, and the name
  * for what they asked for is a DIEGETIC INTERFACE - the panel is not a menu the
  * player is shown, it is the console the pilot is sitting at.
  *
@@ -84,6 +84,70 @@ export const PANEL = {
 
 /** How dark the cast shadow under a control is. */
 export const SHADOW_ALPHA = 0.45;
+
+// ---------------------------------------------------------------------------
+// The hull the pilot is sitting inside
+// ---------------------------------------------------------------------------
+
+/**
+ * WHAT COUNTS AS A HOLE RATHER THAN A DARK SURFACE, in CIE L*.
+ *
+ * Not a taste threshold: a blind critic measured `briefing.png` and reported
+ * that 40.9% of its pixels sat below L* 5, and named the consequence - "the
+ * left and right thirds are voids". Below about 5 the eye stops reading a
+ * surface and starts reading absence, because there is no shading left to see:
+ * the whole range from #000000 to #0E1116 is four L* wide.
+ *
+ * Every large area the UI paints is held above this. Small ones are exempt by
+ * construction - `PANEL.glass` is L* 2 and it is a readout window a centimetre
+ * across, which is a dark THING rather than a dark REGION.
+ */
+export const VOID_LSTAR = 5;
+
+/**
+ * CIE L* for a hex colour, 0..100. Perceptual lightness, which is the scale the
+ * "voids" measurement was taken on; WCAG relative luminance is not, and reading
+ * 0.004 against 0.008 tells you nothing about what a person sees.
+ */
+export function lightness(hex: string): number {
+  const linear = [0, 2, 4]
+    .map((i) => Number.parseInt(hex.replace("#", "").slice(i, i + 2), 16) / 255)
+    .map((s) => (s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4)) as [
+    number,
+    number,
+    number,
+  ];
+  const y = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  return y > 0.008856 ? 116 * Math.cbrt(y) - 16 : 903.3 * y;
+}
+
+/**
+ * THE COCKPIT HULL (Briefing and Pre-flight).
+ *
+ * Both screens are "a picture-book page inside a cockpit": a window cut out of
+ * a wall, with the wall filling everything the page and the glass do not. That
+ * wall was `INK.bg` - a flat #08111F at L* 4.98 - across roughly 40% of the
+ * frame, so the two screens read as a card and a photograph floating in
+ * nothing rather than as the inside of a ship.
+ *
+ * It is the same milled charcoal the Settings console is made of, one step
+ * darker so the console still reads as hardware bolted to it, and it is LIT
+ * FROM ABOVE like every other surface in the game (art-direction s5). The
+ * darkest stop is L* 7.5, half again clear of `VOID_LSTAR`.
+ */
+export const HULL = {
+  /** The top of the wall, where the cabin light falls on it. */
+  top: "#18202C",
+  /** The bottom, in its own shadow. Still a surface: L* 7.5. */
+  bottom: PANEL.faceShade,
+  /** The engraved seam where a frame meets the wall. */
+  seam: PANEL.lip,
+} as const;
+
+/** Every value the hull gradient passes through, for measurement. */
+export function hullStops(): readonly string[] {
+  return [HULL.top, HULL.bottom];
+}
 
 // ---------------------------------------------------------------------------
 // Ink: which colour goes on which surface

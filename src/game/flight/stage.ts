@@ -9,6 +9,7 @@ import { DEFAULT_CALIBRATION, DEFAULT_SETTINGS, stageIndexOf } from "@engine/typ
 import type { Knobs } from "@engine/controller/index.js";
 import type { WordBook } from "@engine/words/index.js";
 import { hasStageBundle, stageBundle } from "@game/scenes/lib/content.js";
+import { LAYERS, layer } from "@game/render/layers.js";
 
 /**
  * Flight stage configuration: everything the core loop needs that is NOT a
@@ -24,6 +25,136 @@ import { hasStageBundle, stageBundle } from "@game/scenes/lib/content.js";
  * you blasted" was false by construction. The table is gone; the seam is the
  * same one function it always was.
  */
+
+// ---------------------------------------------------------------------------
+// Where the word plates draw (AC-22.8, UR-23)
+// ---------------------------------------------------------------------------
+
+/**
+ * The Phaser depth of the word-plate container.
+ *
+ * Here rather than in `FlightScene` so it is a NUMBER UNDER THE UNIT GATE
+ * instead of a constant inside a Phaser scene that only an e2e can reach. The
+ * rule it encodes - nothing the world draws may reach a word - was true of the
+ * gameplay rocks and false of the decorative ones for as long as this lived
+ * next to the thing it was protecting. See the long note in `FlightScene` for
+ * the five layers that were drawing over a plate at 4.5 and for what putting
+ * the plate above the ship costs.
+ *
+ * Below `hud` because the HUD is a different scene on its own contrast plate
+ * inside a keep-out no rock enters (layers.ts L7), so the two never meet.
+ */
+export const PLATE_LAYER_DEPTH = layer("hud").depth - 0.1;
+
+/**
+ * Every layer a word plate has to outrank, by name.
+ *
+ * `LAYERS` minus the HUD. Derived rather than listed, so a layer added to the
+ * stack in front of the ship is covered by `tests/unit/flight/plateDepth` the
+ * day it is added rather than the day a player reports it.
+ */
+export const LAYERS_BELOW_PLATES = LAYERS.filter((l) => l.id !== "hud");
+
+/**
+ * Keep-out at each edge of the playfield, px at the design width.
+ *
+ * The near plane carries near-black framing masses down both edges
+ * (render/parallax.ts) which reach about 8.5% of the stage. A rock spawns clear
+ * of them: a foreground that covers a word costs a child a rock, which is the
+ * same defect as one rock covering another rock's plate.
+ *
+ * Moved here from `FlightScene` when the HUD gained the stop name (UR-21): the
+ * HUD draws above everything, so a readout that reached into this corridor
+ * would cover a falling word - the very defect UR-23 is about - and the check
+ * that it does not (`tests/unit/flight/hudKeepOut`) needs the number without
+ * importing Phaser.
+ *
+ * ================== IT IS THE PLATE THAT HAS TO CLEAR, NOT THE ROCK ==========
+ * Writing that check found that a plate could already cross the HUD. The
+ * longest word in any shipped pool is "spinning": its plate is 108.4 px to a
+ * side against its rock's 48, so the leftmost such plate reached x=259.6 while
+ * the HUD's left readout ends at x=260. Four tenths of a pixel - a hairline,
+ * not the sixteen this note first claimed, and the claim is corrected here
+ * rather than quietly deleted.
+ *
+ * The first fix was to widen this margin from 320 to 352. It is not the one
+ * that shipped, because it moves every rock in the game to solve a problem
+ * about one readout, and a margin is not where a plate-width mistake belongs.
+ *
+ * A NOTE ON WHAT DID NOT HAPPEN, because the first version of this comment got
+ * it wrong: `V-22.4` was red on the 352 run and green on a 320 run, and that
+ * was read as cause. Repeated three times each, with the UR-22 hull lamp
+ * present and with it hidden, that item passes about one run in three either
+ * way - the weakest object is a different one every time, and one reading was a
+ * degenerate 0.0001 with the inside and the outside identical. It is flaky
+ * independently of this lane. No margin, and no lamp, moved it.
+ *
+ * The defect was in `FlightScene.laneSpec`, which sized the spawn keep-out by
+ * the ROCK's half-width on the stated grounds that "the plate is narrower than
+ * the rock at every length". It is wider, at every length above one, by up to
+ * 60 px a side. Fixing that keeps a plate inside this margin at every word and
+ * leaves 60 px of daylight instead of minus four tenths, without moving the
+ * margin at all.
+ */
+export const SPAWN_MARGIN_PX = 320;
+
+// ---------------------------------------------------------------------------
+// Hit stop (UR-33)
+// ---------------------------------------------------------------------------
+
+/**
+ * HOW LONG THE PICTURE HOLDS WHEN A ROCK IS DESTROYED.
+ *
+ * The player asked for Vlambeer's hit lag: freeze for a frame or three at the
+ * moment of impact so the hit reads as something the ship had to push through,
+ * rather than as a sprite being switched off.
+ *
+ * ================== WHY THE SHORT END OF THEIR RANGE ==================
+ * They asked for 1-3 frames. In an action game hit stop punctuates OCCASIONAL
+ * impacts; here it fires on every completed word - 58 times in a belt, about
+ * once every two seconds (`flight/stage.stageWordCount`'s own arithmetic) -
+ * while a seven-year-old is mid-word and still typing. A hold that lands well
+ * once reads as the game stuttering by the twentieth time, and the thing a
+ * typing game cannot afford to damage is flow.
+ *
+ * Two frames at the 60 fps target (AC-22.9). Long enough to be a beat, short
+ * enough that it cannot be mistaken for a hitch.
+ *
+ * ================== WHAT IT IS NOT ==================
+ * It is not a sleep and it does not touch the clock. Frames keep rendering and
+ * the event loop is never blocked: `FlightScene.update` simply declines to
+ * advance the WORLD for two frames. Input is on a `window` listener rather than
+ * a per-frame poll, so a keystroke during the hold is handled the instant it
+ * arrives - and `tests/e2e/hit-stop.spec.ts` types through the hold to prove it.
+ * A blocking implementation would drop keystrokes in a typing game and no
+ * headless assertion would ever see it.
+ *
+ * It also costs nothing on the perf budget, and in the direction people expect
+ * to be surprised by: a held frame does LESS work, so P-22.9's p95 frame time
+ * can only go down.
+ */
+export const HIT_STOP_FRAMES = 2;
+export const HIT_STOP_MS = Math.round((HIT_STOP_FRAMES * 1000) / 60);
+
+/**
+ * The hold for a blast, in ms. Zero under reduced motion.
+ *
+ * REDUCED MOTION TAKES IT, and the call is not obvious - a hold is the absence
+ * of motion, so there is a reading where D41 has nothing to say about it. The
+ * reading that decides it is what the setting is FOR: a player who turns off
+ * motion effects is commonly a player for whom sudden stop-start is the
+ * problem, and a world that halts and lurches twice a second is stop-start.
+ * Nothing about the belt's rules depends on it (AC-19.3: framing motion goes,
+ * gameplay stays), so it is framing, and framing goes.
+ *
+ * ONLY A BLAST. A hull strike does not hold. Freezing the game on the player's
+ * mistake is emphasis on the mistake, and D31 asks that a child always feel
+ * like the best typer in the world; AC-22b.1 forbids the surface framing a run
+ * as something lost. The strike already has its shake, its scorch and its lamp
+ * (UR-22), and all three are about the ship rather than about the player.
+ */
+export const hitStopMs = (reducedMotion: boolean, holdMs: number = HIT_STOP_MS): number =>
+  reducedMotion ? 0 : Math.max(0, holdMs);
 
 export interface PaletteColorblind {
   readonly accent: string;
@@ -299,6 +430,26 @@ export interface FlightConfig {
   readonly stageDurationMs: number;
   /** Constant per stage and never a knob (AC-10.4). */
   readonly worldSpeedPxPerSec: number;
+  /**
+   * UR-33's hold, ms. `HIT_STOP_MS` unless a caller says otherwise.
+   *
+   * A CONFIG FIELD AND NOT A CONSTANT READ IN THE SCENE, for a reason that is
+   * about measurement rather than about tuning. The shipped hold is two frames
+   * at 60 fps - 33 ms - and a headless page renders this scene at about 4.5 fps,
+   * where 33 ms is a seventh of ONE frame. A spec asking "did the world stop"
+   * there can never see a held frame, and would be green whether or not the
+   * feature existed.
+   *
+   * So the length is a value the game carries, `tests/e2e/hit-stop.spec.ts`
+   * lengthens it to span frames on a slow renderer, and
+   * `tests/unit/flight/hitStop.test.ts` pins the shipped default. The alternative
+   * - a test-only branch inside the scene - would mean the thing under test and
+   * the thing that ships were different code.
+   *
+   * It is NOT a difficulty knob: the knob set is exactly {maxLive, lengthBias}
+   * (AC-10.4) and nothing reads this to decide anything about the belt.
+   */
+  readonly hitStopMs: number;
   /** Exposes the read-only debug surface the e2e measures through. */
   readonly debug: boolean;
 }
@@ -326,6 +477,7 @@ export const DEFAULT_FLIGHT_CONFIG: FlightConfig = {
   // the 120 s median belt, so the sky lands before the last rock does.
   stageDurationMs: 105_000,
   worldSpeedPxPerSec: 110,
+  hitStopMs: HIT_STOP_MS,
   debug: false,
 };
 

@@ -25,6 +25,7 @@ import {
   type WordPlateStyle,
   hexToInt,
   plateOffsetY,
+  plateSize,
 } from "@game/render/wordPlate.js";
 import { createAllowlist } from "@engine/allowlist/index.js";
 import { fallTimeMs } from "@engine/fallTime/index.js";
@@ -77,6 +78,9 @@ import { DEFAULT_CALIBRATION, STOP_IDS, type Calibration, type StopId } from "@e
 import {
   DEFAULT_FLIGHT_CONFIG,
   FLIGHT_EVENTS,
+  PLATE_LAYER_DEPTH,
+  SPAWN_MARGIN_PX,
+  hitStopMs,
   type FlightConfig,
   type FlightCue,
   type HudSnapshot,
@@ -98,9 +102,11 @@ import {
   stageOutcome,
 } from "@game/flight/blastHistory.js";
 import {
+  LAMP_GUTTER_FRACTION,
   hullAfterShield,
   hullAfterStrike,
   hullForStage,
+  hullLampLevel,
   isStalled,
   maySpawnCanister,
   startingHull,
@@ -159,16 +165,53 @@ const STALL_SINK_MS = 2400;
  * The fix is depth, which is the only fix that is total - reordering by
  * overlap, or fading whichever rock is on top, both leave cases where two
  * plates cover each other. Plates are therefore parented to their OWN
- * container, half a step above `debris` (4) and still below `nearField` (5) so
- * nothing about the parallax stack changes. Every plate is above every rock,
- * always, by construction rather than by arrangement.
+ * container rather than to the rock they hang under.
  *
  * A second thing falls out of it and it is a fix in its own right: a plate is
  * no longer a child of a rock that SPINS (`spinPerSec`), so the word hangs
  * level under its rock instead of tumbling with it. Art-direction section 4
  * always said the plate hangs below the rock; it now actually does.
+ *
+ * ================== WHY 4.5 WAS NOT HIGH ENOUGH (UR-23) ==================
+ * This constant used to be `debris + 0.5`, chosen so that "nothing about the
+ * parallax stack changes". That made the claim above true of GAMEPLAY rocks and
+ * false of every other rock on the screen, and rocks were reported covering
+ * words a second time.
+ *
+ * Four world layers draw ABOVE 4.5 and three of them carry opaque near-black
+ * objects across the playfield:
+ *
+ *     nearField   5     motes, glints and 4 drift silhouettes 70-132 px
+ *     vignette    5.6   the pinned floor wash
+ *     shipFx      6     the Lantern, the beam and the blast
+ *     foreVeil    6.5   2 drift silhouettes 130-230 px, the darkest mass drawn
+ *     atmosphere  6.8   the weather pass
+ *
+ * The only thing keeping those off a word was `parallax.LANE_GUARD`, which
+ * clears the middle 60% of the frame. Word plates are not confined to the
+ * middle 60%: `SPAWN_MARGIN_PX` lets a rock's CENTRE sit at 0.19W, and a plate
+ * is wider than its rock's centre - the measured left edge of a covered plate
+ * was 0.215W when the guard was 0.26, and the guard is now 0.20 while plates
+ * still reach ~0.169W. parallax.ts records the capture that caught this: a
+ * near-plane rock over a plate reading "acon". Tightening the guard again is
+ * the move that has already failed twice, and the art lane's own note explains
+ * why it cannot go further - a foreground that occupies both edges at most
+ * heights IS the border a player reported three times.
+ *
+ * So the plate layer goes above the WORLD instead: one step under the HUD
+ * (layers.ts L7), which is a different scene and always on top. Nothing the
+ * world draws can reach a word, at any x, on any stop, at any seed - which is
+ * the only form of "cannot happen" that is not a guess about where rocks land.
+ *
+ * WHAT THIS COSTS, because it is a real trade and not a free win. The plate now
+ * draws in front of the Lantern and in front of the veil, so a rock that falls
+ * down the ship's own lane carries its word across the ship for the last
+ * quarter-second before the breach line, and the atmosphere pass no longer
+ * tints the plate. Both were weighed against a hidden word and lost: a word the
+ * child cannot read is a rock they cannot shoot (AC-22.8), and the plate is the
+ * one object on this screen whose whole job is to be read.
  */
-const PLATE_DEPTH = layer("debris").depth + 0.5;
+const PLATE_DEPTH = PLATE_LAYER_DEPTH;
 
 /**
  * Half the Lantern's drawn width, px (`drawLantern`: the tail fins reach 46).
@@ -176,15 +219,6 @@ const PLATE_DEPTH = layer("debris").depth + 0.5;
  */
 const SHIP_HALF_WIDTH_PX = 46;
 
-/**
- * Keep-out at each edge of the playfield.
- *
- * The near plane carries near-black framing masses down both edges
- * (render/parallax.ts, canyonWalls) which reach about 8.5% of the stage. A rock
- * spawns clear of them: a foreground that covers a word costs a child a rock,
- * which is the same defect as one rock covering another rock's plate.
- */
-const SPAWN_MARGIN_PX = 320;
 
 /**
  * What the world slows to for the warp break (D30). Not zero: "a calm break" is
@@ -252,6 +286,8 @@ export interface FlightDebugState {
   /** What the belt currently believes about this player's hands (D51). */
   readonly calibration: Calibration;
   readonly maxLive: number;
+  /** UR-33: scene-clock moment the world starts moving again. */
+  readonly hitStopUntilMs: number;
   readonly knobChanges: number;
   /** The gap the belt is currently holding between rocks, ms (@engine/pacing). */
   readonly spawnGapMs: number;
@@ -271,6 +307,8 @@ export interface FlightDebugState {
     readonly plateDepth: number;
     readonly rockBottom: number;
     readonly rockDepth: number;
+    /** The rock's own spin, radians. AC-2.3 must be measured on a rock that turns. */
+    readonly rockRotation: number;
     readonly typedCount: number;
     readonly isCanister: boolean;
     /** D21/D23: this word came back, so it is not aimed at the ship. */
@@ -452,6 +490,16 @@ export class FlightScene extends Phaser.Scene {
   private beam!: Phaser.GameObjects.Graphics;
   private exhaust!: Phaser.GameObjects.Graphics;
   private scorchLayer!: Phaser.GameObjects.Container;
+  /** UR-22: the Lantern's light, whose brightness IS the hull. */
+  private hullLamp!: Phaser.GameObjects.Graphics;
+  /**
+   * UR-33: the world does not advance until this moment has passed.
+   *
+   * A TIMESTAMP AND NOT A FLAG, so it cannot be left stuck on. A flag needs
+   * something to clear it, and the something is always a callback that one
+   * early return can skip; a deadline in the past is simply over.
+   */
+  private hitStopUntilMs = 0;
   private shards!: Phaser.GameObjects.Particles.ParticleEmitter;
   private sparks!: Phaser.GameObjects.Particles.ParticleEmitter;
   private motes!: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -473,6 +521,7 @@ export class FlightScene extends Phaser.Scene {
     this.maxHull = hullForStage(this.cfg.stageWordCount);
     this.hull = startingHull(this.cfg.stageWordCount);
     this.hullHitsTaken = 0;
+    this.hitStopUntilMs = 0;
     this.calibration = this.cfg.calibration;
     this.liveIkiMs = [];
     this.liveFkMs = [];
@@ -545,6 +594,9 @@ export class FlightScene extends Phaser.Scene {
     this.buildEngineState();
     this.buildWorld(width, height);
     this.buildShip(width, height);
+    // A full hull is a full lamp. Set rather than tweened: this is the frame
+    // the stage starts on, and there is nothing to ease from.
+    this.hullLamp.setAlpha(hullLampLevel(this.hull, this.maxHull));
     this.buildParticles();
     this.bindInput();
 
@@ -654,6 +706,10 @@ export class FlightScene extends Phaser.Scene {
     this.breachY = shipY - 74;
 
     this.shipBody = this.add.container(0, 0);
+    // BEHIND the hull, so the ship is lit rather than washed out.
+    this.hullLamp = this.add.graphics();
+    this.drawHullLamp(this.hullLamp);
+    this.shipBody.add(this.hullLamp);
     const hullG = this.add.graphics();
     this.drawLantern(hullG);
     this.shipBody.add(hullG);
@@ -691,6 +747,87 @@ export class FlightScene extends Phaser.Scene {
         ease: "Sine.InOut",
       });
     }
+  }
+
+  /**
+   * THE LANTERN'S LIGHT (UR-22). The hull, drawn on the thing that has it.
+   *
+   * A warm halo around the ship, built from nested discs of falling alpha - the
+   * same "soft radial glow" art-direction section 2 asks of the celestial body,
+   * drawn in code (D83) rather than with a filter, because AC-22.9's effects
+   * budget is layers and gradients and never post-processing.
+   *
+   * Cream rather than the stop accent, and the same cream the fuselage is drawn
+   * in. An accent-coloured glow that dimmed on damage would be a warm red light
+   * appearing and disappearing with the player's mistakes at four of the seven
+   * stops, which is a red failure state wearing a palette entry's name (D28,
+   * D31). This is the ship's own light going low.
+   *
+   * The whole object's ALPHA is what carries the hull (`setHullLamp`); the
+   * geometry never changes, so there is nothing per-frame here (AC-22.9).
+   */
+  private drawHullLamp(g: Phaser.GameObjects.Graphics): void {
+    const warm = hexToInt("#F3E7D3");
+    /**
+     * EIGHTEEN STEPS, NOT SIX, AND THE FALLOFF IS SQUARED.
+     *
+     * The first version drew six discs at evenly spaced radii and the capture
+     * showed exactly that: six concentric rings around the ship, each edge
+     * legible as a drawn line. Art-direction section 2 asks for a SOFT radial
+     * glow, and a soft glow is what a stack of discs approximates only when the
+     * step between them is below what the eye resolves.
+     *
+     * Squared rather than linear because light falls off that way and because a
+     * linear ramp puts its largest jumps at the bright end, where they show. The
+     * per-step alpha is the DIFFERENCE between neighbouring levels, so the
+     * composite reaches `LAMP_PEAK_ALPHA` at the centre however many steps there
+     * are - changing the count changes the smoothness and not the brightness.
+     */
+    const steps = 18;
+    const outer = 132;
+    const peak = 0.26;
+    let previous = 0;
+    for (let i = steps; i >= 1; i -= 1) {
+      const t = i / steps;
+      const radius = outer * t;
+      // Squared falloff, so the composite alpha at this radius is peak*(1-t)^2.
+      const target = peak * (1 - t) ** 2;
+      const delta = target - previous;
+      previous = target;
+      if (delta <= 0) continue;
+      g.fillStyle(warm, delta);
+      g.fillCircle(0, -10, radius);
+    }
+  }
+
+  /**
+   * Put the light where this hull says it should be.
+   *
+   * `gutter` is the damage MOMENT: the light drops out for a beat and returns
+   * at its new level, which is what a knock looks like on something that is lit.
+   * Reduced motion keeps the level change and drops the flicker (AC-19.3) -
+   * the state is gameplay, the flicker is framing.
+   */
+  private setHullLamp(gutter: boolean): void {
+    const level = hullLampLevel(this.hull, this.maxHull);
+    if (this.hullLamp === undefined) return;
+    this.tweens.killTweensOf(this.hullLamp);
+    if (!gutter || this.cfg.reducedMotion) {
+      this.tweens.add({
+        targets: this.hullLamp,
+        alpha: level,
+        duration: gutter ? 260 : 120,
+        ease: "Cubic.Out",
+      });
+      return;
+    }
+    this.hullLamp.setAlpha(level * LAMP_GUTTER_FRACTION);
+    this.tweens.add({
+      targets: this.hullLamp,
+      alpha: level,
+      duration: 520,
+      ease: "Cubic.Out",
+    });
   }
 
   /** The Lantern (D89, art-direction section 5): rocket, not a gun. */
@@ -953,16 +1090,37 @@ export class FlightScene extends Phaser.Scene {
     const dt = delta / 1000;
     const elapsed = time - this.stageStartMs;
 
-    this.advanceLayers(dt, elapsed);
-    this.updateCamera(elapsed);
+    /**
+     * UR-33's hit stop, and the shape of it is the whole safety argument.
+     *
+     * The hold is a SKIP, not a sleep. Frames keep rendering, the event loop is
+     * never blocked, and nothing below returns early out of `update` - so the
+     * lock still ticks, the plate still lights letters, the HUD still
+     * publishes, and a keystroke that arrives during the hold is handled by the
+     * `window` listener the moment it lands, exactly as it would have been.
+     *
+     * What holds is the WORLD: the parallax, the camera, the rocks' fall and
+     * the spawner. That is the picture the impact is being punched into. What
+     * does not hold is anything the player is doing, because two frames of
+     * swallowed input in a typing game is a defect that no assertion about
+     * "does it freeze" would ever catch.
+     */
+    const holding = time < this.hitStopUntilMs;
+
+    if (!holding) {
+      this.advanceLayers(dt, elapsed);
+      this.updateCamera(elapsed);
+    }
 
     if (this.stalled) this.maybeShowStallCard();
 
     if (!this.stalled && !this.stageComplete) {
-      this.updateRocks(time);
+      if (!holding) {
+        this.updateRocks(time, dt);
+        this.trySpawn(time);
+      }
       this.applyLock({ type: "tick", nowMs: time });
       this.updatePark(time);
-      this.trySpawn(time);
       this.aimEmitter();
       this.checkStageEnd();
     }
@@ -1000,14 +1158,30 @@ export class FlightScene extends Phaser.Scene {
     this.cameras.main.setScroll(sway + this.shakeX, sway * 0.5 + this.shakeY);
   }
 
-  private updateRocks(now: number): void {
+  /**
+   * `dtSeconds` is the frame's OWN duration, not 1/60.
+   *
+   * The spin used to advance by `spinPerSec * (1/60)` per frame, which makes it
+   * a spin-per-FRAME wearing a per-second name: everything else about a rock -
+   * where it is, when it resolves - runs off the wall clock, so on any machine
+   * not holding 60 fps the rock fell at the right speed and turned at the wrong
+   * one. Measured on a headless page rendering this scene at about 4.5 fps, a
+   * rock crossed the whole screen having turned 0.014 rad, roughly a thirteenth
+   * of its intended arc: rocks barely tumbled at all on a slow device, which is
+   * exactly the device a school laptop is.
+   *
+   * It surfaced as an untestable assertion rather than as a bug report -
+   * AC-2.3's "the plate hangs level under a TUMBLING rock" could not be
+   * measured, because the rock under test was not tumbling.
+   */
+  private updateRocks(now: number, dtSeconds: number): void {
     for (const rock of [...this.rocks]) {
       if (rock.resolved) continue;
       const t = (now - rock.spawnedAtMs) / rock.fallMs;
       rock.container.y = rock.fromY + (rock.toY - rock.fromY) * t;
       rock.container.x =
         rock.homeX + Math.sin(now / 1400 + rock.driftPhase) * 10;
-      rock.container.rotation += rock.spinPerSec * (1 / 60);
+      rock.container.rotation += rock.spinPerSec * dtSeconds;
       // The plate is not a child of the rock (see PLATE_DEPTH), so it is
       // carried here. Deliberately not rotated: the rock tumbles, the word does
       // not, which is what art-direction section 4 asked for all along.
@@ -1101,19 +1275,44 @@ export class FlightScene extends Phaser.Scene {
   }
 
   /**
-   * The geometry `@engine/spawn` needs to keep a practice rock out of the
-   * ship's path. A rock's own half-width is used rather than its plate's,
-   * because the plate is narrower than the rock at every length
-   * (`render/wordPlate.plateSize` vs `asteroid.asteroidSizePx`) - so clearing
-   * the rock clears the word too.
+   * The geometry `@engine/spawn` needs: which columns are legal at all, and
+   * which would drop a rock onto the ship.
+   *
+   * ================== THE HALF-WIDTH IS THE WIDER OF THE TWO ==================
+   * This used to pass the ROCK's half-width, on the stated grounds that "the
+   * plate is narrower than the rock at every length - so clearing the rock
+   * clears the word too". The intent was right and the premise was backwards.
+   * A plate is WIDER than its rock at every length above one, and by a growing
+   * margin, because `asteroidSizePx` adds 8 px per letter while a plate adds a
+   * whole glyph cell:
+   *
+   *     letters   rock half   plate half   the plate sticks out by
+   *        3         28           49                21
+   *        6         40           85                45
+   *        8         48          108                60      <- "spinning"
+   *
+   * So the keep-out the margin is supposed to give a word was being computed
+   * for the silhouette under it. At the longest word any shipped pool contains
+   * the plate reached 60 px past where the belt thought the rock's edge was -
+   * past `SPAWN_MARGIN_PX`, and four tenths of a pixel under the HUD's left
+   * readout, which draws above everything. A hairline today, and a covered
+   * letter the moment a pool gains a longer word or a child turns on D41's
+   * increased letter spacing at a wider design width.
+   * `tests/unit/flight/hudKeepOut` found it; `plateSize` is the same function
+   * the renderer lays the plate out with, so the two cannot disagree.
+   *
+   * It is `max` rather than the plate's alone because the ship-lane half of
+   * this spec is about the SILHOUETTE - a rock is what collides with the
+   * Lantern - and at one letter the rock is the wider of the two.
    */
-  private laneSpec(sizePx: number): LaneSpec {
+  private laneSpec(sizePx: number, word: string): LaneSpec {
+    const plateHalfWidth = plateSize(word, this.plateStyle).width / 2;
     return {
       width: this.scale.width,
       marginPx: SPAWN_MARGIN_PX,
       shipX: this.shipX,
       shipHalfWidthPx: SHIP_HALF_WIDTH_PX,
-      rockHalfWidthPx: sizePx / 2,
+      rockHalfWidthPx: Math.max(sizePx / 2, plateHalfWidth),
     };
   }
 
@@ -1165,7 +1364,7 @@ export class FlightScene extends Phaser.Scene {
     // rock, and `updateRocks` carries it to the rock's column each frame.
     this.plateLayer.add(plate);
 
-    const homeX = spawnX(this.laneSpec(sizePx), this.rng, practice);
+    const homeX = spawnX(this.laneSpec(sizePx, word), this.rng, practice);
     const container = this.add.container(homeX, -sizePx, [body]);
     this.debrisLayer.add(container);
     plate.setPosition(homeX, -sizePx + offsetY);
@@ -1527,10 +1726,20 @@ export class FlightScene extends Phaser.Scene {
         this.hull = hullAfterShield(this.hull, this.maxHull);
         this.canisterId = null;
         this.removeScorch();
+        // The light comes back up. Repair reads on the ship for the same reason
+        // damage does (UR-22) - and a canister that brightens the Lantern is
+        // worth collecting for a visible reason, not just a numeric one.
+        this.setHullLamp(false);
         this.cue("shield");
       }
       this.fireBeam(rock);
       this.fractureRock(rock, points);
+      // UR-33. Here rather than in `fractureRock`, because `fractureRock` is
+      // the explosion and this is the beat BEFORE it lands - and because the
+      // only caller that should ever hold the world is a rock the player
+      // destroyed. `breach` deliberately does not call it: see `hitStopMs`.
+      this.hitStopUntilMs =
+        this.time.now + hitStopMs(this.cfg.reducedMotion, this.cfg.hitStopMs);
     }
     this.cue("blast");
     this.publishHud(true);
@@ -1809,6 +2018,11 @@ export class FlightScene extends Phaser.Scene {
     const ship = this.shipWorldPoint();
     this.sparks.emitParticleAt(atX, ship.y - 40, sparkSpec.quantity);
     this.addScorch();
+    // UR-22. The sparks and the shake are over in 120 ms and say "something
+    // happened"; this is the part that says "and the ship is worse off than it
+    // was", and it is the only feedback in this scene that persists after the
+    // frame it happened in.
+    this.setHullLamp(true);
     // Art-direction section 8: 120 ms, 6 px, decaying. Fixed, and deliberately
     // NOT scaled by anything - a strike that hits harder when the hull is low
     // is a punishment (D28/D31), and the blast is the only shake in this game
@@ -2241,6 +2455,7 @@ export class FlightScene extends Phaser.Scene {
           hullHits: this.hullHitsTaken,
           calibration: { ...this.calibration },
           maxLive: this.controller.knobs.maxLive,
+          hitStopUntilMs: this.hitStopUntilMs,
           knobChanges: this.knobChanges,
           spawnGapMs: this.lastSpawnGapMs,
           rocks: this.rocks.map((r) => ({
@@ -2259,10 +2474,15 @@ export class FlightScene extends Phaser.Scene {
             plateDepth: this.plateLayer.depth,
             rockBottom: r.container.y + r.sizePx / 2,
             rockDepth: this.debrisLayer.depth,
+            // AC-2.3's other half. "The plate hangs level under a TUMBLING
+            // rock" is only a claim about tumbling if the rock is measured
+            // tumbling: a spec that samples a rock which happens not to have
+            // rotated passes whether or not the plate is parented to it.
+            rockRotation: r.container.rotation,
             typedCount: r.plate.typedCount,
             isCanister: r.isCanister,
             isPractice: r.isPractice,
-            onShipLane: isOnShipLane(r.container.x, this.laneSpec(r.sizePx)),
+            onShipLane: isOnShipLane(r.container.x, this.laneSpec(r.sizePx, r.word)),
             debrisType: r.debris.id,
           })),
           layerOffsets: { ...this.layerOffsets },
@@ -2340,13 +2560,22 @@ export class FlightScene extends Phaser.Scene {
         const placed: LiveRock = {
           ...rock,
           homeX: typeof options.x === "number" ? options.x : rock.homeX,
+          // AC-2.3 is about a TUMBLING rock, and `spinPerSec` is
+          // `(rng() - 0.5) * 0.3`, so a seed can hand a spec a rock that turns
+          // at 0.0008 rad/s - one that is, for the purposes of that AC, not
+          // tumbling. It happened: the plate spec measured 0.008 rad over a
+          // whole fall and was asserting nothing. A spec that needs a spinning
+          // rock says so here rather than hunting for a lucky seed.
+          spinPerSec:
+            typeof options.spinPerSec === "number" ? options.spinPerSec : rock.spinPerSec,
           spawnedAtMs:
             typeof options.y === "number" && span !== 0
               ? this.time.now - ((options.y - rock.fromY) / span) * rock.fallMs
               : rock.spawnedAtMs,
         };
         this.rocks = this.rocks.map((r) => (r.id === rock.id ? placed : r));
-        this.updateRocks(this.time.now);
+        // One frame at the nominal rate: the placement is being landed, not simulated.
+        this.updateRocks(this.time.now, 1 / 60);
         // Land the arrival pop immediately. A placed rock is usually placed so
         // that a spec can MEASURE it, and the Back.Out tween starts at scale
         // 0.7 - so a spec reading `plateSizePx` while the tween is still
@@ -2366,6 +2595,8 @@ export class FlightScene extends Phaser.Scene {
 export interface SpawnDebugOptions {
   readonly x?: number;
   readonly y?: number;
+  /** Radians per second, in place of the seeded `(rng() - 0.5) * 0.3`. */
+  readonly spinPerSec?: number;
   /** Spawn it as a D21/D23 practice rock (off-lane, sails past the ship). */
   readonly practice?: boolean;
 }

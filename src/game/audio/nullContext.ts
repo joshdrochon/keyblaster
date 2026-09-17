@@ -160,8 +160,9 @@ export class NullBufferSource extends NullNode implements AudioBufferSourceNodeL
   constructor() {
     super("bufferSource");
   }
-  start(when?: number): void {
+  start(when?: number, offset?: number): void {
     void when;
+    void offset;
     this.started = true;
   }
   stop(when?: number): void {

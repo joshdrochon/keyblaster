@@ -8,7 +8,6 @@ import {
   dustTile,
   moteTile,
   planeMaterialColor,
-  starTile,
   translateOps,
   veilFor,
   veilTile,
@@ -26,9 +25,8 @@ import {
 /**
  * THE WRAP SEAM.
  *
- * A player looked at the Title screen and said: "it's not a continuous seamless
- * loop. It has a real jolt to it, like it's reached the end and then it
- * restarts."
+ * Reported on the Title screen: the loop was not seamless. It carried a visible
+ * jolt, as though the scroll had reached its end and restarted.
  *
  * The cause was not the wrap arithmetic, which was correct - `mod(offsetY, H)`
  * with content drawn at `y` and at `y - H`. It was that the two copies were
@@ -79,7 +77,6 @@ const MATERIALS = [
  */
 const GENERATORS: readonly { name: string; build: (rand: () => number) => TileOp[] }[] = [
   { name: "dustTile", build: (rand) => dustTile(W, H, "#C0A28C", rand) },
-  { name: "starTile", build: (rand) => starTile(W, H, "#F7E6D0", 90, rand) },
   { name: "moteTile", build: (rand) => moteTile(W, H, "#39140B", "#FF6B4A", rand) },
   { name: "accentTile", build: (rand) => accentTile(W, H, "#FF8F74", rand) },
   {

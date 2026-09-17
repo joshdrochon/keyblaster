@@ -138,6 +138,37 @@ describe("resultsLayout: the panels do not collide with anything", () => {
     }
   });
 
+  /**
+   * THE KEYBOARD HINT IS NOT A THIRD BUTTON.
+   *
+   * `results.png` showed four things that read as controls in one row: a coral
+   * filled button, a navy filled button, a navy outlined one with the focus
+   * ring on it, and a dark pill saying "tab to move, enter to choose". The
+   * fourth is a HINT - there is nothing to press - but it was laid out inline
+   * with the buttons, at the same baseline, on `skyText`'s rounded plate. Three
+   * pills in a row, one of which does nothing.
+   *
+   * It is the same line every other screen carries, and everywhere else it sits
+   * bottom-left under the content (`MenuScene.addHint`, `GAME_HEIGHT - 76`). So
+   * it goes there: out of the row, at the height a child has already learned to
+   * look for it.
+   *
+   * Watch it fail: put `hint` back to
+   * `{ x: proceed.x + proceed.w + BUTTON_GAP_X, y: buttonY + 20 }`.
+   */
+  it("keeps the keyboard hint out of the button row", () => {
+    for (const report of [THIN_REPORT, FULL_REPORT]) {
+      const l = layoutFor(report, PROMPT_BOARD);
+      // Below the row, not beside it.
+      expect(l.hint.y).toBeGreaterThan(l.proceed.y + l.proceed.h);
+      // On the content's left edge, like every other screen's hint.
+      expect(l.hint.x).toBe(REPORT_X);
+      // And the plate `skyText` cuts around it still fits on the screen: one
+      // caption line is ~26 px of ink plus 8 px of padding either side.
+      expect(l.hint.y + 26 + 8).toBeLessThan(STAGE_H);
+    }
+  });
+
   it("stays inside 1920x1080", () => {
     for (const stop of STOP_IDS) {
       for (const report of [THIN_REPORT, FULL_REPORT]) {

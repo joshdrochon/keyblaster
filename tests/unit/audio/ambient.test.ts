@@ -193,14 +193,37 @@ describe("AC-21.1: beds crossfade on transition", () => {
     expect(ambient.activeStop).toBe(null);
   });
 
-  it("builds a drone, a wind and a shimmer for a bed", () => {
+  it("builds a drone and a wind for a bed, and no LFO oscillator", () => {
+    // UR-13: this used to expect `partials.length + 1` - the extra oscillator
+    // was a "shimmer" LFO whose output was connected to the bed's FILTER INPUT
+    // rather than to a gain, so it modulated nothing and added a sub-audio sine
+    // to the signal instead. The movement now comes from `bedBreath` on the
+    // frame clock, so the oscillator count is exactly the drone.
     const ctx = new NullAudioContext(8000);
     const ambient = new AmbientBus(ctx, ctx.createGain());
     ambient.start("saturn");
     const spec = bedSpec("saturn");
     const oscillators = ctx.created.filter((n) => n.kind === "oscillator").length;
-    expect(oscillators).toBe(spec.partials.length + 1); // partials + shimmer LFO
+    expect(oscillators).toBe(spec.partials.length);
     expect(ctx.created.filter((n) => n.kind === "bufferSource").length).toBe(1);
+  });
+
+  it("UR-13: the bed's movement runs with no transition in flight", () => {
+    // A bed that only breathed during a crossfade would sit perfectly still for
+    // the minutes that actually matter.
+    const ctx = new NullAudioContext(8000);
+    const ambient = new AmbientBus(ctx, ctx.createGain());
+    ambient.start("saturn");
+    const spec = bedSpec("saturn");
+    const breath = (): number =>
+      (ctx.labelledWith("ambient.breath.saturn")[0] as unknown as { gain: { value: number } }).gain.value;
+    expect(breath()).toBe(1);
+    // Half a cycle in: the trough, which is exactly `1 - depth`.
+    const halfCycleMs = 500 / spec.shimmerHz;
+    for (let ms = 0; ms < halfCycleMs; ms += 16) ambient.advance(16);
+    expect(breath()).toBeLessThan(1 - spec.shimmerDepth * 0.9);
+    // And the bed's own level is untouched by it, so the crossfade still owns it.
+    expect(ambient.gainOf("saturn")).toBeCloseTo(spec.level, 9);
   });
 
   it("shares one wind buffer across every bed on a context", () => {

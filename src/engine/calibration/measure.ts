@@ -168,6 +168,36 @@ export function measureStep(step: RitualStepInput): CalibrationStepOutcome {
 }
 
 /**
+ * Samples the ritual must produce before a measure is believed (D100, AC-11.8).
+ *
+ * WHY A MINIMUM AND NOT JUST "MORE THAN ZERO". D100 gives the ritual an assist
+ * window, so a child who cannot type is now carried past the prompt instead of
+ * being stranded on it. That creates a case the ritual never had before: a
+ * sequence that ran to the end having collected one stray interval. A median of
+ * one is not a median - it is the single distracted keystroke D18 exists to
+ * defend against, promoted to the whole baseline - and storing it would put a
+ * number on the profile that means nothing while looking exactly like a
+ * measurement. `parkGraceMs`, the next stop's assist window and the first
+ * belt's fall time are all set from it.
+ *
+ * Three intervals and two word-start latencies, the same figures D99's
+ * `foldLaunchCeremony` gates on, because it is the same question asked of the
+ * same kind of sample.
+ *
+ * WHAT THIS IS NOT. It is not what makes the belt survivable. That was measured
+ * rather than assumed: with the shipped in-belt fold running, a grade-2 pilot
+ * started at FR-8's default and a grade-2 pilot started at their own true speed
+ * stall 2 and 2 times in 120 belts respectively, and the belief converges to
+ * within 2 ms of the truth inside one stage either way. The starting baseline
+ * barely matters. This gate exists because a stored number should mean what it
+ * says, not because the game falls over without it.
+ */
+export const RITUAL_MIN_IKI_SAMPLES = 3;
+
+/** Word-start latencies required before `fkLatencyMs` is believed. Same rule. */
+export const RITUAL_MIN_FK_SAMPLES = 2;
+
+/**
  * AC-11.1: produce the median inter-key interval and first-key latency from a
  * played ritual.
  *
@@ -177,6 +207,11 @@ export function measureStep(step: RitualStepInput): CalibrationStepOutcome {
  * falls back to DEFAULT_CALIBRATION independently, so a ritual that produced
  * intervals but no clean word-start latency keeps its real ikiMs instead of
  * throwing both away.
+ *
+ * "Produced nothing" means fewer than RITUAL_MIN_*_SAMPLES, not zero - see
+ * those constants. FR-8's default is what a measure falls back to either way,
+ * and `usedDefault*` says which measures fell back, so a caller can tell a
+ * measured baseline from an assumed one.
  */
 export function computeCalibration(
   steps: readonly RitualStepInput[],
@@ -199,8 +234,12 @@ export function computeCalibration(
     ikiSamples.push(...outcome.ikiSamplesMs);
   }
 
-  const fkMedian = median(fkSamples);
-  const ikiMedian = median(ikiSamples);
+  // The gate, not just `median(...) === null`: too few samples is the same
+  // fact as none, and after D100's assist it is the common way to get there.
+  const fkMedian =
+    fkSamples.length < RITUAL_MIN_FK_SAMPLES ? null : median(fkSamples);
+  const ikiMedian =
+    ikiSamples.length < RITUAL_MIN_IKI_SAMPLES ? null : median(ikiSamples);
 
   return {
     calibration: {

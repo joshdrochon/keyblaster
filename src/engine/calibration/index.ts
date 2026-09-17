@@ -27,8 +27,14 @@ export {
   RITUAL_BUDGET_MS,
   RITUAL_STEPS,
   SHORT_WORD_MAX_LENGTH,
+  PREFLIGHT_ASSIST_CEILING_MS,
+  PREFLIGHT_ASSIST_FACTOR,
+  PREFLIGHT_ASSIST_FLOOR_MS,
+  PREFLIGHT_ASSIST_GIVE_UP,
   estimateRitualTypingMs,
   planRitual,
+  promptAssistMs,
+  shuffleInPlace,
   stepSpec,
   wordFitsStep,
   type CalibrationMeasure,
@@ -51,6 +57,8 @@ export {
 } from "./stats.js";
 
 export {
+  RITUAL_MIN_FK_SAMPLES,
+  RITUAL_MIN_IKI_SAMPLES,
   applyCalibration,
   computeCalibration,
   measureStep,
@@ -60,6 +68,20 @@ export {
   type RitualStepInput,
   type RitualWordInput,
 } from "./measure.js";
+
+export {
+  LAUNCH_CEREMONY_BUDGET_MS,
+  LAUNCH_CEREMONY_STEP,
+  LAUNCH_CEREMONY_WORDS,
+  LAUNCH_MAX_TIGHTEN,
+  LAUNCH_MIN_FK_SAMPLES,
+  LAUNCH_MIN_IKI_SAMPLES,
+  LAUNCH_REFINE_ALPHA,
+  foldLaunchCeremony,
+  planLaunchCeremony,
+  type LaunchFoldOptions,
+  type LaunchFoldResult,
+} from "./launch.js";
 
 export {
   HISTORY_SAMPLE_WINDOW,

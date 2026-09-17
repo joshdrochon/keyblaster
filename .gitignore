@@ -38,3 +38,7 @@ gauntlet/escalations.md
 docs/tickets.md
 docs/audit.md
 docs/coverage-audit.md
+gauntlet/memwatch.log
+gauntlet/memwatch-ALERT.txt
+dist-play/
+tests/e2e/scratch/

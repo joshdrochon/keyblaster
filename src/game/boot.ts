@@ -26,9 +26,12 @@ import {
   DEFAULT_SCENE_CONTEXT,
   GAME_HEIGHT,
   GAME_WIDTH,
+  MIN_RENDER_SCALE,
   SCENE_KEYS,
   designWidthFor,
+  renderScaleFor,
   setGameWidth,
+  textResolutionFor,
   type SceneContext,
 } from "./sceneKeys.js";
 import { hexToNum, paletteFor } from "./render/palette.js";
@@ -409,6 +412,376 @@ function followWindowSize(game: Phaser.Game, backdrop: ViewportBackdrop | null):
 }
 
 // ---------------------------------------------------------------------------
+// Pixel density (UR-18): the buffer follows the screen, the world does not
+// ---------------------------------------------------------------------------
+
+/**
+ * WHAT WAS WRONG. The canvas drew 1920x1080 whatever the display. Probed on
+ * the frozen build, `deviceScaleFactor` 1 and 2 gave an IDENTICAL 1920x1080
+ * drawing buffer in an identical 1440x810 CSS box - so at 2x that canvas
+ * covers 2880x1620 real pixels while being handed 1920x1080, and the browser
+ * upscales it ~1.5x. Nothing in `src/` had ever read `devicePixelRatio`.
+ *
+ * All the art is vector drawn in code (D83), so it is pixel-perfect at any
+ * resolution. We were simply never asking for one.
+ *
+ * ================== WHY THIS IS NOT `setGameSize` ==================
+ * The obvious fix - size the game in device pixels - MOVES THE DESIGN SPACE,
+ * and the design space is load-bearing. `scene.scale.width/height` is read at
+ * 34 sites across the scene lane as design coordinates (`this.scale.width -
+ * 260` anchors the HUD, `this.scale.height` IS FR-8's fall distance), and
+ * `Phaser.Scale` hard-couples the drawing buffer to the game size:
+ * `ScaleManager.setGameSize` sets `baseSize` from `gameSize` and `canvas.width`
+ * from `baseSize`, and under `FIT` `updateScale` only ever touches
+ * `style.width/height`. So a bigger buffer via the size is a bigger world, and
+ * a bigger world is the letterbox defect's whole family of failures again.
+ *
+ * `scale.zoom` is not the lever either, and this was checked in the source
+ * rather than assumed: under every mode except NONE, `updateScale` ignores
+ * `zoom` completely. It scales the CSS box, never the buffer.
+ *
+ * Compensating with a camera zoom was the third shape and it collides with
+ * scenes that already own their camera: `EndingScene` calls `setZoom(1.5)`,
+ * tweens `zoom`, and REPORTS `cameras.main.zoom` in the snapshot the rubric
+ * reads. A global camera zoom would be stomped by one screen and would change
+ * another screen's evidence.
+ *
+ * ================== WHAT THIS DOES INSTEAD ==================
+ * It separates the two things Phaser keeps welded together:
+ *
+ *   projection  stays DESIGN space  (renderer.width/height untouched, so
+ *               cameras, pointer coordinates and `scene.scale.width` are all
+ *               exactly what they were)
+ *   viewport    becomes REAL pixels (canvas.width/height and gl.viewport)
+ *
+ * which is the ordinary HiDPI trick - rasterise logical units across a denser
+ * buffer - and is what Phaser's own removed `resolution` config used to do.
+ *
+ * The cost of doing it from outside is that three renderer internals then
+ * disagree about which space they are in, and all three are corrected here:
+ *
+ *   1. `setScissor` takes design px and writes `gl.scissor` directly.
+ *      `preRenderCamera` pushes one for EVERY camera, so left alone the whole
+ *      game clips to the bottom-left quarter of the buffer.
+ *   2. `resetScissor` bypasses `setScissor` and calls `gl.scissor` itself.
+ *   3. `setFramebuffer` restores `gl.viewport` and `drawingBufferHeight` to
+ *      the DESIGN size when it unbinds.
+ *
+ * (3) never fires in this game today - there are no render textures, no
+ * bitmap masks and no post-processing (AC-22.9); the only masks are
+ * `createGeometryMask`, which is stencil and rides the same projection. It is
+ * handled anyway because "currently unreachable" is not the same as "safe".
+ *
+ * KNOWN BRITTLENESS, stated rather than buried: this reaches into Phaser
+ * internals that are not part of its public contract, so a Phaser upgrade must
+ * re-check those three. `tests/e2e/dpi.spec.ts` asserts both halves - buffer
+ * up, design space still - and will go red rather than quiet if it breaks.
+ */
+
+/** The renderer surface this reaches into. Narrow on purpose. */
+interface HiDpiRenderer {
+  gl: WebGLRenderingContext;
+  width: number;
+  height: number;
+  drawingBufferHeight: number;
+  currentScissor: number[] | null;
+  setScissor(x: number, y: number, w: number, h: number, dbh?: number): void;
+  resetScissor(): void;
+  setFramebuffer(
+    framebuffer: unknown,
+    updateScissor?: boolean,
+    setViewport?: boolean,
+    texture?: unknown,
+    clear?: boolean,
+  ): unknown;
+  /** Reached via `DynamicTexture.endDraw`. Restores the DESIGN viewport. */
+  resetViewport(): void;
+  /** `renderer.pipelines`. `rebind` restores the DESIGN viewport. */
+  pipelines: { rebind(pipeline?: unknown): unknown };
+}
+
+/** Live read of the display's density, safe where there is no window. */
+function devicePixelRatioNow(): number {
+  try {
+    const dpr = window.devicePixelRatio;
+    return Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
+  } catch {
+    return 1;
+  }
+}
+
+/**
+ * Rasterise the design space into a buffer that matches the screen.
+ *
+ * Returns a getter for the scale in force, which is also what `Text` objects
+ * are rendered at (see `sharpenText`).
+ *
+ * EXPORTED FOR THE OTHER ENTRY POINT (UR-36). `src/game/flight/boot.ts` builds
+ * a SECOND `Phaser.Game` - it is what `flight.spec`, `world-frame.spec`,
+ * `blast-history.spec` and `flight-perf.spec` drive, 24 tests between them -
+ * and it does not come through `bootGame`, so it gets none of this. That is
+ * why P-22.9's frame-time evidence was gathered on a 1x buffer.
+ *
+ * A game that wants the shipping renderer needs both of these and, separately,
+ * `setGameWidth(designWidthFor(...))` for D99. Calling this alone sharpens the
+ * buffer and leaves the other four divergences in place; see the UR-36 entry
+ * in gauntlet/escalations.md for the full list, because the fix belongs to the
+ * flight lane and a partial adoption would be worse than none.
+ */
+export function installPixelDensity(game: Phaser.Game): () => number {
+  let scale = MIN_RENDER_SCALE;
+
+  const renderer = game.renderer as unknown as Partial<HiDpiRenderer>;
+  const gl = renderer.gl;
+  const canvas = game.canvas;
+  // The Canvas fallback renderer has no buffer to enlarge and no scissors to
+  // correct. A soft canvas beats a crashed one.
+  if (gl === undefined || canvas === undefined || typeof renderer.setScissor !== "function") {
+    return () => MIN_RENDER_SCALE;
+  }
+  const r = renderer as HiDpiRenderer;
+
+  // True while a framebuffer is bound: inside one, Phaser is already working
+  // in that target's own pixels and must not be scaled a second time.
+  let inFramebuffer = false;
+  const scaleNow = (): number => (inFramebuffer ? 1 : scale);
+
+  const baseSetScissor = r.setScissor.bind(r);
+  r.setScissor = (x, y, w, h, dbh): void => {
+    const s = scaleNow();
+    baseSetScissor(x * s, y * s, w * s, h * s, dbh);
+  };
+
+  // Re-implemented rather than wrapped: the original calls `gl.scissor` itself
+  // from `currentScissor`, so there is no argument to intercept.
+  r.resetScissor = (): void => {
+    gl.enable(gl.SCISSOR_TEST);
+    const current = r.currentScissor;
+    if (!current) return;
+    const s = scaleNow();
+    const x = current[0]! * s;
+    const y = current[1]! * s;
+    const w = current[2]! * s;
+    const h = current[3]! * s;
+    if (w > 0 && h > 0) gl.scissor(x, r.drawingBufferHeight - y - h, w, h);
+  };
+
+  const baseSetFramebuffer = r.setFramebuffer.bind(r);
+  r.setFramebuffer = (fb, updateScissor, setViewport, texture, clear): unknown => {
+    inFramebuffer = fb !== null && fb !== undefined;
+    const out = baseSetFramebuffer(fb, updateScissor, setViewport, texture, clear);
+    if (!inFramebuffer) {
+      // Phaser has just restored both of these to the DESIGN size.
+      r.drawingBufferHeight = gl.drawingBufferHeight;
+      if (setViewport !== false) gl.viewport(0, 0, canvas.width, canvas.height);
+      if (updateScissor === true) r.resetScissor();
+    }
+    return out;
+  };
+
+  /**
+   * THE OTHER TWO VIEWPORT WRITERS (UR-37).
+   *
+   * Phaser writes a design-space viewport or scissor in six places. The three
+   * above are the ones this game reaches today. These two it does not - and
+   * the comment at the top of this block argues that "currently unreachable is
+   * not the same as safe", so applying that to one path and not these was
+   * simply inconsistent. Both are three lines.
+   *
+   * They matter because they are QUIET. The upgrade risk documented above is
+   * loud: the game clips to a corner and `dpi.spec.ts` fails. These need no
+   * upgrade at all - they arrive the first time anyone adds a RenderTexture, a
+   * DynamicTexture bake or an FX pipeline, they corrupt the viewport MID-FRAME
+   * where the per-frame re-statement below cannot help, and nothing would say
+   * so.
+   *
+   * THE SIXTH WRITER NEEDS NO PATCH, and that is a measurement rather than an
+   * assumption: `preRender` sets a design-space scissor when any camera has a
+   * custom viewport, but Phaser's `Game.step` runs `renderer.preRender()`,
+   * THEN emits `Events.PRE_RENDER`, THEN calls `scene.render()`
+   * (core/Game.js). `apply` below is on `PRE_RENDER`, so it overwrites that
+   * scissor before a single object is drawn, and each camera's own rect goes
+   * through the scaling wrapper above.
+   */
+  const baseResetViewport = r.resetViewport.bind(r);
+  r.resetViewport = (): void => {
+    baseResetViewport();
+    if (inFramebuffer) return;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    r.drawingBufferHeight = gl.drawingBufferHeight;
+  };
+
+  const pipelines = r.pipelines;
+  if (pipelines !== undefined && typeof pipelines.rebind === "function") {
+    const baseRebind = pipelines.rebind.bind(pipelines);
+    pipelines.rebind = (pipeline?: unknown): unknown => {
+      const out = baseRebind(pipeline);
+      // Inside a framebuffer the target's own viewport is correct; only the
+      // main buffer is in the wrong space.
+      if (!inFramebuffer) gl.viewport(0, 0, canvas.width, canvas.height);
+      return out;
+    };
+  }
+
+  /**
+   * Size the buffer to the pixels the canvas actually occupies, and re-state
+   * the viewport, every frame, just before the scene is drawn.
+   *
+   * RE-STATED RATHER THAN SET ONCE, and this was a measured bug, not caution.
+   * The first version set the viewport when the scale changed and guarded the
+   * work behind "has anything I own changed". Phaser then called
+   * `renderer.resize(1920, 1080)` during boot - `ScaleManager.refresh` emits
+   * RESIZE and the renderer answers it by re-issuing `gl.viewport` at the
+   * DESIGN size - so the buffer stayed 2880x1620 while the viewport went back
+   * to 1920x1080 and the whole game drew into the bottom-left corner of it,
+   * with the other three quadrants left as clear colour. The guard could not
+   * see it, because the state it guarded was still correct.
+   *
+   * `gl.viewport` and `gl.scissor` are two of the cheapest calls in WebGL and
+   * this issues them once per frame against the thousands Phaser already
+   * makes. Paying that flat cost buys a version with no ordering assumption in
+   * it at all: a window drag, a `setGameSize` from `followWindowSize`, a scene
+   * restart, a DPR change from dragging onto another monitor, or any future
+   * Phaser code path that resets the viewport, all self-heal on the next
+   * frame. The buffer itself is only REALLOCATED when the size actually
+   * changes - assigning `canvas.width` clears the drawing buffer even when the
+   * value is identical, so that assignment stays behind a comparison.
+   */
+  const apply = (): void => {
+    const design = game.scale.gameSize;
+    const want = renderScaleFor(design.width, game.scale.displaySize.width, devicePixelRatioNow());
+    const bw = Math.round(design.width * want);
+    const bh = Math.round(design.height * want);
+    scale = want;
+
+    // `renderer.width/height` are deliberately NOT touched: they are what the
+    // projection matrix is built from, and the projection stays in design
+    // space. Only the buffer and the viewport move.
+    if (canvas.width !== bw || canvas.height !== bh) {
+      canvas.width = bw;
+      canvas.height = bh;
+    }
+    r.drawingBufferHeight = gl.drawingBufferHeight;
+    // `defaultScissor` is deliberately LEFT in design units. `preRender` seeds
+    // the scissor stack with it and `popScissor` restores from it, so it goes
+    // back through the wrapper above and is scaled there. Writing buffer px
+    // into it would scale it twice.
+    gl.viewport(0, 0, bw, bh);
+    // The cached rect is in design px and would make the next `setScissor` a
+    // no-op against a box that has just been re-stated in buffer px.
+    r.currentScissor = null;
+    gl.scissor(0, 0, bw, bh);
+  };
+
+  apply();
+  game.events.on(Phaser.Core.Events.PRE_RENDER, apply);
+  return () => scale;
+}
+
+/**
+ * Make the WORDS sharp, which is most of what a child is looking at.
+ *
+ * A `Text` object is not vector at draw time: it rasterises its string to a
+ * private canvas texture at `style.resolution` (default 1) and the renderer
+ * draws that texture at `width / resolution`. So a denser drawing buffer on
+ * its own sharpens every shape in the game and leaves every letter exactly as
+ * soft as it was - the glyph texture is still 1 design px per pixel and is
+ * simply magnified across the bigger buffer.
+ *
+ * Done by intercepting the factory rather than by editing scenes: `add.text`
+ * is the one door every string in the game goes through, and the scene and UI
+ * lanes are live. Display size is unaffected (Phaser divides the texture back
+ * out), so no layout moves - which is the property `dpi.spec.ts` asserts.
+ */
+function sharpenText(game: Phaser.Game, renderScale: () => number): void {
+  type TextFactory = (
+    this: Phaser.GameObjects.GameObjectFactory,
+    x: number,
+    y: number,
+    text: string | string[],
+    style?: Phaser.Types.GameObjects.Text.TextStyle,
+  ) => Phaser.GameObjects.Text;
+
+  /**
+   * The wrapper is installed on the PROTOTYPE, so it is installed once per
+   * process and not once per game. It therefore reads the resolution through a
+   * mutable slot rather than closing over this particular `bootGame` call's
+   * getter: a suite that boots a second game would otherwise leave every new
+   * string rasterised at the DESTROYED game's density.
+   */
+  const factory = Phaser.GameObjects.GameObjectFactory.prototype as unknown as {
+    text: TextFactory;
+    __kbTextResolution?: () => number;
+  };
+  const alreadyWrapped = factory.__kbTextResolution !== undefined;
+  factory.__kbTextResolution = () => textResolutionFor(renderScale());
+  if (!alreadyWrapped) {
+    const base = factory.text;
+    factory.text = function (x, y, text, style): Phaser.GameObjects.Text {
+      const made = base.call(this, x, y, text, style);
+      const want = factory.__kbTextResolution?.() ?? 1;
+      if (made.style.resolution !== want) made.setResolution(want);
+      return made;
+    };
+  }
+
+  /**
+   * `make.text` as well as `add.text` (UR-37).
+   *
+   * `GameObjectCreator` is a SECOND door to the same object and it was left
+   * unwrapped. Today the only caller is a measuring ruler in `WarpScene` that
+   * is destroyed without being drawn, so nothing is visibly wrong - which is
+   * exactly why it would have stayed missed until someone used `make.text` for
+   * something on screen and got one soft string among sharp ones.
+   */
+  const creator = Phaser.GameObjects.GameObjectCreator.prototype as unknown as {
+    text: (
+      this: Phaser.GameObjects.GameObjectCreator,
+      config: unknown,
+      addToScene?: boolean,
+    ) => Phaser.GameObjects.Text;
+    __kbTextResolution?: () => number;
+  };
+  const creatorWrapped = creator.__kbTextResolution !== undefined;
+  creator.__kbTextResolution = () => textResolutionFor(renderScale());
+  if (!creatorWrapped && typeof creator.text === "function") {
+    const baseMake = creator.text;
+    creator.text = function (config, addToScene): Phaser.GameObjects.Text {
+      const made = baseMake.call(this, config, addToScene);
+      const want = creator.__kbTextResolution?.() ?? 1;
+      if (made !== undefined && made.style !== undefined && made.style.resolution !== want) {
+        made.setResolution(want);
+      }
+      return made;
+    };
+  }
+
+  /**
+   * The DPR can change without the window resizing - dragging the window to a
+   * monitor of a different density is the ordinary case. The buffer heals
+   * itself every frame (`installPixelDensity`), but Text objects already built
+   * carry the old resolution in a texture, so they are re-rasterised once when
+   * the number actually changes. Not on a tick: only on a change (AC-22.9).
+   */
+  let applied = textResolutionFor(renderScale());
+  game.events.on(Phaser.Core.Events.PRE_STEP, () => {
+    const want = textResolutionFor(renderScale());
+    if (want === applied) return;
+    applied = want;
+    const walk = (children: Phaser.GameObjects.GameObject[]): void => {
+      for (const child of children) {
+        if (child instanceof Phaser.GameObjects.Text) {
+          child.setResolution(want);
+        } else if (child instanceof Phaser.GameObjects.Container) {
+          walk(child.list);
+        }
+      }
+    };
+    for (const scene of game.scene.getScenes(false)) walk(scene.children.list);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
@@ -591,6 +964,17 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
     scene: [],
   });
 
+  /**
+   * UR-18: rasterise the design space at the screen's real pixel density.
+   *
+   * Installed HERE, before any scene has been started, for two reasons: the
+   * `Text` factory has to be wrapped before the first string is built, and the
+   * renderer's scissor overrides have to be in place before the first frame is
+   * drawn. Neither reads or moves a design coordinate.
+   */
+  const renderScale = installPixelDensity(game);
+  sharpenText(game, renderScale);
+
   game.registry.set(SERVICES_KEY, bundle);
   game.registry.set("kb.lang", bundle.t.lang);
 
@@ -601,7 +985,24 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
     // rather than a new graph. Known limitation, noted rather than hidden - a
     // child who switches language mid-run keeps the voice they booted with
     // until the next reload.
-    graph: createAudioSystem({ lang: bundle.t.lang }),
+    /**
+     * D98: the platform voice is OFF unless the URL asks for it.
+     *
+     * Web Speech was D88's stand-in for having no ElevenLabs key. That ended,
+     * and the stand-in stayed wired as the fallback under every speak site, so
+     * any line nobody remembered to render degraded silently to an OS voice
+     * instead of failing loudly. D98 cut it: an unrendered spoken line is a
+     * BUILD failure now, and silence is the runtime behaviour.
+     *
+     * It survives behind an opt-in for the one case D98 keeps it for — a live
+     * `/api/coach` note, which is generated per child and can never be
+     * pre-rendered. That case needs a switch reachable from a browser, so this
+     * uses the same URL seam `?coach=proxy` already does. Off unless asked.
+     */
+    graph: createAudioSystem({
+      lang: bundle.t.lang,
+      allowSystemVoice: params.get("voice") === "system",
+    }),
     events: game.events,
     registry: game.registry,
     // Read from the flight lane rather than restated, so the two can never
@@ -669,6 +1070,10 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
     // The aspect-ratio e2e reads this to say how much bar FIT left and what is
     // painted in it, rather than eyeballing a screenshot for black.
     backdrop,
+    // UR-18. The e2e asserts BOTH halves off this: `renderScale` > 1 on a
+    // high-DPI display (the buffer followed the screen) while `designWidth`
+    // and `designHeight` are unmoved (the world did not).
+    renderScale: (): number => renderScale(),
   };
 
   game.events.once(Phaser.Core.Events.DESTROY, () => backdrop?.destroy());

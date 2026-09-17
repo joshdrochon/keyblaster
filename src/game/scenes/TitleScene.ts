@@ -38,6 +38,7 @@ import { SHIPPED_LANGS } from "../../engine/i18n/index.js";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
 import { INK, TYPE, chromeCase } from "@game/ui/theme";
 import { skyText, skyTextSamples, type SceneSnapshot } from "./lib/kit.js";
+import { typographyOf } from "./lib/typography.js";
 
 /**
  * The wordmark's own face. Everything ELSE on this screen is now dressed from
@@ -319,7 +320,7 @@ export class TitleScene extends Phaser.Scene {
     // The tagline is chrome, so it is lowercase (D41) and on a plate: on a
     // bright stop's sky - Saturn's is near ivory - cream type on open sky is
     // unreadable, and the Title wears the palette of the furthest beacon.
-    const sub = skyText(this, 2, 178, chromeCase(tagline, false), {
+    const sub = skyText(this, 2, 178, chromeCase(tagline, typographyOf(this).uppercase), {
       screen: "title",
       id: "title.tagline",
       size: TYPE.body,
@@ -360,7 +361,7 @@ export class TitleScene extends Phaser.Scene {
     // of its own - but it is still REGISTERED, with the accent it actually sits
     // on, because "it's on a panel, trust me" is how unreadable text ships.
     root.add(
-      skyText(this, width / 2, height / 2, chromeCase(label, false), {
+      skyText(this, width / 2, height / 2, chromeCase(label, typographyOf(this).uppercase), {
         screen: "title",
         id: "title.primary",
         size: TYPE.heading,
@@ -396,7 +397,7 @@ export class TitleScene extends Phaser.Scene {
 
   private buildQuiet(label: string, x: number, y: number): MenuItem {
     const root = this.add.container(x, y);
-    const item = skyText(this, 4, 0, chromeCase(label, false), {
+    const item = skyText(this, 4, 0, chromeCase(label, typographyOf(this).uppercase), {
       screen: "title",
       id: "title.settings",
       size: TYPE.body,

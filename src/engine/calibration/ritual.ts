@@ -143,8 +143,12 @@ export interface RitualPlan {
 /**
  * Deterministic in-place shuffle. Randomness is injected (CLAUDE.md hard rule)
  * so the Preflight scene varies between children while tests stay fixed-seed.
+ *
+ * Exported because `launch.ts` picks the launch ceremony's words the same way
+ * (D99) and a second copy of a randomness primitive is a second place for the
+ * fixed-seed guarantee to drift.
  */
-function shuffle(arr: string[], rng: () => number): void {
+export function shuffleInPlace(arr: string[], rng: () => number): void {
   for (let i = arr.length - 1; i > 0; i -= 1) {
     // rng() is specified over [0,1) but a badly behaved source returning
     // exactly 1 must not produce an out-of-range swap.
@@ -187,8 +191,8 @@ export function planRitual(
     }
   }
 
-  shuffle(short, rng);
-  shuffle(long, rng);
+  shuffleInPlace(short, rng);
+  shuffleInPlace(long, rng);
 
   const steps: RitualPlanStep[] = [];
   let shortCursor = 0;
@@ -233,4 +237,100 @@ export function estimateRitualTypingMs(
     }
   }
   return total;
+}
+
+// ---------------------------------------------------------------------------
+// THE PROMPT ASSIST: the pre-flight screen never traps a child (D99, D100)
+// ---------------------------------------------------------------------------
+
+/**
+ * How long a pre-flight prompt waits on a word before moving on by itself, as a
+ * multiple of what the game estimates the word costs this child.
+ *
+ * WHY THIS EXISTS AT ALL. The pre-flight screen's typing phase used to be
+ * driven entirely by keystrokes, with nothing timing it out, in BOTH of its
+ * modes. A child who cannot type the prompt word never advanced - not after a
+ * retry, not eventually. For the launch ceremony (D99) that meant six locked
+ * doors on a route. For the FULL first-run ritual (D100, `UR-31`) it meant the
+ * first screen with typing that a brand-new player ever sees was unreachable by
+ * design for exactly the child this game is for: a seven-year-old who cannot
+ * yet type `hull`.
+ *
+ * ONE MECHANISM, NOT TWO. D99 solved this for the ceremony and D100 adapts the
+ * same numbers to the ritual rather than inventing a second rule, which is why
+ * these constants live in `ritual.ts` and are named for the screen instead of
+ * for either mode.
+ *
+ * Three times the estimate, so a child typing at their own measured pace is
+ * never interrupted - they finish at 1x - while a child who is stuck, has
+ * walked away, or cannot read the word is carried on anyway. Nothing about it
+ * is punitive: no message, no mark, no tally, no "let's try that again"
+ * (D31, AC-22b.1). The row lights and the sequence continues, exactly as it
+ * does for a word that was typed.
+ */
+export const PREFLIGHT_ASSIST_FACTOR = 3;
+
+/**
+ * Floor under the assist window, ms. At the shipped baseline three times the
+ * estimate of a four-letter word is 4.6 s, which is short enough to interrupt a
+ * child who is simply reading. Five seconds is past that for every word the
+ * screen can show at that baseline.
+ */
+export const PREFLIGHT_ASSIST_FLOOR_MS = 5_000;
+
+/**
+ * Ceiling on the assist window, ms - and the one place where two requirements
+ * genuinely pull against each other.
+ *
+ * Without a ceiling the window scales without bound: a pilot with a 1200 ms
+ * baseline gets 19.8 s on a single five-letter word, so a screen they never
+ * touch outlasts D51's whole ~20 s ritual - and the first-run ritual shows six
+ * words, which would strand them for two minutes. With one, the screen is
+ * bounded, at the cost that a pilot slower than about 1000 ms per key can be
+ * carried past a long word they were still working on.
+ *
+ * BOUNDED WINS, and the reason is that being carried past costs that child
+ * nothing: the row lights, whatever they typed still counts toward the
+ * measurement, nothing is marked, and they fly. Sitting on a screen they cannot
+ * finish costs them the game. The clamp is on the cheap failure, the same way
+ * `LAUNCH_MAX_TIGHTEN` is.
+ *
+ * At the baselines that actually occur this never fires on a short word: a
+ * grade-2 pilot at 600 ms needs 3.1 s for a five-letter word and is given 7 s.
+ */
+export const PREFLIGHT_ASSIST_CEILING_MS = 7_000;
+
+/**
+ * How many words in a row the assist may carry a child past before the screen
+ * stops asking altogether (D100).
+ *
+ * The ritual shows six words. Six untouched assist windows is 42 s of a child
+ * watching a word they cannot type, on top of the sequence's own beats - twice
+ * D51's budget, and every second of it after the second word tells the game
+ * nothing it did not already know. Two in a row is the point at which the
+ * screen has learned what it is going to learn; the remaining rows light on
+ * their own, Shadow finishes his line, and the child flies.
+ *
+ * A single word carried past does NOT count against the next one: the counter
+ * resets whenever a word is completed, so a child who stalls on `navigate` and
+ * then types `sky` is still being measured.
+ */
+export const PREFLIGHT_ASSIST_GIVE_UP = 2;
+
+/**
+ * How long the screen should wait on one prompt before carrying the child past
+ * it, ms.
+ *
+ * Pure, and derived from what the game already believes about this child, so a
+ * slower pilot gets a proportionally longer window rather than one number that
+ * suits the median and rushes everybody else - inside the floor and ceiling
+ * above.
+ */
+export function promptAssistMs(word: string, calibration: Calibration): number {
+  const estimate =
+    calibration.fkLatencyMs + Math.max(0, word.length - 1) * calibration.ikiMs;
+  const scaled = Math.round(PREFLIGHT_ASSIST_FACTOR * estimate);
+  if (scaled < PREFLIGHT_ASSIST_FLOOR_MS) return PREFLIGHT_ASSIST_FLOOR_MS;
+  if (scaled > PREFLIGHT_ASSIST_CEILING_MS) return PREFLIGHT_ASSIST_CEILING_MS;
+  return scaled;
 }

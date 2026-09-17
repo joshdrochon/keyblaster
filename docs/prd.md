@@ -105,10 +105,15 @@ KeyBlaster is a 2D high-fidelity vertical scroller for grades 2–5 in which the
 - AC-10.3 Difficulty never increases while hit rate < 0.85 (D18). → U.
 - AC-10.4 Scroll speed of the world is constant per stage and not a knob. → U.
 
-**FR-11 Calibration (D51).** New profile only; ~20 s pre-flight typing of high-frequency words framed as ship startup.
+**FR-11 Calibration (D51, D99).** A pre-flight typing sequence framed as ship startup. The full ~20 s measured ritual runs once per profile (D51); every later stop runs a short **launch ceremony** that is typed and that re-measures (D99, `UR-28`, collision C15).
 - AC-11.1 Produces median inter-key interval and first-key latency; stored on profile. Ritual steps: Hull check (1 short word), Systems check (3–4 short words), Engines (1 long word) (D81). → U.
-- AC-11.2 Not shown on returning profiles. → E.
+- AC-11.2 The full ~20 s ritual is not repeated on returning profiles; it is a once-per-profile cost (D51). They get D99's launch ceremony instead, which is capped at `LAUNCH_CEREMONY_BUDGET_MS`. → U + E.
 - AC-11.3 Feels like narrative, not a test: no score, no accuracy shown during it. → V.
+- AC-11.4 Every stop after the first prompts the player to type: the launch ceremony plans one or two short high-frequency words from the stop's own pool, and the Pre-flight screen is never mounted with nothing to type unless the stop's pool cannot supply the words (D99). → U + E.
+- AC-11.5 The ceremony's samples are folded into the stored baseline, never replace it: below `LAUNCH_MIN_IKI_SAMPLES` / `LAUNCH_MIN_FK_SAMPLES` the measure is left untouched, the blend weight is `LAUNCH_REFINE_ALPHA`, and one ceremony may not lower a measure by more than `LAUNCH_MAX_TIGHTEN` (D99). → U.
+- AC-11.6 The ceremony is not a gate: a player who types nothing, or types the wrong keys throughout, still reaches the belt, with no message, mark or tally (D99). → U + E.
+- AC-11.7 Neither is the full first-run ritual: every prompt in both modes is armed with `promptAssistMs`, the screen stops asking after `PREFLIGHT_ASSIST_GIVE_UP` untouched words, and a player who types nothing reaches the belt in 21.5 s (ritual) or 19.1 s (ceremony). Nothing about being carried past is drawn (D100, D31, AC-22b.1). → U + E.
+- AC-11.8 Being carried past is not a way to fake a measurement: `computeCalibration` believes a measure only at `RITUAL_MIN_IKI_SAMPLES` / `RITUAL_MIN_FK_SAMPLES` samples, otherwise falls back to FR-8's default and reports `usedDefault*`. A partial word still counts (D100). → U.
 
 ### 3.2b Debris types (D71)
 

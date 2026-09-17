@@ -100,6 +100,103 @@ export interface SfxVariant {
   readonly harshness: number;
   /** Stereo placement, -1..1. */
   readonly pan: number;
+  /**
+   * UR-30 - THE WEIGHT UNDER AN IMPACT. Optional.
+   *
+   * Destroying a rock was reported as landing with no weight. Rendered
+   * offline, the blast had 0.0-1.6% of its energy below 250 Hz and 0.1% below
+   * 120 Hz: a bright burst with nothing underneath it and a 100-130 ms tail.
+   * Nothing in the recipe could have supplied that, because one oscillator plus
+   * noise through one filter cannot be both the crack and the thump.
+   *
+   * So a second, purely low layer: a sine falling under the burst, on its own
+   * longer envelope, which is what gives an impact a body and a tail. Absent on
+   * every event that is not an impact - a keystroke tick with a sub under it
+   * would be a drum.
+   */
+  readonly sub?: SubLayer;
+  /**
+   * UR-34 - THE TRANSIENT. Optional.
+   *
+   * "Sound design is incredibly effective at simulating touch. Add sharp,
+   * high-quality mechanical keyboard click sounds to every keystroke."
+   *
+   * Rendered, the keystroke cue had NO transient to speak of: 0.4-1.8% of its
+   * first five milliseconds above 4 kHz, rising to a peak of 0.035-0.048. It is
+   * a soft tone, and a soft tone cannot feel like touching anything, because
+   * touch is an edge.
+   *
+   * This is that edge: a few milliseconds of noise through a narrow band, with
+   * an attack under half a millisecond. It is deliberately NOT the whole sound -
+   * the pentatonic tone still carries where the child is in the word (D75), and
+   * the `sub` under it is the case thock. Transient, body, voice; layered, never
+   * swapped.
+   */
+  readonly click?: ClickLayer;
+}
+
+/**
+ * The attack of a key press (UR-34): a very short band of noise.
+ *
+ * Every field is small on purpose. A mechanical switch's click is 2-6 ms long
+ * and lives between about 2 and 6 kHz; anything longer is a rattle and anything
+ * brighter is a hiss. This fires on every key of every word, so the budget is
+ * the tightest in the table.
+ */
+export interface ClickLayer {
+  /** Centre of the band, in Hz. Jittered per play; see `CLICK_JITTER`. */
+  readonly hz: number;
+  /**
+   * Q is LOW on purpose (UR-34). A narrow band takes about Q/f0 seconds to ring
+   * up from a cold filter, and at Q = 1.1 that put the click's realised peak
+   * 1.06 ms in - later than its own 0.35 ms envelope apex, and late enough that
+   * the press no longer began with an edge. A real switch is broadband anyway;
+   * this band is a colour on it, not a resonance.
+   */
+  readonly q: number;
+  readonly durationMs: number;
+  /** Linear gain on the noise, before the band. */
+  readonly gain: number;
+}
+
+/**
+ * UR-34 - HOW FAR THE CLICK MOVES FROM PLAY TO PLAY.
+ *
+ * A real keyboard does not make the same sound twice: the switch, the finger
+ * and the key all differ. This cue fires hundreds of times in a belt, and the
+ * one thing that has already gone wrong on this project is a sound becoming
+ * unbearable through repetition. So the click's band and level are drawn fresh
+ * every press, and the noise itself is read from a different place in the
+ * buffer each time (`AudioBufferSourceNodeLike.start`'s offset).
+ *
+ * +/-18% of the centre frequency is roughly +/-3 semitones of timbre, which is
+ * the spread you hear across the keys of one board. +/-22% of level is the
+ * spread you hear across strokes of one key.
+ */
+export const CLICK_JITTER = Object.freeze({ hz: 0.18, gain: 0.22 });
+
+/**
+ * UR-44 SET THE CEILING ON THE CLICK GAINS, AND UR-34 SET THE FLOOR.
+ *
+ * The first pass ran the click at 0.46-0.54 and a press peaked 0.21 median
+ * rendered - above everything in the game except the blast, the warp and the
+ * beacon, for a cue that fires three hundred times a belt. Halving it put the
+ * press under a hull hit and took the transient with it: the quietest press in
+ * thirty dropped to 9.0% of its attack energy above 2 kHz, under the 10% floor,
+ * and the median rise slipped to 0.73 ms.
+ *
+ * The shipped numbers satisfy both bounds at once, and both bounds are
+ * measurements rather than taste - see the UR-34 and UR-44 blocks in
+ * `rendered.test.ts`.
+ */
+
+/** The low body under an impact (UR-30). Sine only; this layer is felt, not heard. */
+export interface SubLayer {
+  readonly startHz: number;
+  readonly endHz: number;
+  /** Longer than the burst above it: the tail is most of what "weight" means. */
+  readonly durationMs: number;
+  readonly gain: number;
 }
 
 /** Derived, never stored: a recipe cannot disagree with its own frequencies. */
@@ -129,24 +226,56 @@ export const SFX_VARIANTS: Readonly<Record<SfxEventId, readonly SfxVariant[]>> =
   ]),
   // The percussive half of a keypress. The PITCHED half is keystrokeTone.ts
   // (D75), which is why these are tiny: two layers, one tick, one note.
+  // UR-34: each one now carries a `click` (the switch) and a `sub` (the case
+  // thock) under the tone. Three different switches rather than three tunings of
+  // one, because the bag plays all three within any three presses and a child
+  // types four to eight letters a word.
   keystroke: table("keystroke", [
-    { wave: "sine", startHz: 880, endHz: 880, durationMs: 32, attackMs: 1, peakGain: 0.06, filterKind: "lowpass", filterHz: 4200, noise: 0.12, harshness: 0.04, pan: -0.06 },
-    { wave: "triangle", startHz: 990, endHz: 990, durationMs: 28, attackMs: 1, peakGain: 0.055, filterKind: "lowpass", filterHz: 3800, noise: 0.08, harshness: 0.03, pan: 0.07 },
-    { wave: "sine", startHz: 760, endHz: 760, durationMs: 36, attackMs: 2, peakGain: 0.065, filterKind: "lowpass", filterHz: 3000, noise: 0.15, harshness: 0.05, pan: 0.0 },
+    { wave: "sine", startHz: 880, endHz: 880, durationMs: 32, attackMs: 1, peakGain: 0.06, filterKind: "lowpass", filterHz: 4200, noise: 0.12, harshness: 0.04, pan: -0.06,
+      click: { hz: 3400, q: 0.7, durationMs: 15, gain: 0.33 }, sub: { startHz: 250, endHz: 165, durationMs: 26, gain: 0.09 } },
+    { wave: "triangle", startHz: 990, endHz: 990, durationMs: 28, attackMs: 1, peakGain: 0.055, filterKind: "lowpass", filterHz: 3800, noise: 0.08, harshness: 0.03, pan: 0.07,
+      click: { hz: 4100, q: 0.8, durationMs: 13, gain: 0.3 }, sub: { startHz: 285, endHz: 190, durationMs: 22, gain: 0.08 } },
+    { wave: "sine", startHz: 760, endHz: 760, durationMs: 36, attackMs: 2, peakGain: 0.065, filterKind: "lowpass", filterHz: 3000, noise: 0.15, harshness: 0.05, pan: 0.0,
+      click: { hz: 2900, q: 0.6, durationMs: 17, gain: 0.36 }, sub: { startHz: 215, endHz: 142, durationMs: 30, gain: 0.1 } },
   ]),
   // D31. A SOFT NEUTRAL TICK. Flat pitch, quiet, short, dark, no noise edge.
   // Not a buzzer, not a descending interval, not an alarm. "That key went
   // somewhere else", said as briefly as it is possible to say anything.
+  //
+  // UR-34 / UR-44 - THE TYPO DOES *NOT* GET THE SWITCH CLICK, AND I CHANGED MY
+  // MIND ABOUT THAT.
+  //
+  // The first answer was "a real keyboard does not know whether you hit the
+  // right letter, so give a typo the identical click". It was wrong, and the
+  // measurement is what showed it: with the click on, typo.2 peaked 0.222
+  // rendered, against a hull hit at 0.070. A mistyped key landed three times
+  // harder than being struck by a rock. That is failure vocabulary expressed as
+  // volume, and D31 forbids it however even-handed the intent was.
+  //
+  // The realism argument was also answering the wrong question. D31's rule is
+  // not "a miss must sound the same as a hit", it is "nothing reads as
+  // failure". A miss that is SOFTER is not a punishment - it is the shape this
+  // table already had, and `GENTLE_EVENTS` exists to keep it that way.
+  //
+  // `rendered.test.ts` now measures the gentle budget on the RENDER rather than
+  // on `peakGain`, which is how a layer added on top of a declared field got
+  // past the budget in the first place.
   typo: table("typo", [
     { wave: "sine", startHz: 330, endHz: 330, durationMs: 45, attackMs: 3, peakGain: 0.05, filterKind: "lowpass", filterHz: 1400, noise: 0.0, harshness: 0.0, pan: 0.0 },
     { wave: "triangle", startHz: 294, endHz: 294, durationMs: 55, attackMs: 4, peakGain: 0.045, filterKind: "lowpass", filterHz: 1200, noise: 0.0, harshness: 0.0, pan: -0.08 },
     { wave: "sine", startHz: 392, endHz: 392, durationMs: 40, attackMs: 3, peakGain: 0.048, filterKind: "lowpass", filterHz: 1600, noise: 0.02, harshness: 0.0, pan: 0.09 },
   ]),
   // The rock breaks. Bright, fast, noisy - an impact, not a threat.
+  // UR-30: each one now carries a `sub` - a low sine falling under the burst on a
+  // much longer envelope. That is the "empty" the report named: the crack was
+  // there, the thump and the tail were not.
   blast: table("blast", [
-    { wave: "sawtooth", startHz: 780, endHz: 180, durationMs: 260, attackMs: 2, peakGain: 0.34, filterKind: "lowpass", filterHz: 5200, noise: 0.55, harshness: 0.45, pan: -0.15 },
-    { wave: "square", startHz: 640, endHz: 150, durationMs: 300, attackMs: 2, peakGain: 0.32, filterKind: "lowpass", filterHz: 4400, noise: 0.62, harshness: 0.5, pan: 0.18 },
-    { wave: "sawtooth", startHz: 900, endHz: 220, durationMs: 220, attackMs: 1, peakGain: 0.36, filterKind: "bandpass", filterHz: 2600, noise: 0.48, harshness: 0.4, pan: 0.02 },
+    { wave: "sawtooth", startHz: 780, endHz: 180, durationMs: 260, attackMs: 2, peakGain: 0.34, filterKind: "lowpass", filterHz: 5200, noise: 0.55, harshness: 0.45, pan: -0.15,
+      sub: { startHz: 132, endHz: 70, durationMs: 460, gain: 0.15 } },
+    { wave: "square", startHz: 640, endHz: 150, durationMs: 300, attackMs: 2, peakGain: 0.32, filterKind: "lowpass", filterHz: 4400, noise: 0.62, harshness: 0.5, pan: 0.18,
+      sub: { startHz: 116, endHz: 62, durationMs: 520, gain: 0.16 } },
+    { wave: "sawtooth", startHz: 900, endHz: 220, durationMs: 220, attackMs: 1, peakGain: 0.36, filterKind: "bandpass", filterHz: 2600, noise: 0.48, harshness: 0.4, pan: 0.02,
+      sub: { startHz: 155, endHz: 78, durationMs: 400, gain: 0.14 } },
   ]),
   // A rock reaches the hull. D31: this is a WARM LOW THUD you feel, never an
   // alarm, never a descending whine, never a red sound. The hull is the
@@ -163,16 +292,39 @@ export const SFX_VARIANTS: Readonly<Record<SfxEventId, readonly SfxVariant[]>> =
     { wave: "triangle", startHz: 200, endHz: 540, durationMs: 460, attackMs: 55, peakGain: 0.21, filterKind: "bandpass", filterHz: 760, noise: 0.42, harshness: 0.15, pan: 0.0 },
   ]),
   // The warp drive spools. Long, slow, climbing - anticipation.
+  //
+  // UR-13 - WHY THESE ARE NO LONGER SAWTOOTHS. A sawtooth has every harmonic at
+  // 1/n, so a 70 Hz one under a 1400 Hz lowpass is twenty near-equal partials:
+  // the electrical buzz UR-13 reports, and the warp screen
+  // plays it four times on the way up the meter. A triangle's harmonics are odd
+  // only and fall at 1/n^2, which is ~18 dB down on the third partial against
+  // the sawtooth's ~10 dB - the same rising drive without the electrical edge.
   warpCharge: table("warpCharge", [
-    { wave: "sawtooth", startHz: 70, endHz: 280, durationMs: 1800, attackMs: 220, peakGain: 0.22, filterKind: "lowpass", filterHz: 1400, noise: 0.25, harshness: 0.25, pan: 0.0 },
-    { wave: "triangle", startHz: 88, endHz: 330, durationMs: 2000, attackMs: 260, peakGain: 0.2, filterKind: "lowpass", filterHz: 1800, noise: 0.18, harshness: 0.18, pan: -0.14 },
-    { wave: "sawtooth", startHz: 60, endHz: 240, durationMs: 1600, attackMs: 180, peakGain: 0.24, filterKind: "bandpass", filterHz: 700, noise: 0.32, harshness: 0.3, pan: 0.15 },
+    { wave: "triangle", startHz: 73.42, endHz: 293.66, durationMs: 1800, attackMs: 220, peakGain: 0.22, filterKind: "lowpass", filterHz: 1400, noise: 0.25, harshness: 0.12, pan: 0.0 },
+    { wave: "sine", startHz: 87.31, endHz: 349.23, durationMs: 2000, attackMs: 260, peakGain: 0.2, filterKind: "lowpass", filterHz: 1800, noise: 0.18, harshness: 0.06, pan: -0.14 },
+    { wave: "triangle", startHz: 61.74, endHz: 246.94, durationMs: 1600, attackMs: 180, peakGain: 0.24, filterKind: "bandpass", filterHz: 700, noise: 0.32, harshness: 0.15, pan: 0.15 },
   ]),
   // D62: "warp is a full stinger". The loudest, longest thing in the game.
+  //
+  // UR-13 - "IT SHOULD MAKE A NICE SOUND WHEN IT TAKES OFF WITH THE WARP."
+  //
+  // What was here was a sawtooth and a square sweeping to 1400-1650 Hz under a
+  // 6.4-7.2 kHz lowpass with half its level in white noise. Rendered offline,
+  // variant 2 put 16.7% of its energy above 4 kHz and the set peaked at 0.574
+  // through the SFX bus - the brightest and loudest thing in the game by a wide
+  // margin, and abrasive rather than rewarding.
+  //
+  // It is now a DEPARTURE: a soft-attacked triangle rising two octaves on a real
+  // interval (G3->G5, C4->C6, A3->A5), so the takeoff lands as a note going up
+  // rather than as a sweep going bright. The noise is halved and the filter
+  // pulled down more than an octave, which is where the abrasiveness lived. It
+  // stays the longest sound in the game and the loudest recipe in the table, so
+  // D62's "full stinger" is unchanged; it is the timbre that moved, not the
+  // status.
   warp: table("warp", [
-    { wave: "sawtooth", startHz: 180, endHz: 1400, durationMs: 1500, attackMs: 12, peakGain: 0.42, filterKind: "lowpass", filterHz: 7200, noise: 0.5, harshness: 0.42, pan: 0.0 },
-    { wave: "square", startHz: 150, endHz: 1200, durationMs: 1700, attackMs: 18, peakGain: 0.4, filterKind: "lowpass", filterHz: 6400, noise: 0.58, harshness: 0.48, pan: -0.1 },
-    { wave: "sawtooth", startHz: 210, endHz: 1650, durationMs: 1350, attackMs: 8, peakGain: 0.44, filterKind: "bandpass", filterHz: 3200, noise: 0.44, harshness: 0.38, pan: 0.12 },
+    { wave: "triangle", startHz: 196.0, endHz: 784.0, durationMs: 1500, attackMs: 26, peakGain: 0.38, filterKind: "lowpass", filterHz: 3200, noise: 0.26, harshness: 0.16, pan: 0.0 },
+    { wave: "sine", startHz: 261.63, endHz: 1046.5, durationMs: 1700, attackMs: 34, peakGain: 0.36, filterKind: "lowpass", filterHz: 2600, noise: 0.32, harshness: 0.1, pan: -0.1 },
+    { wave: "triangle", startHz: 220.0, endHz: 880.0, durationMs: 1350, attackMs: 20, peakGain: 0.4, filterKind: "bandpass", filterHz: 1800, noise: 0.2, harshness: 0.18, pan: 0.12 },
   ]),
   // A beacon is lit at a stop: a clear bell, the reward tone of the whole game.
   beacon: table("beacon", [
@@ -364,10 +516,39 @@ export interface SfxPlayResult {
  * plays through the single output node handed in at construction, so the mixer
  * has one place to attenuate all of it.
  */
+/**
+ * UR-15 - HOW FAR APART TWO VOICES ARE PUSHED WHEN THE CLOCK IS NOT MOVING.
+ *
+ * 12 ms: under the ~20 ms at which two transients stop being one event, so a
+ * displaced voice is never heard as late; long enough that eight of them no
+ * longer share an attack.
+ */
+export const STALLED_VOICE_SPACING_MS = 12;
+
+/**
+ * UR-30 - HOW FAR EACH VOICE IS DETUNED, IN CENTS.
+ *
+ * "The typing sounds don't feel satisfying." Rendered as a belt - 20 words of
+ * five keys - the keystroke cue produced exactly FIVE distinct tones across 100
+ * presses, and word ten was bit-identical to word one. Nothing was wrong with
+ * the sound; what was wrong was that it was the same sound every time, hundreds
+ * of times a run.
+ *
+ * Six cents is about a twentieth of a semitone: below the threshold at which a
+ * change reads as a different note, above the point where two renders are the
+ * same file. It applies to every event, because every event in a long session
+ * has the same problem to a lesser degree.
+ */
+export const DETUNE_JITTER_CENTS = 6;
+
 export class SfxBus {
   private readonly rotations = new Map<SfxEventId, VariantRotation>();
   private noiseBuffer: AudioBufferLike | null = null;
   private readonly plays: SfxPlayResult[] = [];
+  /** The context clock reading the previous voice was scheduled against. */
+  private lastClock = Number.NEGATIVE_INFINITY;
+  /** How many voices have been scheduled since the clock last moved. */
+  private stalledVoices = 0;
 
   constructor(
     private readonly ctx: AudioContextLike,
@@ -427,9 +608,48 @@ export class SfxBus {
     return result;
   }
 
+  /**
+   * When a voice actually starts.
+   *
+   * UR-15 - WHY THIS IS NOT JUST `ctx.currentTime`.
+   *
+   * A browser will not start an `AudioContext` before a gesture, and a
+   * suspended context's `currentTime` DOES NOT ADVANCE - it sits at 0 until
+   * `resume()`. The Title screen fires `uiNav` on pointerOVER, which is not a
+   * gesture, so a child who runs the mouse down the menu before clicking
+   * queues every one of those blips at exactly t = 0. They are all the same
+   * waveform with the same phase and the same 2 ms attack, so when the context
+   * finally starts they do not arrive as several small sounds; they SUM.
+   * Rendered offline through the SFX bus at its shipped level:
+   *
+   *   voices at t=0    1        2        3        5        8
+   *   peak             0.0524   0.0810   0.0888   0.1557   0.2508
+   *   largest step     0.00359  0.00549  0.00868  0.01644  0.02246
+   *
+   * Eight hovers is 4.8x the peak and 6.3x the sample-to-sample step of one
+   * blip, delivered in a 2 ms attack. That is a pop.
+   *
+   * So: a voice scheduled against a clock that has not moved since the last one
+   * is pushed `STALLED_VOICE_SPACING_MS` past it. While the clock is running
+   * this is exactly `ctx.currentTime` and nothing changes - a real context
+   * advances every 128 samples, which is 2.7 ms at 48 kHz, so consecutive plays
+   * in normal use always read a later clock. It only ever engages when the
+   * clock is frozen, which is precisely the case that stacks.
+   */
+  private startTime(): number {
+    const clock = this.ctx.currentTime;
+    if (clock > this.lastClock) {
+      this.lastClock = clock;
+      this.stalledVoices = 0;
+      return clock;
+    }
+    this.stalledVoices += 1;
+    return clock + (this.stalledVoices * STALLED_VOICE_SPACING_MS) / 1000;
+  }
+
   /** Builds and schedules the nodes for one play. */
   private voice(variant: SfxVariant, startHz: number, endHz: number, peakGain: number): void {
-    const now = this.ctx.currentTime;
+    const now = this.startTime();
     const attack = Math.max(0.001, variant.attackMs / 1000);
     const end = now + variant.durationMs / 1000;
 
@@ -454,6 +674,11 @@ export class SfxBus {
     const osc = this.ctx.createOscillator();
     osc.type = variant.wave;
     osc.frequency.setValueAtTime(startHz, now);
+    // UR-30: a few cents, never the same twice. Too small to hear as PITCH and
+    // exactly large enough that the hundredth keystroke is not a byte-for-byte
+    // replay of the first. Delivered on `detune` rather than on `frequency` so
+    // the reported `startHz` stays the number the recipe asked for.
+    osc.detune.setValueAtTime((this.rand() * 2 - 1) * DETUNE_JITTER_CENTS, now);
     if (Math.abs(endHz - startHz) > 0.5) {
       osc.frequency.exponentialRampToValueAtTime(Math.max(1, endHz), end);
     }
@@ -464,13 +689,94 @@ export class SfxBus {
     if (variant.noise > 0) {
       const noise = this.ctx.createBufferSource();
       noise.buffer = this.noise();
+      // UR-34: a different stretch of noise every time. Looping so an offset
+      // near the end of the buffer still has material behind it - the wrap is a
+      // step drawn from the same distribution as every other step in white
+      // noise, which is the one signal a seam cannot be heard in.
+      noise.loop = true;
       const noiseGain = this.ctx.createGain();
       noiseGain.gain.setValueAtTime(variant.noise, now);
       noise.connect(noiseGain);
       noiseGain.connect(filter);
-      noise.start(now);
+      noise.start(now, this.noiseOffset());
       noise.stop(end);
     }
+
+    // UR-34: THE CLICK. Its own band and its own envelope, both bypassing the
+    // voice's filter - that filter is what shapes the TONE, and a transient
+    // that went through it would be exactly the soft edge this layer exists to
+    // replace.
+    const click = variant.click;
+    if (click !== undefined && click.gain > 0) {
+      const jitterHz = 1 + (this.rand() * 2 - 1) * CLICK_JITTER.hz;
+      const jitterGain = 1 + (this.rand() * 2 - 1) * CLICK_JITTER.gain;
+      const clickEnd = now + click.durationMs / 1000;
+      // 0.35 ms. Short enough to be an edge, long enough not to be a step.
+      const clickAttack = 0.00035;
+
+      const clickAmp = this.ctx.createGain();
+      clickAmp.gain.setValueAtTime(0.0001, now);
+      clickAmp.gain.linearRampToValueAtTime(
+        click.gain * jitterGain * (peakGain / variant.peakGain),
+        now + clickAttack,
+      );
+      clickAmp.gain.exponentialRampToValueAtTime(0.0001, clickEnd);
+      clickAmp.connect(panner);
+
+      const clickBand = this.ctx.createBiquadFilter();
+      clickBand.type = "bandpass";
+      clickBand.frequency.setValueAtTime(click.hz * jitterHz, now);
+      clickBand.Q.setValueAtTime(click.q, now);
+      clickBand.connect(clickAmp);
+
+      const clickNoise = this.ctx.createBufferSource();
+      clickNoise.buffer = this.noise();
+      clickNoise.loop = true;
+      clickNoise.connect(clickBand);
+      clickNoise.start(now, this.noiseOffset());
+      clickNoise.stop(clickEnd);
+    }
+
+    // UR-30: the low body under an impact. It bypasses the voice's own filter
+    // and envelope on purpose - the filter is what shapes the CRACK, and a
+    // 460 ms thump under a 260 ms burst needs its own, longer tail.
+    const sub = variant.sub;
+    if (sub !== undefined && sub.gain > 0) {
+      const subEnd = now + sub.durationMs / 1000;
+      const subAmp = this.ctx.createGain();
+      subAmp.gain.setValueAtTime(0.0001, now);
+      // Proportional, capped at the 4 ms an impact wants. UR-34 tightened the
+      // proportion: at 6% a 26 ms keystroke thock took 1.56 ms to reach its
+      // apex, which on the presses where the jittered click came in quiet made
+      // the THOCK the peak of the sound and the whole press rise in 1.5 ms. A
+      // key bottoming out is as fast an event as the switch clicking, so 3%.
+      const subAttack = Math.min(0.004, (sub.durationMs / 1000) * 0.03);
+      subAmp.gain.linearRampToValueAtTime(sub.gain * (peakGain / variant.peakGain), now + subAttack);
+      subAmp.gain.exponentialRampToValueAtTime(0.0001, subEnd);
+      subAmp.connect(panner);
+
+      const subOsc = this.ctx.createOscillator();
+      subOsc.type = "sine";
+      subOsc.frequency.setValueAtTime(sub.startHz * (startHz / variant.startHz), now);
+      subOsc.frequency.exponentialRampToValueAtTime(
+        Math.max(1, sub.endHz * (startHz / variant.startHz)),
+        subEnd,
+      );
+      subOsc.connect(subAmp);
+      subOsc.start(now);
+      subOsc.stop(subEnd);
+    }
+  }
+
+  /**
+   * Where in the noise buffer this voice starts reading (UR-34).
+   *
+   * Kept clear of the last two seconds' worth of nothing - the buffer is one
+   * second and the longest noise in the table is 1.7 s - by looping the source
+   * rather than by bounding the offset, so any offset is safe.
+   */
+  private noiseOffset(): number {
+    return this.rand();
   }
 
   /** One second of deterministic white noise, generated once and reused. */

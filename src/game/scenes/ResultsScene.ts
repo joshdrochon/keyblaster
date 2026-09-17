@@ -22,6 +22,7 @@ import { hexToNum, lightPositionOf, mixHex } from "@game/render/palette";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import { starPoints } from "@game/render/textures";
 import { DUR, INK, SPACE, TYPE, chromeCase } from "@game/ui/theme";
+import { headerText } from "@game/ui/grid";
 import {
   goTo,
   persistStopCleared,
@@ -41,6 +42,7 @@ import {
   type PlatedText,
   type SceneSnapshot,
 } from "./lib/kit";
+import { typographyOf } from "./lib/typography";
 import { laneInit, publishBag, textStyles, type LaneInit } from "./support/laneInit";
 import {
   openingFocusId,
@@ -117,8 +119,26 @@ import {
  * me" is how 1.19:1 shipped elsewhere.
  */
 
-/** The panel's alpha. Three per cent of sky comes through, which is the point. */
-const PANEL_ALPHA = 0.94;
+/**
+ * THE PANEL IS OPAQUE, AND IT WAS NOT.
+ *
+ * This was 0.94, with the comment "three per cent of sky comes through, which
+ * is the point". That is the point for `SKY_PLATE` - a sheet of glass laid over
+ * the world behind one line of type - and it is not the point for a card 980 px
+ * wide. At that size what comes through is not a tint, it is a SHAPE: the stop's
+ * moon sits behind the stage report's top-left corner, and on `results.png` the
+ * card body read #1c1b1d (L* 10.0) everywhere except inside the moon's
+ * footprint, where it read #1d2024 (L* 11.9). A visible circle inside an opaque
+ * panel reads as a rendering bug, because it is one.
+ *
+ * Nothing was mis-ordered: the panel is on the HUD layer and the moon is on
+ * `celestial`, six depths below. The fill simply carried alpha.
+ *
+ * `tests/unit/scenes/resultsInk.test.ts` reads this constant out of this file
+ * and asserts it, so the number the rubric measures and the number the screen
+ * draws cannot drift apart again.
+ */
+const PANEL_ALPHA = 1;
 /**
  * What the panel ink ACTUALLY composites to over the brightest sky a stop can
  * produce. Registered as the backdrop for everything drawn on a panel, so the
@@ -243,6 +263,11 @@ export class ResultsScene extends Phaser.Scene {
   private reportPieces: Piece[] = [];
   private boardPieces: Piece[] = [];
   private boardParts: Phaser.GameObjects.GameObject[] = [];
+  /** The rectangles `drawPanel` last filled. Read-only, for the e2e probe. */
+  private panelRects: { report: Rect | null; board: Rect | null } = {
+    report: null,
+    board: null,
+  };
   private reportPlate!: Phaser.GameObjects.Graphics;
   private boardPlate!: Phaser.GameObjects.Graphics;
   /**
@@ -516,7 +541,8 @@ export class ResultsScene extends Phaser.Scene {
   private buildHeader(): void {
     // ON A PLATE, BOTH OF THEM. The heading measured 1.72:1 in the stop accent
     // on Mars' ochre sky and the stop name was little better.
-    skyText(this, 160, 64, this.lane.copy.text("results.heading"), {
+    const h = headerText(0, undefined, 12);
+    skyText(this, h.x, h.y, this.lane.copy.text("results.heading"), {
       screen: "results",
       id: "results.heading",
       size: TYPE.heading,
@@ -525,7 +551,8 @@ export class ResultsScene extends Phaser.Scene {
       depth: layer("hud").depth + 2,
       padY: 12,
     });
-    skyText(this, 162, 126, this.lane.copy.stopName(this.stopId), {
+    const sub = headerText(1, undefined, 8);
+    skyText(this, sub.x, sub.y, this.lane.copy.stopName(this.stopId), {
       screen: "results",
       // The stop name is a proper noun from content (D41), so it is the one
       // string on this screen that keeps its capital.
@@ -934,6 +961,11 @@ export class ResultsScene extends Phaser.Scene {
       shadow: shadowBox(SHADOW_AT.x, SHADOW_AT.y, SHADOW_AT.scale),
     });
 
+    // Published for the e2e pixel probe (`results-panel-opacity.spec.ts`):
+    // the card's rectangle in design space, so the probe reads the panel the
+    // screen actually drew rather than a rectangle somebody transcribed.
+    this.panelRects = { report: laid.report, board: laid.board };
+
     this.drawPanel(this.reportPlate, laid.report);
     this.drawPanel(this.boardPlate, laid.board);
     for (const placed of laid.reportContent) {
@@ -1090,7 +1122,7 @@ export class ResultsScene extends Phaser.Scene {
     // screens and this is the render site that has to be right either way. No
     // proper noun ever reaches this function: the board's pilot names are rows,
     // not buttons.
-    const t = skyText(this, r.x + r.w / 2, r.y + r.h / 2, chromeCase(text, false), {
+    const t = skyText(this, r.x + r.w / 2, r.y + r.h / 2, chromeCase(text, typographyOf(this).uppercase), {
       screen: "results",
       id: inkId,
       size: TYPE.label,
@@ -1206,6 +1238,8 @@ export class ResultsScene extends Phaser.Scene {
       focusId: this.menu.targets[this.menu.index]?.id ?? null,
       focusIds: this.menu.targets.map((t) => t.id),
       reducedMotion: this.lane.reducedMotion,
+      /** Where the two cards were drawn, in design space. */
+      panels: this.panelRects,
     };
   }
 

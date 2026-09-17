@@ -5,6 +5,11 @@ import { join, resolve } from "node:path";
 // own debug contract is checked at compile time without bundling src into the
 // test runner.
 import type { FlightDebugState } from "../../src/game/scenes/FlightScene.js";
+// UR-36: the game's own canvas, by identity. There are two canvases on the page
+// now that this spec boots the shipping game (the viewport backdrop is the
+// other one), and picking the first one is what made V-22.3 measure a sky that
+// never moves.
+import { flightCanvasBox } from "./support/flightBoot.js";
 // @ts-expect-error - .mjs tooling module, no type declarations by design
 import { measureSilhouettes } from "../gauntlet/silhouette.mjs";
 
@@ -108,9 +113,12 @@ async function bootFlight(page: Page, options: BootOptions = {}): Promise<void> 
   await page.evaluate(
     async ([moduleUrl, opts]) => {
       const mod = (await import(moduleUrl as string)) as {
-        bootFlight: (o: unknown) => void;
+        // UR-36: the launcher now awaits `bootGame`, so this must be awaited.
+        // Before the fix it returned void and the spec raced a second game
+        // into existence; the boot it raced was not the shipping one either.
+        bootFlight: (o: unknown) => Promise<unknown>;
       };
-      mod.bootFlight({ debug: true, ...(opts as Record<string, unknown>) });
+      await mod.bootFlight({ debug: true, ...(opts as Record<string, unknown>) });
     },
     [BOOT_MODULE, options] as const,
   );
@@ -856,14 +864,38 @@ test.describe("Flight - rubric evidence", () => {
       stageWordCount: 40,
     });
 
-    const sampleSky = (): Promise<[number, number, number]> =>
-      page.evaluate(() => {
-        const canvas = document.querySelector("canvas") as HTMLCanvasElement;
+    /**
+     * UR-36: THIS SAMPLED THE WRONG CANVAS, AND THEN THE WRONG WAY.
+     *
+     * It took `document.querySelector("canvas")`, which under the shipping boot
+     * is the VIEWPORT BACKDROP - a static sky painted once per stop that by
+     * design never travels. The measured deltaE went straight to 0.00 against a
+     * bar of 10 the moment this spec started booting the real game, and the
+     * green it had been reporting was a property of the parallel boot having
+     * only one canvas on the page.
+     *
+     * It also read the LIVE WebGL canvas with `drawImage`, which needs
+     * `preserveDrawingBuffer` - the near-miss in `docs/verification-gaps.md`
+     * that has produced two wrong measurements here. Both problems go away by
+     * decoding a screenshot CLIPPED TO THE GAME'S OWN CANVAS, by identity: the
+     * fractional patch coordinates below are unchanged, because the clip makes
+     * the decoded image the canvas.
+     */
+    const sampleSky = async (): Promise<[number, number, number]> => {
+      const box = await flightCanvasBox(page);
+      const shot = await page.screenshot({
+        clip: { x: box.x, y: box.y, width: box.width, height: box.height },
+      });
+      return page.evaluate(async (b64: string) => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${b64}`;
+        await img.decode();
+        const canvas = { width: img.naturalWidth, height: img.naturalHeight };
         const off = document.createElement("canvas");
         off.width = canvas.width;
         off.height = canvas.height;
         const ctx = off.getContext("2d") as CanvasRenderingContext2D;
-        ctx.drawImage(canvas, 0, 0);
+        ctx.drawImage(img, 0, 0);
         // Several patches along the top band, then the per-channel MEDIAN. The
         // HUD plates own both top corners and a rock can cross any single
         // patch, so one sample would occasionally measure something that is
@@ -896,7 +928,8 @@ test.describe("Flight - rubric evidence", () => {
           return values[Math.floor(values.length / 2)] as number;
         };
         return [median(0), median(1), median(2)] as [number, number, number];
-      });
+      }, shot.toString("base64"));
+    };
 
     const start = await sampleSky();
     await page.waitForTimeout(17_000);
@@ -1002,10 +1035,30 @@ test.describe("Flight - rubric evidence", () => {
     page,
   }) => {
     test.setTimeout(90_000);
+    /**
+     * THE BELT HAS TO BE ALIVE, AND IT WAS NOT (UR-36 follow-on).
+     *
+     * Measured, not reasoned about: at `stageWordCount: 40` the stage carries
+     * six hull marks (`hullForStage`), nobody types during a five-second
+     * capture, so rocks cross the breach line unanswered and the stage STALLS
+     * about two seconds in. From sample 1 onward this probe was reading
+     *
+     *     hull 0/6, one rock frozen at y = -64
+     *
+     * A stalled scene stops `updateRocks`, so the last rock sat above the top
+     * of the frame for every remaining sample and the probe correctly reported
+     * `samplesIn: 0` - there was nothing at that location to measure. The
+     * SHIP's separation collapsing 0.42 -> 0.0016 across the five frames was
+     * D29's stall sequence: the Lantern sputters, DIMS and sinks. The art was
+     * never the finding; the fixture was capturing a dead game.
+     *
+     * Same defect as `plate-legibility`'s AC-2.3, which stalled before its
+     * first sample. A long stage cannot empty its hull inside the capture, and
+     * nothing about a silhouette depends on how long the stage is.
+     */
     await bootFlight(page, {
-      pixelReadback: true,
       knobs: { maxLive: 4 },
-      stageWordCount: 40,
+      stageWordCount: 400,
     });
     await page.waitForFunction(
       () => (window.__kbFlight?.state().rocks.length ?? 0) > 0,
@@ -1030,20 +1083,46 @@ test.describe("Flight - rubric evidence", () => {
       w: number;
       h: number;
       b64: string;
+      stalled: boolean;
       rocks: { word: string; sizePx: number; isCanister: boolean; plateLeft: number; plateRight: number; plateTop: number; plateBottom: number; rockBottom: number }[];
     }> =>
-      page.evaluate(() => {
+      (async () => {
+        /**
+         * UR-36: THE FRAME COMES FROM A SCREENSHOT, CLIPPED TO THE GAME.
+         *
+         * This took `document.querySelector("canvas")`, which is the VIEWPORT
+         * BACKDROP now that the spec boots the shipping game - a static sky with
+         * a starfield and no ship in it. Measured against it, the Lantern read
+         * inside 114.9 / outside 118.1, a separation of 0.012, because both
+         * numbers were sky. The item looked flaky and was in fact measuring a
+         * picture with nothing in it.
+         *
+         * It also read the live WebGL canvas, which needs `preserveDrawingBuffer`
+         * (`docs/verification-gaps.md`, and it has produced two wrong
+         * measurements here). Both fixed the same way as V-22.3 above.
+         */
+        const box = await flightCanvasBox(page);
+        const shot = await page.screenshot({
+          clip: { x: box.x, y: box.y, width: box.width, height: box.height },
+        });
+        return page.evaluate(async (b64in: string) => {
         const live = window.__kbFlight?.state();
-        const canvas = document.querySelector("canvas") as HTMLCanvasElement;
-        // Half resolution: enough to resolve a rock, cheap to move across the
-        // bridge five times without the page stuttering.
-        const W = Math.round(canvas.width / 2);
-        const H = Math.round(canvas.height / 2);
+        const img = new Image();
+        img.src = `data:image/png;base64,${b64in}`;
+        await img.decode();
+        // FULL resolution of the capture, not half of it. The old path read a
+        // 1920x1080 buffer and halved it to 960x540; a viewport screenshot is
+        // already 1280x720, and halving that again gave the probe 640x360 - a
+        // rock core of 55 samples at r=9, which is not enough pixels to measure
+        // a silhouette with. The bridge cost is the reason the halving existed
+        // and it is paid once per frame, five times.
+        const W = img.naturalWidth;
+        const H = img.naturalHeight;
         const off = document.createElement("canvas");
         off.width = W;
         off.height = H;
         const ctx = off.getContext("2d") as CanvasRenderingContext2D;
-        ctx.drawImage(canvas, 0, 0, W, H);
+        ctx.drawImage(img, 0, 0, W, H);
         const { data } = ctx.getImageData(0, 0, W, H);
         const bytes = new Uint8Array(W * H);
         for (let i = 0; i < bytes.length; i += 1) {
@@ -1059,6 +1138,12 @@ test.describe("Flight - rubric evidence", () => {
           w: W,
           h: H,
           b64: btoa(s2),
+          // A STALLED SCENE IS NOT A FRAME OF THIS GAME. `updateRocks` stops,
+          // so every rock freezes where it was - including above the top of the
+          // screen - and the ship is mid-way through D29's dim-and-sink. Both
+          // are captured here so the assertion below can say so out loud rather
+          // than let the probe report "could not measure" and be believed.
+          stalled: live?.stalled ?? true,
           rocks: (live?.rocks ?? []).map((r) => ({
             word: r.word,
             sizePx: r.sizePx,
@@ -1070,7 +1155,8 @@ test.describe("Flight - rubric evidence", () => {
             rockBottom: r.rockBottom,
           })),
         };
-      });
+        }, shot.toString("base64"));
+      })();
 
     interface FrameSample {
       frame: { w: number; h: number };
@@ -1082,7 +1168,15 @@ test.describe("Flight - rubric evidence", () => {
 
     const samples: FrameSample[] = [];
     for (let i = 0; i < 5; i += 1) {
-      const { w, h, b64, rocks } = await grab();
+      const { w, h, b64, rocks, stalled } = await grab();
+      // LOUD, and before anything is measured. A probe that cannot find its
+      // object must say why; "0 samples" on a stalled belt is a fact about the
+      // fixture, and reporting it as a silhouette measurement is how a check
+      // starts lying.
+      expect(
+        stalled,
+        `sample ${i}: the stage stalled, so the rocks are frozen (some off-frame) and the ship is mid-dim`,
+      ).toBe(false);
       // base64, not latin1. Decoding this as "binary" hands the probe the ASCII
       // codes of the base64 alphabet - a near-uniform buffer averaging 88 - and
       // every object then reads ~0.002 against its own background. Which is,
@@ -1090,13 +1184,39 @@ test.describe("Flight - rubric evidence", () => {
       const grey = Uint8Array.from(Buffer.from(b64, "base64"));
       const scale = w / DESIGN.width;
 
-      const objects: ProbeObject[] = rocks.map((r, i2) => ({
+      /**
+       * OFF-FRAME IS NOT UNMEASURABLE, AND CONFLATING THEM IS WHAT BROKE THIS.
+       *
+       * A rock spawns at y = -sizePx and falls in; for the first stretch of its
+       * life it is genuinely ABOVE the picture. Handing it to the probe makes
+       * the probe report `samplesIn: 0`, which reads as "I could not measure
+       * this object" when the truth is "this object is not in this frame".
+       *
+       * The difference decides what a zero MEANS. With the two conflated, the
+       * rubric item's bail could only be a ratio - it had to tolerate some
+       * zeroes, because some were legitimate - and a tolerated zero is a check
+       * that stops looking. Separated, every remaining zero is a real failure
+       * to locate something that IS on screen, so the bail can be, and now is,
+       * zero-tolerance (`tests/gauntlet/rubric.mjs`).
+       *
+       * The window is the object's own sampling ring, so an object is included
+       * exactly when the probe has pixels to read.
+       */
+      const onFrame = (cy: number, radius: number): boolean =>
+        cy + radius * 1.75 >= 0 && cy - radius * 1.75 <= h - 1;
+      const allRocks = rocks.map((r, i2) => ({
         id: `rock-${i2}-${r.word}`,
         kind: r.isCanister ? "canister" : "rock",
         cx: ((r.plateLeft + r.plateRight) / 2) * scale,
         cy: (r.rockBottom - r.sizePx / 2) * scale,
         r: (r.sizePx / 2) * scale,
       }));
+      const offFrame = allRocks.filter((o) => !onFrame(o.cy, o.r));
+      const objects: ProbeObject[] = allRocks.filter((o) => onFrame(o.cy, o.r));
+      // Recorded so the exclusion is visible in the artifact rather than being
+      // a silent filter: a frame where everything was off-screen is a frame
+      // this probe should not be believed about.
+      void offFrame;
       objects.push({
         id: "ship",
         kind: "ship",

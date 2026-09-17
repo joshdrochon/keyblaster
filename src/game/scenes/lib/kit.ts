@@ -4,6 +4,7 @@ import { hexToNum as rgb } from "@game/render/palette";
 import { recordSkyText as record } from "./skyTextRegistry";
 import type { Lang } from "@engine/types";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
+import { typographyOf } from "./typography";
 
 /**
  * The bits of chrome the four story screens share: type, plates, a focus ring
@@ -52,21 +53,39 @@ export function label(
   }
   const text = scene.add.text(x, y, content, style);
   text.setLineSpacing(Math.round(size * (lineHeightEm(lang) - 1)));
-  text.setLetterSpacing(letterSpacingPx(size, options.letterSpacing ?? false));
+  // D41 INCREASED LETTER SPACING, READ FROM THE SETTING (UR-38).
+  //
+  // This was `options.letterSpacing ?? false`, so the setting was off on every
+  // story screen no matter what the child had chosen - eleven scenes, none of
+  // which passed the flag, because nothing made them. It is a reading
+  // intervention (Zorzi et al. 2012) and the story screens are where the prose
+  // is. A caller may still force it either way; what it may no longer do is
+  // silently default to off. See `lib/typography.ts`.
+  text.setLetterSpacing(
+    letterSpacingPx(size, options.letterSpacing ?? typographyOf(scene).increasedLetterSpacing),
+  );
   if (options.alpha !== undefined) text.setAlpha(options.alpha);
   return text;
 }
 
 /** Chrome copy: a button or row label, lowercased per D41 unless told not to. */
+/**
+ * Chrome copy: a button or row label.
+ *
+ * `uppercase` is D41's letter-case setting and defaults to the SETTING rather
+ * than to false (UR-38). Chrome only, never a pilot name or a ship name - that
+ * is why this is a separate function from `label`.
+ */
 export function chrome(
   scene: Phaser.Scene,
   x: number,
   y: number,
   content: string,
-  uppercase: boolean,
+  uppercase?: boolean,
   options: TextOptions = {},
 ): Phaser.GameObjects.Text {
-  return label(scene, x, y, chromeCase(content, uppercase), {
+  const upper = uppercase ?? typographyOf(scene).uppercase;
+  return label(scene, x, y, chromeCase(content, upper), {
     size: TYPE.label,
     ...options,
   });
@@ -79,7 +98,29 @@ export interface PlateOptions {
   readonly alpha?: number;
 }
 
-/** A contrast plate. Word labels and prose both sit on one (rubric 8). */
+/**
+ * A contrast plate. Word labels and prose both sit on one (rubric 8).
+ *
+ * THE DEFAULT IS OPAQUE, AND IT WAS 0.94.
+ *
+ * At card size, six per cent of sky is not a tint - it is a SHAPE. A blind
+ * critic probed `results.png` and found the stage report's body reading L* 10.0
+ * everywhere except inside the moon's footprint, where it read L* 11.9: a
+ * circle visible inside a panel that is meant to be a surface. The same probe
+ * on `warp.png` reads 9.9 against 12.1 in the sliver where the same moon passes
+ * behind the sentence card, so it was never one screen's bug.
+ *
+ * It also made the CONTRAST EVIDENCE a fiction. `skyText` registers text drawn
+ * on a scene's own panel with `plateAlpha: 1` and the panel's swatch as the
+ * fill, so V-22.8 has been measuring these surfaces as opaque the whole time
+ * while they were drawn at 0.94 over whatever sky happened to be behind them.
+ * Filling them flat makes the drawing agree with the measurement.
+ *
+ * `SKY_PLATE` keeps its 0.97 and is untouched: a plate cut to one line of type
+ * is a sheet of glass, and 3% of sky through a 40 px strip is a tint. Passing
+ * `alpha` here is still allowed for that kind of plate, and
+ * `tests/unit/scenes/plateOpacity.test.ts` holds every CARD-sized caller to 1.
+ */
 export function plate(
   scene: Phaser.Scene,
   x: number,
@@ -89,7 +130,7 @@ export function plate(
   options: PlateOptions = {},
 ): Phaser.GameObjects.Graphics {
   const g = scene.add.graphics();
-  g.fillStyle(rgb(options.fill ?? INK.panel), options.alpha ?? 0.94);
+  g.fillStyle(rgb(options.fill ?? INK.panel), options.alpha ?? 1);
   g.fillRoundedRect(x, y, w, h, options.radius ?? SPACE.radius);
   g.lineStyle(2, rgb(options.stroke ?? INK.line), 0.9);
   g.strokeRoundedRect(x, y, w, h, options.radius ?? SPACE.radius);

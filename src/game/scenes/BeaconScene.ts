@@ -3,6 +3,7 @@ import Phaser from "phaser";
 import { beaconReadout, type BeaconResult } from "@engine/ephemeris";
 import type { StopId } from "@engine/types";
 import { SCENE_KEYS } from "@game/sceneKeys";
+import { GUTTER, contentRight, headerText } from "@game/ui/grid";
 import { layer } from "@game/render/layers";
 import { buildParallax, EASE, type Parallax } from "@game/render/parallax";
 import { hexToNum } from "@game/render/palette";
@@ -57,8 +58,9 @@ import { audioFrom } from "@game/audio/wiring";
  * this file at all.
  */
 
-const READOUT = { x: 160, y: 664, w: 1600, h: 268 } as const;
-const BUTTON = { x: 160, y: 966, w: 420, h: 64 } as const;
+/** On the product's gutter, right edge on the right gutter (`ui/grid.ts`). */
+const READOUT = { x: GUTTER, y: 664, w: 1728, h: 268 } as const;
+const BUTTON = { x: GUTTER, y: 966, w: 420, h: 64 } as const;
 
 export interface BeaconInit extends StoryInit {
   /**
@@ -251,7 +253,7 @@ export class BeaconScene extends Phaser.Scene {
     const push = (p: PlatedText) => made.push(...p.objects);
 
     push(
-      skyText(this, 160, 96, headline, {
+      skyText(this, headerText(0, undefined, 14).x, headerText(0, undefined, 14).y, headline, {
         screen: "beacon",
         id: "beacon.headline",
         size: TYPE.heading,
@@ -262,7 +264,7 @@ export class BeaconScene extends Phaser.Scene {
       }),
     );
     push(
-      skyText(this, 160, 166, state, {
+      skyText(this, headerText(1, undefined, 10).x, headerText(1, undefined, 10).y, state, {
         screen: "beacon",
         id: "beacon.state",
         size: TYPE.body,
@@ -275,8 +277,8 @@ export class BeaconScene extends Phaser.Scene {
     push(
       skyText(
         this,
-        160,
-        226,
+        headerText(2, undefined, 8).x,
+        headerText(2, undefined, 8).y,
         this.lane.copy.text("beacon.placed", { stop: this.lane.copy.stopName(this.stopId) }),
         {
           screen: "beacon",

@@ -25,7 +25,13 @@
  * a siren.
  */
 
-import { clamp, semitoneRatio, type AudioContextLike, type AudioNodeLike } from "./context.js";
+import {
+  clamp,
+  seededRandom,
+  semitoneRatio,
+  type AudioContextLike,
+  type AudioNodeLike,
+} from "./context.js";
 import { label } from "./nullContext.js";
 
 /** Major pentatonic, in semitones from the root. The fixed scale of D75. */
@@ -93,6 +99,36 @@ export function advanceToneState(
   return initialToneState();
 }
 
+/**
+ * UR-30 - WHERE EACH WORD'S LADDER STARTS.
+ *
+ * "The typing sounds don't feel satisfying." Rendered as a real belt - twenty
+ * words of five keys, at typing cadence - the ladder produced exactly FIVE
+ * distinct tones across a hundred presses, and word ten came out bit-identical
+ * to word one: 220.0, 246.9, 277.2, 329.6, 370.0, every single word. Nothing
+ * was wrong with the note; what was wrong was that it was the same five notes,
+ * in the same order, fifty-eight times a belt.
+ *
+ * So each word starts on a different step of the SAME pentatonic, and the
+ * ladder climbs from there. The rise a child hears within a word is unchanged -
+ * that is AC-6c.2 and it is what the pitch is FOR - but the belt now walks a
+ * melody instead of looping one bar.
+ *
+ * Eleven entries, all pentatonic degrees, so the sequence is coprime with every
+ * common word length and no two consecutive words open on the same note.
+ */
+export const WORD_OPENING_SEMITONES: readonly number[] = [0, 7, 2, 9, 4, 2, 9, 0, 4, 7, 12];
+
+/**
+ * UR-30 - a few cents of drift on every single tone.
+ *
+ * Below the threshold at which a change reads as a different note, above the
+ * point at which two hits are the same waveform. It rides `detune`, not
+ * `frequency`, so `KeystrokeToneHit.frequencyHz` stays exactly the number
+ * `frequencyFor` predicts and AC-6c.2's assertions are untouched.
+ */
+export const TONE_DETUNE_CENTS = 6;
+
 /** Envelope of one tone. Short and soft: this fires on every single key. */
 export const TONE_ENVELOPE = Object.freeze({
   attackMs: 4,
@@ -115,12 +151,21 @@ export interface KeystrokeToneHit {
 export class KeystrokeTone {
   private state: KeystrokeToneState = initialToneState();
   private readonly hits: KeystrokeToneHit[] = [];
+  /** Which word we are on. Only `reset` moves it - a typo is mid-word. */
+  private wordIndex = 0;
 
   constructor(
     private readonly ctx: AudioContextLike,
     readonly output: AudioNodeLike,
     private readonly rootHz: number = TONE_ROOT_HZ,
+    private readonly rand: () => number = seededRandom(0x7d1c44),
   ) {}
+
+  /** Semitones this word's ladder is lifted by. Zero for the first word. */
+  get wordOpeningSemitones(): number {
+    const n = WORD_OPENING_SEMITONES.length;
+    return WORD_OPENING_SEMITONES[((this.wordIndex % n) + n) % n] ?? 0;
+  }
 
   get consecutiveCorrect(): number {
     return this.state.consecutiveCorrect;
@@ -140,7 +185,11 @@ export class KeystrokeTone {
     const hit: KeystrokeToneHit = {
       consecutiveCorrect: this.state.consecutiveCorrect,
       pitchIndex: pitchIndexFor(this.state.consecutiveCorrect),
-      frequencyHz: frequencyFor(this.state.consecutiveCorrect, this.rootHz),
+      // The word's opening step lifts the WHOLE ladder, so the interval between
+      // this key and the last one is exactly what it always was.
+      frequencyHz:
+        frequencyFor(this.state.consecutiveCorrect, this.rootHz) *
+        semitoneRatio(this.wordOpeningSemitones),
     };
     this.hits.push(hit);
     this.voice(hit.frequencyHz);
@@ -159,6 +208,7 @@ export class KeystrokeTone {
   /** Word finished, new word starting. Same reset, different reason. */
   reset(): void {
     this.state = advanceToneState(this.state, "reset");
+    this.wordIndex += 1;
   }
 
   private voice(frequencyHz: number): void {
@@ -178,6 +228,7 @@ export class KeystrokeTone {
     const osc = this.ctx.createOscillator();
     osc.type = "triangle";
     osc.frequency.setValueAtTime(frequencyHz, now);
+    osc.detune.setValueAtTime((this.rand() * 2 - 1) * TONE_DETUNE_CENTS, now);
 
     osc.connect(filter);
     filter.connect(amp);

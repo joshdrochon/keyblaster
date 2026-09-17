@@ -433,9 +433,31 @@ const visual = [
           ev,
         );
       }
-      if (Array.isArray(data.unmeasurable) && data.unmeasurable.length > data.objectsMeasured / 4) {
+      /**
+       * ANY object the probe could not locate fails this item. Not a quarter of
+       * them - any.
+       *
+       * The threshold used to be `> objectsMeasured / 4`, and that is a check
+       * that stops looking. It was red today at 5 unmeasurable against 5
+       * measured, and it would have flipped to PASS the moment the ratio
+       * drifted under a quarter - from a different seed, a change to debris
+       * counts, anything - while still never having found the object it claims
+       * to measure. Red today and silently green tomorrow, measuring nothing on
+       * either day. `docs/verification-gaps.md` is a list of nine checks that
+       * exercised something adjacent to the shipped thing and were believed;
+       * this is the tenth, caught before it started lying rather than after.
+       *
+       * NEVER INFERRING IS NOT THE SAME AS INFERRING NOTHING IS WRONG. A probe
+       * that reports `samplesIn: 0` has told you it did not look, and the only
+       * honest status for that is a failure that names it.
+       */
+      if (Array.isArray(data.unmeasurable) && data.unmeasurable.length > 0) {
+        const named = data.unmeasurable
+          .slice(0, 3)
+          .map((u) => `${u.id} (${u.kind}, in ${u.samplesIn}/out ${u.samplesOut})`)
+          .join(", ");
         return bad(
-          `${data.unmeasurable.length} object(s) could not be measured at all; a minimum taken over what happened to be measurable is not a minimum`,
+          `${data.unmeasurable.length} object(s) could not be located at all: ${named}. A probe that did not find its object has not measured it, and a minimum over what happened to be measurable is not a minimum`,
           ev,
         );
       }

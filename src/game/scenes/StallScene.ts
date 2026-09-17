@@ -5,6 +5,7 @@ import { FLIGHT_EVENTS, type Palette, paletteFor } from "@game/flight/stage.js";
 import { type FlightCopy, createFlightCopy } from "@game/flight/copy.js";
 import type { Lang, StopId } from "@engine/types.js";
 import { HIT_ZONE_PREFIX } from "@game/ui/focus.js";
+import { chrome, label } from "./lib/kit.js";
 
 export interface StallSceneData {
   readonly stopId: StopId;
@@ -100,24 +101,22 @@ export class StallScene extends Phaser.Scene {
 
     card.add(this.drawShadow(cardX + 108, cardY + 150));
 
-    const title = this.add
-      .text(cardX + 200, cardY + 74, this.copy.t("stall.title"), {
-        fontFamily: this.font,
-        fontSize: "38px",
-        color: this.palette.plateText,
-      })
-      .setOrigin(0, 0.5);
+    // UR-38: through the factory, so D41's letter case and increased letter
+    // spacing reach this card like every other piece of chrome. It used to call
+    // `add.text` directly and both accessibility settings stopped at its edge.
+    const title = label(this, cardX + 200, cardY + 74, this.copy.t("stall.title"), {
+      size: 38,
+      color: this.palette.plateText,
+      lang: this.params.uiLang,
+    }).setOrigin(0, 0.5);
     card.add(title);
 
-    const line = this.add
-      .text(cardX + 200, cardY + 158, this.copy.t("stall.line"), {
-        fontFamily: this.font,
-        fontSize: "24px",
-        color: this.palette.plateText,
-        wordWrap: { width: cardW - 250 },
-        lineSpacing: 6,
-      })
-      .setOrigin(0, 0.5);
+    const line = label(this, cardX + 200, cardY + 158, this.copy.t("stall.line"), {
+      size: 24,
+      color: this.palette.plateText,
+      wrapWidth: cardW - 250,
+      lang: this.params.uiLang,
+    }).setOrigin(0, 0.5);
     card.add(line);
 
     const buttonW = 330;
@@ -130,19 +129,15 @@ export class StallScene extends Phaser.Scene {
     button.fillRoundedRect(buttonX, buttonY, buttonW, buttonH, 14);
     card.add(button);
 
-    const label = this.add
-      .text(
-        buttonX + buttonW / 2,
-        buttonY + buttonH / 2,
-        this.copy.t("stall.restart"),
-        {
-          fontFamily: this.font,
-          fontSize: "24px",
-          color: this.palette.plate,
-        },
-      )
-      .setOrigin(0.5);
-    card.add(label);
+    const restart = chrome(
+      this,
+      buttonX + buttonW / 2,
+      buttonY + buttonH / 2,
+      this.copy.t("stall.restart"),
+      undefined,
+      { size: 24, color: this.palette.plate, lang: this.params.uiLang },
+    ).setOrigin(0.5);
+    card.add(restart);
 
     // AC-18.1: the only control is focused on arrival and says so visibly.
     this.focusRing = this.add.graphics();

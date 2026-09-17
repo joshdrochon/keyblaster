@@ -43,13 +43,31 @@ export interface AmbientBedSpec {
   readonly droneHz: number;
   /** Harmonic ratios stacked over the root. Wider = emptier, stranger. */
   readonly partials: readonly number[];
+  /**
+   * How much of the bed is TONAL, 0..1 (UR-13).
+   *
+   * The bed used to have no such control and the drone stack ran at full
+   * weight, which is the whole of UR-13: a steady sine stack at 100 Hz is an
+   * electrical hum, not a thruster. This is the knob that makes the noise the
+   * body and the drone a colour under it. Small on purpose - see the UR-13
+   * block on `buildBedVoice` for the measured balance.
+   */
+  readonly droneLevel: number;
   /** Lowpass cutoff on the whole bed. Lower = more distant, more muffled. */
   readonly filterHz: number;
   /** Amount of wind/hiss under the drone, 0..1. */
   readonly windLevel: number;
   /** Lowpass on the wind alone; separates "thin dust" from "deep gale". */
   readonly windFilterHz: number;
-  /** Slow amplitude shimmer rate, Hz. Ice and rings shimmer; rock does not. */
+  /**
+   * Slow amplitude breathing rate, Hz. Ice and rings shimmer; rock does not.
+   *
+   * NAMED shimmer, DELIVERED as breathing. Until UR-13 these two fields built
+   * an LFO and connected it to the bed's FILTER INPUT rather than to a gain,
+   * so they added an inaudible sub-audio sine straight into the signal instead
+   * of modulating anything. They now drive `bedBreath` from the frame clock,
+   * which is what they always claimed to do.
+   */
   readonly shimmerHz: number;
   readonly shimmerDepth: number;
   /** Overall level of the bed, so quiet worlds are actually quieter. */
@@ -61,78 +79,85 @@ const BED_SEEDS: Readonly<Record<StopId, Omit<AmbientBedSpec, "stopId">>> = Obje
   earth: {
     droneHz: 98,
     partials: [1, 1.5, 2, 3],
+    droneLevel: 0.12,
     filterHz: 1200,
-    windLevel: 0.16,
+    windLevel: 0.7,
     windFilterHz: 900,
     shimmerHz: 0.09,
     shimmerDepth: 0.1,
-    level: 0.5,
+    level: 0.24,
     note: "home: warm, close, a little city hum under it",
   },
   mars: {
     droneHz: 87,
     partials: [1, 1.5, 2.5],
+    droneLevel: 0.1,
     filterHz: 900,
-    windLevel: 0.34,
+    windLevel: 0.82,
     windFilterHz: 1600,
     shimmerHz: 0.05,
     shimmerDepth: 0.06,
-    level: 0.46,
+    level: 0.22,
     note: "thin dry wind over hard ground; the air is real but almost nothing",
   },
   jupiter: {
     droneHz: 46,
     partials: [1, 1.25, 2, 2.5],
+    droneLevel: 0.16,
     filterHz: 520,
-    windLevel: 0.48,
+    windLevel: 0.9,
     windFilterHz: 320,
     shimmerHz: 0.03,
     shimmerDepth: 0.14,
-    level: 0.58,
+    level: 0.27,
     note: "enormous slow storm; the lowest, largest bed in the game",
   },
   saturn: {
     droneHz: 62,
     partials: [1, 2, 3, 4.5],
+    droneLevel: 0.11,
     filterHz: 1800,
-    windLevel: 0.2,
+    windLevel: 0.74,
     windFilterHz: 2600,
     shimmerHz: 0.22,
     shimmerDepth: 0.26,
-    level: 0.5,
+    level: 0.24,
     note: "the rings: glassy, metallic, the most shimmering bed",
   },
   uranus: {
     droneHz: 74,
     partials: [1, 1.5, 2.25],
+    droneLevel: 0.09,
     filterHz: 760,
-    windLevel: 0.26,
+    windLevel: 0.78,
     windFilterHz: 700,
     shimmerHz: 0.13,
     shimmerDepth: 0.18,
-    level: 0.42,
+    level: 0.2,
     note: "cold, tilted, featureless; a held breath",
   },
   neptune: {
     droneHz: 55,
     partials: [1, 1.5, 2, 2.75],
+    droneLevel: 0.13,
     filterHz: 620,
-    windLevel: 0.42,
+    windLevel: 0.86,
     windFilterHz: 480,
     shimmerHz: 0.07,
     shimmerDepth: 0.12,
-    level: 0.48,
+    level: 0.23,
     note: "the fastest winds in the solar system, heard from far away",
   },
   pluto: {
     droneHz: 41,
     partials: [1, 3, 5],
+    droneLevel: 0.07,
     filterHz: 420,
-    windLevel: 0.1,
+    windLevel: 0.62,
     windFilterHz: 240,
     shimmerHz: 0.17,
     shimmerDepth: 0.2,
-    level: 0.34,
+    level: 0.16,
     note: "the far edge: sparse, icy, almost silent - the quietest bed",
   },
 });
@@ -242,10 +267,37 @@ export function windLoopSamples(sampleRate: number, seconds = WIND_LOOP_SECONDS)
   return data;
 }
 
+/**
+ * UR-13 - THE BED'S SLOW MOVEMENT, AS A PURE FUNCTION.
+ *
+ * A thruster breathes; it does not sit. This is the multiplier on a bed's level
+ * at a point in time, and it is a function rather than an LFO node for the
+ * reason the header of context.ts gives: every number this package sends to a
+ * gain node comes from something a Node test can call.
+ *
+ * Range is `1 - depth .. 1` - it only ever takes level AWAY, so the bed's
+ * loudest moment is exactly the level the crossfade set and nothing can push a
+ * bed above the mix it was given. Cosine, so it starts at full and there is no
+ * step at t = 0.
+ */
+export function bedBreath(elapsedMs: number, hz: number, depth: number): number {
+  if (!Number.isFinite(elapsedMs) || !Number.isFinite(hz) || hz <= 0) return 1;
+  const d = clamp(depth, 0, 1);
+  if (d === 0) return 1;
+  const phase = 2 * Math.PI * hz * (elapsedMs / 1000);
+  return 1 - d * (0.5 - 0.5 * Math.cos(phase));
+}
+
 interface BedVoice {
   readonly spec: AmbientBedSpec;
   readonly gain: GainNodeLike;
-  readonly shimmer: GainNodeLike | null;
+  /**
+   * The bed's slow amplitude movement, driven from the frame clock by
+   * `advance`. Separate from `gain` on purpose: `gainOf` and every crossfade
+   * assertion read `gain`, and a bed that is breathing must still report the
+   * exact level the crossfade put it at.
+   */
+  readonly breath: GainNodeLike | null;
 }
 
 /**
@@ -262,6 +314,8 @@ export class AmbientBus {
   private readonly voices = new Map<StopId, BedVoice>();
   private current: StopId | null = null;
   private incoming: StopId | null = null;
+  /** Clock for `bedBreath`. One phase for every bed, so a crossfade is in step. */
+  private breathMs = 0;
   private elapsedMs = 0;
   private durationMs = AMBIENT_CROSSFADE_MS;
 
@@ -327,9 +381,24 @@ export class AmbientBus {
     this.elapsedMs = 0;
   }
 
-  /** Step the crossfade. Called from the scene's frame loop. */
+  /** Step the crossfade and the beds' slow movement. From the frame loop. */
   advance(dtMs: number): void {
-    if (!Number.isFinite(dtMs) || dtMs < 0 || this.incoming === null) return;
+    if (!Number.isFinite(dtMs) || dtMs < 0) return;
+
+    // UR-13: the movement runs whether or not a transition is in flight, which
+    // is the whole point of it - a bed that only breathed during a crossfade
+    // would sit perfectly still for the minutes that actually matter.
+    this.breathMs += dtMs;
+    for (const voice of this.voices.values()) {
+      if (voice.breath === null) continue;
+      voice.breath.gain.value = bedBreath(
+        this.breathMs,
+        voice.spec.shimmerHz,
+        voice.spec.shimmerDepth,
+      );
+    }
+
+    if (this.incoming === null) return;
     this.elapsedMs = Math.min(this.durationMs, this.elapsedMs + dtMs);
     const fade = ambientCrossfade(this.elapsedMs, this.durationMs);
 
@@ -376,11 +445,30 @@ export class AmbientBus {
     gain.gain.value = 0;
     gain.connect(this.output);
 
+    // The slow movement rides BELOW the bed gain, so `gainOf` still reports the
+    // exact level the crossfade asked for while the bed breathes underneath it.
+    const breath = label(this.ctx.createGain(), `ambient.breath.${spec.stopId}`);
+    breath.gain.value = 1;
+    breath.connect(gain);
+
     const filter = this.ctx.createBiquadFilter();
     filter.type = "lowpass";
     filter.frequency.setValueAtTime(spec.filterHz, now);
-    filter.connect(gain);
+    filter.connect(breath);
 
+    // UR-13 - WHY THE DRONE IS NOW A COLOUR RATHER THAN THE SOUND.
+    //
+    // Rendered offline and measured, the old bed was 100 Hz dominant with 95%
+    // of its energy under 625 Hz and none of it broadband: four steady sines,
+    // one of them landing on the second harmonic of mains. That is the "aux
+    // cord touching metal" the report describes, and no amount of retuning
+    // fixes it, because a steady tone stack IS a hum.
+    //
+    // A thruster is filtered NOISE with a low tone under it, so the two weights
+    // are inverted: `droneLevel` scales the whole tonal stack down to about a
+    // tenth of the noise's level, and the per-partial weight is 1/ratio^2
+    // rather than 1/ratio so what is left reads as one low note with colour
+    // rather than as a chord.
     for (const ratio of spec.partials) {
       const osc = this.ctx.createOscillator();
       osc.type = "sine";
@@ -389,7 +477,7 @@ export class AmbientBus {
       // each other and read as a test tone, not a world.
       osc.detune.setValueAtTime((ratio % 2) * 7 - 3, now);
       const partial = this.ctx.createGain();
-      partial.gain.value = 1 / (spec.partials.length * ratio);
+      partial.gain.value = (spec.droneLevel / spec.partials.length) * (1 / (ratio * ratio));
       osc.connect(partial);
       partial.connect(filter);
       osc.start(now);
@@ -406,23 +494,11 @@ export class AmbientBus {
       windGain.gain.value = spec.windLevel;
       wind.connect(windFilter);
       windFilter.connect(windGain);
-      windGain.connect(gain);
+      windGain.connect(filter);
       wind.start(now);
     }
 
-    let shimmer: GainNodeLike | null = null;
-    if (spec.shimmerHz > 0 && spec.shimmerDepth > 0) {
-      const lfo = this.ctx.createOscillator();
-      lfo.type = "sine";
-      lfo.frequency.setValueAtTime(spec.shimmerHz, now);
-      shimmer = this.ctx.createGain();
-      shimmer.gain.value = spec.shimmerDepth;
-      lfo.connect(shimmer);
-      shimmer.connect(filter);
-      lfo.start(now);
-    }
-
-    return { spec, gain, shimmer };
+    return { spec, gain, breath };
   }
 
   private static sharedWind: WeakMap<object, AudioBufferLike> = new WeakMap();

@@ -985,10 +985,18 @@ describe("AC-21.5: the transport is chosen per line, not once at boot", () => {
     expect(done).toBe(1);
   });
 
-  it("AC-21.5: a browser with no speech API at all stays quiet, without chirping", () => {
-    // A player who never had a voice must not gain a new sound on every line
-    // Shadow says. The chirp is for a voice we DECLINED, not for a platform
-    // that never offered one.
+  it("UR-25: a browser with no speech API at all still chirps, rather than saying nothing", () => {
+    // THIS ASSERTION USED TO BE `toBe(0)`, on the argument that "a player who
+    // never had a voice must not gain a new sound on every line Shadow says -
+    // the chirp is for a voice we DECLINED, not for a platform that never
+    // offered one."
+    //
+    // D98 removed the thing that argument protected. The platform voice is now
+    // off unless the URL asks for it, so EVERY machine is the machine with no
+    // speech API, and "quiet" stopped meaning "you lost nothing" and started
+    // meaning "Shadow is mute". A player asked whether Shadow talks at all
+    // (UR-25). The rule is now the one the chirp was always for: a line that
+    // will make no sound makes the small one instead.
     const scheduler = fakeScheduler();
     let chirps = 0;
     const transport = adaptiveTransport({
@@ -1001,6 +1009,31 @@ describe("AC-21.5: the transport is chosen per line, not once at boot", () => {
 
     expect(transport.id).toBe("silent");
     transport.speak(line(), () => undefined);
+    expect(chirps).toBe(1);
+  });
+
+  it("UR-25: a line that plays a rendered clip does NOT chirp", () => {
+    // The chirp stands in for silence. A clip is sound, so adding a chirp to it
+    // would put a bleep in front of every line Shadow actually speaks.
+    const scheduler = fakeScheduler();
+    let chirps = 0;
+    const spoken = line();
+    const transport = adaptiveTransport({
+      speech: null,
+      platform: "other",
+      lang: "en-US",
+      schedule: scheduler.schedule,
+      chirp: () => (chirps += 1),
+      clips: {
+        has: (id: string) => id === spoken.id,
+        play: (_id: string, callbacks: { onEnd: () => void }) => {
+          callbacks.onEnd();
+          return { stop: () => undefined, fadeOut: () => undefined };
+        },
+      },
+    });
+
+    transport.speak(spoken, () => undefined);
     expect(chirps).toBe(0);
   });
 

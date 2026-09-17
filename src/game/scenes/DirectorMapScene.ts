@@ -4,6 +4,7 @@ import { hexToNum, paletteAt } from "@game/render/palette";
 import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
 import { ensureTextures, fillShape, starPoints } from "@game/render/textures";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
+import { headerText } from "@game/ui/grid";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import { STOP_IDS, isBeltStop, type StopId, type StopProgress } from "@engine/types";
 import {
@@ -164,7 +165,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
 
     // THE HEADER SITS ON A PLATE (AC-22.8). Sky-borne chrome was the one place
     // the contrast rubric never looked, and five screens shipped at 1.2-1.7:1.
-    skyText(this, 96, 68, text.text("map.heading"), {
+    const head = headerText(0, undefined, 14);
+    skyText(this, head.x, head.y, text.text("map.heading"), {
       screen: "map",
       id: "map.heading",
       size: TYPE.heading,
@@ -173,7 +175,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       depth: 10,
       padY: 14,
     });
-    skyText(this, 98, 138, text.text("map.subheading"), {
+    const sub = headerText(1, undefined, 8);
+    skyText(this, sub.x, sub.y, text.text("map.subheading"), {
       screen: "map",
       id: "map.subheading",
       size: TYPE.caption,
@@ -184,10 +187,11 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       depth: 10,
       padY: 8,
     });
+    const third = headerText(2, undefined, 8);
     skyText(
       this,
-      96,
-      186,
+      third.x,
+      third.y,
       text.text("map.progress", { lit, total: STOP_IDS.length }),
       {
         screen: "map",
@@ -205,7 +209,9 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
 
     // --- the personal-best board (D43) -----------------------------------
     const PANEL = panelBox();
-    plate(this, PANEL.x, PANEL.y, PANEL.w, PANEL.h, { alpha: 0.92 }).setDepth(9);
+    // Opaque: a card the size of this one shows the sky behind it as a SHAPE,
+    // not a tint. See `lib/kit.plate`.
+    plate(this, PANEL.x, PANEL.y, PANEL.w, PANEL.h).setDepth(9);
     this.panelTitle = label(this, PANEL.x + 40, PANEL.y + 34, "", {
       size: TYPE.heading,
       color: INK.text,

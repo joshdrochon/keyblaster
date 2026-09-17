@@ -171,6 +171,75 @@ export const HULL_MARK_DIM = 0.16;
  * Here rather than in the scene so it is a RULE under the coverage gate, and so
  * it can be checked against the star bands instead of eyeballed on a frame.
  */
+// ---------------------------------------------------------------------------
+// What the SHIP shows (UR-22)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE LANTERN'S LIGHT, as a fraction of full.
+ *
+ * ================== THE REPORT ==================
+ * "noticed the hull can take infinite damage?"
+ *
+ * The rule was never wrong - `isStalled` ends the belt at zero and always has.
+ * What was wrong is that NOTHING ON SCREEN MOVED. A 58-word belt carries nine
+ * marks (`hullForStage`) and the HUD draws three (`HULL_MARK_COUNT`), so one
+ * hit moved a 16x16 square from alpha 1.00 to 0.72 and the next from 0.72 to
+ * 0.44. On a 1920x1080 frame, in a corner, while the player is reading a word
+ * in the middle of the screen, that is not a damage moment. Nine hits looked
+ * like zero hits, so the hull looked infinite.
+ *
+ * ================== WHY THE FIX IS NOT MORE PIPS ==================
+ * AC-22b.1 forbids a lives counter by name and D31 forbids anything that reads
+ * as punishment, which rules out nine pips in a row and rules out a red bar.
+ * Both of those answer "how do we COUNT the damage", and counting is the thing
+ * the surface is not allowed to do.
+ *
+ * So the damage is shown on the object taking it. The ship is called the
+ * Lantern and the game is about lighting beacons: its light is the natural
+ * place for a hull to live, and a light going dim is not a score being
+ * deducted. It is also BIG - a soft glow around the ship rather than a 16 px
+ * square in a corner - which is the actual reason the old feedback failed.
+ *
+ * ================== THE NUMBERS ==================
+ * Linear in hull, from `LAMP_MIN` at an empty hull to 1 at a full one, so every
+ * single hit moves it by `1/maxHull` of the range at every stage length. It
+ * never reaches zero: D31's rule that a mark dims and never disappears applies
+ * here for the same reason - the ship is still flying.
+ */
+export const LAMP_MIN = 0.22;
+
+/**
+ * How dark the lamp gutters at the instant of a hit, as a fraction of the
+ * level it is heading for.
+ *
+ * The STATE above is legible but slow; this is the MOMENT. The light drops out
+ * almost entirely for a beat and comes back at its new level, which is what a
+ * knock looks like on something that is lit. It is not a flash: a flash adds
+ * light and reads as an alarm, and D31 has no alarms in it.
+ */
+export const LAMP_GUTTER_FRACTION = 0.15;
+
+/** The Lantern's light for a hull of any size, in [LAMP_MIN, 1]. */
+export function hullLampLevel(hull: number, maxHull: number): number {
+  const cap = Number.isFinite(maxHull) && maxHull > 0 ? Math.floor(maxHull) : MIN_HULL;
+  const left = hullMarksLit(hull, cap);
+  return LAMP_MIN + (1 - LAMP_MIN) * (left / cap);
+}
+
+/**
+ * How much one hit moves the light, at a stage of this length.
+ *
+ * Exported because it is the QUANTITY THE DEFECT WAS ABOUT. The old feedback's
+ * equivalent number is `(1 - HULL_MARK_DIM) / maxHull` spread over a 16x16
+ * square; this one is spread over the ship. A test that only checked "something
+ * changed" would have passed on the version a player called infinite.
+ */
+export function hullLampStep(maxHull: number): number {
+  const cap = Number.isFinite(maxHull) && maxHull > 0 ? Math.floor(maxHull) : MIN_HULL;
+  return (1 - LAMP_MIN) / cap;
+}
+
 export function hullMarkAlpha(index: number, hull: number, maxHull: number): number {
   const cap =
     Number.isFinite(maxHull) && maxHull > 0 ? maxHull : HULL_MARK_COUNT;

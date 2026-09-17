@@ -137,3 +137,66 @@ test.describe("Earth activation (row 2b, D57)", () => {
     expect(s.text.join(" ")).toContain(bundle.preflightLine);
   });
 });
+
+test.describe("UR-17: the instruction leaves when it stops being true", () => {
+  /**
+   * The user hit this in play and screenshotted it: "the beacon is lit." drawn
+   * ON TOP of "type launch to wake the beacon", both at GAME_HEIGHT * 0.76.
+   *
+   * The instruction was a LOCAL, so nothing could reach it to remove it — the
+   * overlap was structurally guaranteed rather than a timing accident.
+   *
+   * It had also been reported hours earlier by an automated playthrough, in
+   * almost those words, and was filed without being assigned. So this test is
+   * not only a regression guard for one scene; it is the thing that should have
+   * existed the first time it was found.
+   *
+   * The assertion is deliberately about OVERLAP rather than about one string:
+   * any two visible texts sharing a line is the defect, whatever they say.
+   */
+  test("no two visible texts occupy the same line once the beacon is lit", async ({
+    page,
+  }) => {
+    await mount(page, KEY);
+    await typeWord(page, bundle.activationWord);
+
+    await page.waitForFunction(
+      (k) => {
+        const s = window.__kb?.game.scene.getScene(k) as
+          | { snapshot: () => { beaconLit: boolean } }
+          | null;
+        return s?.snapshot().beaconLit === true;
+      },
+      KEY,
+      { timeout: 30_000 },
+    );
+    // Past litText's 650ms delay and its 520ms fade, so both are settled.
+    await page.waitForTimeout(1600);
+
+    const collisions = await page.evaluate((k) => {
+      const scene = window.__kb?.game.scene.getScene(k) as unknown as {
+        children: { list: unknown[] };
+      };
+      const texts = scene.children.list.filter(
+        (o): o is { text: string; alpha: number; visible: boolean; getBounds: () => DOMRect } =>
+          typeof (o as { text?: unknown }).text === "string" &&
+          (o as { text: string }).text.trim().length > 0 &&
+          (o as { visible: boolean }).visible === true &&
+          (o as { alpha: number }).alpha > 0.05,
+      );
+      const hits: string[] = [];
+      for (let i = 0; i < texts.length; i++) {
+        for (let j = i + 1; j < texts.length; j++) {
+          const a = texts[i]!.getBounds();
+          const b = texts[j]!.getBounds();
+          const overlaps =
+            a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+          if (overlaps) hits.push(`"${texts[i]!.text}" over "${texts[j]!.text}"`);
+        }
+      }
+      return hits;
+    }, KEY);
+
+    expect(collisions, `overlapping text: ${collisions.join("; ")}`).toEqual([]);
+  });
+});

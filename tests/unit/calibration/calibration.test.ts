@@ -426,8 +426,17 @@ describe("computeCalibration (AC-11.1)", () => {
   });
 
   it("caps a runaway first-key latency at the documented ceiling", () => {
+    // Two words, because D100's RITUAL_MIN_FK_SAMPLES will not believe one -
+    // the claim under test is the CAP, so the gate is fed rather than fought.
     const steps: RitualStepInput[] = [
-      { id: "hull", words: [{ word: "hull", shownAtMs: 0, keystrokes: typed(0, 90_000, []) }] },
+      {
+        id: "hull",
+        words: [{ word: "hull", shownAtMs: 0, keystrokes: typed(0, 90_000, []) }],
+      },
+      {
+        id: "systems",
+        words: [{ word: "set", shownAtMs: 100_000, keystrokes: typed(100_000, 90_000, []) }],
+      },
     ];
     expect(computeCalibration(steps).calibration.fkLatencyMs).toBe(MAX_FK_LATENCY_MS);
   });
@@ -466,9 +475,15 @@ describe("computeCalibration (AC-11.1)", () => {
       },
     ];
     const result = computeCalibration(steps);
-    expect(result.calibration.fkLatencyMs).toBe(640);
-    expect(result.calibration.ikiMs).toBe(DEFAULT_CALIBRATION.ikiMs);
+    // One keystroke is one latency and no interval - that much is unchanged.
+    expect(result.steps[1]!.fkLatencySamplesMs).toEqual([640]);
     expect(result.steps[1]!.ikiSamplesMs).toEqual([]);
+    // D100/AC-11.8: it is MEASURED and reported, and it is not BELIEVED. One
+    // sample is not a median, and after the assist landed this is the ordinary
+    // way a sequence reaches its end having learned nothing.
+    expect(result.usedDefaultFkLatency).toBe(true);
+    expect(result.calibration.fkLatencyMs).toBe(DEFAULT_CALIBRATION.fkLatencyMs);
+    expect(result.calibration.ikiMs).toBe(DEFAULT_CALIBRATION.ikiMs);
   });
 
   it("handles an abandoned step: no keystrokes at all", () => {
@@ -534,13 +549,17 @@ describe("computeCalibration (AC-11.1)", () => {
               // backspace-and-retype: index 1 again, after a long think
               { charIndex: 1, atMs: 4_000 },
               { charIndex: 2, atMs: 4_300 },
+              { charIndex: 3, atMs: 4_600 },
             ],
           },
         ],
       },
     ];
     const result = computeCalibration(steps);
-    expect(result.steps[2]!.ikiSamplesMs).toEqual([300, 300]);
+    // Three clean intervals; the 3.2 s think around the correction is not one
+    // of them. Three is also D100's gate, so the median is believed.
+    expect(result.steps[2]!.ikiSamplesMs).toEqual([300, 300, 300]);
+    expect(result.usedDefaultIki).toBe(false);
     expect(result.calibration.ikiMs).toBe(300);
   });
 

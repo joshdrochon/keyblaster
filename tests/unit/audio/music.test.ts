@@ -221,8 +221,8 @@ describe("the music bus drives itself from game state", () => {
 });
 
 describe("UR-10: an intensity change never steps a layer gain", () => {
-  // THE POP THE USER REPORTED. "theres a pop every so often in the game like
-  // its being looped. Should be continous."
+  // UR-10: an intermittent pop during play, as though the music were looping.
+  // The bed is meant to be continuous.
   //
   // `setFromState` runs every frame off the live asteroid count, so the index
   // changes whenever the belt's pressure crosses a threshold - and it can
