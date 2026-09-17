@@ -44,7 +44,20 @@ import { goTo, resolveInit, type ResolvedInit, type StoryInit } from "./lib/init
  *     so the depth behind the glass is real rather than a pasted circle.
  *   - Shadow is present and idle. He does not talk over the page; the page is
  *     the story here (his line is the Pre-flight screen's job, D51).
- *   - There is exactly ONE button: launch.
+ *   - There is exactly ONE PRIMARY ACTION - launch - and at most one
+ *     navigation affordance beside it.
+ *
+ * THAT LAST LINE USED TO READ "there is exactly ONE button: launch", and UR-27
+ * broke it deliberately. A player opened a planet and had no way back: Escape
+ * worked and was invisible, and a child who arrived by CLICKING had no pointer
+ * route out at all. So the back chip is a second interactive control, and the
+ * old rule as written forbade it.
+ *
+ * The rule was not wrong, it was imprecise. What protects a picture-book page
+ * is that NOTHING ON IT COMPETES WITH LAUNCH - one forward action, holding
+ * focus on open - not that the page has one control. A field of buttons is the
+ * defect; a way out is not. `briefing.spec.ts` now asserts the primacy and caps
+ * the rest, which is the claim this comment was always making badly.
  *
  * Copy comes from `src/content/en/<stop>.json` (the story bundle), and the one
  * line that names the ship uses `{shipName}` (C07).
@@ -378,7 +391,18 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
       stopId: this.story.stopId,
       planetName: this.bundle.planetName,
       sentenceCount: this.sentenceCount,
-      buttonCount: this.menu.targets.length,
+      /**
+       * The controls, WITH THEIR ROLES. This was `buttonCount`, and a count
+       * cannot tell "one primary plus a way back" from "five buttons" - which
+       * is exactly the distinction the one-button rule existed to make. The
+       * `primary` flag already drives which control holds focus on open
+       * (`lib/kit.FocusTarget`), so the axis is the product's own, not one
+       * invented for the test.
+       */
+      controls: this.menu.targets.map((t) => ({
+        id: t.id,
+        role: t.primary === true ? "primary" : "navigate",
+      })),
       focusId: this.menu.targets[this.menu.index]?.id ?? null,
       shipName: this.story.shipName,
       text: visibleText(this),

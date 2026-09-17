@@ -289,7 +289,19 @@ test.describe("AC-18.1: the pointer reaches everything the keyboard does", () =>
     await mount(page, "Briefing", { stopId: "mars", progress: [charted("earth", 3, 0, 0)] });
     const boxes = await hitBoxes(page, "Briefing");
     const before = await snapshot(page, "Briefing");
-    expect(boxes.map((b) => b.id)).toEqual([before["focusId"]]);
+
+    // THE POINTER REACHES EXACTLY THE FOCUSABLE SET - not "exactly one thing".
+    //
+    // This asserted `toEqual([before.focusId])`, which was true only while the
+    // Briefing had a single control, and UR-27 added a second one (the back
+    // chip) because a player who opened a stop had no way out. The count was
+    // never the claim: `lib/kit.createKeyboardMenu` builds one hit zone per
+    // focus target precisely so "the mouse reaches exactly the same set of
+    // things the keyboard does and nothing more". That is what is checked now,
+    // and it holds for a screen with one control or with five.
+    const focusable = (before["controls"] as { id: string }[]).map((c) => c.id);
+    expect([...boxes.map((b) => b.id)].sort()).toEqual([...focusable].sort());
+    expect(focusable).toContain(before["focusId"]);
 
     await clickBox(page, boxFor(boxes, "launch"));
     await page.waitForFunction(

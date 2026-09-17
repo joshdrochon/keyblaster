@@ -33,6 +33,7 @@
 
 import { expect, test, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { missingEvidenceFields } from "./lib/evidenceCompleteness.js";
 import { join, resolve } from "node:path";
 
 test.use({
@@ -128,7 +129,24 @@ interface WiringSnapshot {
 function record(key: string, fields: Record<string, unknown>): void {
   const previous = (evidence[key] ?? {}) as Record<string, unknown>;
   evidence[key] = { ...previous, ...fields };
+  for (const [field, value] of Object.entries(fields)) {
+    if (value !== undefined) everWritten.add(`${key}.${field}`);
+  }
 }
+
+/**
+ * Every `key.field` any spec has successfully written, whether or not it
+ * survived to the artifact.
+ *
+ * This is what lets the completeness check below say WHICH of two
+ * indistinguishable failures happened. A field can be missing because the spec
+ * that owns it never reached its write - it threw on a precondition upstream -
+ * or because it was written and something removed it afterwards. The symptom is
+ * identical and the fixes are opposite: the first is a broken fixture in one
+ * spec, the second is the clobbering bug that hid long enough to eat two keys.
+ * Recording the write makes them tell themselves apart.
+ */
+const everWritten = new Set<string>();
 
 const evidence: Record<string, unknown> = {
   generatedBy: "tests/e2e/audio-wiring.spec.ts",
@@ -166,26 +184,35 @@ test.afterAll(() => {
    * rubric, because a missing field and a failing threshold are different
    * problems and only the first one is this file's fault.
    */
-  const REQUIRED: Record<string, readonly string[]> = {
-    music: ["drivenBy", "hudSamples", "indicesObserved"],
-    ambient: ["stops", "crossfades", "crossfadedOnSceneTransition"],
-    flightCue: ["cuesRouted", "distinctCues"],
-    voice: ["transport"],
-  };
-  const missing: string[] = [];
-  for (const [key, fields] of Object.entries(REQUIRED)) {
-    const block = evidence[key] as Record<string, unknown> | undefined;
-    for (const field of fields) {
-      if (block === undefined || block[field] === undefined) missing.push(`${key}.${field}`);
-    }
-  }
+  const missing = missingEvidenceFields({
+    evidence,
+    everWritten,
+    required: {
+      music: {
+        owner: "spec 3, 'a real flight cue produces a scheduled sound'",
+        fields: ["drivenBy", "hudSamples", "indicesObserved"],
+      },
+      ambient: {
+        owner: "spec 3, 'a real flight cue produces a scheduled sound'",
+        fields: ["stops", "crossfades", "crossfadedOnSceneTransition"],
+      },
+      flightCue: {
+        owner: "spec 3, 'a real flight cue produces a scheduled sound'",
+        fields: ["cuesRouted", "distinctCues"],
+      },
+      voice: { owner: "spec 2, 'the boot graph is published'", fields: ["transport"] },
+    },
+  });
 
   mkdirSync(EVIDENCE_DIR, { recursive: true });
   writeFileSync(join(EVIDENCE_DIR, ARTIFACT), `${JSON.stringify(evidence, null, 2)}\n`);
 
   // Written first, then asserted: a partial artifact is more useful to read
   // than none, and the rubric will report it honestly either way.
-  expect(missing, "evidence fields the audio rubric reads went missing").toEqual([]);
+  expect(
+    missing.map((m) => m.detail),
+    "evidence fields the audio rubric reads went missing",
+  ).toEqual([]);
 });
 
 // ---------------------------------------------------------------------------
@@ -431,11 +458,27 @@ test("AC-6e.2 / AC-21.1 / AC-21.2 / AC-21.3: a real flight cue produces a schedu
   const word = await page.evaluate(() => window.__kbFlight?.words()[0] ?? "");
   expect(word.length).toBeGreaterThan(0);
   await typeText(page, word);
-  await page.waitForTimeout(400);
 
   // --- typo: lock a word, then press a letter that is not its next one ------
   // A typo is only a typo once a word is locked; an unmatched key with nothing
   // locked is `ignored`, which is a different cue and a different sound (D31).
+  //
+  // WAIT FOR THE ROCK, DO NOT WAIT FOR A CLOCK. This used to be
+  // `waitForTimeout(400)` and then a single read of `words()`, and it returned
+  // null on a real run: the word just typed BLASTS its rock, and the belt can
+  // be empty - or hold only a one-letter word - for longer than 400 ms while
+  // the next one spawns and falls into frame. The spec then bailed before
+  // writing the evidence fields it owns, which is what turned A-21.2 red.
+  //
+  // Same shape as the V-22.4 probe, and the same fix: wait for the OBJECT. The
+  // assertion below is unchanged and still fails loudly if no rock ever
+  // arrives - a spec that quietly skipped its own cue would be worse than one
+  // that fails.
+  await page.waitForFunction(
+    () => (window.__kbFlight?.words() ?? []).filter((w) => w.length >= 2).length > 0,
+    null,
+    { timeout: 40_000 },
+  );
   const typoInput = await page.evaluate(() => {
     const words = (window.__kbFlight?.words() ?? []).filter((w) => w.length >= 2);
     const target = words[0];
@@ -453,11 +496,31 @@ test("AC-6e.2 / AC-21.1 / AC-21.2 / AC-21.3: a real flight cue produces a schedu
     return { target, wrong };
   });
   expect(typoInput).not.toBeNull();
-  await page.waitForTimeout(300);
+  // Wait for the CUE, not for a clock: the thing this step exists to produce.
+  await page.waitForFunction(
+    () => {
+      const audio = (window as unknown as {
+        __kb: { audio: { snapshot(): { played: Record<string, number> } } };
+      }).__kb.audio;
+      return (audio.snapshot().played["typo"] ?? 0) > 0;
+    },
+    null,
+    { timeout: 20_000 },
+  );
 
   // --- shield: promote a rock to a canister and blast it -------------------
+  // `makeCanister()` promotes the oldest live rock, so it returns null when the
+  // belt is momentarily empty - the same precondition that broke the typo step.
+  // Wait for a rock first; after that, null can only mean the debug surface is
+  // closed, which is a defect rather than a timing accident.
+  await page.waitForFunction(
+    () => (window.__kbFlight?.words() ?? []).length > 0,
+    null,
+    { timeout: 40_000 },
+  );
   const canister = await page.evaluate(() => window.__kbFlight?.makeCanister() ?? null);
-  if (canister !== null) await typeText(page, canister);
+  expect(canister, "makeCanister returned null with a rock on the belt").not.toBeNull();
+  await typeText(page, canister as string);
   await page.waitForTimeout(400);
 
   // --- hit: stop typing and let one rock reach the hull ---------------------
@@ -511,6 +574,13 @@ test("AC-6e.2 / AC-21.1 / AC-21.2 / AC-21.3: a real flight cue produces a schedu
     typoInput,
     cuesRouted: after.cuesRouted,
     distinctCues: [...new Set(after.cuesRouted)],
+    // Recorded, not asserted. The canister is promoted from the OLDEST rock,
+    // which is the one nearest the breach line, so it can be struck before the
+    // spec finishes typing it and the shield cue never fires. Asserting it
+    // without first spawning a known rock by name would be a flaky red. See
+    // the escalation; the fix is `spawn` then `makeCanister(word)`.
+    canisterWord: canister,
+    shieldPlays: after.played["shield"] ?? 0,
     sfxPlaysBefore: before.sfxPlays,
     sfxPlaysAfter: after.sfxPlays,
     keystrokeCues,

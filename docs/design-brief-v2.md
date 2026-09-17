@@ -70,7 +70,7 @@ The launchpad. Earth's beacon already exists but is dark; Shadow asks the player
 Destiny-style solar map, Earth to Pluto in a line, charted stops blinking with their beacon (D13). Locked stops are dark but visible. This screen is the sense of progress; make the blink feel earned. Each charted stop also shows its star rating (D27). Entry to the personal-best board per stop lives here (D43). Entry points to the Beacon Log and Settings live here.
 
 ### 4. Briefing
-The story page (3–5 sentences, big friendly type) read before flight. Picture-book page inside a cockpit, not a worksheet. Planet visible through a window. Shadow present. One button: launch.
+The story page (3–5 sentences, big friendly type) read before flight. Picture-book page inside a cockpit, not a worksheet. Planet visible through a window. Shadow present. One primary action - launch - and at most one navigation affordance beside it (UR-27: a player who opens a stop must be able to leave it, by pointer as well as by key).
 
 ### 5. Pre-flight
 A 5–20 second narrative startup sequence with Shadow's line (D51). On a new profile this is calibration disguised as ritual. Design it as a real sequence: systems lighting up, the planet swinging into view.

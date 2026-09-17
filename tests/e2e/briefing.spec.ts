@@ -198,12 +198,75 @@ test.describe("Briefing (row 4)", () => {
     await gameCanvas(page).screenshot({ path: `${EVIDENCE}/briefing-mars.png` });
   });
 
+
+/**
+ * THE BRIEFING'S CONTROL RULE (UR-27 vs the one-button rule).
+ *
+ * `buttonCount === 1` encoded a real constraint - a picture-book page with a
+ * field of buttons stops being a picture-book page - and UR-27 deliberately
+ * broke it, because a player could open a planet and had no way back: Escape
+ * worked and was invisible, and arriving by mouse left no pointer route out.
+ *
+ * Both decisions are right; the old assertion could not hold both. Replacing it
+ * with `toBe(2)` would have traded a meaningful claim for a number that happens
+ * to match today - two is fine, five is not, and a count cannot tell them apart.
+ *
+ * So the claim is about ROLES. Exactly one PRIMARY action, so nothing on the
+ * page competes with launch; and at most one navigation affordance beside it,
+ * so the page cannot grow a button field. `role` comes from the scene's own
+ * `FocusTarget.primary`, which is what decides where focus opens.
+ */
+interface Control {
+  id: string;
+  role: "primary" | "navigate";
+}
+
+function controlRuleBreaches(controls: readonly Control[]): string[] {
+  const primary = controls.filter((c) => c.role === "primary");
+  const nav = controls.filter((c) => c.role !== "primary");
+  const out: string[] = [];
+  if (primary.length !== 1) out.push(`${primary.length} primary actions`);
+  if (nav.length > 1) out.push(`${nav.length} navigation affordances`);
+  return out;
+}
+
+test("the control rule can fail (negative control for the two tests below)", () => {
+  // A check nobody has watched fail is not evidence. These are the shapes the
+  // rule exists to reject.
+  expect(controlRuleBreaches([{ id: "launch", role: "primary" }])).toEqual([]);
+  expect(
+    controlRuleBreaches([
+      { id: "launch", role: "primary" },
+      { id: "back", role: "navigate" },
+    ]),
+  ).toEqual([]);
+  // Two forward actions: something now competes with launch.
+  expect(
+    controlRuleBreaches([
+      { id: "launch", role: "primary" },
+      { id: "skip", role: "primary" },
+    ]),
+  ).toContain("2 primary actions");
+  // A button field.
+  expect(
+    controlRuleBreaches([
+      { id: "launch", role: "primary" },
+      { id: "back", role: "navigate" },
+      { id: "settings", role: "navigate" },
+    ]),
+  ).toContain("2 navigation affordances");
+  // No forward action at all.
+  expect(controlRuleBreaches([{ id: "back", role: "navigate" }])).toContain(
+    "0 primary actions",
+  );
+});
+
   test("the same layout dresses a second stop (inventory variant: Saturn)", async ({ page }) => {
     await mount(page, KEY, { stopId: "saturn" });
     const s = await snapshot(page, KEY);
     expect(s.planetName).toBe("Saturn");
     expect(s.sentenceCount).toBe(5);
-    expect(s.buttonCount).toBe(1);
+    expect(controlRuleBreaches(s.controls as Control[])).toEqual([]);
     await gameCanvas(page).screenshot({ path: `${EVIDENCE}/briefing-saturn.png` });
   });
 
@@ -216,10 +279,12 @@ test.describe("Briefing (row 4)", () => {
     expect(screen).not.toContain("{shipName}");
   });
 
-  test("AC-18.1 one button, reachable and operable by keyboard alone", async ({ page }) => {
+  test("AC-18.1 one primary action, reachable and operable by keyboard alone", async ({ page }) => {
     await mount(page, KEY, { stopId: "mars" });
     const s = await snapshot(page, KEY);
-    expect(s.buttonCount).toBe(1);
+    expect(controlRuleBreaches(s.controls as Control[])).toEqual([]);
+    // ...and the forward action is the one focus opens on, which is what
+    // "primary" means and why a child pressing Enter on arrival launches.
     expect(s.focusId).toBe("launch");
 
     await page.keyboard.press("Enter");
