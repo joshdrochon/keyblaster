@@ -192,7 +192,6 @@ test.describe("AC-22.8: word plates are never occluded", () => {
     // Both rects come from the state read above, so both are the same instant.
     const coveredContrast = await rectContrast(page, plateRect(victim));
     const cleanContrast = await rectContrast(page, plateRect(control));
-    // eslint-disable-next-line no-console
     console.log(
       `plate contrast: covered ${coveredContrast.toFixed(2)}:1, clean ${cleanContrast.toFixed(2)}:1`,
     );
