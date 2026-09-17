@@ -24,7 +24,7 @@ import type { Lang } from "../types.js";
 
 /** English is the source table; every other language is typed against it. */
 export const EN = {
-  "title.tagline": "Light the way home.",
+  "title.tagline": "Light the way through the solar system.",
   "title.play": "play",
   "title.settings": "settings",
   "title.beaconLog": "beacon log",
@@ -89,7 +89,7 @@ export const STRING_KEYS: readonly StringKey[] = Object.keys(
  * i18n: "+25%"); fit.ts is what tests that against a label budget.
  */
 export const ES: Record<StringKey, string> = {
-  "title.tagline": "Ilumina el camino a casa.",
+  "title.tagline": "Ilumina el camino por el sistema solar.",
   "title.play": "jugar",
   "title.settings": "ajustes",
   "title.beaconLog": "registro de balizas",
@@ -144,7 +144,7 @@ export const ES: Record<StringKey, string> = {
  * is addressed with.
  */
 export const HI: Record<StringKey, string> = {
-  "title.tagline": "घर का रास्ता रोशन करो।",
+  "title.tagline": "सौर मंडल का रास्ता रोशन करो।",
   "title.play": "खेलो",
   "title.settings": "सेटिंग्स",
   "title.beaconLog": "बीकन सूची",

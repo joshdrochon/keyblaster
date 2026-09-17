@@ -2091,3 +2091,268 @@ wholly behind a panel and is covered.
 
 **Proceeding.** Six of seven stops are correct and the captured screen (Mars) is
 one of them.
+
+## D51 — the calibration ritual never ran, so the belt was flown for a child who was not there
+
+- **Escalated:** 2026-09-16 (belt / calibration lane) — **DECIDED AND IMPLEMENTED.** Recorded here because it is a product decision with real tradeoffs, and because two of them are still open.
+- **Source:** PRD FR-8 / FR-11, AC-11.1, AC-11.2, AC-4.3; D19, D31, D51, D81.
+- **Evidence:** `gauntlet/evidence/calibration-reaches-the-belt.json`, `tests/unit/simulation/belt.test.ts` (new describe "D51 / AC-11.2"), `tests/e2e/preflight.spec.ts`.
+
+### What was wrong
+
+`calibration.ikiMs` was **350 ms for every child who ever played**, which is FR-8's
+default for a median grade 3-5 typist. Three findings, all in `src/`:
+
+1. `PreflightScene` planned the ritual only when `story.newProfile` was true, and
+   **nothing in `src/` ever set that flag** — ProfileCreate, ProfilePicker, Title, the
+   map and the briefing all pass `false`. `computeCalibration` never ran.
+2. Even when it ran (a test harness setting the flag), the result went to Flight as
+   scene data and was **never written to the profile**. No `updateProfile` call
+   anywhere touched `calibration`; `applyCalibration` had no caller in `src/`.
+3. `calibrationFromHistory` and `needsCalibration` had no callers outside the engine.
+
+Fall time is `len * 1.5 * ikiMs + 1200 * ease`, so a grade-2 typist at 600 ms between
+keys was given 3207 ms to read and type "fit" when they need 3600, and 5595 ms for
+"jupiter" when they need 6000. Every cold word breached. A real playthrough stalled on
+Jupiter at spawn 18 of 58, hull 0, two words cleared.
+
+This is the third instance of the same shape (trophies, ships/skins, calibration): a
+complete, tested, coverage-gated engine module with **no live caller**. The gate
+measures the engine; nothing measured whether the game calls it.
+
+### The decision
+
+**(a) and (b) together, and not (c).** Both halves ship:
+
+| | Option | Taken | Why |
+|---|---|---|---|
+| a | Run the ritual for real, triggered by the PROFILE rather than by a flag | **yes** | It is the only thing that helps on the FIRST belt, which is where the child stalled. Measured: 0 stalls in 100 vs 100 in 100. |
+| b | Refine the baseline from actual play (`refineCalibration`), live and persisted | **yes** | The ritual is once per profile; (b) is what keeps it true as the child improves, and is the only path for a profile created before (a) existed. |
+| c | Widen the fall-time formula for everyone | **no** | It makes the game slower for every child to fix a problem only the slow typist has, and it treats a measurement failure as a difficulty setting. |
+| d | Ship as is | **no** | The belt is the game. |
+
+**What "the profile needs measuring" means.** `needsCalibration` alone was not enough
+and this is worth recording. Its first clause is `!hasTypingHistory`, and
+`hasTypingHistory` counts a CLEARED STOP as history. Earth is cleared by typing one
+word (AC-12.1, D57) **before** the first pre-flight the game ever shows, so by the
+time a new pilot reaches Pre-flight the engine's own predicate already says
+"returning" — and the ritual would still have run for nobody. Earth's single word is
+also stored nowhere, so it calibrates nothing; it only makes the profile look
+measured. The question actually asked is now "does the game have any way of knowing
+how fast this child types?", which has exactly two answers: a stored baseline that is
+no longer the shipped default, or per-word samples `calibrationFromHistory` can
+rebuild one from. Neither, and we measure. Either, and we never ask again.
+
+**Consequence, deliberate:** every existing save has the default baseline and no
+stored word history, so **every existing pilot gets the ritual once** on their next
+pre-flight. Twenty seconds, framed as story (AC-11.3). The alternative — leaving them
+on 350 ms for ever — is the defect.
+
+**The fold learns from KEYSTROKES, not from kills.** The first implementation folded
+the timings a blast reported, and the simulation showed why that cannot work: a child
+being flown 70% too fast blasts nothing, so there is no blast to learn from, so they
+go on being flown 70% too fast. 100 stalls in 100 belts, hit rate 0, belief still on
+350 ms. Fed by `AdvancedEmit.ikiMs` — every keystroke, including the ones on words
+that reached the breach line — the same belt stalls 0 times in 100 and the belief
+lands on 598 ms against a true 600.
+
+**Two alphas, on purpose.** The LIVE value folds on every keystroke, against the
+median of every interval the stage has produced, so it walks to a stable target within
+the first handful of words and never past it; a rock already falling keeps the fall
+time it was given, so nothing on screen changes speed under the player. The STORED
+baseline folds once, at stage end, at D51's documented `REFINE_ALPHA` (half-life 3.1
+stages), so the persisted number stays cautious.
+
+### Why the simulation disagreed, and what was done about it
+
+`tests/unit/simulation/flight.ts` computed fall time with
+`{ ...DEFAULT_CALIBRATION, ikiMs: player.ikiMs }` — it handed the grade-2 player a
+game that already knew the answer. `belt-survivability.json` and
+`grade2-stall-rate.json` were both measuring a game we do not ship.
+
+The belief is now a config field (`BeltConfig.calibration`), it defaults to the
+shipped `DEFAULT_CALIBRATION`, and the harness models both ways the real game can
+change it. A test that wants the player's own baseline has to ask for it by name.
+The D17/D27 hull describe pins the old model explicitly, so that before-and-after
+still measures one thing; without the pin its `before` reads 46 rather than 58 and the
+hull comparison would be crediting two changes to one.
+
+| grade-2 pilot, 100 seeds, Mars, 58 words, canisters off | stalls | hit rate | belief at end |
+|---|---|---|---|
+| unmeasured, no in-stage fold (**the shipped game**) | 100 | 0.00 | 350 ms |
+| unmeasured, in-stage fold (existing profiles) | 0 | 0.911 | 598 ms |
+| ritual ran (new profiles) | 0 | 0.960 | 600 ms |
+
+### What protects a badly measured ritual
+
+Worth recording because the ritual is now load-bearing. If a child mashes keys
+through it, the measured baseline is floored at `MIN_IKI_MS` (40 ms) and the
+belt is tuned for hands nobody has. Two things catch it. `FALL_TIME_MIN_MS`
+floors every fall at 2.5 s whatever the baseline says, and the in-stage fold
+corrects the belief upward from real play within the first handful of words -
+the same mechanism that rescues an unmeasured pilot, running in the other
+direction. The e2e route found this the hard way: `playthrough.spec.ts` typed
+the ritual at `page.keyboard`'s full speed, the game correctly concluded the
+pilot types at 40 ms, and the belt stalled once. The spec now types the ritual
+at a human pace, because it is the one place in the game where the machine
+measures the person and an automated player there measures the automation.
+
+### STILL OPEN — two things this fix does not settle
+
+**1. A grade-2 belt now takes about 250 seconds.** FR-6 targets 90-150 s, and that
+target is written for "a median grade 3-5 typist", so the tail was arguably always
+outside it — but 58 words at 600 ms per key is four minutes, and four minutes is a
+long time for a seven-year-old. The belt is now survivable and long rather than short
+and impossible, which is the right way round, but `stageWordCount` is a constant for
+every pilot and probably should not be. Options: scale the spawn count by the measured
+baseline (a slow child flies 40 words, a fast one 58, both for about two minutes);
+leave it; or make it a Settings choice. **Lean: scale it from calibration**, for the
+same reason the hull was scaled from stage length — a constant tuned for the median
+silently retunes the game for everyone else. Not done here: it is a change to FR-6's
+own number and belongs with whoever owns the pacing decision.
+
+**2. `profile.words` is never written by anything in `src/`.** The word book travels
+scene to scene and dies at the end of the session. Nothing persists exposures, ease,
+SRS stage or first-key latencies, so D21's retention interleave, D19's ease-driven
+fall time and `calibrationFromHistory` all restart from zero on every reload. The
+calibration half of that is covered here (the baseline itself is now persisted), but
+the SRS half is not, and it is the same defect class again: `@engine/words` is
+complete, tested and gated, and nothing calls it through to storage. Flagged rather
+than fixed because it is a persistence change in another lane's files.
+
+## P2 — trophies are awarded silently, and Earth shows 0 stars on a full map
+
+- **Escalated:** 2026-09-16 (belt / calibration lane)
+- **Source:** D80, AC-6d.1c; AC-12.1, AC-20.4.
+- **Attempts:** none — both fixes land in files this lane was told not to touch
+  (`ResultsScene` layout, `EarthActivationScene`/`BeaconScene` clear payloads).
+
+**Silent trophies.** Nine were earned across a full route and the results screen
+mentioned none of them; the only place a child finds out is the Beacon Log, which
+they have no reason to open. `awardTrophies` is called from `ResultsScene` and the
+newly-earned ids are already in hand at the call site — what is missing is a line on
+the screen, which is layout, and layout is the UI lane's this round. **Lean: one line
+under the stars naming what was just earned, and a chime.** A reward nobody is told
+about is not a reward.
+
+**Earth shows 0 stars.** Earth is cleared by typing one word and has no belt (D57),
+so nothing ever calls `starsForHullHits` for it and its `StopProgress.stars` stays 0 —
+next to six stops showing 3. Options: award 3 (it was completed, and the map reads as
+a route of completed stops); render Earth without a rating at all (honest: there was
+no belt to rate); or leave it. **Lean: render no rating for Earth**, because 3 stars
+for typing one word devalues the three a child earned on Saturn. Either way the
+current state — a zero that looks like a bad result — is the one answer that is
+wrong.
+
+## P2d sweep — single-value assumptions the suite bakes in
+
+- **Escalated:** 2026-09-16 (P2d sweep lane)
+- **Source:** queue.md P2d, "find the single-value assumptions the test suite
+  bakes in, and ask what each one hides".
+- **Shipped in this lane:** `tests/unit/arch/profileWriters.test.ts` — a standing
+  check for the defect class, green, with five negative controls.
+
+### The check that makes the class visible, and the two that do not
+
+The queue proposed "fail when a module in `src/engine` has no importer in
+`src/game`", expecting it to catch four of the five. **Measured, it catches
+zero.** `awards/`, `calibration/` and `progress/` all had game-side importers
+while the defect was live; the import was there, the write was not. The check
+produces 0 hits on today's tree.
+
+Widening it to the symbol level — an engine export never named in `src/game` —
+flags **302 of 453 public symbols (67%)**. Most are types, constants and
+helpers a barrel re-exports deliberately. That is noise, not a check.
+
+The granularity that works is the persisted field:
+
+> every field of the persisted `Profile` must have a live writer in `src/game`
+
+**13 fields, 3 flagged, 3 real.** It would have caught trophies, `StopProgress.
+cleared`, calibration and `U-ships` — four of the five known instances — and it
+found a fifth nobody was on. It cannot catch the letterbox bug, which is a
+different axis (viewport), and nothing in this sweep claims otherwise.
+
+The check excludes `blankProfile` and `resetProfileProgress` by name: both
+assign every field, so "is this field ever assigned" is always true and always
+useless. Comments are stripped before matching, because a repo that grades a
+ticket DONE on prose describing the fix has already made that mistake once —
+and the negative control caught the first draft doing exactly that.
+
+### Orphan 1 — `profile.words`: the whole SRS is a no-op (NEW)
+
+Already flagged in prose by the calibration lane under P0a. **Now measured**,
+because the size of it was not on record.
+
+`src/game/flight/stage.ts:320` ships `book: {}` as the Flight default and no
+scene supplies another. `FlightScene` builds a real `WordBook` with
+`applyToBook` and drops it at the scene boundary; nothing reads `profile.words`
+and nothing writes it.
+
+Driven against the engine's own functions — "jupiter" after 8 clean hits at
+180 ms IKI, versus the blank record every stage actually gets:
+
+| | blank (shipped) | after 8 hits (unreachable) |
+|---|---|---|
+| `ease` | 1.6 | 0.436 |
+| `masteryOf` | `unknown` | `mastered` |
+| `fallTimeMs("jupiter")` | **5595 ms** | 4198 ms |
+| `weightOf` (stage 1) | 3 | 0.3 |
+| `isEligible` at stage 3 | true | false |
+
+So FR-7 per-word memory, FR-8 ease-driven fall time, FR-9 selection weighting
+and D21's retention interleave are all running on a book that is empty at every
+launch, on every run, forever. A child's tenth encounter with a word is priced
+exactly like their first.
+
+**This intersects the live belt work.** The P0a report reads "`jupiter` falls in
+5595 and needs 6000". 5595 ms is precisely the blank-book number. The belt is
+not only tuned for a median typist, it is permanently tuned for a player who
+has never seen any word before — so no amount of practice ever makes the belt
+easier, which is the one mechanism that was supposed to.
+
+**Not fixed here:** both touch points (`scenes/lib/init.ts` for the load,
+`FlightScene`/`ResultsScene` for the save) are in lanes this sweep was told not
+to touch. **Lean: a `storedBook`/`persistBook` pair in `scenes/lib/init.ts`
+mirroring `storedCalibration`/`persistCalibration` exactly** — the seam already
+exists, is already tested, and has already been argued once.
+
+### Orphans 2 and 3 — `unlockedShips` / `unlockedSkins`
+
+Confirmed unchanged: no code path adds to either. Both are in the allowlist
+with `U-ships` named as the owner.
+
+### Related and separate — the ship you pick is never the ship you fly
+
+Three independent colour tables, no mapping between any of them:
+
+| source | ship 1 hull | ship 1 stripe |
+|---|---|---|
+| `ui/catalog.ts` `SHIPS[0].colors` | `#F2EDE3` | `#FF6B4A` |
+| `render/lantern.ts` `STRIPE.coral` | `#F2E6D2` (`HULL_CREAM`) | `#E8695A` |
+| `FlightScene.drawLantern:683` | `#F3E7D3` | `#FF6B4A` |
+
+`FlightScene.drawLantern` hardcodes its hexes and **never reads
+`this.cfg.shipId`** — `FlightConfig` does not carry it. Nothing anywhere maps a
+`ShipDef.id` to a `LanternColorway`; the only consumers of a colorway are
+`lanternShot.ts` (a sheet dump) and `lantern.ts` defaulting to `"coral"`. Every
+pilot flies the same ship whatever they chose.
+
+**No test was written for this**, deliberately, and this is the reason. The fix
+has two halves: the mapping (`ui/catalog.ts`, this lane's file) and the wiring
+(`FlightScene`, not this lane's). Landing only the mapping would ship a
+complete, tested, coverage-gated table that nothing calls — *the defect class
+this sweep exists to detect*, reintroduced by the sweep. A test asserting the
+mapping would be red and unfixable from here; a test asserting today's
+behaviour would certify the bug.
+
+Options: (A) one lane owns both halves — add `colorway` to `ShipDef`, carry
+`shipId` on `FlightConfig`, have `drawLantern` read it; (B) delete
+`LANTERN_COLORWAYS` and make `catalog.SHIPS` the single authority, with
+`lantern.ts` taking explicit colours; (C) cut ship choice for the hackathon and
+stop drawing a selector that decides nothing.
+
+**Lean: B.** Two tables claiming to be AC-24.3's four base ships is the root
+cause, not the missing wire, and (A) leaves both tables alive to drift again.
+(C) is the honest fallback if no lane can take the render change tonight — a
+selector that changes nothing is worse than no selector.

@@ -49,10 +49,14 @@ async function press(page: import("@playwright/test").Page, key: string): Promis
 }
 
 /** Type a word one key at a time, as a child would. */
-async function typeWord(page: import("@playwright/test").Page, word: string): Promise<void> {
+async function typeWord(
+  page: import("@playwright/test").Page,
+  word: string,
+  delayMs = 45,
+): Promise<void> {
   for (const ch of word) {
     await page.keyboard.press(ch === " " ? "Space" : ch);
-    await page.waitForTimeout(45);
+    await page.waitForTimeout(delayMs);
   }
 }
 
@@ -162,6 +166,65 @@ async function clearTheBelt(
     `the Mars belt never ended (spawned ${last.spawned} of ${last.total}, ` +
       `${last.rocks.length} still live, ${stallRestarts} stall restarts). ${where()}`,
   );
+}
+
+/**
+ * Fly the pre-flight sequence.
+ *
+ * A BRAND-NEW PILOT IS NOW ACTUALLY MEASURED HERE (D51, AC-11.1). The ritual
+ * used to be gated on an init-payload flag nothing in `src/` ever set, so this
+ * step was five seconds of lamps lighting themselves and any key press did; the
+ * game never found out how fast the child types and flew every belt at FR-8's
+ * 350 ms default. It runs for real now, which means this route has to type it -
+ * three steps, five or six short words, prompted one at a time.
+ *
+ * Reading `currentWord` off the scene is observation, not driving: every key
+ * that answers it goes through `page.keyboard`, which is this spec's rule.
+ * A returning pilot shows the same sequence with nothing to type
+ * (`calibrating: false`), and the loop simply waits it out.
+ *
+ * AND IT IS TYPED AT A HUMAN PACE, WHICH IS LOAD-BEARING. This is the one place
+ * in the game where the machine measures the person, and everywhere else in
+ * this spec the "person" is `page.keyboard.type` at full speed. Typing the
+ * ritual that way tells the game a child types at 25 ms between keys - below
+ * `MIN_IKI_MS`, so it is floored at 40 - and the belt is then correctly tuned
+ * for hands no child has, with every fall time on its 2.5 s clamp. That belt is
+ * survivable for a human typing at 40 ms and is not survivable for an automated
+ * player whose real cost per word is a CDP round trip. The mismatch is the
+ * harness's, not the game's, and it belongs here rather than in a looser
+ * assertion about stalls.
+ */
+/**
+ * Gap between keys while the ritual is measuring, ms.
+ *
+ * A grade 3-5 typist sits around FR-8's 350 ms; this is deliberately a little
+ * quicker than that and well inside `@engine/calibration`'s [40, 3000] bounds,
+ * so the ritual measures a plausible child rather than the automation driving
+ * the keyboard.
+ */
+const PREFLIGHT_KEY_DELAY_MS = 220;
+
+async function runPreflight(
+  page: import("@playwright/test").Page,
+  where: () => string,
+): Promise<void> {
+  const typed = new Set<string>();
+  for (let i = 0; i < 400; i++) {
+    if (!(await activeScenes(page)).includes("Preflight")) return;
+    const snap = await page.evaluate(() => {
+      const scene = window.__kb?.game.scene.getScene("Preflight") as
+        | { snapshot?: () => { phase: string; currentWord: string | null } }
+        | null;
+      const s = scene?.snapshot?.();
+      return s === undefined ? null : { phase: s.phase, currentWord: s.currentWord };
+    });
+    if (snap?.phase === "typing" && snap.currentWord !== null && !typed.has(snap.currentWord)) {
+      typed.add(snap.currentWord);
+      await typeWord(page, snap.currentWord, PREFLIGHT_KEY_DELAY_MS);
+    }
+    await page.waitForTimeout(200);
+  }
+  throw new Error(`the pre-flight sequence never handed off to Flight. ${where()}`);
 }
 
 /** Retype the warp sentence, which is built from the words just blasted (D09). */
@@ -447,12 +510,7 @@ test("a player can get from the Title to a placed beacon using only the keyboard
   }
   await waitForScene(page, "Preflight", 120_000).catch(() => {});
   if ((await activeScenes(page)).includes("Preflight")) {
-    // The ritual is a timed sequence; it may want keys or may run itself.
-    for (let i = 0; i < 30; i++) {
-      if (!(await activeScenes(page)).includes("Preflight")) break;
-      await press(page, "Enter");
-      await page.waitForTimeout(400);
-    }
+    await runPreflight(page, where);
   }
 
   await mark("waiting for Flight");

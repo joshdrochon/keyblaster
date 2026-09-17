@@ -467,6 +467,10 @@ function materialsFor(
  */
 export const WORLD_STOP_KEY = "kb.worldStop";
 
+/** TEMPORARY ablation switch, removed before hand-back. */
+const OFF = (k: string): boolean =>
+  ((globalThis as unknown as { __kbAblate?: string[] }).__kbAblate ?? []).includes(k);
+
 export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Parallax {
   ensureTextures(scene);
 
@@ -516,6 +520,7 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
 
   /** Add a wrapped, sideways-drifting sub-plane to a layer. */
   const addDrift = (id: LayerId, ops: readonly TileOp[]): void => {
+    if (OFF(`drift:${id}`)) return;
     const cfg = DRIFT_X[id];
     if (cfg === undefined || ops.length === 0) return;
     const sub = scene.add.container(0, 0);
@@ -740,7 +745,7 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
     // `worldAccent`, not `accent`: in colourblind mode these two are different
     // colours on purpose. See the long note in palette.ts - the world wants the
     // value separated from the sky, the plate wants the one a child can read.
-    n.add(drawOps(scene, wrapY(moteTile(W, H, nearFill, pal.worldAccent, rand), H)));
+    if (!OFF("motes")) n.add(drawOps(scene, wrapY(moteTile(W, H, nearFill, pal.worldAccent, rand), H)));
     // WORLD-BAR item 7. Three of them. Tiny, high contrast, enormous effect.
     n.add(
       drawOps(scene, wrapY(accentTile(W, H, mixHex(pal.worldAccent, "#FFFFFF", 0.2), rand), H)),
@@ -824,15 +829,18 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
       const tint = veilSpec.warm
         ? mixHex(pal.colors[0] ?? "#FFFFFF", "#FFFFFF", 0.45)
         : mixHex(skyStops(pal)[0], "#FFFFFF", 0.7);
-      veilContainer = scene.add.container(0, 0);
-      veilContainer.add(
+      const vc = scene.add.container(0, 0);
+      veilContainer = vc;
+      if (!OFF("veil")) {
+      vc.add(
         drawOps(
           scene,
           wrapXY(veilTile(W, H, { spec: veilSpec, tint, laneGuard: LANE_GUARD, rand }), W, H),
         ),
       );
-      veilContainer.setAlpha(reducedMotion ? VEIL_ALPHA_REDUCED : VEIL_ALPHA);
-      fv.add(veilContainer);
+      vc.setAlpha(reducedMotion ? VEIL_ALPHA_REDUCED : VEIL_ALPHA);
+      fv.add(vc);
+      }
       const cfg = DRIFT_X["foreVeil"] as { rate: number; base: number };
       driftPlanes.push({
         container: veilContainer,
@@ -847,7 +855,7 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
 
   // --- Pinned framing and weather ----------------------------------------
   if (wantsFraming) {
-    extras.push(vignette(scene, pal, W, H).setDepth(VIGNETTE_DEPTH));
+    if (!OFF("vignette")) extras.push(vignette(scene, pal, W, H).setDepth(VIGNETTE_DEPTH));
   }
   const kind = wantsAtmosphere ? atmosphereFor(pal.id) : null;
   let weather: Phaser.GameObjects.TileSprite | null = null;

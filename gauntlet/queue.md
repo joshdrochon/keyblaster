@@ -236,6 +236,20 @@ treating as a class:
 | trophies never earned | a profile that had actually played |
 | `StopProgress.cleared` never set | a stop that had been completed |
 | calibration never runs | a child who types slower than 350ms |
+| **`U-ships`: no ship or skin can be unlocked** | a profile that had earned one |
+
+`U-ships` is the FOURTH and it is the most exact repeat: nothing in `src/`
+writes `unlockedShips` or `unlockedSkins`, and `ResultsScene.ts:399-400`
+hardcodes both to `[]` — the same line, in the same file, as the
+`trophies: []` that hid the trophy defect. It survived because AC-6d.1 and
+AC-6d.1b had no test. Four ships and four skins are drawn, catalogued, and
+permanently unreachable.
+
+Related and separate: **the ship you pick is never the ship you fly.**
+`catalog.SHIPS` and `lantern.LANTERN_COLORWAYS` both claim to be AC-24.3's four
+base ships, with different hexes and no `shipId → colorway` mapping, and the
+flown ship is a THIRD drawing with hard-coded colours in
+`FlightScene.drawLantern`.
 
 In each case the module was complete, tested and coverage-gated, and the
 suite was green over a game that could not reach it.

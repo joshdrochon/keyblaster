@@ -348,6 +348,14 @@ export class FlightScene extends Phaser.Scene {
    * whole fix and not a detail.
    */
   private liveIkiMs: number[] = [];
+  /**
+   * First-key latencies this stage has produced. Fed from blasts, because that
+   * is the only emission that carries one, and unlike the intervals it is not
+   * urgent: fall time does not read it at all (`@engine/fallTime` is length x
+   * iki plus the ease term), so it moves the pacing estimate and nothing the
+   * child can see fall.
+   */
+  private liveFkMs: number[] = [];
 
   /**
    * What the GAME believes about this child's hands, right now (D51, FR-8).
@@ -462,6 +470,7 @@ export class FlightScene extends Phaser.Scene {
     this.hullHitsTaken = 0;
     this.calibration = this.cfg.calibration;
     this.liveIkiMs = [];
+    this.liveFkMs = [];
     this.score = 0;
     this.hits = 0;
     this.typos = 0;
@@ -1258,7 +1267,7 @@ export class FlightScene extends Phaser.Scene {
   private learnFromPlay(): void {
     this.calibration = refineCalibration(this.calibration, {
       ikiMs: this.liveIkiMs,
-      fkLatencyMs: observedTimings(this.history).fkLatencyMs,
+      fkLatencyMs: this.liveFkMs,
     });
   }
 
@@ -1457,6 +1466,7 @@ export class FlightScene extends Phaser.Scene {
       atMs: nowMs,
       stage: this.cfg.stage,
     });
+    if (Number.isFinite(fkLatencyMs) && fkLatencyMs > 0) this.liveFkMs.push(fkLatencyMs);
     this.controller = recordOutcome(this.controller, "blasted");
     this.recordClear(rock, nowMs);
 
@@ -2211,9 +2221,17 @@ export class FlightScene extends Phaser.Scene {
         this.publishHud(true);
         if (isStalled(this.hull)) this.beginStall();
       },
-      makeCanister: () => {
+      makeCanister: (word?: string) => {
         if (!this.cfg.debug) return null;
-        const rock = this.rocks[0];
+        // `word` names WHICH rock to promote. Without it the oldest is taken,
+        // which is what every caller before this wanted - but the oldest rock
+        // is also the one nearest the breach line, so a spec that has to resume
+        // the belt and type it can lose the race and measure a breach instead
+        // of a repair. Naming a rock the spec has just spawned removes that.
+        const rock =
+          word === undefined
+            ? this.rocks[0]
+            : this.rocks.find((r) => r.word === word);
         if (rock === undefined) return null;
         const promoted: LiveRock = { ...rock, isCanister: true };
         this.rocks = this.rocks.map((r) => (r.id === rock.id ? promoted : r));
@@ -2289,7 +2307,8 @@ export interface SpawnDebugOptions {
 export interface FlightDebugApi {
   state(): FlightDebugState;
   strike(): void;
-  makeCanister(): string | null;
+  /** Promote a live rock to a shield canister; returns its word. */
+  makeCanister(word?: string): string | null;
   words(): string[];
   spawn(word: string, options?: SpawnDebugOptions): void;
 }

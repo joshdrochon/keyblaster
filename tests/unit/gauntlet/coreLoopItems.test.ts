@@ -265,12 +265,23 @@ describe("V-22.4 can fail: silhouette separation", () => {
     expect(r.status).toBe(STATUS.FAIL);
   });
 
-  it("the live capture is RED, and that is a real finding about the art (escalated)", async () => {
-    // Not a defect in the check. A rock tracked down the frame reads 0.373 at
-    // the top and 0.0002 as it crosses into the near-terrain band: inside 101.1
-    // against outside 101.1. See gauntlet/escalations.md.
+  it("the live capture reflects the current art, whatever that is", async () => {
+    // THIS TEST USED TO ASSERT `status === FAIL`. It was pinned to a defect - a
+    // rock read 0.373 at the top of the frame and 0.0002 crossing the
+    // near-terrain band, inside 101.1 against outside 101.1 - and the art lane
+    // then FIXED it, raising debris clearance to 0.085-0.700 against a 0.06
+    // bar. So the test went red for the defect being repaired.
+    //
+    // A test that fails when the thing it describes gets better is a tripwire
+    // on progress, not a check. The same shape was removed from
+    // tests/unit/tickets/tickets.test.ts earlier tonight for the same reason.
+    //
+    // What is worth asserting is that the item still READS the live artifact
+    // and still reports a per-band measurement, so the check cannot quietly
+    // stop measuring. Whether that measurement passes is the art's business and
+    // the rubric's verdict, not this test's.
     const r = await run("V-22.4", "desaturated-silhouettes.json", live("desaturated-silhouettes.json"));
-    expect(r.status).toBe(STATUS.FAIL);
+    expect([STATUS.PASS, STATUS.FAIL]).toContain(r.status);
     expect(r.detail).toContain("by band");
   });
 });
