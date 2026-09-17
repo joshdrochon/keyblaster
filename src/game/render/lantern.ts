@@ -84,6 +84,20 @@ const LENS_R = 37;
 /** Top of the beam head to the bottom of the nozzle bell, in design units. */
 export const LANTERN_DESIGN_HEIGHT = NOZZLE_BOTTOM - (PIVOT.y + LENS_LOCAL.y - LENS_R);
 
+/**
+ * The lens centre relative to the rig's origin, design units.
+ *
+ * The beam comes out of HERE (AC-24.1: one beam source), and a caller that
+ * draws its own beam - Flight does, because the beam is gameplay - needs the
+ * origin without reaching into the rig's transform. `beamOrigin()` is the
+ * answer when the rig sits at world coordinates; this is the answer when it is
+ * nested inside somebody else's container.
+ */
+export const LANTERN_LENS_OFFSET = {
+  x: PIVOT.x + LENS_LOCAL.x,
+  y: PIVOT.y + LENS_LOCAL.y,
+} as const;
+
 // ---------------------------------------------------------------------------
 // Colourways: the four ships in the reference sheet (D79, AC-24.3).
 // ---------------------------------------------------------------------------
@@ -122,10 +136,88 @@ const GLASS_DEEP = "#16283A";
 
 // ---------------------------------------------------------------------------
 
+/**
+ * A ship's four chosen colours (`ui/catalog.ts`: `ShipDef["colors"]`).
+ *
+ * WHY THIS EXISTS. The four `LANTERN_COLORWAYS` are the four BASE ships of
+ * D79, and they are a closed set written into this file. The profile's ship is
+ * not: a child picks one at profile creation and can unlock a SKIN for it
+ * (`catalog.liveryFor`), which is a fifth, sixth, seventh and eighth colourway
+ * this file has never heard of. Before this existed the flight screen answered
+ * that by drawing its own ship with its own hardcoded hex - which is how the
+ * game came to fly something `R-lantern` had never judged.
+ *
+ * Only four colours vary. The metal, the brass and the speculars do not: they
+ * are the INSTRUMENT, and an amber lens on a brass ring is the same machined
+ * object whichever hull it is bolted to.
+ */
+export interface LanternLivery {
+  readonly hull: string;
+  readonly stripe: string;
+  readonly glass: string;
+  readonly lens: string;
+}
+
+/** The full working palette, with the values a livery does not state derived. */
+interface LanternSkin {
+  readonly hull: string;
+  readonly hullLight: string;
+  readonly hullShade: string;
+  readonly stripe: string;
+  readonly glass: string;
+  readonly glassDeep: string;
+  readonly lens: string;
+  readonly lensHot: string;
+}
+
+/**
+ * NO LIVERY MEANS THE CONSTANTS, BYTE FOR BYTE.
+ *
+ * `R-lantern` is a human comparing `lanternShot.ts`'s render against the
+ * reference sheet, and that render passes no livery. So the `undefined` branch
+ * returns the exact constants this file has always drawn with rather than a
+ * round trip through `mixHex` that would land a level or two away and quietly
+ * invalidate a verdict somebody had already given.
+ */
+function skinFor(colorway: LanternColorway, livery?: LanternLivery): LanternSkin {
+  if (livery === undefined) {
+    return {
+      hull: HULL_CREAM,
+      hullLight: HULL_LIGHT,
+      hullShade: HULL_SHADE,
+      stripe: STRIPE[colorway],
+      glass: GLASS,
+      glassDeep: GLASS_DEEP,
+      lens: LENS_GOLD,
+      lensHot: LENS_HOT,
+    };
+  }
+  // The four derived values keep the same RELATIONSHIPS the constants have -
+  // light is the hull toward white, shade is the hull toward the gunmetal, the
+  // deep glass is the glass toward black, the hot lens is the lens toward
+  // white - so a catalogue colour lands in the same drawing rather than in a
+  // flat-shaded copy of it.
+  return {
+    hull: livery.hull,
+    hullLight: mixHex(livery.hull, "#FFFFFF", 0.45),
+    hullShade: mixHex(livery.hull, METAL_DARK, 0.22),
+    stripe: livery.stripe,
+    glass: livery.glass,
+    glassDeep: mixHex(livery.glass, "#0B0D11", 0.55),
+    lens: livery.lens,
+    lensHot: mixHex(livery.lens, "#FFFFFF", 0.62),
+  };
+}
+
 export interface LanternOptions {
   /** 1.0 draws the ship at LANTERN_DESIGN_HEIGHT px tall. */
   readonly scale?: number;
   readonly colorway?: LanternColorway;
+  /**
+   * The profile's four colours. Overrides `colorway` when given; omit it and
+   * the ship is drawn in the base colourway exactly as it always was.
+   */
+  readonly livery?: LanternLivery;
   /** D41 / AC-19.3: the idle bob slows, it never stops. */
   readonly reducedMotion?: boolean;
   readonly exhaust?: boolean;
@@ -145,6 +237,19 @@ export interface LanternRig {
   readonly container: Phaser.GameObjects.Container;
   /** The yoke + head. Rotates to track the locked target; the mount does not. */
   readonly emitterMount: Phaser.GameObjects.Container;
+  /**
+   * The iris blades, so a caller can blip the aperture's ALPHA without redrawing
+   * it. Flight acknowledges every keystroke that matched nothing with one
+   * (AC-6e.2), and that is a property of the object rather than of the drawing,
+   * which is why it is a handle and not a third draw entry point.
+   */
+  readonly iris: Phaser.GameObjects.Graphics;
+  /**
+   * The plume and its glow. Flight dims this when the engines go quiet (D29) -
+   * again a property of the object, so the stall does not need its own exhaust.
+   * Empty when the rig was built with `exhaust: false`.
+   */
+  readonly exhaust: Phaser.GameObjects.Container;
   /** World-space point the beam originates from (the lens centre). */
   beamOrigin(): { x: number; y: number };
   /** Aim the emitter at a world point. Clamped, and eased - never snapped. */
@@ -152,11 +257,20 @@ export interface LanternRig {
   /** 0..1. The iris opens on fire (AC-24.1). */
   setIris(open: number): void;
   setColorway(colorway: LanternColorway): void;
+  /** Repaint in a profile's four colours; `undefined` restores the colourway. */
+  setLivery(livery: LanternLivery | undefined): void;
   destroy(): void;
 }
 
-/** Max emitter swing from straight ahead. A head that spins is a turret, not a lamp. */
-const AIM_LIMIT = Phaser.Math.DegToRad(26);
+/**
+ * Max emitter swing from straight ahead. A head that spins is a turret, not a lamp.
+ *
+ * Exported because Flight aims the same head on a per-frame lerp rather than
+ * with `aimAt`'s tween (a tween per frame is a tween leak), and an aim limit
+ * that exists in two places is an aim limit that ends up with two values.
+ */
+export const LANTERN_AIM_LIMIT = Phaser.Math.DegToRad(26);
+const AIM_LIMIT = LANTERN_AIM_LIMIT;
 
 export function drawLantern(
   scene: Phaser.Scene,
@@ -169,38 +283,26 @@ export function drawLantern(
   const scale = options.scale ?? 1;
   const reducedMotion = options.reducedMotion ?? false;
   let colorway = options.colorway ?? "coral";
+  let livery = options.livery;
+  let skin = skinFor(colorway, livery);
 
   const rig = scene.add.container(x, y).setScale(scale);
 
   // --- exhaust (behind everything) ---------------------------------------
   const exhaust = scene.add.container(0, 0);
+  let plumeGlow: Phaser.GameObjects.Image | null = null;
+  let flame: Phaser.GameObjects.Graphics | null = null;
   if (options.exhaust ?? true) {
-    exhaust.add(
-      scene.add
-        .image(0, 236, TEX.glow)
-        .setDisplaySize(250, 340)
-        .setTint(hexToNum(LENS_GOLD))
-        .setAlpha(0.32)
-        .setBlendMode(Phaser.BlendModes.ADD),
-    );
+    plumeGlow = scene.add
+      .image(0, 236, TEX.glow)
+      .setDisplaySize(250, 340)
+      .setAlpha(0.32)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    exhaust.add(plumeGlow);
     // Built as a body profile, not a hand-listed pentagon: profilePolygon
     // always yields a simple left/right outline, so the fill can never
     // self-intersect into the two-streak shape a concave point list gives.
-    const flame = scene.add.graphics();
-    const plume = (w: number, len: number): Pt[] =>
-      profilePolygon(
-        NOZZLE_BOTTOM - 6,
-        NOZZLE_BOTTOM + len,
-        (t) => w * (1 - t) ** 0.75,
-        16,
-      );
-    flame.fillStyle(hexToNum(LENS_GOLD), 0.9);
-    fillShape(flame, plume(34, 152));
-    // Warm, not near-white: an almost-white core vanishes against a light
-    // background (and against the transparent reference-compare render), which
-    // leaves only the plume's two gold edges and reads as a broken V.
-    flame.fillStyle(hexToNum(mixHex(LENS_GOLD, LENS_HOT, 0.7)), 0.97);
-    fillShape(flame, plume(17, 98));
+    flame = scene.add.graphics();
     exhaust.add(flame);
     scene.tweens.add({
       targets: flame,
@@ -213,6 +315,27 @@ export function drawLantern(
     });
   }
   rig.add(exhaust);
+
+  /** The plume burns the SHIP's light, so it repaints when the livery does. */
+  const paintExhaust = (): void => {
+    plumeGlow?.setTint(hexToNum(skin.lens));
+    if (flame === null) return;
+    const plume = (w: number, len: number): Pt[] =>
+      profilePolygon(
+        NOZZLE_BOTTOM - 6,
+        NOZZLE_BOTTOM + len,
+        (t) => w * (1 - t) ** 0.75,
+        16,
+      );
+    flame.clear();
+    flame.fillStyle(hexToNum(skin.lens), 0.9);
+    fillShape(flame, plume(34, 152));
+    // Warm, not near-white: an almost-white core vanishes against a light
+    // background (and against the transparent reference-compare render), which
+    // leaves only the plume's two gold edges and reads as a broken V.
+    flame.fillStyle(hexToNum(mixHex(skin.lens, skin.lensHot, 0.7)), 0.97);
+    fillShape(flame, plume(17, 98));
+  };
 
   // --- fins (behind the hull) --------------------------------------------
   const fins = scene.add.graphics();
@@ -230,7 +353,6 @@ export function drawLantern(
   // --- porthole ----------------------------------------------------------
   const porthole = scene.add.graphics();
   rig.add(porthole);
-  drawPorthole(porthole);
 
   // --- centre fin (over hull and nozzle, as in the reference) ------------
   const centreFin = scene.add.graphics();
@@ -257,25 +379,32 @@ export function drawLantern(
   const emitterMount = scene.add.container(PIVOT.x, PIVOT.y);
   rig.add(emitterMount);
 
+  let shaft: Phaser.GameObjects.Graphics | null = null;
   if (options.beam ?? true) {
-    const beam = scene.add.graphics();
-    beam.fillStyle(hexToNum(LENS_GOLD), 0.14);
-    fillShape(beam, [
+    shaft = scene.add.graphics();
+    shaft.setBlendMode(Phaser.BlendModes.ADD);
+    emitterMount.add(shaft);
+  }
+
+  /** The idle light shaft, in the lens's own colour. */
+  const paintShaft = (): void => {
+    if (shaft === null) return;
+    shaft.clear();
+    shaft.fillStyle(hexToNum(skin.lens), 0.14);
+    fillShape(shaft, [
       { x: -7, y: LENS_LOCAL.y },
       { x: 7, y: LENS_LOCAL.y },
       { x: 20, y: LENS_LOCAL.y - 1000 },
       { x: -20, y: LENS_LOCAL.y - 1000 },
     ]);
-    beam.fillStyle(hexToNum(LENS_HOT), 0.2);
-    fillShape(beam, [
+    shaft.fillStyle(hexToNum(skin.lensHot), 0.2);
+    fillShape(shaft, [
       { x: -2.5, y: LENS_LOCAL.y },
       { x: 2.5, y: LENS_LOCAL.y },
       { x: 7, y: LENS_LOCAL.y - 1000 },
       { x: -7, y: LENS_LOCAL.y - 1000 },
     ]);
-    beam.setBlendMode(Phaser.BlendModes.ADD);
-    emitterMount.add(beam);
-  }
+  };
 
   const yoke = scene.add.graphics();
   emitterMount.add(yoke);
@@ -284,7 +413,6 @@ export function drawLantern(
   const lensGlow = scene.add
     .image(LENS_LOCAL.x, LENS_LOCAL.y, TEX.glow)
     .setDisplaySize(LENS_R * 4, LENS_R * 4)
-    .setTint(hexToNum(LENS_GOLD))
     .setAlpha(0.34)
     .setBlendMode(Phaser.BlendModes.ADD);
   emitterMount.add(lensGlow);
@@ -321,12 +449,16 @@ export function drawLantern(
   let irisOpen = options.iris ?? 0.72;
 
   const repaint = (): void => {
-    const stripe = STRIPE[colorway];
-    drawFins(fins, stripe);
-    drawHull(hullG, stripe);
-    drawCentreFin(centreFin, stripe);
-    drawHead(head);
+    skin = skinFor(colorway, livery);
+    lensGlow.setTint(hexToNum(skin.lens));
+    drawFins(fins, skin.stripe);
+    drawHull(hullG, skin);
+    drawPorthole(porthole, skin);
+    drawCentreFin(centreFin, skin.stripe);
+    drawHead(head, skin);
     drawIris(iris, irisOpen);
+    paintShaft();
+    paintExhaust();
   };
   repaint();
 
@@ -335,6 +467,8 @@ export function drawLantern(
   return {
     container: rig,
     emitterMount,
+    iris,
+    exhaust,
 
     beamOrigin(): { x: number; y: number } {
       const cos = Math.cos(emitterMount.rotation);
@@ -368,6 +502,11 @@ export function drawLantern(
 
     setColorway(next: LanternColorway): void {
       colorway = next;
+      repaint();
+    },
+
+    setLivery(next: LanternLivery | undefined): void {
+      livery = next;
       repaint();
     },
 
@@ -405,6 +544,26 @@ const FIN_POINTS: readonly Pt[] = [
   { x: 41, y: 30 },
 ];
 
+/**
+ * Half the drawn span, design units: the fin outline's widest point.
+ *
+ * Exported because a caller with a PIXEL budget for the ship's width - the
+ * flight screen reserves `SHIP_HALF_WIDTH_PX` so it knows which spawn columns
+ * would drop a rock on the pilot - has to derive its scale FROM the geometry
+ * rather than pick one and then hope. `scale = halfWidthPx /
+ * LANTERN_DESIGN_HALF_WIDTH` is the only expression that keeps the drawn
+ * silhouette and the gameplay constant the same object; a literal here would
+ * drift the moment a fin moved, silently, in the direction of rocks landing on
+ * a ship that is wider than the game thinks it is.
+ *
+ * DERIVED, not written down: `smoothPolygon` interpolates between the points
+ * and never overshoots them, so the widest POINT is the widest drawn x.
+ */
+export const LANTERN_DESIGN_HALF_WIDTH = FIN_POINTS.reduce(
+  (max, p) => Math.max(max, Math.abs(p.x)),
+  0,
+);
+
 function drawFins(g: Phaser.GameObjects.Graphics, stripe: string): void {
   g.clear();
   const right = smoothPolygon(FIN_POINTS, 8);
@@ -424,21 +583,22 @@ function drawFins(g: Phaser.GameObjects.Graphics, stripe: string): void {
   fillShape(g, starPoints(92, 132, 16, 6.4));
 }
 
-function drawHull(g: Phaser.GameObjects.Graphics, stripe: string): void {
+function drawHull(g: Phaser.GameObjects.Graphics, skin: LanternSkin): void {
+  const stripe = skin.stripe;
   g.clear();
   const body = profilePolygon(Y_TOP, Y_BOT, hull, 56);
 
   // Rim highlight: a slightly larger, darker silhouette behind the hull, so the
   // capsule has an edge without a drawn shadow.
-  g.fillStyle(hexToNum(HULL_SHADE), 1);
+  g.fillStyle(hexToNum(skin.hullShade), 1);
   fillShape(g, body.map((p) => ({ x: p.x * 1.03, y: p.y * 1.01 })));
-  g.fillStyle(hexToNum(HULL_CREAM), 1);
+  g.fillStyle(hexToNum(skin.hull), 1);
   fillShape(g, body);
 
   // Form shading: one light lens left, one shade lens right. No drawn shadows.
-  g.fillStyle(hexToNum(HULL_LIGHT), 0.55);
+  g.fillStyle(hexToNum(skin.hullLight), 0.55);
   g.fillEllipse(-26, -12, 38, 196);
-  g.fillStyle(hexToNum(HULL_SHADE), 0.42);
+  g.fillStyle(hexToNum(skin.hullShade), 0.42);
   g.fillEllipse(50, 0, 24, 190);
 
   // Livery. The bands ARE hull slices, so they are clipped to the capsule
@@ -458,7 +618,7 @@ function drawHull(g: Phaser.GameObjects.Graphics, stripe: string): void {
   );
 }
 
-function drawPorthole(g: Phaser.GameObjects.Graphics): void {
+function drawPorthole(g: Phaser.GameObjects.Graphics, skin: LanternSkin): void {
   g.clear();
   g.fillStyle(hexToNum(METAL_LIGHT), 1);
   g.fillCircle(0, PORTHOLE_Y, PORTHOLE_R);
@@ -466,9 +626,9 @@ function drawPorthole(g: Phaser.GameObjects.Graphics): void {
   g.fillCircle(-2, PORTHOLE_Y - 2, PORTHOLE_R - 3);
   g.fillStyle(hexToNum(METAL), 1);
   g.fillCircle(0, PORTHOLE_Y, PORTHOLE_R - 6);
-  g.fillStyle(hexToNum(GLASS_DEEP), 1);
+  g.fillStyle(hexToNum(skin.glassDeep), 1);
   g.fillCircle(0, PORTHOLE_Y, PORTHOLE_R - 10);
-  g.fillStyle(hexToNum(GLASS), 1);
+  g.fillStyle(hexToNum(skin.glass), 1);
   g.fillCircle(0, PORTHOLE_Y - 3, PORTHOLE_R - 12);
   // Two speculars: the big crescent and the small dot. Straight off the ref.
   g.fillStyle(0xffffff, 0.85);
@@ -626,7 +786,7 @@ function drawYokeAndHousing(g: Phaser.GameObjects.Graphics): void {
  * The rings alternate value (light / dark / brass) so all three are legible at
  * game size; three rings of the same grey read as one thick bezel.
  */
-function drawHead(g: Phaser.GameObjects.Graphics): void {
+function drawHead(g: Phaser.GameObjects.Graphics, skin: LanternSkin): void {
   g.clear();
   const { x: cx, y: cy } = LENS_LOCAL;
 
@@ -647,9 +807,9 @@ function drawHead(g: Phaser.GameObjects.Graphics): void {
   g.fillStyle(hexToNum(mixHex(BRASS, "#FFFFFF", 0.35)), 1);
   g.fillCircle(cx, cy, LENS_R - 15);
   // The lens.
-  g.fillStyle(hexToNum(LENS_GOLD), 1);
+  g.fillStyle(hexToNum(skin.lens), 1);
   g.fillCircle(cx, cy, LENS_R - 17);
-  g.fillStyle(hexToNum(LENS_HOT), 1);
+  g.fillStyle(hexToNum(skin.lensHot), 1);
   g.fillCircle(cx - 1, cy - 1.5, LENS_R - 25);
   // Housing specular on the lit side.
   g.lineStyle(3, hexToNum(METAL_RIM), 0.75);

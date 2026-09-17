@@ -1,0 +1,18 @@
+{
+  "description": "A small utility robot co-pilot for a children's space game. Male, young and light, never deep. Speech is even and slightly clipped, with a faint synthetic edge as if lightly processed through a small speaker. Warm and encouraging in content but flat in delivery. Not a cartoon mascot, not a movie AI. Above all CLEAN and NATURAL: no breathiness, no wobble, no artefacts.",
+  "text": "Belt ahead. Rocks with words on them. Type the word and the blaster does the rest. I will keep the lantern steady while you fly. Ready when you are, pilot.",
+  "previews": [
+    {
+      "file": "design-reference/voice-samples/designed2/utility-1.mp3",
+      "generated_voice_id": "z89UkjiNn1KIJIitSJLh"
+    },
+    {
+      "file": "design-reference/voice-samples/designed2/utility-2.mp3",
+      "generated_voice_id": "A4BeJ6WF3dv3iKKmCXtI"
+    },
+    {
+      "file": "design-reference/voice-samples/designed2/utility-3.mp3",
+      "generated_voice_id": "rA02nXo3dgwc2gR7jGuX"
+    }
+  ]
+}

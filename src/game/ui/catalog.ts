@@ -200,11 +200,26 @@ export function skinForShip(shipId: string): SkinDef | undefined {
   return SKINS.find((s) => s.shipId === shipId);
 }
 
+/**
+ * The colourway one ship is currently wearing (base, or its skin if earned).
+ *
+ * TAKES IDS, NOT A PROFILE, because the flight screen has to be able to answer
+ * this with no profile at all - every e2e boot of screen 6 is exactly that, and
+ * a standalone mount must fly the same ship a child does rather than a
+ * hardcoded one. `liveryFor` is this with a profile's two fields read off it.
+ */
+export function liveryForShip(
+  shipId: string,
+  unlockedSkins: readonly string[] = [],
+): ShipDef["colors"] {
+  const skin = skinForShip(shipId);
+  if (skin && unlockedSkins.includes(skin.id)) return skin.colors;
+  return shipDef(shipId).colors;
+}
+
 /** The colourway a profile's ship is currently wearing (base or its skin). */
 export function liveryFor(profile: Profile): ShipDef["colors"] {
-  const skin = skinForShip(profile.shipId);
-  if (skin && profile.unlockedSkins.includes(skin.id)) return skin.colors;
-  return shipDef(profile.shipId).colors;
+  return liveryForShip(profile.shipId, profile.unlockedSkins);
 }
 
 /** Beacons placed, read straight off persisted progress (D44). */

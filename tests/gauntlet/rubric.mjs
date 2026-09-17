@@ -116,6 +116,78 @@ function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
 }
 
+/**
+ * Index of the `)` matching the `(` at `open`, or -1.
+ *
+ * Brace/paren aware, because the ONE thing that separates a method declaration
+ * from a call to the same name is what follows the argument list, and a call
+ * whose last argument is an object literal - `drawLantern(scene, x, y, { ... })`,
+ * which is how every real call in this repo is written - has a `{` a naive
+ * regex reads as a function body.
+ */
+function matchParen(src, open) {
+  let depth = 0;
+  for (let i = open; i < src.length; i += 1) {
+    const c = src[i];
+    if (c === "(") depth += 1;
+    else if (c === ")") {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Every DECLARATION of `name` in `src`, as a list of kinds.
+ *
+ * A declaration, not a spelling. Three forms count and they are the three forms
+ * a second copy of a drawing has ever taken in this repo:
+ *
+ *   function drawLantern(...) {...}          an exported or local function
+ *   private drawLantern(...) {...}           a class method, modifier or not
+ *   drawLantern = (...) => {...}             an assigned function expression
+ *
+ * A CALL never counts, nor does an import, a re-export, a type position or a
+ * member access - `this.drawLantern(...)`, `mod.drawLantern(...)`. The member
+ * case is excluded by refusing a preceding `.`; the call case is excluded by
+ * requiring a `{` AFTER the closing paren of the parameter list, which is why
+ * the parens are matched properly rather than regex'd.
+ *
+ * It is deliberately blind to what the declaration DRAWS. A second Lantern that
+ * renders nothing is still a second Lantern, and the point of the item is that
+ * the reference compare covers everything on screen.
+ */
+function implementationsOf(src, name) {
+  const kinds = [];
+  const re = new RegExp(String.raw`(^|[^.\w$])(${name})\s*([(=])`, "g");
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    const head = m.index + m[0].length;
+    if (m[3] === "=") {
+      // `=>` is a comparison/arrow tail, not an assignment to this name.
+      if (src[head] === "=" || src[head - 2] === "=" || src[head - 2] === "!") continue;
+      if (/^\s*(?:async\s+)?(?:function\b|\(|<[^>]*>\s*\()/.test(src.slice(head, head + 60))) {
+        kinds.push("assignment");
+      }
+      continue;
+    }
+    const close = matchParen(src, head - 1);
+    if (close < 0) continue;
+    // A parameter list followed by a body - optionally through a return type.
+    if (/^\s*(?::[^;={]*)?\{/.test(src.slice(close + 1, close + 160))) {
+      kinds.push(/\b(?:private|protected|public|static|abstract|override)\s*$/.test(
+        src.slice(Math.max(0, m.index - 24), m.index + m[1].length),
+      )
+        ? "method"
+        : /\bfunction\s*$/.test(src.slice(Math.max(0, m.index - 24), m.index + m[1].length))
+          ? "function"
+          : "member");
+    }
+  }
+  return kinds;
+}
+
 function waives(src, checkId) {
   return new RegExp(`@gauntlet-allow\\s+${checkId}\\b`).test(src);
 }
@@ -1584,17 +1656,21 @@ const guardrails = [
     title: "Exactly one drawShadow and one drawLantern implementation",
     kind: "static",
     run: async ({ repo }) => {
-      const files = walk(join(repo, "src/game")).filter((f) => extname(f) === ".ts");
-      if (files.length === 0) return todo("src/game has no sources yet");
+      const files = walk(join(repo, "src")).filter(
+        (f) => extname(f) === ".ts" && !f.endsWith(".d.ts"),
+      );
+      if (files.length === 0) return todo("src has no sources yet");
       const problems = [];
       for (const [fn, what] of [["drawShadow", "Shadow"], ["drawLantern", "Lantern"]]) {
-        const impls = files.filter((f) =>
-          new RegExp(`export\\s+function\\s+${fn}\\b`).test(stripComments(readFileSync(f, "utf8"))),
-        );
+        const impls = [];
+        for (const f of files) {
+          const kinds = implementationsOf(stripComments(readFileSync(f, "utf8")), fn);
+          if (kinds.length > 0) {
+            impls.push(`${f.replace(repo + "/", "")} (${[...new Set(kinds)].join(", ")})`);
+          }
+        }
         if (impls.length > 1) {
-          problems.push(
-            `${impls.length} ${what} implementations: ${impls.map((f) => f.replace(repo + "/", "")).join(", ")}`,
-          );
+          problems.push(`${impls.length} ${what} implementations: ${impls.join(", ")}`);
         }
       }
       // WHY THIS CHECK EXISTS. R-shadow judged ONE render and passed it. Four
@@ -1602,8 +1678,34 @@ const guardrails = [
       // rubric item did not cover what a player sees on Profile, Beacon Log,
       // Pause or Profile Picker. A reference compare is only worth what it
       // covers, and nothing was checking that it covered everything.
+      //
+      // ================== AND THEN IT MISSED TWO MORE ==================
+      // Its first regex was `export\s+function\s+drawLantern`, which matches
+      // ONLY an exported top-level function. It therefore could not see:
+      //
+      //   FlightScene.drawLantern  - a private method with hardcoded hex that
+      //                              never read the profile and never called
+      //                              render/lantern.ts. THE SHIP THE PLAYER
+      //                              FLIES, on screen for the entire game.
+      //   StallScene.drawShadow    - a private method with hardcoded hex, on
+      //                              the card a child sees every time the hull
+      //                              empties.
+      //
+      // Both are `docs/verification-gaps.md` instance 23: the guard failing at
+      // its own stated purpose, in the same shape it was written to prevent.
+      // It now recognises a DECLARATION rather than a spelling - a function, a
+      // class method with or without a modifier, or an assigned function
+      // expression - anywhere in src/, and it is the file names that are
+      // reported, because "there are two" is not actionable on its own.
+      //
+      // WATCHED FAILING. A second implementation added to FlightScene as
+      // `private drawLantern(g: Phaser.GameObjects.Graphics): void {}` takes
+      // this item red with both paths named; the evidence is
+      // `gauntlet/evidence/lantern-unify/g-one-shadow-negative-control.txt`.
+      // An unwatched guard is instance 15, and instance 15 was written by a
+      // lane that had spent the night finding exactly this class.
       return problems.length === 0
-        ? ok(`one implementation each for Shadow and the Lantern across ${files.length} game files`)
+        ? ok(`one implementation each for Shadow and the Lantern across ${files.length} source files`)
         : bad(problems.join("; "));
     },
   },

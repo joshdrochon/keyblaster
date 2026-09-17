@@ -51,10 +51,28 @@
  * to look at next. It is taken as a fraction of the fall-time SLACK - the
  * headroom D19's formula grants a rock over what the player needs to type it -
  * so the overlap can never cost a rock more time than it had spare. That
- * fraction is the controller's `maxLive` knob (D53) and nothing else: more
- * concurrency means more overlap, which is more rocks on screen and less margin
- * per rock, and it still cannot feed the board faster than the player drains it.
- * That is the difference between a harder belt and an unsurvivable one.
+ * fraction is the controller's `maxLive` knob (D53).
+ *
+ * STANDING is the queue, and it is what UR-51 added. The lead alone could never
+ * put a second rock on the board: `outstanding` is the WHOLE board's work, so
+ * subtracting only an overlap from it schedules the next rock for the moment
+ * the board is expected to be EMPTY. That is a steady state of one rock at
+ * every knob setting, which is exactly what `peakLive: 2 at maxLive 7` and a
+ * time-weighted occupancy of 1.00-1.04 recorded. A board of N rocks is a board
+ * with N-1 rocks' work standing on it - Little's law, and there is no other way
+ * to have one - so the belt leaves that much standing before it waits, sized by
+ * `concurrencyTarget(maxLive)`.
+ *
+ * NEITHER TERM FEEDS FASTER THAN THE PLAYER DRAINS, and that is still the
+ * difference between a harder belt and an unsurvivable one. At the target depth
+ * the gap is one service time, the same as it always was; the queue is a
+ * one-off backlog the belt is willing to build, not a higher rate. Measured, a
+ * median pilot's belt is 143.75 s at the knob's floor and 143.46 s at its
+ * ceiling - the same 58 words, the same hands, three and a half rocks on screen
+ * instead of one. What the deeper queue costs is that every rock in it has to
+ * survive the wait, which is why `@engine/fallTime` scales FR-8's budget by the
+ * same target. Build the queue without widening the budget and the median pilot
+ * stalls on 40 belts out of 40 at a hit rate of 0.214.
  *
  * RELIEF is D31 in arithmetic. A player below the D17 band has every estimate
  * stretched, immediately, without waiting for a stage boundary - which also
@@ -80,7 +98,12 @@
 
 import { RECOGNITION_BASE_MS } from "../fallTime/index.js";
 import { LOOSEN_BELOW } from "../controller/index.js";
-import { MAX_LIVE_MAX, MAX_LIVE_MIN, type Knobs } from "../controller/knobs.js";
+import {
+  MAX_LIVE_MAX,
+  MAX_LIVE_MIN,
+  concurrencyTarget,
+  type Knobs,
+} from "../controller/knobs.js";
 import { DEFAULT_CALIBRATION, type Calibration } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -302,6 +325,43 @@ export function leadFraction(maxLive: number): number {
   return LEAD_FRACTION_MIN + (steps / span) * (LEAD_FRACTION_MAX - LEAD_FRACTION_MIN);
 }
 
+/**
+ * How much outstanding work the belt is willing to leave STANDING on the board,
+ * in units of the newest rock's service time (UR-42, UR-51).
+ *
+ * ================== WHY THE BELT HELD ONE ROCK ==================
+ * The gap was `outstanding - lead`, and `outstanding` is the whole board's
+ * work. That schedules the next rock for the moment the board is expected to be
+ * EMPTY, so the belt's steady state is one rock however high `maxLive` is set.
+ * It is why `peakLive` read 2 at maxLive 7 exactly as at maxLive 2, and why the
+ * time-weighted occupancy read 1.00-1.04 at both ends: the knob raised a
+ * ceiling the pacing never let the board approach.
+ *
+ * A board of N rocks is a board with N-1 rocks' worth of work standing on it -
+ * that is what Little's law says, and there is no other way to have one. So the
+ * belt subtracts that much before it waits, and the number comes from the
+ * controller's own knob through `concurrencyTarget`.
+ *
+ * ================== THIS IS NOT MORE THROUGHPUT ==================
+ * The belt still feeds exactly one rock per rock's worth of the player's own
+ * work: at the target depth the gap is one service time, the same as before.
+ * What changes is the STANDING QUEUE it is willing to build first, and the
+ * rocks in it are answerable only because `@engine/fallTime` scales FR-8's
+ * budget by the same target. Doing this half alone is the P0a stall defect.
+ *
+ * ================== D31 REACHES IT IMMEDIATELY ==================
+ * The allowance is divided by `hitRateRelief`, so a player below the D17 band
+ * gets a SHALLOWER board at once rather than at the next stage boundary - the
+ * same shape as the gap stretch, in the channel that is now the difficulty.
+ * At relief 1.5 a target of 4 is flown as a target of 3. Bounded below by zero:
+ * the floor case is the shipped belt, never a shallower one.
+ */
+export function standingDepth(maxLive: number, relief: number): number {
+  const target = concurrencyTarget(maxLive);
+  const r = Number.isFinite(relief) ? Math.max(1, relief) : 1;
+  return Math.max(0, (target - 1) / r);
+}
+
 // ---------------------------------------------------------------------------
 // The gap
 // ---------------------------------------------------------------------------
@@ -341,6 +401,12 @@ export interface SpawnPace {
   readonly outstandingMs: number;
   /** How far ahead of the player the next rock arrives, ms. */
   readonly leadMs: number;
+  /**
+   * Work the belt is content to leave standing on the board, ms - the queue
+   * `maxLive` is asking for, priced in this player's own service time. Zero at
+   * `MAX_LIVE_MIN`, which is what makes the gentlest setting the shipped belt.
+   */
+  readonly standingMs: number;
 }
 
 const positive = (n: number | null | undefined): number =>
@@ -380,11 +446,21 @@ export function paceSpawn({
   const lead =
     biasMs === null ? 0 : Math.min(MAX_LEAD_MS, slack * leadFraction(knobs.maxLive));
 
+  // The queue the controller is asking for, priced at what the newest rock
+  // costs THIS player. Zero at the knob's floor, so the gentlest belt is the
+  // one already measured at 3 stalls in 240.
+  const standing = newest * standingDepth(knobs.maxLive, relief);
+
   const gap = Math.min(
     MAX_SPAWN_GAP_MS,
-    Math.max(MIN_SPAWN_GAP_MS, Math.round(outstanding - lead)),
+    Math.max(MIN_SPAWN_GAP_MS, Math.round(outstanding - standing - lead)),
   );
-  return { gapMs: gap, outstandingMs: Math.round(outstanding), leadMs: Math.round(lead) };
+  return {
+    gapMs: gap,
+    outstandingMs: Math.round(outstanding),
+    leadMs: Math.round(lead),
+    standingMs: Math.round(standing),
+  };
 }
 
 /** The gap alone, for callers that do not need the workings. */

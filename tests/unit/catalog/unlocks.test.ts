@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SHIPS, SKINS, skinForShip } from "@game/ui/catalog.js";
+import { SHIPS, SKINS, liveryForShip, skinForShip } from "@game/ui/catalog.js";
 import { UI_EN, UI_TABLES } from "@game/ui/strings.js";
 
 /**
@@ -95,6 +95,29 @@ describe("AC-6d.1b: four ships at 1/3/5/7 beacons, one skin each (D79)", () => {
       const base = SHIPS.find((s) => s.id === skin.shipId)!;
       expect(skin.colors.hull.toUpperCase()).not.toBe(base.colors.hull.toUpperCase());
     }
+  });
+});
+
+describe("AC-6d.1b: a ship id resolves to the colours the game draws with", () => {
+  it("AC-6d.1b: every ship id resolves to its own colourway", () => {
+    for (const ship of SHIPS) {
+      expect(liveryForShip(ship.id)).toEqual(ship.colors);
+    }
+  });
+
+  it("AC-6d.1b: an unlocked skin is what the ship WEARS; a locked one is not", () => {
+    const skin = SKINS[0]!;
+    const base = SHIPS.find((s) => s.id === skin.shipId)!;
+    expect(liveryForShip(skin.shipId, [])).toEqual(base.colors);
+    expect(liveryForShip(skin.shipId, [skin.id])).toEqual(skin.colors);
+    // Another ship's skin does not repaint this one.
+    expect(liveryForShip(skin.shipId, [SKINS[1]!.id])).toEqual(base.colors);
+  });
+
+  it("AC-6d.1b: an id nothing knows falls back to the first ship rather than to nothing", () => {
+    // `FlightScene` hands this straight to `render/lantern.ts`, which would
+    // throw on an undefined hex. A repaired profile can carry any string.
+    expect(liveryForShip("ship-does-not-exist")).toEqual(SHIPS[0]!.colors);
   });
 });
 

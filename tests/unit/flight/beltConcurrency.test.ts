@@ -4,6 +4,12 @@ import { join, resolve } from "node:path";
 import { fallTimeMs } from "../../../src/engine/fallTime/index.js";
 import { expectedClearMs } from "../../../src/engine/pacing/index.js";
 import { DEFAULT_CALIBRATION, EASE_NEW, STOP_IDS } from "../../../src/engine/types.js";
+import {
+  CONCURRENCY_TARGET_MAX,
+  MAX_LIVE_MAX,
+  MAX_LIVE_MIN,
+  concurrencyTarget,
+} from "../../../src/engine/controller/knobs.js";
 import type { Calibration, StopId } from "../../../src/engine/types.js";
 import { stagePoolFor } from "../../../src/game/flight/stage.js";
 
@@ -44,6 +50,19 @@ import { stagePoolFor } from "../../../src/game/flight/stage.js";
  *    to find it.
  * 2. THE HEADROOM IS RECORDED, so "only one asteroid on screen" is answered
  *    with a number and the day somebody widens FR-8's budget the number moves.
+ *
+ * ================== THAT DAY IS UR-51 ==================
+ * The user took the decision UR-42 escalated: widen the budget so three or four
+ * word-asteroids can be live at once, and make the difficulty controller
+ * express the range rather than moving one global constant. So the budget is
+ * now `concurrencyTarget(maxLive)` times FR-8's formula, and the number this
+ * file records is a CURVE across the knob instead of a single figure.
+ *
+ * The old assertion - `answerableAtOnce === 1` for every pilot - has not been
+ * relaxed, it has been moved to where it is still true and still load-bearing:
+ * at `MAX_LIVE_MIN`, the floor a struggling child flies, it is exactly 1, and
+ * every fall time there is byte-identical to the shipped one. What is new is
+ * the other end: at `MAX_LIVE_MAX` it reaches 4 for every pilot.
  */
 
 const EVIDENCE_DIR = resolve(process.cwd(), "gauntlet/evidence");
@@ -65,7 +84,7 @@ interface Row {
   readonly ratio: number;
 }
 
-function measure(): Row[] {
+function measure(maxLive: number = MAX_LIVE_MIN): Row[] {
   const rows: Row[] = [];
   for (const stop of STOP_IDS) {
     const pool = stagePoolFor(stop);
@@ -74,7 +93,10 @@ function measure(): Row[] {
         // EASE_NEW, because that is a word's ease the first time a child meets
         // it - the hardest a shipped word ever is, and the one the stall
         // happened on.
-        const fallMs = fallTimeMs({ word, ease: EASE_NEW, calibration });
+        //
+        // The knob defaults to FR-10's floor, so `measure()` with no argument
+        // is FR-8's shipped budget and the figures UR-42 recorded.
+        const fallMs = fallTimeMs({ word, ease: EASE_NEW, calibration, knobs: { maxLive } });
         const serviceMs = expectedClearMs({
           length: [...word].length,
           ease: EASE_NEW,
@@ -106,48 +128,74 @@ describe("the belt's concurrency is set by FR-8, not by maxLive", () => {
     }
   });
 
-  it("records how many rocks the belt could answer at once, and writes it down", () => {
+  it("UR-51: records the answerable-rock curve across the whole knob, and writes it down", () => {
     const worst = rows.reduce((a, b) => (a.ratio <= b.ratio ? a : b));
     const best = rows.reduce((a, b) => (a.ratio >= b.ratio ? a : b));
-    const byPilot = PILOTS.map(([pilot]) => {
-      const mine = rows.filter((r) => r.pilot === pilot);
-      const mean = mine.reduce((s, r) => s + r.ratio, 0) / mine.length;
-      return {
-        pilot,
-        meanRatio: Number(mean.toFixed(3)),
-        minRatio: Number(Math.min(...mine.map((r) => r.ratio)).toFixed(3)),
-        answerableAtOnce: Math.floor(Math.min(...mine.map((r) => r.ratio))),
-      };
+    const summarise = (mine: readonly Row[]): {
+      meanRatio: number;
+      minRatio: number;
+      answerableAtOnce: number;
+    } => ({
+      meanRatio: Number((mine.reduce((s, r) => s + r.ratio, 0) / mine.length).toFixed(3)),
+      minRatio: Number(Math.min(...mine.map((r) => r.ratio)).toFixed(3)),
+      answerableAtOnce: Math.floor(Math.min(...mine.map((r) => r.ratio))),
     });
+    const byPilot = PILOTS.map(([pilot]) => ({
+      pilot,
+      ...summarise(rows.filter((r) => r.pilot === pilot)),
+    }));
+    const byKnob: Record<string, unknown> = {};
+    for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+      byKnob[`maxLive${live}`] = {
+        concurrencyTarget: Number(concurrencyTarget(live).toFixed(2)),
+        pilots: PILOTS.map(([pilot]) => ({
+          pilot,
+          ...summarise(measure(live).filter((r) => r.pilot === pilot)),
+        })),
+      };
+    }
     mkdirSync(EVIDENCE_DIR, { recursive: true });
     writeFileSync(
       join(EVIDENCE_DIR, "belt-concurrency.json"),
       `${JSON.stringify(
         {
-          question: "why is only one word-asteroid on screen at once",
+          question: "why is only one word-asteroid on screen at once (UR-42), and what UR-51 changed",
           rule: "answerable rocks = floor(fallTimeMs / expectedClearMs)",
           ease: EASE_NEW,
+          note:
+            "byPilot is the knob's FLOOR (maxLive 2), which is FR-8's budget exactly and is unchanged: 1 answerable rock, the figure UR-42 recorded. byKnob is what the controller can now reach.",
           byPilot,
+          byKnob,
           worst: { ...worst, ratio: Number(worst.ratio.toFixed(3)) },
           best: { ...best, ratio: Number(best.ratio.toFixed(3)) },
-          note:
-            "peakLive in belt-survivability.json is 2 at maxLive 2 AND at maxLive 7, so the cap is not what holds the board at one.",
           source: "tests/unit/flight/beltConcurrency.test.ts",
         },
         null,
         2,
       )}\n`,
     );
-    // THE FINDING, ASSERTED SO IT CANNOT ROT: at the shipped budget no pilot
-    // gets room for a second rock to WAIT a whole word and still be typed. If
-    // this ever goes red it is because FR-8's budget widened, which is exactly
-    // the change that would put a second answerable word on screen - so the
-    // failure is the notification, not a regression.
+
+    // THE FLOOR IS STILL THE FINDING, AND IT IS STILL ASSERTED. At the gentlest
+    // knob setting no pilot gets room for a second rock to WAIT a whole word
+    // and still be typed - which is FR-8's budget untouched, and which is the
+    // belt the grade-2 child flies. This is the same assertion UR-42 wrote, at
+    // the setting where it is still true; nothing has been relaxed.
     for (const p of byPilot) {
       expect(
         p.answerableAtOnce,
-        `a ${p.pilot} pilot could now answer ${p.answerableAtOnce} rocks at once; FR-8's fall budget has changed`,
+        `a ${p.pilot} pilot at the knob's floor could answer ${p.answerableAtOnce} rocks at once; FR-8's shipped budget has changed`,
       ).toBe(1);
+    }
+
+    // AND THE CEILING IS THE CHANGE. Watched failing first: with `knobs` left
+    // off the call this reads 1 for all three pilots, which is the shipped
+    // number and the whole of UR-42.
+    for (const [pilot] of PILOTS) {
+      const top = summarise(measure(MAX_LIVE_MAX).filter((r) => r.pilot === pilot));
+      expect(
+        top.answerableAtOnce,
+        `a ${pilot} pilot at the knob's ceiling answers ${top.answerableAtOnce} rocks at once`,
+      ).toBeGreaterThanOrEqual(CONCURRENCY_TARGET_MAX);
     }
   });
 });

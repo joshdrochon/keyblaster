@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  LAUNCH_CEREMONY_BUDGET_MS,
-  LAUNCH_CEREMONY_STEP,
-  LAUNCH_CEREMONY_WORDS,
   LAUNCH_MAX_TIGHTEN,
   LAUNCH_MIN_FK_SAMPLES,
   LAUNCH_MIN_IKI_SAMPLES,
   LAUNCH_REFINE_ALPHA,
   MIN_IKI_MS,
   REFINE_ALPHA,
+  RITUAL_MIN_FK_SAMPLES,
+  RITUAL_MIN_IKI_SAMPLES,
   RITUAL_BUDGET_MS,
   RITUAL_STEPS,
   SHORT_WORD_MAX_LENGTH,
@@ -70,7 +69,7 @@ function ceremony(ikiMs: number, fkMs: number): RitualStepInput[] {
   const gaps = [ikiMs, ikiMs, ikiMs];
   return [
     {
-      id: LAUNCH_CEREMONY_STEP,
+      id: "systems",
       words: [
         { word: "lift", shownAtMs: 0, keystrokes: typed(0, fkMs, gaps) },
         { word: "beam", shownAtMs: 10_000, keystrokes: typed(10_000, fkMs, gaps) },
@@ -97,34 +96,59 @@ const MEASURED: Calibration = { ikiMs: 600, fkLatencyMs: 700 };
 // AC-11.4 - there is something to type at every stop
 // ---------------------------------------------------------------------------
 
-describe("planLaunchCeremony (AC-11.4, D99)", () => {
+describe("planLaunchCeremony (AC-11.4, D99, UR-57)", () => {
   it("AC-11.4: plans words to type from an ordinary stop pool", () => {
     const plan = planLaunchCeremony(POOL, mulberry32(7));
     expect(plan).not.toBeNull();
-    const words = plan!.steps.flatMap((s) => s.words);
-    expect(words).toHaveLength(LAUNCH_CEREMONY_WORDS);
     // The whole of UR-28: the screen must not mount with nothing to type.
-    expect(words.length).toBeGreaterThan(0);
+    expect(plan!.steps.flatMap((s) => s.words).length).toBeGreaterThan(0);
   });
 
-  it("AC-11.4: every ceremony word is short enough for the step that carries it", () => {
-    const spec = RITUAL_STEPS.find((s) => s.id === LAUNCH_CEREMONY_STEP);
-    expect(spec).toBeDefined();
-    for (let seed = 1; seed <= 50; seed += 1) {
-      const plan = planLaunchCeremony(POOL, mulberry32(seed));
-      for (const word of plan!.steps.flatMap((s) => s.words)) {
-        expect(word.length).toBeLessThanOrEqual(SHORT_WORD_MAX_LENGTH);
-        expect(wordFitsStep(word, spec!)).toBe(true);
+  it("AC-11.4: EVERY step carries words, and each honours its own declared count", () => {
+    // UR-57. The ceremony used to put two words on `systems` and leave `hull`
+    // and `engines` as spectators - a player counted the steps and reported the
+    // belt starting after two. Each step's minWords/maxWords is the spec, and
+    // the ceremony now obeys it rather than a constant of its own.
+    for (let seed = 1; seed <= 100; seed += 1) {
+      const plan = planLaunchCeremony(POOL, mulberry32(seed))!;
+      expect(plan.steps.map((s) => s.id)).toEqual(RITUAL_STEPS.map((s) => s.id));
+      for (const spec of RITUAL_STEPS) {
+        const step = plan.steps.find((s) => s.id === spec.id)!;
+        expect(
+          step.words.length,
+          `${spec.id} wants ${spec.minWords}-${spec.maxWords}, got ${step.words.length}`,
+        ).toBeGreaterThanOrEqual(spec.minWords);
+        expect(step.words.length).toBeLessThanOrEqual(spec.maxWords);
       }
     }
   });
 
-  it("AC-11.4: the plan is aligned with D81's three steps, so the screen is the same screen", () => {
-    const plan = planLaunchCeremony(POOL, mulberry32(3))!;
-    expect(plan.steps.map((s) => s.id)).toEqual(RITUAL_STEPS.map((s) => s.id));
-    const carrying = plan.steps.filter((s) => s.words.length > 0);
-    expect(carrying).toHaveLength(1);
-    expect(carrying[0]!.id).toBe(LAUNCH_CEREMONY_STEP);
+  it("AC-11.4: every ceremony word fits the length class of the step that carries it", () => {
+    for (let seed = 1; seed <= 50; seed += 1) {
+      const plan = planLaunchCeremony(POOL, mulberry32(seed))!;
+      for (const spec of RITUAL_STEPS) {
+        const step = plan.steps.find((s) => s.id === spec.id)!;
+        for (const word of step.words) {
+          expect(wordFitsStep(word, spec), `${word} on ${spec.id}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("AC-11.4: it collects BOTH measures, which is why all three steps run", () => {
+    // The reason UR-57 matters more than step-counting. `hull` contributes
+    // first-key latency and no intervals; `systems` and `engines` feed both. A
+    // ceremony on `systems` alone produced 2 word-start latencies, and a median
+    // of two is not a median. All three steps put a latency behind every word.
+    const plan = planLaunchCeremony(POOL, mulberry32(21))!;
+    const fkSteps = RITUAL_STEPS.filter((spec) => spec.contributesFkLatency);
+    const ikiSteps = RITUAL_STEPS.filter((spec) => spec.contributesIki);
+    const wordsOn = (ids: readonly string[]): number =>
+      plan.steps.filter((s) => ids.includes(s.id)).reduce((n, s) => n + s.words.length, 0);
+    expect(wordsOn(fkSteps.map((x) => x.id))).toBeGreaterThanOrEqual(RITUAL_MIN_FK_SAMPLES);
+    expect(wordsOn(ikiSteps.map((x) => x.id))).toBeGreaterThanOrEqual(2);
+    // And the hull step is genuinely live, which is the step that was passive.
+    expect(plan.steps.find((s) => s.id === "hull")!.words.length).toBeGreaterThan(0);
   });
 
   it("AC-11.4: the ceremony never repeats a word inside one run", () => {
@@ -139,20 +163,46 @@ describe("planLaunchCeremony (AC-11.4, D99)", () => {
   it("AC-11.4: a pool that cannot supply the words degrades to null, never to a crash", () => {
     // Earth ships `pool: []` (D57). The caller falls back to the untyped
     // sequence rather than stranding a child on a prompt content cannot fill.
+    // A pool with no LONG word now fails too, because `engines` is live.
     expect(planLaunchCeremony([], mulberry32(1))).toBeNull();
+    expect(planLaunchCeremony(["dust", "rust", "cold", "iron"], mulberry32(1))).toBeNull();
     expect(planLaunchCeremony(["volcano"], mulberry32(1))).toBeNull();
-    expect(planLaunchCeremony(["dust"], mulberry32(1))).toBeNull();
     expect(planLaunchCeremony(["dust", "dust", "dust"], mulberry32(1))).toBeNull();
   });
 
-  it("AC-11.2: the ceremony is a fraction of D51's once-per-profile ritual", () => {
+  it("AC-11.2: the ceremony's words are the ritual's words, and cost the same", () => {
+    // UR-57 removed the ceremony's separate word budget along with its separate
+    // planner: there is one set of steps and one budget, `RITUAL_BUDGET_MS`.
+    // This is the claim D51's "once per profile" used to carry and no longer
+    // does - see the amendment on collision C15.
     const plan = planLaunchCeremony(POOL, mulberry32(11))!;
-    // Typing time at the shipped baseline AND for a slow grade-2 pilot.
     for (const cal of [DEFAULT_CALIBRATION, MEASURED]) {
-      const ms = estimateRitualTypingMs(plan, cal);
-      expect(ms).toBeLessThan(LAUNCH_CEREMONY_BUDGET_MS);
+      expect(estimateRitualTypingMs(plan, cal)).toBeLessThan(RITUAL_BUDGET_MS);
     }
-    expect(LAUNCH_CEREMONY_BUDGET_MS).toBeLessThan(RITUAL_BUDGET_MS / 2);
+    // A grade-2 pilot types it in about fourteen seconds; the shipped baseline
+    // in about nine. Both are the ritual's order of magnitude, not a fraction.
+    expect(estimateRitualTypingMs(plan, DEFAULT_CALIBRATION)).toBeGreaterThan(6_000);
+  });
+
+  it("AC-11.5: the sample it yields is stage-sized, which is what re-set the alpha", () => {
+    // The measurement behind LAUNCH_REFINE_ALPHA: the one-step ceremony offered
+    // ~6 intervals and 2 latencies, which is why D99 folded below a stage's
+    // weight. Three steps offer a stage-sized sample, so it folds at a stage's
+    // weight. If this ever drops back, the alpha's justification drops with it.
+    const plan = planLaunchCeremony(POOL, mulberry32(5))!;
+    let intervals = 0;
+    let latencies = 0;
+    for (const spec of RITUAL_STEPS) {
+      const step = plan.steps.find((s) => s.id === spec.id)!;
+      if (spec.contributesIki) {
+        for (const w of step.words) intervals += w.length - 1;
+      }
+      if (spec.contributesFkLatency) latencies += step.words.length;
+    }
+    expect(intervals).toBeGreaterThanOrEqual(10);
+    expect(latencies).toBeGreaterThanOrEqual(5);
+    expect(latencies).toBeGreaterThan(RITUAL_MIN_FK_SAMPLES);
+    expect(intervals).toBeGreaterThan(RITUAL_MIN_IKI_SAMPLES * 3);
   });
 });
 
@@ -189,8 +239,34 @@ describe("foldLaunchCeremony (AC-11.5, D99)", () => {
     );
   });
 
-  it("AC-11.5: the ceremony folds more cautiously than a whole stage of play", () => {
-    expect(LAUNCH_REFINE_ALPHA).toBeLessThan(REFINE_ALPHA);
+  it("AC-11.5: the ceremony folds at a stage's weight, because its sample is stage-sized", () => {
+    // D99 folded BELOW a stage of play - 0.12 against 0.2 - for the stated
+    // reason that "a ceremony offers six samples". UR-57 made that reason false:
+    // three steps yield 18.2 intervals and 5.7 latencies on the shipped pools,
+    // measured across the six stops. The special case is retired rather than
+    // inherited, and this is where it goes red if the sample ever shrinks back.
+    expect(LAUNCH_REFINE_ALPHA).toBe(REFINE_ALPHA);
+  });
+
+  it("AC-11.5: raising the alpha did not raise what a garbage ceremony costs", () => {
+    // The measurement that made the raise safe. Damage from a pure-garbage
+    // ceremony is controlled by the CLAMP, not by the weight: at the shipped
+    // clamp it is flat in alpha (1/120 belts at 0.12 and at 0.30), and only
+    // with the clamp off does it scale (2/120 to 9/120 over the same range).
+    const mashed: RitualStepInput[] = [
+      {
+        id: "systems",
+        words: [
+          { word: "lift", shownAtMs: 0, keystrokes: typed(0, 90, [MIN_IKI_MS, MIN_IKI_MS, MIN_IKI_MS]) },
+          { word: "beam", shownAtMs: 5_000, keystrokes: typed(5_000, 90, [MIN_IKI_MS, MIN_IKI_MS, MIN_IKI_MS]) },
+        ],
+      },
+    ];
+    const atOld = foldLaunchCeremony(MEASURED, mashed, { alpha: 0.12 }).calibration.ikiMs;
+    const atNew = foldLaunchCeremony(MEASURED, mashed, { alpha: REFINE_ALPHA }).calibration.ikiMs;
+    // Identical, because both are held by the clamp rather than by the weight.
+    expect(atNew).toBe(atOld);
+    expect(atNew).toBeGreaterThanOrEqual(MEASURED.ikiMs * (1 - LAUNCH_MAX_TIGHTEN));
   });
 
   it("AC-11.5: one fumbled stop cannot wreck the baseline", () => {
@@ -199,7 +275,7 @@ describe("foldLaunchCeremony (AC-11.5, D99)", () => {
     // survived bounding. Unblended this says "this child types at 40 ms".
     const mashed: RitualStepInput[] = [
       {
-        id: LAUNCH_CEREMONY_STEP,
+        id: "systems",
         words: [
           { word: "lift", shownAtMs: 0, keystrokes: typed(0, 90, [MIN_IKI_MS, MIN_IKI_MS, MIN_IKI_MS]) },
           { word: "beam", shownAtMs: 5_000, keystrokes: typed(5_000, 90, [MIN_IKI_MS, MIN_IKI_MS, MIN_IKI_MS]) },
@@ -226,7 +302,7 @@ describe("foldLaunchCeremony (AC-11.5, D99)", () => {
         cal,
         [
           {
-            id: LAUNCH_CEREMONY_STEP,
+            id: "systems",
             words: [
               { word: "lift", shownAtMs: 0, keystrokes: typed(0, 90, [MIN_IKI_MS, MIN_IKI_MS, MIN_IKI_MS]) },
               { word: "beam", shownAtMs: 5_000, keystrokes: typed(5_000, 90, [MIN_IKI_MS, MIN_IKI_MS, MIN_IKI_MS]) },
@@ -260,7 +336,7 @@ describe("foldLaunchCeremony (AC-11.5, D99)", () => {
     // never be read as "fast".
     const stalled: RitualStepInput[] = [
       {
-        id: LAUNCH_CEREMONY_STEP,
+        id: "systems",
         words: [{ word: "lift", shownAtMs: 0, keystrokes: [{ charIndex: 0, atMs: 900 }] }],
       },
     ];
@@ -275,7 +351,7 @@ describe("foldLaunchCeremony (AC-11.5, D99)", () => {
 
   it("AC-11.5: a ceremony nobody touched changes nothing", () => {
     const fold = foldLaunchCeremony(MEASURED, [
-      { id: LAUNCH_CEREMONY_STEP, words: [{ word: "lift", shownAtMs: 0, keystrokes: [] }] },
+      { id: "systems", words: [{ word: "lift", shownAtMs: 0, keystrokes: [] }] },
     ]);
     expect(fold.calibration).toEqual(MEASURED);
     expect(fold.foldedIki).toBe(false);
@@ -286,7 +362,7 @@ describe("foldLaunchCeremony (AC-11.5, D99)", () => {
     // Exactly at the gate it folds; one sample short it does not.
     const atGate: RitualStepInput[] = [
       {
-        id: LAUNCH_CEREMONY_STEP,
+        id: "systems",
         words: [
           { word: "lift", shownAtMs: 0, keystrokes: typed(0, 700, [600, 600, 600]) },
           { word: "beam", shownAtMs: 9_000, keystrokes: typed(9_000, 700, []) },
@@ -299,7 +375,7 @@ describe("foldLaunchCeremony (AC-11.5, D99)", () => {
 
     const belowGate: RitualStepInput[] = [
       {
-        id: LAUNCH_CEREMONY_STEP,
+        id: "systems",
         words: [{ word: "lift", shownAtMs: 0, keystrokes: typed(0, 700, [600, 600]) }],
       },
     ];
@@ -330,12 +406,6 @@ describe("foldLaunchCeremony (AC-11.5, D99)", () => {
     ).toBe(600);
   });
 
-  it("AC-11.4: the word count is a caller's choice and is never zero or fractional", () => {
-    expect(planLaunchCeremony(POOL, mulberry32(4), 1)!.steps.flatMap((s) => s.words)).toHaveLength(1);
-    expect(planLaunchCeremony(POOL, mulberry32(4), 0)!.steps.flatMap((s) => s.words)).toHaveLength(1);
-    expect(planLaunchCeremony(POOL, mulberry32(4), 2.7)!.steps.flatMap((s) => s.words)).toHaveLength(2);
-  });
-
   it("AC-11.5: a ceremony tracks a child who really is getting faster", () => {
     // Six stops of consistent 420 ms typing from a 600 ms baseline: the game
     // must actually follow them, or the re-measurement is decoration.
@@ -353,7 +423,7 @@ describe("foldLaunchCeremony (AC-11.5, D99)", () => {
     const right = foldLaunchCeremony(DEFAULT_CALIBRATION, ceremony(500, 600));
     const wrongWords: RitualStepInput[] = [
       {
-        id: LAUNCH_CEREMONY_STEP,
+        id: "systems",
         words: [
           { word: "zzzz", shownAtMs: 0, keystrokes: typed(0, 600, [500, 500, 500]) },
           { word: "qqqq", shownAtMs: 10_000, keystrokes: typed(10_000, 600, [500, 500, 500]) },

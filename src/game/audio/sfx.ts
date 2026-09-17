@@ -35,6 +35,12 @@ import {
   type OscillatorWave,
 } from "./context.js";
 import { label } from "./nullContext.js";
+import {
+  CRUMBLE_SECONDS,
+  CRUMBLE_VARIANTS,
+  crumbleSamples,
+  crumbleSeed,
+} from "./crumble.js";
 
 /** The ten events AC-21.3 names, in the PRD's order. */
 export const SFX_EVENTS = [
@@ -133,6 +139,44 @@ export interface SfxVariant {
    * swapped.
    */
   readonly click?: ClickLayer;
+  /**
+   * UR-48 - THE ROCK COMING APART. Optional.
+   *
+   * "It needs to be the most satisfying part of the game." What shipped was an
+   * explosion - a sweep, a wash of noise and a sub - and an explosion is not
+   * what a rock breaking sounds like. This is the granular half: a pre-baked
+   * crowd of small struck-stone fragments, scattered and thinning, from
+   * `crumble.ts`. The `sub` under it supplies the mass and the tone above it
+   * supplies the crack; this is the part that makes it a ROCK.
+   */
+  readonly debris?: DebrisLayer;
+}
+
+/** The granular body of an impact (UR-48). See crumble.ts for what it is. */
+export interface DebrisLayer {
+  /** Linear gain on the peak-normalised crumble. */
+  readonly gain: number;
+  /**
+   * How long after the fracture the fragments start, in ms.
+   *
+   * Physically right and mixing-right at once. A rock does not shed its pieces
+   * at the instant it breaks - the snap comes first and the debris follows -
+   * and four layers landing on the same sample summed to a peak of 0.53, over
+   * the ceiling UR-30 set. Moving the crowd back by a few milliseconds fixes
+   * both, and leaves the first fifty milliseconds to the click, which is what
+   * makes the crack read consistently.
+   */
+  readonly delayMs: number;
+  /**
+   * How far the playback rate is moved per press, as a fraction.
+   *
+   * THE ANTI-REPETITION LEVER, and the reason it is a rate rather than a filter
+   * or a level: a rate change rewrites the INTERVALS between fragments as well
+   * as their pitch, and the interval pattern is what an ear latches onto in a
+   * granular texture. Colour jitter leaves the rhythm of the fall identical,
+   * which is exactly what would make this gravel by word thirty.
+   */
+  readonly rateJitter: number;
 }
 
 /**
@@ -290,18 +334,32 @@ export const SFX_VARIANTS: Readonly<Record<SfxEventId, readonly SfxVariant[]>> =
     { wave: "sine", startHz: 392, endHz: 392, durationMs: 40, attackMs: 3, peakGain: 0.048, filterKind: "lowpass", filterHz: 1600, noise: 0.02, harshness: 0.0, pan: 0.09 },
   ]),
   // The rock breaks. Bright, fast, noisy - an impact, not a threat.
-  // UR-30: each one now carries a `sub` - a low sine falling under the burst on a
-  // much longer envelope. That is the "empty" the report named: the crack was
+  // THREE LAYERS, AND THE MIDDLE ONE IS THE ROCK.
+  //
+  // UR-30 added the `sub`: a low sine falling under the burst on a much longer
+  // envelope. That was the "empty" the first report named - the crack was
   // there, the thump and the tail were not.
+  //
+  // UR-48 is the second report, and it is about what the sound IS rather than
+  // what it is missing. The tonal sweep is now a CRACK and nothing more - 80 to
+  // 110 ms instead of 220 to 300, with the wash of white noise cut by more than
+  // half - because the long sweep and the hiss together were an explosion, and
+  // a rock coming apart is granular. `debris` is the crowd of stone fragments
+  // that replaced them, and the `click` is the fracture itself - the snap that
+  // the shortened sweep no longer reliably carried. Four layers now, and each
+  // answers a different question: the click is the rock BREAKING, the sweep is
+  // the force that broke it, the debris is the pieces, the sub is the mass.
   blast: table("blast", [
-    { wave: "sawtooth", startHz: 780, endHz: 180, durationMs: 260, attackMs: 2, peakGain: 0.34, filterKind: "lowpass", filterHz: 5200, noise: 0.55, harshness: 0.45, pan: -0.15,
-      sub: { startHz: 132, endHz: 70, durationMs: 460, gain: 0.15 } },
-    { wave: "square", startHz: 640, endHz: 150, durationMs: 300, attackMs: 2, peakGain: 0.32, filterKind: "lowpass", filterHz: 4400, noise: 0.62, harshness: 0.5, pan: 0.18,
-      sub: { startHz: 116, endHz: 62, durationMs: 520, gain: 0.16 } },
-    { wave: "sawtooth", startHz: 1500, endHz: 220, durationMs: 220, attackMs: 1, peakGain: 0.36, filterKind: "bandpass", filterHz: 1300, noise: 0.48, harshness: 0.4, pan: 0.02,
-      sub: { startHz: 155, endHz: 78, durationMs: 400, gain: 0.14 } },
-  ]),
-  // A rock reaches the hull. D31: this is a WARM LOW THUD you feel, never an
+    { wave: "sawtooth", startHz: 780, endHz: 180, durationMs: 90, attackMs: 2, peakGain: 0.2, filterKind: "lowpass", filterHz: 5200, noise: 0.22, harshness: 0.45, pan: -0.15,
+      click: { hz: 3600, q: 0.7, durationMs: 18, gain: 0.6 },
+      debris: { gain: 0.3, rateJitter: 0.1, delayMs: 18 }, sub: { startHz: 132, endHz: 70, durationMs: 460, gain: 0.23 } },
+    { wave: "square", startHz: 640, endHz: 150, durationMs: 110, attackMs: 2, peakGain: 0.17, filterKind: "lowpass", filterHz: 4400, noise: 0.25, harshness: 0.5, pan: 0.18,
+      click: { hz: 4200, q: 0.8, durationMs: 16, gain: 0.54 },
+      debris: { gain: 0.32, rateJitter: 0.12, delayMs: 22 }, sub: { startHz: 116, endHz: 62, durationMs: 520, gain: 0.24 } },
+    { wave: "sawtooth", startHz: 1500, endHz: 220, durationMs: 80, attackMs: 1, peakGain: 0.22, filterKind: "bandpass", filterHz: 1300, noise: 0.2, harshness: 0.4, pan: 0.02,
+      click: { hz: 3100, q: 0.6, durationMs: 20, gain: 0.62 },
+      debris: { gain: 0.27, rateJitter: 0.09, delayMs: 15 }, sub: { startHz: 155, endHz: 78, durationMs: 400, gain: 0.21 } },
+  ]), // A rock reaches the hull. D31: this is a WARM LOW THUD you feel, never an
   // alarm, never a descending whine, never a red sound. The hull is the
   // engine's business; the audio's job is "something big just touched us".
   hit: table("hit", [
@@ -569,6 +627,7 @@ export class SfxBus {
   private readonly rotations = new Map<SfxEventId, VariantRotation>();
   private noiseBuffer: AudioBufferLike | null = null;
   private readonly plays: SfxPlayResult[] = [];
+  private readonly crumbleRotation: VariantRotation;
   /** The context clock reading the previous voice was scheduled against. */
   private lastClock = Number.NEGATIVE_INFINITY;
   /** How many voices have been scheduled since the clock last moved. */
@@ -582,6 +641,7 @@ export class SfxBus {
     for (const event of SFX_EVENTS) {
       this.rotations.set(event, new VariantRotation(variantsFor(event).length, this.rand));
     }
+    this.crumbleRotation = new VariantRotation(CRUMBLE_VARIANTS, this.rand);
   }
 
   /** Which variant this event will use next, without playing it. */
@@ -765,6 +825,28 @@ export class SfxBus {
       clickNoise.stop(clickEnd);
     }
 
+    // UR-48: the granular body. One buffer source for the whole crowd of
+    // fragments - see crumble.ts for why the grains are baked rather than built
+    // as nodes - with its own gain and its own rate.
+    const debris = variant.debris;
+    if (debris !== undefined && debris.gain > 0) {
+      const source = this.ctx.createBufferSource();
+      source.buffer = this.crumble();
+      const rate = 1 + (this.rand() * 2 - 1) * debris.rateJitter;
+      source.playbackRate.setValueAtTime(Math.max(0.25, rate), now);
+      const at = now + debris.delayMs / 1000;
+
+      const debrisGain = this.ctx.createGain();
+      debrisGain.gain.setValueAtTime(debris.gain * (peakGain / variant.peakGain), at);
+      source.connect(debrisGain);
+      debrisGain.connect(panner);
+      source.start(at);
+      // The crumble fades itself out at its own end (crumble.ts), so it needs
+      // no envelope here and must not be cut short by one: stopping it early is
+      // how a fall that should settle turns back into a thud.
+      source.stop(at + CRUMBLE_SECONDS / Math.max(0.25, rate) + 0.02);
+    }
+
     // UR-30: the low body under an impact. It bypasses the voice's own filter
     // and envelope on purpose - the filter is what shapes the CRACK, and a
     // 460 ms thump under a 260 ms burst needs its own, longer tail.
@@ -806,6 +888,33 @@ export class SfxBus {
   private noiseOffset(): number {
     return this.rand();
   }
+
+  /**
+   * The next baked crumble, chosen from a shuffle bag.
+   *
+   * A bag rather than a random pick, for the reason `VariantRotation` gives:
+   * picking uniformly still lets one crumble turn up six times in ten blasts,
+   * and repetition is the whole risk with a granular texture. Every one is heard
+   * before any is heard twice.
+   */
+  private crumble(): AudioBufferLike {
+    let cached = SfxBus.sharedCrumbles.get(this.ctx);
+    if (cached === undefined) {
+      cached = [];
+      SfxBus.sharedCrumbles.set(this.ctx, cached);
+    }
+    const index = this.crumbleRotation.next();
+    const existing = cached[index];
+    if (existing !== undefined) return existing;
+    const samples = crumbleSamples(this.ctx.sampleRate, crumbleSeed(index));
+    const buffer = this.ctx.createBuffer(1, samples.length, this.ctx.sampleRate);
+    buffer.getChannelData(0).set(samples);
+    cached[index] = buffer;
+    return buffer;
+  }
+
+  /** Baked once per context and shared by every blast on it. */
+  private static sharedCrumbles: WeakMap<object, AudioBufferLike[]> = new WeakMap();
 
   /** One second of deterministic white noise, generated once and reused. */
   private noise(): AudioBufferLike {

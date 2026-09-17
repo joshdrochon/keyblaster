@@ -379,6 +379,11 @@ export class WarpScene extends Phaser.Scene {
       decorate: this.overlay ? [] : CALM_LAYERS,
       framing: !this.overlay,
       atmosphere: !this.overlay,
+      // NOTHING TRAVELS ON THIS SCREEN (UR-50.5). `worldSpeed: 0` never did
+      // this on its own: `DRIFT_X` gives every decorative plane a px/s FLOOR
+      // (+5, -8, +11, -15) that runs at any world speed, so the planes marched
+      // across the frame while the comment next to them said they did not.
+      crossDrift: false,
       seed: 0x7a2b,
     });
 

@@ -115,6 +115,7 @@ import {
 import { type LaneSpec, isOnShipLane, spawnX } from "@engine/spawn/index.js";
 import { refineCalibration } from "@engine/calibration/index.js";
 import {
+  activeProfile,
   persistStageBook,
   refineStoredCalibration,
   storedBook,
@@ -123,6 +124,16 @@ import {
 import { HudScene } from "./HudScene.js";
 import { StallScene } from "./StallScene.js";
 import { audioFrom } from "@game/audio/wiring.js";
+import {
+  LANTERN_AIM_LIMIT,
+  LANTERN_DESIGN_HALF_WIDTH,
+  LANTERN_LENS_OFFSET,
+  drawLantern,
+  type LanternLivery,
+  type LanternRig,
+} from "@game/render/lantern.js";
+import { liveryForShip } from "@game/ui/catalog.js";
+import { DEFAULT_SHIP_ID } from "@engine/persistence/index.js";
 
 /**
  * SCREEN 6 - FLIGHT. The core loop (design-brief-v2.md section 6, PRD 3.1).
@@ -215,10 +226,19 @@ const STALL_SINK_MS = 2400;
 const PLATE_DEPTH = PLATE_LAYER_DEPTH;
 
 /**
- * Half the Lantern's drawn width, px (`drawLantern`: the tail fins reach 46).
- * Used to work out which spawn columns would drop a rock onto the ship.
+ * Half the Lantern's drawn width, px. Used to work out which spawn columns
+ * would drop a rock onto the ship.
+ *
+ * THIS IS THE GAMEPLAY NUMBER AND THE ART FOLLOWS IT. `SHIP_SCALE` below is
+ * derived so that the rig's widest drawn point lands exactly here, which is the
+ * only arrangement in which the ship a child sees and the ship the spawner
+ * avoids are the same object. The previous ship was drawn to its own hand-set
+ * coordinates and this constant was a comment's promise about them.
  */
 const SHIP_HALF_WIDTH_PX = 46;
+
+/** What `render/lantern.ts` is drawn at on the flight screen. Derived, never picked. */
+const SHIP_SCALE = SHIP_HALF_WIDTH_PX / LANTERN_DESIGN_HALF_WIDTH;
 
 
 /**
@@ -286,6 +306,18 @@ export interface FlightDebugState {
   readonly hullHits: number;
   /** What the belt currently believes about this player's hands (D51). */
   readonly calibration: Calibration;
+  /**
+   * THE HULL BEING FLOWN, and the four colours it is wearing.
+   *
+   * Exposed so "choosing a ship changes the ship" is a thing a spec can read
+   * rather than a thing a person has to squint at. It is the value the SHIP WAS
+   * DRAWN WITH - `FlightScene.livery` is the same object passed to
+   * `render/lantern.ts` - and not a second copy computed alongside it, because a
+   * parallel accumulator next to the thing it describes is how a scene comes to
+   * report a ship it is not drawing.
+   */
+  readonly shipId: string;
+  readonly livery: LanternLivery;
   readonly maxLive: number;
   /** UR-33: scene-clock moment the world starts moving again. */
   readonly hitStopUntilMs: number;
@@ -507,10 +539,20 @@ export class FlightScene extends Phaser.Scene {
   private plateLayer!: Phaser.GameObjects.Container;
   private shipLayer!: Phaser.GameObjects.Container;
   private shipBody!: Phaser.GameObjects.Container;
+  /** The ONE Lantern (render/lantern.ts). See `buildShip` for why it is one. */
+  private lantern!: LanternRig;
+  /** The hull being flown. `cfg.shipId` if stated, else the profile's. */
+  private shipId = DEFAULT_SHIP_ID;
+  /** The profile's four colours, resolved once at `create`. */
+  private livery!: LanternLivery;
+  /** The rig's pivoting yoke + head. Tracks the locked rock; the mount does not. */
   private emitterHead!: Phaser.GameObjects.Container;
+  /** The rig's iris blades. Flight blips their alpha, never their geometry. */
   private iris!: Phaser.GameObjects.Graphics;
+  /** The blast beam. GAMEPLAY, in the stop's accent - not the rig's light shaft. */
   private beam!: Phaser.GameObjects.Graphics;
-  private exhaust!: Phaser.GameObjects.Graphics;
+  /** The rig's plume, dimmed when the engines go quiet (D29). */
+  private exhaust!: Phaser.GameObjects.Container;
   private scorchLayer!: Phaser.GameObjects.Container;
   /** UR-22: the Lantern's light, whose brightness IS the hull. */
   private hullLamp!: Phaser.GameObjects.Graphics;
@@ -581,6 +623,23 @@ export class FlightScene extends Phaser.Scene {
 
     this.palette = paletteFor(this.cfg.stopId, this.cfg.colorblindPalette);
     this.copy = createFlightCopy(this.cfg.uiLang, { shipName: this.cfg.shipName });
+    /**
+     * WHICH HULL IS FLOWN, asked of the profile.
+     *
+     * Same shape as the calibration line below it, and for the same reason: the
+     * PROFILE is the authority and the payload is the fallback, so a screen in
+     * the hand-off chain that forgets to forward a field cannot make the child
+     * fly somebody else's ship. `liveryForShip` also applies the SKIN when one
+     * has been unlocked, which is what makes `@engine/unlocks` mean something
+     * on the screen the player is looking at.
+     *
+     * A profile is missing only on a standalone mount (every e2e boot of screen
+     * 6), and then `cfg.shipId` answers - `DEFAULT_SHIP_ID` unless a spec asked
+     * for a specific hull.
+     */
+    const pilot = activeProfile(this);
+    this.shipId = this.cfg.shipId ?? pilot?.shipId ?? DEFAULT_SHIP_ID;
+    this.livery = liveryForShip(this.shipId, pilot?.unlockedSkins ?? []);
     this.rng = mulberry32(this.cfg.seed);
     // FR-7. The book the PROFILE holds is where a stage starts, not an empty
     // object - `book: {}` was the shipped default and nothing ever replaced it,
@@ -732,24 +791,64 @@ export class FlightScene extends Phaser.Scene {
     this.hullLamp = this.add.graphics();
     this.drawHullLamp(this.hullLamp);
     this.shipBody.add(this.hullLamp);
-    const hullG = this.add.graphics();
-    this.drawLantern(hullG);
-    this.shipBody.add(hullG);
 
-    this.exhaust = this.add.graphics();
-    this.drawExhaust(this.exhaust, 1);
-    this.shipBody.add(this.exhaust);
+    /**
+     * ================== THE SHIP A CHILD FLIES IS THE JUDGED SHIP ============
+     *
+     * This scene used to carry its OWN `drawLantern`, `drawEmitter`, `drawIris`
+     * and `drawExhaust` - a private second Lantern in four hardcoded hex
+     * literals (`#F3E7D3`, `#C9B79C`, `#FF6B4A`, `#2A2F3A`) that never read the
+     * profile and never touched `render/lantern.ts`. Three things followed from
+     * that and every one of them was live:
+     *
+     *   1. `profile.shipId` was chosen at profile creation and read by nothing.
+     *      A child picked a ship and flew a different one.
+     *   2. `@engine/unlocks` adds hulls to `profile.unlockedShips` and that path
+     *      works. There was nothing to equip them into. The reward fired and
+     *      changed nothing, which is worse than having no reward.
+     *   3. `R-lantern` - the reference compare a HUMAN signs off - judges
+     *      `render/lantern.ts`. The game drew something else, so the one visual
+     *      item a person is asked to approve did not cover the object that is on
+     *      screen for the entire game.
+     *
+     * `G-one-shadow` exists to prevent exactly this and was green: its regex was
+     * `export\s+function\s+drawLantern`, which cannot see a private method. It is
+     * now a member-aware check with a recorded negative control.
+     *
+     * VERIFIED BY CAPTURE, not by reading: the hull literal was set to #FF00FF
+     * and the flown ship went magenta
+     * (`gauntlet/evidence/lantern-unify/ship-negctl.png`), which is what
+     * "this is the drawing that reaches the screen" has to mean.
+     *
+     * THE SCALE IS DERIVED, NOT CHOSEN. `SHIP_HALF_WIDTH_PX` is a GAMEPLAY
+     * constant - it decides which spawn columns would drop a rock onto the
+     * pilot - so the drawn silhouette is fitted to it rather than the other way
+     * round. Picking a scale and then trusting that the ship still measures 46
+     * is how a drawing and a hitbox drift apart in silence.
+     */
+    this.lantern = drawLantern(this, 0, 0, {
+      scale: SHIP_SCALE,
+      reducedMotion: this.cfg.reducedMotion,
+      livery: this.livery,
+      // The idle bob is the SCENE's, on `shipBody`, because AC-1.1 pins the
+      // ship's own x/y for the stage and the bob has to ride an inner
+      // container. Two bobs on two containers would beat against each other.
+      idleBob: false,
+      exhaust: true,
+      // Flight's beam is gameplay: it fires at a rock for 80 ms and is drawn in
+      // the stop's accent (`fireBeam`). The rig's standing light shaft belongs
+      // to a ship parked on a menu, not to one in a belt.
+      beam: false,
+      iris: 0,
+      // AC-24.3: no text on the hull in flight. The name is the HUD's job here.
+    });
+    this.shipBody.add(this.lantern.container);
+    this.exhaust = this.lantern.exhaust;
+    this.iris = this.lantern.iris;
+    this.emitterHead = this.lantern.emitterMount;
 
     this.scorchLayer = this.add.container(0, 0);
     this.shipBody.add(this.scorchLayer);
-
-    this.emitterHead = this.add.container(0, -74);
-    const head = this.add.graphics();
-    this.drawEmitter(head);
-    this.iris = this.add.graphics();
-    this.drawIris(this.iris, 0);
-    this.emitterHead.add([head, this.iris]);
-    this.shipBody.add(this.emitterHead);
 
     this.beam = this.add.graphics();
 
@@ -850,132 +949,6 @@ export class FlightScene extends Phaser.Scene {
       duration: 520,
       ease: "Cubic.Out",
     });
-  }
-
-  /** The Lantern (D89, art-direction section 5): rocket, not a gun. */
-  private drawLantern(g: Phaser.GameObjects.Graphics): void {
-    const cream = hexToInt("#F3E7D3");
-    const shade = hexToInt("#C9B79C");
-    const coral = hexToInt("#FF6B4A");
-    const dark = hexToInt("#2A2F3A");
-
-    // three swept tail fins
-    g.fillStyle(shade, 1);
-    g.fillPoints(
-      [
-        { x: -22, y: 18 },
-        { x: -46, y: 58 },
-        { x: -16, y: 48 },
-      ],
-      true,
-      true,
-    );
-    g.fillPoints(
-      [
-        { x: 22, y: 18 },
-        { x: 46, y: 58 },
-        { x: 16, y: 48 },
-      ],
-      true,
-      true,
-    );
-    g.fillPoints(
-      [
-        { x: -8, y: 34 },
-        { x: 0, y: 66 },
-        { x: 8, y: 34 },
-      ],
-      true,
-      true,
-    );
-
-    // rounded fuselage with a pointed nosecone
-    g.fillStyle(cream, 1);
-    g.fillPoints(
-      [
-        { x: 0, y: -70 },
-        { x: 16, y: -34 },
-        { x: 21, y: 16 },
-        { x: 14, y: 50 },
-        { x: -14, y: 50 },
-        { x: -21, y: 16 },
-        { x: -16, y: -34 },
-      ],
-      true,
-      true,
-    );
-
-    // coral stripe band
-    g.fillStyle(coral, 1);
-    g.fillRect(-19, -6, 38, 12);
-
-    // porthole
-    g.fillStyle(dark, 1);
-    g.fillCircle(0, -24, 10);
-    g.fillStyle(hexToInt("#9FD8F0"), 0.85);
-    g.fillCircle(-2, -26, 6);
-
-    // engine nozzle
-    g.fillStyle(shade, 1);
-    g.fillPoints(
-      [
-        { x: -14, y: 50 },
-        { x: 14, y: 50 },
-        { x: 10, y: 64 },
-        { x: -10, y: 64 },
-      ],
-      true,
-      true,
-    );
-  }
-
-  /**
-   * The beam emitter (D89, AC-24.1): large lens, iris aperture, three
-   * concentric focusing rings, finned heat housing, pivot mount. Drawn at the
-   * nose and rotated to track the locked rock - the beam has exactly one source.
-   */
-  private drawEmitter(g: Phaser.GameObjects.Graphics): void {
-    const housing = hexToInt("#9AA3B2");
-    const deep = hexToInt("#2A2F3A");
-    const lens = hexToInt(this.palette.accent);
-
-    // pivot mount
-    g.fillStyle(deep, 1);
-    g.fillRoundedRect(-9, 4, 18, 12, 4);
-
-    // finned heat housing
-    g.fillStyle(housing, 1);
-    g.fillRoundedRect(-14, -6, 28, 14, 5);
-    g.lineStyle(2, deep, 0.7);
-    for (let i = -9; i <= 9; i += 6) g.lineBetween(i, -5, i, 7);
-
-    // three concentric focusing rings
-    g.lineStyle(2, housing, 0.95);
-    g.strokeCircle(0, -10, 13);
-    g.lineStyle(2, housing, 0.7);
-    g.strokeCircle(0, -10, 9.5);
-    g.lineStyle(2, housing, 0.5);
-    g.strokeCircle(0, -10, 6);
-
-    // large lens
-    g.fillStyle(lens, 0.9);
-    g.fillCircle(0, -10, 5);
-  }
-
-  private drawIris(g: Phaser.GameObjects.Graphics, openness: number): void {
-    g.clear();
-    const open = Math.max(0, Math.min(1, openness));
-    g.lineStyle(2.5, hexToInt(this.palette.accent), 0.35 + 0.65 * open);
-    g.strokeCircle(0, -10, 5 + open * 4);
-  }
-
-  private drawExhaust(g: Phaser.GameObjects.Graphics, strength: number): void {
-    g.clear();
-    const accent = hexToInt(this.palette.accent);
-    for (let i = 3; i >= 1; i -= 1) {
-      g.fillStyle(accent, 0.1 * i * strength);
-      g.fillEllipse(0, 70 + i * 5, 20 - i * 3, 22 + i * 8);
-    }
   }
 
   private buildParticles(): void {
@@ -1787,7 +1760,7 @@ export class FlightScene extends Phaser.Scene {
     const origin = this.emitterWorldPoint();
     const target = { x: rock.container.x, y: rock.container.y };
     this.beam.clear();
-    this.drawIris(this.iris, 1);
+    this.lantern.setIris(1);
     this.tweens.addCounter({
       from: 1,
       to: 0,
@@ -1801,7 +1774,7 @@ export class FlightScene extends Phaser.Scene {
       },
       onComplete: () => {
         this.beam.clear();
-        this.drawIris(this.iris, 0);
+        this.lantern.setIris(0);
       },
     });
   }
@@ -2452,9 +2425,18 @@ export class FlightScene extends Phaser.Scene {
     return { x: this.scale.width / 2, y: this.scale.height - 150 };
   }
 
+  /**
+   * Where the beam comes out, in world px.
+   *
+   * DERIVED FROM THE RIG'S OWN GEOMETRY (`LANTERN_LENS_OFFSET`) rather than
+   * from a number measured off the old drawing. This used to be `ship.y - 84`,
+   * which was right for a ship this scene drew itself and would have been
+   * silently wrong for any other - a beam leaving from a point a few px off the
+   * lens is the kind of thing nobody sees and nothing checks.
+   */
   private emitterWorldPoint(): { x: number; y: number } {
     const ship = this.shipWorldPoint();
-    return { x: ship.x, y: ship.y - 84 };
+    return { x: ship.x + LANTERN_LENS_OFFSET.x * SHIP_SCALE, y: ship.y + LANTERN_LENS_OFFSET.y * SHIP_SCALE };
   }
 
   /** The emitter's pivot mount tracks the locked target (D89). */
@@ -2465,13 +2447,20 @@ export class FlightScene extends Phaser.Scene {
     this.emitterHead.rotation += (target - this.emitterHead.rotation) * 0.18;
   }
 
+  /**
+   * A LERP AND NOT `rig.aimAt`, deliberately: `aimAt` starts a 180 ms tween,
+   * and this runs every frame, so calling it here would leak a tween per frame.
+   * The CLAMP is the rig's own (`LANTERN_AIM_LIMIT`, 26 degrees) - "a head that
+   * spins is a turret, not a lamp" is a fact about the art, and an aim limit
+   * that lives in two files ends up with two values.
+   */
   private aimAngleTo(rock: LiveRock): number {
     const origin = this.emitterWorldPoint();
     const angle = Math.atan2(
       rock.container.x - origin.x,
       origin.y - rock.container.y,
     );
-    return Math.max(-0.7, Math.min(0.7, angle));
+    return Math.max(-LANTERN_AIM_LIMIT, Math.min(LANTERN_AIM_LIMIT, angle));
   }
 
   private currentWpm(): number {
@@ -2546,6 +2535,8 @@ export class FlightScene extends Phaser.Scene {
           maxHull: this.maxHull,
           hullHits: this.hullHitsTaken,
           calibration: { ...this.calibration },
+          shipId: this.shipId,
+          livery: this.livery,
           maxLive: this.controller.knobs.maxLive,
           hitStopUntilMs: this.hitStopUntilMs,
           knobChanges: this.knobChanges,

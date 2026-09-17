@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { SCENE_KEYS } from "@game/sceneKeys.js";
 import { hexToInt } from "@game/render/wordPlate.js";
+import { SHADOW_HEIGHT, drawShadow, type ShadowFigure } from "@game/render/shadow.js";
 import { FLIGHT_EVENTS, type Palette, paletteFor } from "@game/flight/stage.js";
 import { type FlightCopy, createFlightCopy } from "@game/flight/copy.js";
 import type { Lang, StopId } from "@engine/types.js";
@@ -49,6 +50,8 @@ export class StallScene extends Phaser.Scene {
   private palette!: Palette;
   private params!: StallSceneData;
   private focusRing!: Phaser.GameObjects.Graphics;
+  /** The ONE Shadow (render/shadow.ts). See the note at the call site. */
+  private shadow?: ShadowFigure;
   private restarting = false;
 
   private readonly font =
@@ -99,7 +102,25 @@ export class StallScene extends Phaser.Scene {
     plate.strokeRoundedRect(cardX, cardY, cardW, cardH, 20);
     card.add(plate);
 
-    card.add(this.drawShadow(cardX + 108, cardY + 150));
+    /**
+     * THE ONE SHADOW (D91, R-shadow).
+     *
+     * This scene used to carry a PRIVATE `drawShadow` in four hardcoded hex
+     * literals - a second, unjudged Shadow on the card a child sees every time
+     * they stall. It is the exact defect `G-one-shadow` was written for after
+     * four menu scenes did the same thing, and it survived because that item's
+     * regex was `export\s+function\s+drawShadow`, which cannot see a private
+     * method (docs/verification-gaps.md instance 23). The item is now
+     * member-aware, and this is the file it named.
+     *
+     * "idle", not "asleep": D29 ends the belt like a glider landing, and the
+     * pose that goes with "try again" has its eyes open.
+     */
+    this.shadow = drawShadow(this, cardX + 108, cardY + 150, "idle", {
+      scale: 168 / SHADOW_HEIGHT,
+      reducedMotion: this.params.reducedMotion,
+    });
+    card.add(this.shadow.root);
 
     // UR-38: through the factory, so D41's letter case and increased letter
     // spacing reach this card like every other piece of chrome. It used to call
@@ -203,50 +224,14 @@ export class StallScene extends Phaser.Scene {
     };
   }
 
-  /** Shadow (D66, D91): dark body, glowing face plate, never says "no". */
-  private drawShadow(x: number, y: number): Phaser.GameObjects.Container {
-    const g = this.add.graphics();
-    const body = hexToInt("#23262E");
-    const rim = hexToInt("#E8DFC9");
-    const glow = hexToInt("#9FD8F0");
-
-    g.fillStyle(glow, 0.12);
-    g.fillEllipse(0, 62, 96, 22);
-
-    g.lineStyle(3, body, 1);
-    g.lineBetween(0, -60, 0, -76);
-    g.fillStyle(glow, 1);
-    g.fillCircle(0, -80, 5);
-
-    g.fillStyle(body, 1);
-    g.fillCircle(0, 0, 58);
-    g.fillRoundedRect(-74, -12, 22, 34, 10);
-    g.fillRoundedRect(52, -12, 22, 34, 10);
-
-    g.fillStyle(rim, 1);
-    g.fillCircle(0, -6, 38);
-    g.fillStyle(body, 1);
-    g.fillCircle(0, -6, 33);
-
-    g.fillStyle(glow, 1);
-    g.fillCircle(-13, -8, 7);
-    g.fillCircle(13, -8, 7);
-
-    g.fillStyle(rim, 0.5);
-    g.fillCircle(34, 22, 7);
-
-    const container = this.add.container(x, y, [g]);
-    if (!this.params.reducedMotion) {
-      this.tweens.add({
-        targets: container,
-        y: y - 6,
-        duration: 2400,
-        yoyo: true,
-        repeat: -1,
-        ease: "Sine.InOut",
-      });
-    }
-    return container;
+  /**
+   * Ambient life, per frame. `ShadowFigure.update` creates no tween and no
+   * timer (art-direction section 6), so this is the whole of the wiring - but
+   * it does have to be CALLED, and a Shadow that never breathes on a card the
+   * player is sitting in front of reads as a frozen build.
+   */
+  override update(time: number): void {
+    this.shadow?.update(time);
   }
 
   private onKeyDown(event: KeyboardEvent): void {

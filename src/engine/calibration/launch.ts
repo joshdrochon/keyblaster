@@ -1,12 +1,6 @@
 import type { Calibration } from "../types.js";
-import {
-  RITUAL_STEPS,
-  SHORT_WORD_MAX_LENGTH,
-  shuffleInPlace,
-  type CalibrationStepId,
-  type RitualPlan,
-  type RitualPlanStep,
-} from "./ritual.js";
+import { RITUAL_STEPS, planRitual, type RitualPlan } from "./ritual.js";
+import { REFINE_ALPHA } from "./history.js";
 import { measureStep, type RitualStepInput } from "./measure.js";
 import {
   MAX_FK_LATENCY_MS,
@@ -49,57 +43,72 @@ import {
  */
 
 /**
- * Which of D81's three steps carries the typed words.
+ * UR-57: THE CEREMONY RUNS ALL THREE OF D81'S STEPS.
  *
- * `systems` and not `hull`, because the hull check's intervals are deliberately
- * excluded from `ikiMs` (see RITUAL_STEPS) - putting the ceremony there would
- * throw away every interval it collects. `systems` and not `engines`, because
- * engines wants a 7-13 letter word and one long word yields a single word-start
- * latency, which is not a median. `systems` takes short words and feeds both
- * measures, which is exactly what two words in five seconds can offer.
+ * It used to run ONE - two short words on `systems`, with `hull` and `engines`
+ * lighting on their own - and a player counted the steps and reported that the
+ * belt started after two. Not a bug, but the number was wrong, and it was wrong
+ * in two ways that matter more than screen time.
  *
- * The other two rows still light, in D81's order, so the screen is the same
- * screen; they simply carry no prompt. The typed beat therefore lands in the
- * middle and the engines row lights immediately after it, which is the launch.
+ * FIRST, IT OVERRODE ITS OWN SPEC. `RITUAL_STEPS` declares `systems` as 3-4
+ * words; the ceremony handed it 2.
+ *
+ * SECOND, AND THIS IS THE ONE THAT DECIDED IT: the three steps measure
+ * DIFFERENT THINGS. `hull` sets `contributesFkLatency` true and
+ * `contributesIki` false; `systems` and `engines` feed both. With only `systems`
+ * live, the ceremony collected about 6 inter-key intervals and exactly 2
+ * word-start latencies - so at six of seven stops the re-measurement D99 exists
+ * for was running on half its inputs, and a median of two is not a median.
+ * Running all three steps takes that to roughly 12-24 intervals and 5-6
+ * latencies, and FR-8's fall budget is being reworked on top of it (`UR-51`),
+ * so the quality of this sample is now load-bearing.
+ *
+ * SO THERE IS NO SEPARATE PLANNER ANY MORE. `planLaunchCeremony` delegates to
+ * `planRitual`, which is what "each step honours its own declared
+ * minWords/maxWords" looks like when it is structural rather than promised. The
+ * two modes now differ in the one place the difference was ever load-bearing:
+ * the full ritual REPLACES the stored baseline (`computeCalibration`), the
+ * ceremony BLENDS into it (`foldLaunchCeremony`).
+ *
+ * WHAT THIS COSTS, STATED PLAINLY: the ceremony now asks for the same 5-6 words
+ * the ritual does, so D51's "~20 s once per profile" is not a once-per-profile
+ * cost in any sense any more. There is no separate typing budget either - the
+ * ceremony's words ARE the ritual's words, so `RITUAL_BUDGET_MS` is the only
+ * budget. See the amendment on collision C15.
  */
-export const LAUNCH_CEREMONY_STEP: CalibrationStepId = "systems";
-
-/**
- * How many words the ceremony asks for.
- *
- * TWO, not one. One word yields exactly one word-start latency, and a median of
- * one sample is not a median - it is the single distracted keystroke D18 exists
- * to defend against, promoted to the whole measurement. Two short words cost
- * about 3.1 s at the shipped baseline and 5-6 s for a grade-2 typist, and
- * yield ~6 intervals and 2 latencies.
- */
-export const LAUNCH_CEREMONY_WORDS = 2;
-
-/**
- * What the ceremony's TYPING is allowed to cost, ms - the words themselves, not
- * the beats around them.
- *
- * D51 budgets the full ritual at ~20 s once per profile, of which the typing is
- * most. This is the per-stop toll that replaces "nothing to type", and it is
- * paid six times on a route out to Pluto, so the words are held to a different
- * order of magnitude: two short ones, about 3.1 s at the shipped baseline and
- * about 6.2 s for a grade-2 pilot. `PreflightScene.PREFLIGHT_TIMING` holds the
- * surrounding beats, and the whole screen still lands inside D51's 5-20 s.
- */
-export const LAUNCH_CEREMONY_BUDGET_MS = 8_000;
 
 /**
  * How much of the gap one ceremony may close.
  *
- * `next = (1 - alpha) * stored + alpha * median(this ceremony's samples)`, the
- * same shape as `refineCalibration`, at a SMALLER alpha: 0.12 against a stage
- * of play's 0.2, because a stage offers dozens of samples and a ceremony offers
- * six. Over the six stops of a route (D57) that closes 1 - 0.88^6 = 53% of the
- * gap, so a child who genuinely speeds up over a session is tracked inside one
- * trip; a single unlucky stop moves the baseline by at most an eighth of the
- * distance to whatever it thought it saw.
+ * `next = (1 - alpha) * stored + alpha * median(this ceremony's samples)`.
+ *
+ * UR-57 RE-DERIVED THIS RATHER THAN INHERITING IT, and the answer changed. D99
+ * set 0.12 - deliberately below a stage of play's `REFINE_ALPHA` - for the
+ * stated reason that "a stage offers dozens of samples and a ceremony offers
+ * six". Running all three steps makes that reason false: a ceremony now yields
+ * **18.2 inter-key intervals and 5.7 word-start latencies** on average across
+ * the six stops, measured, which is a stage-sized sample. So the special case is
+ * retired and the ceremony folds at the same weight ordinary play does.
+ *
+ * WHAT THE MEASUREMENT ACTUALLY SHOWED, because it is not what was expected.
+ * Across alpha 0.12 to 0.40, over 120 belts per cell:
+ *
+ *   - STALLS DO NOT MOVE AT ALL. 2/120 at every alpha, honest ceremony. The
+ *     belt re-folds from the player's own keystrokes after the first spawn, so
+ *     it owns everything except the belief the belt OPENS on.
+ *   - BELIEF AT BELT OPEN improves, and only slightly: mean error 33.2 ms at
+ *     0.12 against 30.5 ms at 0.20 and 23.0 ms at 0.40, for a child speeding up
+ *     from 600 to 380 ms across the route. Through FR-8 that is about 100 ms of
+ *     fall time on a seven-letter word - below anything a child perceives.
+ *   - THE DAMAGE FROM A GARBAGE CEREMONY IS CONTROLLED BY THE CLAMP, NOT BY
+ *     ALPHA. See LAUNCH_MAX_TIGHTEN.
+ *
+ * So alpha is chosen on the honesty of the sample rather than on an outcome it
+ * measurably moves: 18 samples deserve a stage's weight, and one constant is
+ * better than two that mean the same thing. It is kept as its own name so the
+ * ceremony can diverge again on evidence rather than by accident.
  */
-export const LAUNCH_REFINE_ALPHA = 0.12;
+export const LAUNCH_REFINE_ALPHA = REFINE_ALPHA;
 
 /**
  * Intervals the ceremony must produce before `ikiMs` is touched at all.
@@ -114,7 +123,8 @@ export const LAUNCH_MIN_IKI_SAMPLES = 3;
 export const LAUNCH_MIN_FK_SAMPLES = 2;
 
 /**
- * THE ASYMMETRY, and it is deliberate.
+ * THE ASYMMETRY, and it is deliberate - and UR-57 measured that it is the knob
+ * that actually does the work here.
  *
  * One ceremony may never lower a baseline by more than 5%. It may raise it by
  * whatever the alpha allows.
@@ -127,49 +137,42 @@ export const LAUNCH_MIN_FK_SAMPLES = 2;
  * gives them more time than they need, which costs nothing but a slightly easy
  * belt that the FR-10 controller tightens back within twenty spawns.
  *
- * So the cheap error is left unclamped and the expensive one is rate-limited.
- * Five percent per stop still allows a 26% tightening across a full route,
- * which is more movement than a child's hands make in one session.
+ * THE NUMBERS THAT KEPT IT AT 5%. A ceremony of pure garbage - every interval
+ * at the physical floor, which is what mashing looks like to the measure - flown
+ * at every stop of the route, 120 belts per cell:
+ *
+ *   clamp       alpha 0.12   0.20   0.25   0.30
+ *   5% (ships)       1/120   1/120  1/120  1/120
+ *   8%               3/120   3/120  3/120  3/120
+ *   off              2/120   4/120  6/120  9/120
+ *
+ * With the clamp on, damage is flat in alpha. With it off, damage scales with
+ * alpha - which is precisely why raising alpha was safe to do and why this
+ * number was not raised with it.
  */
 export const LAUNCH_MAX_TIGHTEN = 0.05;
 
 /**
- * Choose the ceremony's words from a stop's content pool.
+ * Choose the ceremony's words - which is to say, plan a ritual (UR-57).
  *
- * Returns a plan aligned with `RITUAL_STEPS` - all three steps, in D81's order,
- * with words on exactly one of them - so the Pre-flight scene walks the same
- * sequence for a ceremony as for a full ritual and the two rows that carry no
- * prompt simply light as they always did.
+ * A delegation and not a copy. Every reason the ceremony could have had for its
+ * own word-selection logic was a reason to give a step fewer words than
+ * `RITUAL_STEPS` declares, and UR-57 removed all of them, so a second planner
+ * would now exist only to drift out of step with the first. `planRitual` is
+ * pure and takes its RNG, so the caller varies the words per stop by varying
+ * the seed - the scene already does, which is why a pilot who ran the full
+ * ritual at a stop is not handed the same words when they come back to it.
  *
- * Returns null when the pool cannot supply the words (Earth ships an empty
- * pool, D57). The caller then falls back to the untyped sequence, so a thin
- * pool degrades to the screen the game showed yesterday and never to a crash
- * or to a child stuck on a prompt the content could not fill.
+ * Returns null when the pool cannot fill every step (Earth ships `pool: []`,
+ * D57). The caller then falls back to the untyped sequence, so a thin pool
+ * degrades to the screen the game showed yesterday and never to a crash or to a
+ * child stuck on a prompt the content could not fill.
  */
 export function planLaunchCeremony(
   pool: Iterable<string>,
   rng: () => number,
-  wordCount: number = LAUNCH_CEREMONY_WORDS,
 ): RitualPlan | null {
-  const count = Math.max(1, Math.floor(wordCount));
-  const seen = new Set<string>();
-  const short: string[] = [];
-  for (const raw of pool) {
-    const word = raw.trim().toLowerCase();
-    if (word.length === 0 || word.length > SHORT_WORD_MAX_LENGTH) continue;
-    if (seen.has(word)) continue;
-    seen.add(word);
-    short.push(word);
-  }
-  if (short.length < count) return null;
-  shuffleInPlace(short, rng);
-  const chosen = short.slice(0, count);
-
-  const steps: RitualPlanStep[] = RITUAL_STEPS.map((spec) => ({
-    id: spec.id,
-    words: spec.id === LAUNCH_CEREMONY_STEP ? chosen : [],
-  }));
-  return { steps };
+  return planRitual(pool, rng);
 }
 
 /** What one ceremony did to the baseline, and why. Nothing here is a grade. */

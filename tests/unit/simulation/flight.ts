@@ -435,6 +435,18 @@ export interface BeltResult {
   gaps: number[];
   /** Most rocks live at once - the board's real depth, not the knob's cap. */
   peakLive: number;
+  /**
+   * Wall-clock ms spent with exactly N rocks on the board, indexed by N.
+   *
+   * PEAK IS NOT OCCUPANCY, and UR-51 is a claim about occupancy. A belt that
+   * touches four rocks for one instant per stage and sits at one for the rest
+   * has `peakLive` 4 and looks, to a child, exactly like the belt they called
+   * boring. This is the distribution behind the peak, so "three or four at
+   * once" is answered with how LONG rather than with whether it ever happened.
+   */
+  liveTimeMs: number[];
+  /** Time-weighted mean rocks on the board over the belt. */
+  meanLive: number;
   book: WordBook;
 }
 
@@ -544,7 +556,20 @@ export function simulateBelt(
   let maxDeadMs = 0;
   let deadSinceMs: number | null = null;
   let peakLive = 0;
+  const liveTimeMs: number[] = [];
   let stalled = false;
+
+  /**
+   * Move the clock, charging the elapsed interval to the depth the board held
+   * for it. Every advance in this loop goes through here; the branches that do
+   * not advance the clock (a blast, a breach, a spawn, a commit) resolve at an
+   * instant and so hold no time to charge.
+   */
+  const advanceTo = (t: number): void => {
+    const depth = live.length;
+    liveTimeMs[depth] = (liveTimeMs[depth] ?? 0) + Math.max(0, t - nowMs);
+    nowMs = t;
+  };
 
   const pending = (): boolean => spawned < cfg.spawnCount;
 
@@ -656,7 +681,7 @@ export function simulateBelt(
         // "no legal word" implies a non-empty board, so something is already
         // falling; the scene retries on the next frame and so do we.
         nextSpawnAtMs = nowMs + 200;
-        if (boardEmpty) nowMs += 200;
+        if (boardEmpty) advanceTo(nowMs + 200);
         continue;
       }
       selection = outcome.state;
@@ -666,6 +691,11 @@ export function simulateBelt(
         word,
         ease: record.ease,
         calibration: fallCalibration(calibration),
+        // UR-51: the fall budget is sized for the queue the controller is
+        // asking for. The scene passes exactly this (`FlightScene.spawnRock`);
+        // a harness that left it out would fly a belt that builds a 4-deep
+        // queue out of rocks budgeted for a 1-deep one.
+        knobs: controller.knobs,
       });
       const isCanister =
         (cfg.canisters ?? false) && maySpawnCanister(hull, maxHull, canisterLive) && rng() < 0.5;
@@ -747,7 +777,7 @@ export function simulateBelt(
     if (pending() && live.length < controller.knobs.maxLive) candidates.push(nextSpawnAtMs);
     const next = Math.min(...candidates.filter((t) => t > nowMs));
     if (!Number.isFinite(next)) break;
-    nowMs = next;
+    advanceTo(next);
     noteDead();
   }
 
@@ -768,6 +798,11 @@ export function simulateBelt(
     calibration,
     gaps,
     peakLive,
+    liveTimeMs: Array.from({ length: peakLive + 1 }, (_, i) => Math.round(liveTimeMs[i] ?? 0)),
+    meanLive:
+      nowMs === 0
+        ? 0
+        : liveTimeMs.reduce((sum, ms, depth) => sum + depth * (ms ?? 0), 0) / nowMs,
     book: nextBook,
   };
 }

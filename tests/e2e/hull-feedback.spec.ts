@@ -259,10 +259,18 @@ test.describe("UR-22 / UR-21: the flight screen shows the hull and the place", (
      */
     const SKY: Rect = { x: shipX - 150 - 430, y: shipY - 160, w: 300, h: 300 };
     /**
-     * THE FUSELAGE ITSELF. `drawLantern` spans x -21..21 and y -70..50 around
-     * the ship's anchor; this is that box with a few px of slack for the idle
-     * bob, and it is almost entirely cream. The share of it that is dark is the
-     * quantity a scorch moves and the ship's animation does not.
+     * THE FUSELAGE ITSELF.
+     *
+     * The shared Lantern's capsule spans roughly x -28..28 and y -51..46 around
+     * the ship's anchor at the flight screen's scale (`SHIP_SCALE`, derived from
+     * `SHIP_HALF_WIDTH_PX`); this box sits inside that with slack for the idle
+     * bob. It is not entirely cream - the porthole is in it - and that does not
+     * matter, because every number below is a DIFFERENCE against a no-strike
+     * control taken through the same rectangle. A constant dark area cancels.
+     *
+     * It used to read "`drawLantern` spans x -21..21 and y -70..50", which were
+     * the coordinates of a private second Lantern this scene drew for itself
+     * (docs/verification-gaps.md instance 23). There is one ship now.
      */
     const HULL: Rect = { x: shipX - 26, y: shipY - 76, w: 52, h: 132 };
     const rects = [SHIP, PIPS, SKY, HULL];

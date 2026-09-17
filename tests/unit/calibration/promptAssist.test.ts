@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  LAUNCH_CEREMONY_STEP,
   LAUNCH_MAX_TIGHTEN,
   PREFLIGHT_ASSIST_CEILING_MS,
   PREFLIGHT_ASSIST_FLOOR_MS,
@@ -251,7 +250,7 @@ describe("computeCalibration's sample gate (AC-11.8, D100)", () => {
     // where it was rather than sliding it toward a number nobody produced.
     const fold = foldLaunchCeremony(MEASURED, [
       {
-        id: LAUNCH_CEREMONY_STEP,
+        id: "systems",
         words: [
           { word: "fly", shownAtMs: 0, keystrokes: [] },
           { word: "rings", shownAtMs: 8_000, keystrokes: [] },

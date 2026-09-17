@@ -291,6 +291,39 @@ export interface ParallaxOptions {
    * this file cannot, so the scene passes it in.
    */
   readonly keepClear?: readonly Rect[];
+  /**
+   * May the decorative planes TRAVEL sideways? Default true, which is what
+   * every screen did before UR-50.
+   *
+   * ------------------------------------------------------------------------
+   * WHY THIS IS A SWITCH AND NOT A DELETION
+   *
+   * In FLIGHT the sideways travel is load-bearing and `DRIFT_X` above says so
+   * at length: a gameplay rock falls straight down the ship's lane because
+   * fall time is a learning rule (FR-8 / D19), and a decorative rock crosses
+   * the frame and leaves by the side. That crossing IS the "you cannot type
+   * this" signal, and it is taught by watching one drift past rather than by
+   * being told. Removing it would delete a mechanic to fix a menu.
+   *
+   * On a STILL screen there is no lane, no falling rock and nothing to
+   * contrast against, so the same motion reads as the whole view sliding. A
+   * player has now reported it twice - UR-14 ("keep the stars stationary and
+   * flickering") and UR-50.5, on two different screens - and both times the
+   * travelling objects were these planes rather than the starfield, which has
+   * been pinned since UR-14 (`starField.ts`).
+   *
+   * So: the planes keep their orbits where a lane exists, and hold still where
+   * one does not. The nine story and menu screens pass `false`; Flight does
+   * not. `tests/e2e/no-star-travel.spec.ts` is the guard, and it sweeps every
+   * screen rather than the one that got reported.
+   *
+   * It does NOT freeze the frame. `idleDriftPx` and `cameraSwayPx` are bounded
+   * sines - +/-2 px of sway and +/-`speed * 6` of drift - so the layers still
+   * breathe and AC-22.2's "two frames a second apart differ" still holds, and
+   * the starfield still twinkles. What stops is the unbounded `mod(W)` march
+   * across the frame.
+   */
+  readonly crossDrift?: boolean;
 }
 
 export interface ParallaxLayer {
@@ -504,6 +537,7 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
 
   let reducedMotion = options.reducedMotion ?? false;
   let worldSpeed = options.worldSpeed ?? 0;
+  const crossDrift = options.crossDrift ?? true;
   let elapsedMs = 0;
 
   // WORLD-BAR items 1-3, in one line: four fills spanning near-sky to the near
@@ -879,10 +913,17 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
       // The decorative planes cross the frame as well as falling through it.
       // Under reduced motion they keep moving (D41 removes shake and sway, not
       // the world being alive) at a calmer rate.
+      //
+      // UNLESS THE SCREEN HAS NO LANE (UR-50.5). See `crossDrift` in
+      // `ParallaxOptions` for why this is a switch rather than a deletion: the
+      // crossing is Flight's "you cannot type this" signal, and on a still
+      // screen the same motion is just the view sliding sideways.
       const crossScale = reducedMotion ? 0.55 : 1;
-      for (const p of driftPlanes) {
-        p.offset = mod(p.offset + (p.base + p.rate * worldSpeed) * crossScale * (dt / 1000), W);
-        p.container.x = p.offset;
+      if (crossDrift) {
+        for (const p of driftPlanes) {
+          p.offset = mod(p.offset + (p.base + p.rate * worldSpeed) * crossScale * (dt / 1000), W);
+          p.container.x = p.offset;
+        }
       }
       starField?.update(elapsedMs, reducedMotion);
       if (weather !== null) {

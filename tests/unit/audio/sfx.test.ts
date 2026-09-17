@@ -287,12 +287,24 @@ describe("the SFX bus builds real nodes", () => {
   it("reuses one noise buffer across plays", () => {
     const ctx = new NullAudioContext(8000);
     const sfx = new SfxBus(ctx, ctx.createGain(), seededRandom(1));
+    // UR-48: a blast now makes THREE buffer sources - the noise wash, the
+    // fracture click's own noise burst, and the baked crumble. The claim this
+    // test makes is unchanged and is about the sample DATA, not the node count:
+    // the expensive part is generated once and every later play points at the
+    // same buffers.
     sfx.play("blast");
     const afterFirst = ctx.created.filter((n) => n.kind === "bufferSource").length;
     sfx.play("blast");
     const afterSecond = ctx.created.filter((n) => n.kind === "bufferSource").length;
-    expect(afterFirst).toBe(1);
-    expect(afterSecond).toBe(2);
+    expect(afterFirst).toBe(3);
+    expect(afterSecond).toBe(6);
+
+    // One noise buffer, whatever the play count. The crumbles are a rotation of
+    // six, so a second play may legitimately reach a different one.
+    const buffers = ctx.created
+      .filter((n) => n.kind === "bufferSource")
+      .map((n) => (n as unknown as { buffer: unknown }).buffer);
+    expect(new Set(buffers).size).toBeLessThanOrEqual(3);
   });
 
   it("skips the noise layer for the events that have none", () => {

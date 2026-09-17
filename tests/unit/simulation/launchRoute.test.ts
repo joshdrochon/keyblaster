@@ -8,8 +8,6 @@ import {
   type SimPlayer,
 } from "./flight.js";
 import {
-  LAUNCH_CEREMONY_STEP,
-  LAUNCH_CEREMONY_WORDS,
   MIN_IKI_MS,
   foldLaunchCeremony,
   planLaunchCeremony,
@@ -17,6 +15,7 @@ import {
   type RitualStepInput,
 } from "@engine/calibration/index.js";
 import { BELT_STOP_IDS, DEFAULT_CALIBRATION, type Calibration } from "@engine/types.js";
+import { MAX_LIVE_MAX, MAX_LIVE_MIN } from "@engine/controller/knobs.js";
 import { DEFAULT_FLIGHT_CONFIG, stagePoolFor } from "@game/flight/stage.js";
 import { survivableHitRate } from "@engine/hull/index.js";
 
@@ -48,6 +47,10 @@ import { survivableHitRate } from "@engine/hull/index.js";
 const WORDS = DEFAULT_FLIGHT_CONFIG.stageWordCount;
 const SEEDS = 40;
 
+/** A median and a fast pilot, for the UR-51 sweep at the bottom of this file. */
+const MEDIAN: SimPlayer = { accuracy: 0.93, ikiMs: 350, fkLatencyMs: 500, coldRecognitionMs: 1500 };
+const FAST: SimPlayer = { accuracy: 0.97, ikiMs: 260, fkLatencyMs: 400, coldRecognitionMs: 1100 };
+
 /** The tail the belt has to survive: the grade-2 typist from `belt.test.ts`. */
 const GRADE2: SimPlayer = {
   accuracy: 0.82,
@@ -76,6 +79,14 @@ function playCeremony(
   stopIndex: number,
   player: SimPlayer,
   kind: CeremonyKind,
+  /**
+   * Per-keystroke jitter. A real child does not type at a metronome, and a
+   * model that does makes a median of 6 samples indistinguishable from a median
+   * of 18 - which is exactly the difference UR-57 is about. Injected rather
+   * than baked in so the survivability rows above keep the deterministic player
+   * their numbers were measured with.
+   */
+  jitter: (() => number) | null = null,
 ): RitualStepInput[] {
   if (kind === "none") return [];
   const stopId = BELT_STOP_IDS[stopIndex];
@@ -84,24 +95,29 @@ function playCeremony(
   if (plan === null) return [];
   const iki = kind === "mashed" ? MIN_IKI_MS : player.ikiMs;
   const fk = kind === "mashed" ? 90 : (player.fkLatencyMs ?? 500);
-  const words = plan.steps.flatMap((s) => s.words);
+  // UR-57: the step ids are PRESERVED rather than flattened onto one step.
+  // `hull` contributes first-key latency and no intervals while `systems` and
+  // `engines` feed both, so collapsing them would measure a ceremony the game
+  // does not run - the exact illusion `flight.ts`'s header warns about.
   let clock = 0;
-  return [
-    {
-      id: LAUNCH_CEREMONY_STEP,
-      words: words.map((word) => {
-        const shownAtMs = clock;
-        const keystrokes: Keystroke[] = [];
-        let at = shownAtMs + fk;
-        for (let i = 0; i < word.length; i += 1) {
-          keystrokes.push({ charIndex: i, atMs: at });
-          at += iki;
-        }
-        clock = at + 400;
-        return { word, shownAtMs, keystrokes };
-      }),
-    },
-  ];
+  return plan.steps.map((step) => ({
+    id: step.id,
+    words: step.words.map((word) => {
+      const shownAtMs = clock;
+      const keystrokes: Keystroke[] = [];
+      // Multiplicative spread around the true interval, centred on 1.0 so the
+      // median stays an unbiased estimator - more samples buy less variance,
+      // not a different answer.
+      const wobble = (): number => (jitter === null ? 1 : 0.6 + jitter() * 0.8);
+      let at = shownAtMs + Math.round(fk * wobble());
+      for (let i = 0; i < word.length; i += 1) {
+        keystrokes.push({ charIndex: i, atMs: at });
+        at += Math.max(MIN_IKI_MS, Math.round(iki * wobble()));
+      }
+      clock = at + 400;
+      return { word, shownAtMs, keystrokes };
+    }),
+  }));
 }
 
 interface RouteResult {
@@ -340,5 +356,249 @@ describe("D100 / AC-11.8: an unmeasured pilot can still fly the route", () => {
     const onDefault = flyRoute(GRADE2, DEFAULT_CALIBRATION, "honest");
     const onSlow = flyRoute(GRADE2, { ikiMs: 900, fkLatencyMs: 1100 }, "honest");
     expect(onSlow.stalls).toBeGreaterThanOrEqual(onDefault.stalls);
+  });
+});
+
+/**
+ * UR-51: THE WHOLE ROUTE, AT BOTH ENDS OF THE PRIMARY KNOB.
+ *
+ * The belt harness flies Mars at stopIndex 1 for every run. The route flies
+ * each stop's own pool at its own index, with the profile's belief carried
+ * forward, and the two have disagreed before: `belt.test.ts` reports zero
+ * stalls for the grade-2 pilot while the route reports three, all at Jupiter,
+ * and both are telling the truth about different populations. UR-51 changes
+ * what the primary knob does, so it has to be answered on both.
+ *
+ * The knob is passed in here rather than ramped, because `simulateBelt` does
+ * not run a stage boundary - what this measures is the two ENDS of the range,
+ * which is the pair of belts a child can actually be handed.
+ */
+describe("UR-51 / FR-10: the route at both ends of the primary knob", () => {
+  interface KnobRoute {
+    stalls: number;
+    outOf: number;
+    worstHull: number;
+    meanHitRate: number;
+    meanLive: number;
+    peakLive: number;
+    perStopStalls: number[];
+  }
+
+  const flyKnob = (player: SimPlayer, maxLive: number): KnobRoute => {
+    const perStopStalls = new Array(BELT_STOP_IDS.length).fill(0) as number[];
+    let stalls = 0;
+    let worstHull = Number.POSITIVE_INFINITY;
+    let peakLive = 0;
+    const hitRates: number[] = [];
+    const meanLives: number[] = [];
+    for (let seed = 1; seed <= SEEDS; seed += 1) {
+      let calibration = calibrationOf(player);
+      const rng = mulberry32(seed);
+      for (let stop = 0; stop < BELT_STOP_IDS.length; stop += 1) {
+        const result: BeltResult = simulateBelt(
+          {
+            stopIndex: stop + 1,
+            stagePool: stagePoolFor(BELT_STOP_IDS[stop]!),
+            retentionPool: [],
+            spawnCount: WORDS,
+            calibration,
+            knobs: { maxLive },
+          },
+          player,
+          {},
+          rng,
+        );
+        if (result.stalled) {
+          stalls += 1;
+          perStopStalls[stop] = (perStopStalls[stop] ?? 0) + 1;
+        }
+        worstHull = Math.min(worstHull, result.hull);
+        peakLive = Math.max(peakLive, result.peakLive);
+        hitRates.push(result.hitRate);
+        meanLives.push(result.meanLive);
+        calibration = result.calibration;
+      }
+    }
+    const avg = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
+    return {
+      stalls,
+      outOf: SEEDS * BELT_STOP_IDS.length,
+      worstHull,
+      meanHitRate: avg(hitRates),
+      meanLive: avg(meanLives),
+      peakLive,
+      perStopStalls,
+    };
+  };
+
+  const PILOTS: ReadonlyArray<readonly [string, SimPlayer]> = [
+    ["fast", FAST],
+    ["median", MEDIAN],
+    ["slow", SLOW],
+    ["grade2", GRADE2],
+  ];
+
+  it("UR-51: the deeper board costs no pilot a belt anywhere on the route", () => {
+    // THE HARD CONSTRAINT, ON THE HARNESS THAT DISAGREES WITH THE OTHER ONE.
+    // The grade-2 pilot's three Jupiter stalls are a pre-existing property of
+    // that belt, so the claim is a DELTA - the knob may not add a stall at any
+    // stop - not an absolute zero this file cannot promise.
+    //
+    // WATCHED FAILING, with the real number: drop `knobs` from the harness's
+    // `fallTimeMs` call, so the belt builds the queue out of rocks budgeted for
+    // a one-deep board, and even the FAST pilot - who has never stalled on any
+    // harness in this repo - stalls 240 times in 240 at maxLive 7.
+    const rows: Record<string, KnobRoute> = {};
+    for (const [name, player] of PILOTS) {
+      const floor = flyKnob(player, MAX_LIVE_MIN);
+      const ceiling = flyKnob(player, MAX_LIVE_MAX);
+      rows[`${name}@maxLive${MAX_LIVE_MIN}`] = floor;
+      rows[`${name}@maxLive${MAX_LIVE_MAX}`] = ceiling;
+
+      expect(ceiling.stalls, `${name} gained stalls at the top of the knob`)
+        .toBeLessThanOrEqual(floor.stalls);
+      ceiling.perStopStalls.forEach((n, i) => {
+        expect(n, `${name} gained stalls at stop ${i}`).toBeLessThanOrEqual(
+          floor.perStopStalls[i]!,
+        );
+      });
+      expect(ceiling.worstHull, `${name} emptied the hull`).toBeGreaterThanOrEqual(
+        Math.min(floor.worstHull, 0),
+      );
+      expect(ceiling.meanHitRate, name).toBeGreaterThanOrEqual(survivableHitRate(WORDS));
+
+      // And the floor is the route that was already measured, exactly.
+      expect(floor.meanLive, `${name} at the floor`).toBeLessThan(1.1);
+      // The ceiling is the board UR-51 asks for.
+      expect(ceiling.meanLive, `${name} at the ceiling`).toBeGreaterThanOrEqual(3);
+    }
+
+    mkdirSync(EVIDENCE, { recursive: true });
+    writeFileSync(
+      `${EVIDENCE}/route-occupancy.json`,
+      `${JSON.stringify(
+        {
+          ticket: "UR-51 (decision on UR-42)",
+          seeds: SEEDS,
+          beltsPerRoute: BELT_STOP_IDS.length,
+          stopIds: BELT_STOP_IDS,
+          note:
+            "meanLive is TIME-WEIGHTED rocks on the board. grade2's three Jupiter stalls at the floor are the pre-existing figure on record; the claim is that the knob adds none.",
+          rows,
+          generatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  });
+});
+
+/**
+ * UR-57: WHAT A THREE-STEP CEREMONY ACTUALLY BUYS.
+ *
+ * Not stalls. `belt-survivability.json` and every row of
+ * `launch-ceremony-route.json` are byte-identical before and after UR-57,
+ * because the belt re-folds calibration from the player's own keystrokes after
+ * the first spawn and converges to the same place whatever the ceremony handed
+ * it. Reporting "no change" and stopping there would be true and useless.
+ *
+ * What the ceremony owns is the belief the belt OPENS on - every spawn before
+ * the in-belt fold has anything to learn from. That is also what `UR-51`'s
+ * rework of FR-8's fall budget reads, which is why the sample quality stopped
+ * being cosmetic. So that is what is measured here.
+ */
+describe("UR-57 / AC-11.5: the belief the belt opens on", () => {
+  it("AC-11.5: three steps measure the child better than one did", () => {
+    // A child who genuinely speeds up across the route, 600 -> 380 ms.
+    const errorsFor = (steps: "one" | "three"): number[] => {
+      const out: number[] = [];
+      for (let seed = 1; seed <= SEEDS; seed += 1) {
+        let cal = calibrationOf(GRADE2);
+        const rng = mulberry32(seed);
+        // Same jitter stream for both shapes, so the only difference measured
+        // is how many of those noisy samples the ceremony collected.
+        const jitterRng = mulberry32(0xbeef + seed);
+        for (let stop = 0; stop < BELT_STOP_IDS.length; stop += 1) {
+          const trueIki = Math.round(
+            600 + ((380 - 600) * stop) / (BELT_STOP_IDS.length - 1),
+          );
+          const player: SimPlayer = { ...GRADE2, ikiMs: trueIki };
+          let played = playCeremony(stop, player, "honest", jitterRng);
+          if (steps === "one") {
+            // The shape UR-57 replaced: words on `systems` only, the other two
+            // steps passive. `hull`'s latencies and `engines`' intervals gone.
+            played = played
+              .filter((s) => s.id === "systems")
+              .map((s) => ({ ...s, words: s.words.slice(0, 2) }));
+          }
+          if (played.length > 0) cal = foldLaunchCeremony(cal, played).calibration;
+          out.push(Math.abs(cal.ikiMs - trueIki));
+          cal = simulateBelt(
+            {
+              stopIndex: stop + 1,
+              stagePool: stagePoolFor(BELT_STOP_IDS[stop]!),
+              retentionPool: [],
+              spawnCount: WORDS,
+              calibration: cal,
+            },
+            player,
+            {},
+            rng,
+          ).calibration;
+        }
+      }
+      return out;
+    };
+
+    const mean = (xs: readonly number[]): number =>
+      xs.reduce((a, b) => a + b, 0) / xs.length;
+    const one = mean(errorsFor("one"));
+    const three = mean(errorsFor("three"));
+
+    mkdirSync(EVIDENCE, { recursive: true });
+    writeFileSync(
+      `${EVIDENCE}/ceremony-steps-belief.json`,
+      `${JSON.stringify(
+        {
+          ticket: "UR-57",
+          decision: "D99 amended",
+          seeds: SEEDS,
+          player: "grade-2 speeding up 600 -> 380 ms across the route",
+          meanBeliefErrorAtBeltOpenMs: { oneStep: one, threeStep: three },
+          note: "stall counts are unchanged; the in-belt fold owns everything after the first spawn",
+          generatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    // The three-step ceremony tracks the child more closely at the moment it
+    // matters. Small in milliseconds, and it is the input UR-51 is reworking.
+    expect(three).toBeLessThan(one);
+  });
+
+  it("AC-11.5: and it collects the measure the one-step shape barely had", () => {
+    // `hull` feeds first-key latency and no intervals. With `systems` alone the
+    // ceremony got 2 latencies - a median of two. All three steps put a latency
+    // behind every word, which is the defect UR-57 was really about.
+    let fk = 0;
+    let iki = 0;
+    for (let stop = 0; stop < BELT_STOP_IDS.length; stop += 1) {
+      const fold = foldLaunchCeremony(
+        DEFAULT_CALIBRATION,
+        playCeremony(stop, GRADE2, "honest"),
+      );
+      fk += fold.fkSamples;
+      iki += fold.ikiSamples;
+    }
+    const perStopFk = fk / BELT_STOP_IDS.length;
+    const perStopIki = iki / BELT_STOP_IDS.length;
+    // Measured: 5.7 latencies and 18.2 intervals per ceremony on the shipped
+    // pools, against 2 and ~6 before. This is the evidence LAUNCH_REFINE_ALPHA
+    // cites for folding at a stage of play's weight.
+    expect(perStopFk).toBeGreaterThan(4);
+    expect(perStopIki).toBeGreaterThan(12);
   });
 });

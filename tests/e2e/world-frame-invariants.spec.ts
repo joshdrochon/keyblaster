@@ -1,5 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
-import { blastOneRock, bootFlight, flightState, waitFrames } from "./support/flightBoot";
+import {
+  blastOneRock,
+  bootFlight,
+  flightCanvasBox,
+  flightState,
+  freezeFlight,
+  waitFrames,
+} from "./support/flightBoot";
+import { SHIPS } from "../../src/game/ui/catalog.js";
 
 /**
  * FOUR ACs that describe what the flight frame does, and had no test naming them.
@@ -36,19 +44,6 @@ const SCENE = `(() => {
   if (!scene) throw new Error("the Flight scene is not registered");
   return scene;
 })()`;
-
-/** Record every call made on a fake Graphics, so a draw can be read back. */
-const RECORDER = `(() => {
-  const calls = [];
-  const rec = new Proxy({}, {
-    get: (_t, name) => (...args) => {
-      calls.push({ op: String(name), args: args.filter((a) => typeof a === "number") });
-      return rec;
-    },
-  });
-  return { rec, calls };
-})()`;
-
 
 /**
  * Play the belt: blast every live rock, so an unattended stage cannot stall.
@@ -278,58 +273,128 @@ interface DrawOp {
   args: number[];
 }
 
+/**
+ * Record what the SHARED Lantern actually draws, tagged by which display object
+ * each call landed on.
+ *
+ * WHY NOT A FAKE GRAPHICS. This test used to hand `FlightScene.drawEmitter` a
+ * recording Proxy - which was a faithful reading of a method that should never
+ * have existed. The flight screen carried a private second Lantern in hardcoded
+ * hex, so this test was measuring the emitter of a ship `R-lantern` had never
+ * judged while the item claiming "exactly one drawLantern implementation" was
+ * green (docs/verification-gaps.md instance 23).
+ *
+ * There is now one implementation and it has no entry point that takes a
+ * Graphics, so the recorder goes one level down: `Phaser.GameObjects.Graphics`'
+ * own methods are wrapped, a real rig is built off screen, and every call is
+ * attributed to the object it was made on. That is strictly closer to the
+ * product than a replayed draw function - it records the REAL construction
+ * path, including anything drawn by a helper this test has never heard of.
+ */
+const EMITTER_OPS = `(async () => {
+  const scene = ${SCENE};
+  const probe = scene.add.graphics();
+  const Proto = Object.getPrototypeOf(probe);
+  probe.destroy();
+  const OPS = ["fillCircle", "strokeCircle", "fillRect", "fillRoundedRect", "fillEllipse", "lineBetween"];
+  const originals = {};
+  const calls = [];
+  let nextId = 1;
+  let inside = false;
+  for (const op of OPS) {
+    originals[op] = Proto[op];
+    Proto[op] = function (...args) {
+      if (this.__recId === undefined) this.__recId = nextId++;
+      if (!inside) {
+        inside = true;
+        calls.push({ id: this.__recId, op, args: args.filter((a) => typeof a === "number") });
+        inside = false;
+      }
+      return originals[op].apply(this, args);
+    };
+  }
+  let rig;
+  try {
+    const mod = await import("/src/game/render/lantern.ts");
+    // Off screen, and with the flight screen's own options, so this is the
+    // object the player flies rather than a differently-configured cousin.
+    rig = mod.drawLantern(scene, -6000, -6000, { beam: false, exhaust: false, idleBob: false, iris: 0 });
+  } finally {
+    for (const op of OPS) Proto[op] = originals[op];
+  }
+  const ids = new Set();
+  const walk = (o) => {
+    if (o && o.__recId !== undefined) ids.add(o.__recId);
+    for (const child of (o && o.list) || []) walk(child);
+  };
+  walk(rig.emitterMount);
+  const emitter = calls.filter((c) => ids.has(c.id));
+  const body = calls.filter((c) => !ids.has(c.id));
+  rig.destroy();
+  return { emitter, body };
+})()`;
+
 test("AC-24.1: the emitter draws a lens, three concentric focusing rings, a finned housing and a pivot mount", async ({
   page,
 }) => {
   test.setTimeout(120_000);
   await bootFlight(page, { seed: 7 });
 
-  // The emitter is drawn by one method into one Graphics, and a Phaser Graphics
-  // keeps no display list - there is nothing to read back off the real one. So
-  // the real draw method is handed a RECORDING graphics and asked what it drew.
-  const ops = (await page.evaluate(`(() => {
-    const scene = ${SCENE};
-    const { rec, calls } = ${RECORDER};
-    scene.drawEmitter(rec);
-    return calls;
-  })()`)) as DrawOp[];
+  const { emitter, body } = (await page.evaluate(EMITTER_OPS)) as {
+    emitter: DrawOp[];
+    body: DrawOp[];
+  };
 
-  expect(ops.length, "the emitter drew nothing").toBeGreaterThan(0);
+  expect(emitter.length, "the emitter drew nothing").toBeGreaterThan(0);
 
-  const circles = ops.filter((o) => o.op === "strokeCircle");
-  const fills = ops.filter((o) => o.op === "fillCircle");
-  const rects = ops.filter((o) => o.op === "fillRoundedRect");
-  const lines = ops.filter((o) => o.op === "lineBetween");
-
-  // THREE CONCENTRIC FOCUSING RINGS.
-  expect(circles.length, "the emitter does not draw three focusing rings").toBe(3);
-  const centres = new Set(circles.map((c) => `${c.args[0]},${c.args[1]}`));
-  expect(centres.size, "the three rings are not concentric").toBe(1);
-  const radii = circles.map((c) => c.args[2]!).sort((a, b) => a - b);
-  expect(new Set(radii).size, "the rings share a radius, so they are one ring drawn thrice").toBe(3);
-
-  // ONE LARGE LENS, at the rings' centre, inside the innermost ring.
-  expect(fills.length, "expected exactly one lens - one beam source, no second muzzle").toBe(1);
-  const lens = fills[0]!;
-  expect(`${lens.args[0]},${lens.args[1]}`, "the lens is not at the focusing rings' centre").toBe(
-    [...centres][0],
-  );
-  expect(lens.args[2]!, "the lens is not inside the innermost ring").toBeLessThan(radii[0]!);
-
-  // FINNED HEAT HOUSING: a housing body plus parallel vertical fins across it.
-  expect(rects.length, "no housing and no pivot mount are drawn").toBeGreaterThanOrEqual(2);
-  expect(lines.length, "the heat housing has no fins").toBeGreaterThanOrEqual(3);
-  expect(new Set(lines.map((l) => l.args[0])).size, "the fins are all at one x, so they are one line").toBe(
-    lines.length,
-  );
-  for (const l of lines) {
-    expect(l.args[0], "a fin is not vertical, so it is not a fin").toBe(l.args[2]);
+  // THREE CONCENTRIC FOCUSING RINGS, PLUS THE LENS THEY FOCUS.
+  // Grouped by centre rather than counted, because "three rings" is a statement
+  // about concentricity: three discs at three centres are three lamps.
+  const discs = emitter.filter((o) => o.op === "fillCircle");
+  const byCentre = new Map<string, number[]>();
+  for (const d of discs) {
+    const key = `${d.args[0]},${d.args[1]}`;
+    byCentre.set(key, [...(byCentre.get(key) ?? []), d.args[2]!]);
   }
+  const stacks = [...byCentre.entries()].filter(([, radii]) => new Set(radii).size >= 3);
 
-  // PIVOT MOUNT: it sits BELOW the head, i.e. the head is mounted on it.
-  const ringY = circles[0]!.args[1]!;
-  expect(Math.max(...rects.map((r) => r.args[1]!)), "the mount is not below the emitter head").toBeGreaterThan(
-    ringY,
+  // ONE BEAM SOURCE, NO SECOND MUZZLE: exactly one concentric stack.
+  expect(stacks.length, "expected exactly one lens assembly - one beam source, no second muzzle").toBe(
+    1,
+  );
+  const [lensCentre, radii] = stacks[0]!;
+  const distinct = [...new Set(radii)].sort((a, b) => a - b);
+  expect(
+    distinct.length,
+    "the lens assembly has fewer than four steps, so it cannot carry three focusing rings and a lens",
+  ).toBeGreaterThanOrEqual(4);
+
+  // FINNED HEAT HOUSING: a rounded housing body plus parallel fins across it.
+  const housings = emitter.filter((o) => o.op === "fillRoundedRect");
+  const fins = emitter.filter((o) => o.op === "fillRect");
+  expect(housings.length, "no heat housing is drawn").toBeGreaterThanOrEqual(1);
+  expect(fins.length, "the heat housing has no fins").toBeGreaterThanOrEqual(3);
+  expect(
+    new Set(fins.map((f) => f.args[0])).size,
+    "the fins are all at one x, so they are one fin drawn several times",
+  ).toBe(fins.length);
+  expect(
+    new Set(fins.map((f) => f.args[2])).size,
+    "the fins are not the same width, so they are not a machined set",
+  ).toBe(1);
+
+  // THE HOUSING IS MOUNTED BELOW THE HEAD - the instrument sits ON something.
+  const lensY = Number(lensCentre.split(",")[1]);
+  expect(
+    Math.max(...housings.map((h) => h.args[1]!)),
+    "the heat housing is not below the emitter head",
+  ).toBeGreaterThan(lensY);
+
+  // PIVOT MOUNT: the fixed collar is drawn on the BODY (it does not rotate with
+  // the head), between the lens and the hull. A head with no mount is glued on.
+  const collar = body.filter((o) => o.op === "fillCircle" && o.args[1]! < -100);
+  expect(collar.length, "the emitter has no pivot boss, so it is glued to the nose").toBeGreaterThan(
+    0,
   );
 });
 
@@ -341,9 +406,12 @@ test("AC-24.1: the iris opens when the ship fires, and closes again", async ({ p
   // draw function ourselves with two numbers and comparing them.
   await page.evaluate(`(() => {
     const scene = ${SCENE};
-    const original = scene.drawIris.bind(scene);
+    // The SHARED rig's own aperture. Flight no longer owns a drawIris - there is
+    // one Lantern, and this records what the real fire path asks it for.
+    const rig = scene.lantern;
+    const original = rig.setIris.bind(rig);
     scene.__irisLog = [];
-    scene.drawIris = (g, open) => { scene.__irisLog.push(open); original(g, open); };
+    rig.setIris = (open) => { scene.__irisLog.push(open); original(open); };
   })()`);
 
   /**
@@ -462,14 +530,41 @@ test("AC-24.3: no text is drawn on the hull, and a ship name is a dynamic decal,
   })()`)) as string[];
   expect(shipText, "text is drawn on the hull").toEqual([]);
 
-  // 2. The hull ART draws no text either, asked of the draw method itself.
-  const textCalls = (await page.evaluate(`(() => {
+  /**
+   * 2. THE SHIP ON SCREEN IS THE SHIP THE RUBRIC JUDGES.
+   *
+   * This used to ask `FlightScene.drawLantern` - a PRIVATE SECOND LANTERN in
+   * hardcoded hex - whether it drew any text, and it did not, and that was a
+   * true answer about the wrong object (docs/verification-gaps.md instance 23).
+   * `R-lantern` judges `render/lantern.ts`; the flight screen drew something
+   * else; so the one visual item a human signs off did not cover the object a
+   * child looks at for the entire game.
+   *
+   * The assertion that closes that is not "no text" - it is that the flown ship
+   * and the judged drawing are the SAME CONSTRUCTION. Built with the flight
+   * screen's own options and compared as a shape of display types: if the scene
+   * ever grows a second ship, or stops routing through this module, the two
+   * trees stop matching and this goes red naming both.
+   */
+  const same = (await page.evaluate(`(async () => {
     const scene = ${SCENE};
-    const { rec, calls } = ${RECORDER};
-    scene.drawLantern(rec);
-    return calls.filter((c) => c.op.toLowerCase().includes("text")).length;
-  })()`)) as number;
-  expect(textCalls, "the hull art draws text").toBe(0);
+    const shape = (o) => {
+      const kids = ((o && o.list) || []).map(shape);
+      return (o ? o.type : "?") + (kids.length ? "(" + kids.join(",") + ")" : "");
+    };
+    const mod = await import("/src/game/render/lantern.ts");
+    const reference = mod.drawLantern(scene, -6000, -6000, {
+      beam: false, exhaust: true, idleBob: false, iris: 0,
+    });
+    const result = { flown: shape(scene.lantern.container), judged: shape(reference.container) };
+    reference.destroy();
+    return result;
+  })()`)) as { flown: string; judged: string };
+
+  expect(
+    same.flown,
+    "the flown ship is not the drawing R-lantern judges - see verification-gaps instance 23",
+  ).toBe(same.judged);
 
   // 3. The shared Lantern carries the name DYNAMICALLY: the decal exists only
   //    when a name is passed, and it reads back the name it was given. That is
@@ -497,4 +592,158 @@ test("AC-24.3: no text is drawn on the hull, and a ship name is a dynamic decal,
   expect(decal.bare, "the hull art ships with a name baked into it").toEqual([]);
   expect(decal.named, "a ship name passed in did not render").toEqual(["Nomad"]);
   expect(decal.colorways, "AC-24.3: the reference's four colourways are not four ships").toBe(4);
+});
+
+// ---------------------------------------------------------------------------
+// AC-6d.1b / D79 — the hull the child chose is the hull the child flies
+// ---------------------------------------------------------------------------
+
+/**
+ * How many pixels of each given colour are on screen around the ship.
+ *
+ * ================== WHY NOT A BYTE COMPARISON OF TWO FRAMES ==================
+ * That is what this was, and it FAILED ITS OWN CONTROL in the first whole-suite
+ * run: two boots of the SAME hull did not produce identical bytes at 3 workers.
+ * The control was right and the measurement was wrong. A frozen flight frame is
+ * only deterministic in the ship; everything around it is not. The sky TRAVELS
+ * on the wall clock (AC-22.3), rocks fall on it, and the plume and lens tweens
+ * are at whatever phase they had reached when the scene paused - all of which
+ * move with machine load and none of which is the ship.
+ *
+ * Byte equality was therefore measuring "the ship plus the moment", which is
+ * docs/verification-gaps.md instance 14 almost exactly: a probe that samples a
+ * moving world and reports whatever it lands on, in both directions.
+ *
+ * COUNTING A COLOUR is insensitive to every one of those. The hull's livery
+ * band is drawn flat at full alpha, so the chosen stripe is either on the
+ * screen or it is not, whatever the sky is doing behind it.
+ */
+async function stripeCounts(
+  page: Page,
+  shipId: string,
+  targets: readonly string[],
+): Promise<number[]> {
+  await bootFlight(page, { seed: 7, stopId: "mars", shipId, reducedMotion: true });
+  await waitFrames(page, 20);
+  await freezeFlight(page, true);
+  // A paused scene still RENDERS, but the compositor can hand back a frame
+  // captured before the pause landed.
+  await waitFrames(page, 2);
+  const box = await flightCanvasBox(page);
+  const design = await page.evaluate(() => {
+    const g = window.__kbGame as unknown as { scale: { width: number; height: number } };
+    return { w: g.scale.width, h: g.scale.height };
+  });
+  const sx = box.width / design.w;
+  const sy = box.height / design.h;
+  const shot = (
+    await page.screenshot({
+      clip: {
+        x: box.x + (design.w / 2) * sx - 40 * sx,
+        y: box.y + (design.h - 150) * sy - 60 * sy,
+        width: 80 * sx,
+        height: 110 * sy,
+      },
+    })
+  ).toString("base64");
+
+  return page.evaluate(
+    async ([data, hexes]: readonly [string, readonly string[]]) => {
+      const img = await new Promise<HTMLImageElement>((res, rej) => {
+        const i = new Image();
+        i.onload = () => res(i);
+        i.onerror = rej;
+        i.src = `data:image/png;base64,${data}`;
+      });
+      const c = document.createElement("canvas");
+      c.width = img.width;
+      c.height = img.height;
+      const g = c.getContext("2d");
+      if (g === null) throw new Error("no 2d context");
+      g.drawImage(img, 0, 0);
+      const px = g.getImageData(0, 0, c.width, c.height).data;
+      const want = hexes.map((h) => [
+        parseInt(h.slice(1, 3), 16),
+        parseInt(h.slice(3, 5), 16),
+        parseInt(h.slice(5, 7), 16),
+      ]);
+      const counts = want.map(() => 0);
+      for (let i = 0; i < px.length; i += 4) {
+        for (let k = 0; k < want.length; k += 1) {
+          const t = want[k] as number[];
+          if (
+            Math.abs((px[i] ?? 0) - (t[0] as number)) <= 8 &&
+            Math.abs((px[i + 1] ?? 0) - (t[1] as number)) <= 8 &&
+            Math.abs((px[i + 2] ?? 0) - (t[2] as number)) <= 8
+          ) {
+            counts[k] = (counts[k] as number) + 1;
+          }
+        }
+      }
+      return counts;
+    },
+    [shot, targets] as const,
+  );
+}
+
+test("AC-6d.1b: the profile's shipId reaches the flown ship, and a different hull is a different ship", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+
+  // 1. THE BINDING. The scene reports the hull it DREW WITH - `livery` is the
+  //    same object handed to render/lantern.ts, not a second copy computed
+  //    beside it - so this is the catalogue entry arriving at the drawing.
+  await bootFlight(page, { seed: 7, stopId: "mars", shipId: "ship-2" });
+  const chosen = await flightState(page);
+  expect(chosen.shipId, "the flight screen ignored the ship it was given").toBe("ship-2");
+  expect(
+    chosen.livery,
+    "the ship was drawn in colours that are not the chosen hull's",
+  ).toEqual(SHIPS.find((s) => s.id === "ship-2")?.colors);
+
+  /**
+   * 2. AND IT REACHES THE PIXELS.
+   *
+   * A field on a debug state proves the scene KNOWS which ship it is flying. It
+   * proves nothing about what is on screen - which is the entire lesson of
+   * docs/verification-gaps.md, and precisely how `profile.shipId` came to be
+   * chosen, persisted, migrated and drawn by nothing.
+   *
+   * SHIP-2 AND SHIP-3, each the other's control. Their stripes are a blue and a
+   * violet, so neither can be confused with the other and neither occurs in a
+   * Mars sky. Ship-1's coral would have been a bad choice for exactly that
+   * reason - a rust-coloured sky is full of near-coral pixels.
+   *
+   * MEASURED, and the bar is a fifth of the smaller reading rather than a
+   * number that happened to work:
+   *
+   *     flying ship-2:   blue 310   violet   0
+   *     flying ship-3:   blue   0   violet 318
+   *
+   * WATCHED FAILING. Hand `drawLantern` a constant livery while leaving the
+   * scene's reported `livery` correct - the state assertion above still passes -
+   * and this reads `ship-2 frame [blue 0, violet 0], ship-3 frame [blue 0,
+   * violet 0]` and goes red. That is the half of this test that is about the
+   * screen rather than about what the scene believes.
+   */
+  const blue = SHIPS.find((s) => s.id === "ship-2")!.colors.stripe;
+  const violet = SHIPS.find((s) => s.id === "ship-3")!.colors.stripe;
+
+  const flyingTwo = await stripeCounts(page, "ship-2", [blue, violet]);
+  const flyingThree = await stripeCounts(page, "ship-3", [blue, violet]);
+
+  const detail = `ship-2 frame [blue ${flyingTwo[0]}, violet ${flyingTwo[1]}], ship-3 frame [blue ${flyingThree[0]}, violet ${flyingThree[1]}]`;
+
+  expect(flyingTwo[0], `ship-2's own stripe is not on screen: ${detail}`).toBeGreaterThan(200);
+  expect(flyingThree[1], `ship-3's own stripe is not on screen: ${detail}`).toBeGreaterThan(200);
+  // The control half: flying one hull must not put the OTHER hull's colour up.
+  expect(
+    flyingTwo[1],
+    `ship-3's stripe is on screen while flying ship-2: ${detail}`,
+  ).toBeLessThan((flyingTwo[0] as number) / 20);
+  expect(
+    flyingThree[0],
+    `ship-2's stripe is on screen while flying ship-3: ${detail}`,
+  ).toBeLessThan((flyingThree[1] as number) / 20);
 });

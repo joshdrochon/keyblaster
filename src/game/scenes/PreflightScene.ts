@@ -6,7 +6,6 @@ import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { HULL, PANEL, rivetPositions } from "@game/ui/panel";
 import { drawShadow, type ShadowFigure, type ShadowPose } from "@game/render/shadow";
 import {
-  LAUNCH_CEREMONY_BUDGET_MS,
   PREFLIGHT_ASSIST_GIVE_UP,
   RITUAL_BUDGET_MS,
   RITUAL_STEPS,
@@ -121,25 +120,21 @@ const FINALE_MS = 1500;
 const RETURNING_ROW_MS = 1200;
 
 /**
- * The launch ceremony's beats (D99).
+ * The launch ceremony's beats (D99, UR-57).
  *
  * Every one is shorter than the full ritual's equivalent, because this screen
- * is now paid SIX times on a route out to Pluto and D51's ~20 s was priced as a
- * once-per-profile cost. The two rows that carry no prompt get a beat rather
- * than a step: `LAUNCH_ROW_INTRO_MS + LAUNCH_ROW_SETTLE_MS` each. The typed row
- * keeps a real intro and settle so the word does not appear on top of the line
- * that introduces it.
+ * is paid SIX times on a route out to Pluto and D51's ~20 s was priced as a
+ * once-per-profile cost. What UR-57 changed is that ALL THREE steps now carry
+ * words, so all three use these beats - there is no longer a "spectator" row
+ * with a shorter one, and `LAUNCH_ROW_*` went with it rather than sitting in
+ * the file as a branch nothing can reach.
  *
- * Total, excluding typing: 1000 + 2x760 + (760 + 520) + 1300 = 5.1 s. The two
- * words cost about 3.1 s at the shipped baseline and about 6.2 s for a grade-2
- * pilot, so the ceremony runs 8-11 s end to end - against the 6.5 s the untyped
- * sequence already cost, and inside the 5-20 s window D51 fixes for this
- * screen at both ends. The TYPING alone is held to
- * `LAUNCH_CEREMONY_BUDGET_MS`.
+ * Total, excluding typing: 1000 + 3 x (760 + 520) + 1300 = 6.14 s. The words
+ * cost 8.8-10.4 s at the shipped baseline and about 14 s for a grade-2 pilot.
+ * `tests/unit/scenes/preflightAssist.test.ts` pins the worst cases to these
+ * constants.
  */
 const LAUNCH_LEAD_MS = 1000;
-const LAUNCH_ROW_INTRO_MS = 420;
-const LAUNCH_ROW_SETTLE_MS = 340;
 const LAUNCH_STEP_INTRO_MS = 760;
 const LAUNCH_STEP_SETTLE_MS = 520;
 const LAUNCH_FINALE_MS = 1300;
@@ -311,6 +306,11 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
       // The stop's planet is drawn here, not by the parallax, because it has
       // to SWING IN; the parallax owns its celestial layer's position.
       decorate: ["sky", "farField", "midField", "nearField"],
+      // NOTHING TRAVELS ON THIS SCREEN (UR-50.5). `worldSpeed: 0` never did
+      // this on its own: `DRIFT_X` gives every decorative plane a px/s FLOOR
+      // (+5, -8, +11, -15) that runs at any world speed, so the planes marched
+      // across the frame while the comment next to them said they did not.
+      crossDrift: false,
       seed: 0x51f1,
     });
 
@@ -653,7 +653,6 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
       this.beginFinale(time);
       return;
     }
-    const typedHere = this.plannedWordCount(this.stepIndex) > 0;
     row.state = "active";
     // D99: a ceremony speaks ONCE. Three of Shadow's lines inside four seconds
     // would overlap each other, which P1 item 1.6 forbids outright, and two of
@@ -661,35 +660,42 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     // the copy written for a pilot who has done this before, so it is the one
     // the ceremony uses, and it lands on the row that actually asks for a word.
     if (this.mode === "launch") {
-      if (typedHere) this.say("preflight.line.returning", "pointing");
+      // UR-57: three steps now, but still ONE spoken line - three of Shadow's
+      // inside ten seconds would overlap each other, which P1 item 1.6 forbids.
+      // `preflight.line.returning` is the copy written for a pilot who has done
+      // this before, and it lands on the first step rather than on each.
+      if (this.stepIndex === 0) this.say("preflight.line.returning", "pointing");
     } else {
       this.say(STEP_LINE_KEY[spec.id], "pointing");
     }
     this.wordIndex = 0;
     this.currentWords = [];
     this.phase = "intro";
-    this.phaseUntil = time + this.introMs(typedHere);
+    this.phaseUntil = time + this.introMs();
     // The planet arrives one leg per step, so the view is still coming about
     // when the last system lights.
     const legs = RITUAL_STEPS.length;
     this.tweens.add({
       targets: this.planet,
       x: WINDOW.x + WINDOW.w * 0.62 - (legs - 1 - this.stepIndex) * 260,
-      duration: this.introMs(typedHere) + 900,
+      duration: this.introMs() + 900,
       ease: EASE.arrive,
     });
   }
 
-  /** How long a step's intro beat lasts, by mode and by whether it is typed. */
-  private introMs(typed: boolean): number {
-    if (this.mode !== "launch") return STEP_INTRO_MS;
-    return typed ? LAUNCH_STEP_INTRO_MS : LAUNCH_ROW_INTRO_MS;
+  /**
+   * How long a step's intro beat lasts. Mode only, since UR-57: every step of
+   * a ceremony carries words, so there is no shorter "spectator" beat left.
+   * A step the child was carried past keeps its full beat - the sequence does
+   * not speed up as a reward for not typing.
+   */
+  private introMs(): number {
+    return this.mode === "launch" ? LAUNCH_STEP_INTRO_MS : STEP_INTRO_MS;
   }
 
-  /** How long a step's settle beat lasts, by mode and by whether it was typed. */
-  private settleMs(typed: boolean): number {
-    if (this.mode !== "launch") return STEP_SETTLE_MS;
-    return typed ? LAUNCH_STEP_SETTLE_MS : LAUNCH_ROW_SETTLE_MS;
+  /** How long a step's settle beat lasts. Same rule. */
+  private settleMs(): number {
+    return this.mode === "launch" ? LAUNCH_STEP_SETTLE_MS : STEP_SETTLE_MS;
   }
 
   private nextWord(time: number): void {
@@ -759,7 +765,6 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
   private finishStep(time: number): void {
     const spec = RITUAL_STEPS[this.stepIndex];
     const row = this.rows[this.stepIndex];
-    const typedHere = this.plannedWordCount(this.stepIndex) > 0;
     if (spec !== undefined && row !== undefined) {
       row.state = "lit";
       if (this.calibrating) {
@@ -777,7 +782,7 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     }
     this.hintText.setAlpha(0);
     this.phase = "settle";
-    this.phaseUntil = time + this.settleMs(typedHere);
+    this.phaseUntil = time + this.settleMs();
   }
 
   private beginFinale(time: number): void {
@@ -963,21 +968,19 @@ export const PREFLIGHT_TIMING = {
   FINALE_MS,
   RETURNING_ROW_MS,
   LAUNCH_LEAD_MS,
-  LAUNCH_ROW_INTRO_MS,
-  LAUNCH_ROW_SETTLE_MS,
   LAUNCH_STEP_INTRO_MS,
   LAUNCH_STEP_SETTLE_MS,
   LAUNCH_FINALE_MS,
   /**
-   * Everything the launch ceremony costs apart from the typing itself (D99).
-   * Asserted against `LAUNCH_CEREMONY_BUDGET_MS` so the per-stop toll cannot
-   * drift back toward D51's once-per-profile ~20 s without a test going red.
+   * Everything the launch ceremony costs apart from the typing itself.
+   *
+   * UR-57 put words on all three steps, so all three now use the TYPED beats -
+   * the two that used to be spectators cost `LAUNCH_ROW_*` and now cost
+   * `LAUNCH_STEP_*`. `tests/unit/scenes/preflightAssist.test.ts` pins the
+   * arithmetic to these constants so the worst case cannot drift silently.
    */
   LAUNCH_OVERHEAD_MS:
     LAUNCH_LEAD_MS +
-    2 * (LAUNCH_ROW_INTRO_MS + LAUNCH_ROW_SETTLE_MS) +
-    LAUNCH_STEP_INTRO_MS +
-    LAUNCH_STEP_SETTLE_MS +
+    3 * (LAUNCH_STEP_INTRO_MS + LAUNCH_STEP_SETTLE_MS) +
     LAUNCH_FINALE_MS,
-  LAUNCH_BUDGET_MS: LAUNCH_CEREMONY_BUDGET_MS,
 };

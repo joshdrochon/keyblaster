@@ -13,7 +13,11 @@ import {
   PAD_Y,
   LAUNCH,
   RIGHT_MARGIN,
+  SHELF,
+  WINDOW,
   backChip,
+  launchButton,
+  shelfLamps,
   briefingLayout,
   columnBottom,
   columnWidth,
@@ -221,10 +225,12 @@ describe("nothing on the screen stands on anything else", () => {
     expect(overlaps(wasThere, longest)).toBe(true);
   });
 
-  it("the back chip is on the grid, clear of the page and inside the frame", () => {
+  it("the back chip is clear of the page at every stop, in every language", () => {
+    // The chip moved from the top-right corner to the action stack (UR-50.1),
+    // so its y is no longer HEADING_TOP - but "it never lands on the page" is
+    // the invariant that mattered, and it is checked across the whole sweep
+    // rather than at the one stop anybody looks at (standards rule 5).
     const chip = backChip();
-    expect(chip.y).toBe(HEADING_TOP);
-    expect(chip.x + chip.w).toBe(1920 - GUTTER);
     for (const lang of LANGS) {
       for (const stop of STOP_IDS) {
         const rows = rowsFor(lang, stop);
@@ -232,6 +238,126 @@ describe("nothing on the screen stands on anything else", () => {
         expect(overlaps(chip, briefingLayout(rows).page), `${lang}/${stop}`).toBe(false);
       }
     }
+  });
+});
+
+/**
+ * UR-50, reported from play on Saturn. Four of the five items are geometry and
+ * are settled here, without booting Phaser.
+ *
+ * Every number below was READ OFF THE SHIPPED SCREEN before it was asserted,
+ * because the report and the code disagreed on one of them and the report was
+ * the one that turned out to be describing a real thing by the wrong name.
+ */
+describe("UR-50: the window, the shelf and the two actions", () => {
+  const overlaps = (
+    a: { x: number; y: number; w: number; h: number },
+    b: { x: number; y: number; w: number; h: number },
+  ): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+  it("50.3: the page and the glass start on the same line", () => {
+    // The alignment the caption was costing. It is the whole reason "delete the
+    // caption" was the right call: the copy was filler, and the 56 px of hull
+    // it occupied was the gap between the screen's two big objects.
+    //
+    // Watch it fail: put WINDOW.y back to 140.
+    expect(WINDOW.y).toBe(PAGE_TOP);
+    expect(WINDOW.y).toBe(HEADING_TOP);
+  });
+
+  it("50.3: the deleted caption's string is gone from the product", () => {
+    // A copy change that leaves the key behind is a copy change that comes
+    // back. `strings.ts` is the shipped key list and `ui.json` is the English
+    // table; neither may still carry it.
+    const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+    const keys = readFileSync(resolve(root, "src/game/scenes/lib/strings.ts"), "utf8");
+    const en = readFileSync(resolve(root, "src/content/en/ui.json"), "utf8");
+    expect(keys).not.toContain("briefing.window");
+    expect(en).not.toContain("briefing.window");
+    expect(en).not.toContain("through the window");
+  });
+
+  it("50.2: the shelf is exactly the width of the glass, and its lamps are centred in it", () => {
+    // THE REPORT SAID "narrower than the window". The BAR was 60 px WIDER
+    // (x-30, w+60 = 982..1854 against 1012..1824); what was narrow was the lamp
+    // row, at 1042..1778, leaving 30 px of empty bar on the left and 46 on the
+    // right. Both are asserted, because fixing only the bar would leave the
+    // thing the player actually saw.
+    //
+    // Watch it fail: restore `x - 30 / w + 60` and `x + 30 + i * 92`.
+    expect(SHELF.x).toBe(WINDOW.x);
+    expect(SHELF.w).toBe(WINDOW.w);
+
+    const lamps = shelfLamps();
+    expect(lamps.length).toBe(SHELF.lamps);
+    const first = lamps[0] as number;
+    const last = lamps[lamps.length - 1] as number;
+    const leftAir = first - SHELF.x;
+    const rightAir = SHELF.x + SHELF.w - last;
+    expect(
+      Math.abs(leftAir - rightAir),
+      `lamp air: ${leftAir} left, ${rightAir} right`,
+    ).toBeLessThanOrEqual(1);
+    // ...and every lamp is inside the bar, circle included.
+    for (const cx of lamps) {
+      expect(cx - SHELF.lampR).toBeGreaterThanOrEqual(SHELF.x);
+      expect(cx + SHELF.lampR).toBeLessThanOrEqual(SHELF.x + SHELF.w);
+    }
+  });
+
+  it("NEGATIVE CONTROL: the shipped lamp row really was off-centre, and by how much", () => {
+    // What was there, modelled: `WINDOW.x + 30 + i * 92`, nine lamps. If this
+    // ever comes out symmetric, the case above is measuring nothing.
+    const old = Array.from({ length: 9 }, (_, i) => WINDOW.x + 30 + i * 92);
+    const oldBar = { x: WINDOW.x - 30, w: WINDOW.w + 60 };
+    const leftAir = (old[0] as number) - oldBar.x;
+    const rightAir = oldBar.x + oldBar.w - (old[8] as number);
+    expect(leftAir).toBe(60);
+    expect(rightAir).toBe(76);
+    expect(oldBar.w - WINDOW.w).toBe(60);
+  });
+
+  it("50.1: the two actions are adjacent, and the way out is not in a corner", () => {
+    // The complaint: launch bottom-centre, the way back top-right, 820 px of
+    // screen between a question and its answer.
+    //
+    // Watch it fail: anchor the chip at { x: RIGHT_MARGIN - w, y: HEADING_TOP }.
+    const chip = backChip();
+    const btn = launchButton();
+
+    // Same centre line.
+    expect(chip.x + chip.w / 2).toBe(btn.x + btn.w / 2);
+    // Stacked, in reading order, with real air between them and no overlap.
+    const gap = btn.y - (chip.y + chip.h);
+    expect(gap, `gap between the two actions: ${gap}`).toBeGreaterThan(0);
+    expect(gap).toBeLessThanOrEqual(40);
+    // The old placement, for the record: this is the distance that was wrong.
+    const wasAt = { x: RIGHT_MARGIN - chip.w, y: HEADING_TOP };
+    const wasFar = Math.hypot(wasAt.x - btn.x, wasAt.y - btn.y);
+    const nowFar = Math.hypot(chip.x - btn.x, chip.y - btn.y);
+    expect(wasFar, `old separation ${Math.round(wasFar)} px`).toBeGreaterThan(800);
+    expect(nowFar, `new separation ${Math.round(nowFar)} px`).toBeLessThan(120);
+  });
+
+  it("50.1: the actions clear Shadow and the shelf, and stay on the screen", () => {
+    // Why they are STACKED and not side by side: Shadow's drawn box reaches
+    // x 1156 and the glass centre is 1418, so a 380 + 24 + 262 row centred on
+    // the glass would start at 1085 and run the primary action through him.
+    const chip = backChip();
+    const btn = launchButton();
+    const shadow = shadowBox();
+
+    expect(overlaps(chip, shadow)).toBe(false);
+    expect(overlaps(btn, shadow)).toBe(false);
+    expect(chip.y).toBeGreaterThanOrEqual(SHELF.y + SHELF.h);
+    // The hint line sits 14 px under the button and still fits on the artboard.
+    expect(btn.y + btn.h + 14).toBeLessThan(1080);
+
+    // The side-by-side row this replaced, modelled, so the reason is checked
+    // rather than only written down.
+    const rowW = btn.w + 24 + chip.w;
+    const rowX = WINDOW.x + WINDOW.w / 2 - rowW / 2;
+    expect(overlaps({ x: rowX, y: btn.y, w: btn.w, h: btn.h }, shadow)).toBe(true);
   });
 });
 
@@ -309,7 +435,8 @@ describe("UR-19: the screen uses ONE anchoring model", () => {
     expect(new Set(positions).size, `chip x by world width: ${positions.join(", ")}`).toBe(
       1,
     );
-    expect(positions[0]).toBe(RIGHT_MARGIN - 262);
+    // Centred on the glass since UR-50.1, not pinned to the right margin.
+    expect(positions[0]).toBe(WINDOW.x + WINDOW.w / 2 - 262 / 2);
   });
 
   it("NEGATIVE CONTROL: a viewport-anchored chip DOES move, and by how much", () => {
@@ -329,5 +456,6 @@ describe("UR-19: the screen uses ONE anchoring model", () => {
     expect(PAGE_X).toBe(GUTTER);
     expect(RIGHT_MARGIN).toBe(1920 - GUTTER);
     expect(backChip().x).toBeGreaterThan(PAGE_X + 884);
+    expect(WINDOW.x + WINDOW.w).toBe(RIGHT_MARGIN);
   });
 });

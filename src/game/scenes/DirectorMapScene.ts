@@ -150,6 +150,11 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       width: GAME_WIDTH,
       height: GAME_HEIGHT,
       decorate: ["sky", "farField", "midField", "nearField"],
+      // NOTHING TRAVELS ON THIS SCREEN (UR-50.5). `worldSpeed: 0` never did
+      // this on its own: `DRIFT_X` gives every decorative plane a px/s FLOOR
+      // (+5, -8, +11, -15) that runs at any world speed, so the planes marched
+      // across the frame while the comment next to them said they did not.
+      crossDrift: false,
       seed: 0x0d13,
     });
 

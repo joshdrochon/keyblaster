@@ -188,6 +188,33 @@ for (const stop of ["earth", "jupiter", "pluto"] as const) {
   write("ur34-typo-vs-correct", ctx.render(t + 0.6));
 }
 
+// 3c. UR-48. THE FILE THIS TICKET CLOSES ON. One rock coming apart, alone and
+//     in the clear, so the fall can be heard for what it is.
+{
+  const { ctx, output } = onBus("sfx");
+  const bus = new SfxBus(ctx, output);
+  ctx.currentTime = 0.15;
+  bus.play("blast");
+  ctx.currentTime = 0;
+  write("ur48-one-crumble", ctx.render(1.4));
+}
+
+// 3d. UR-48. Twelve in a row at the cadence a good player clears words, which
+//     is where a granular texture goes wrong if it is going to. If the twelfth
+//     sounds like the first, this is the file that shows it.
+{
+  const { ctx, output } = onBus("sfx");
+  const bus = new SfxBus(ctx, output);
+  let t = 0.15;
+  for (let k = 0; k < 12; k++) {
+    ctx.currentTime = t;
+    bus.play("blast");
+    t += 1.1;
+  }
+  ctx.currentTime = 0;
+  write("ur48-twelve-crumbles", ctx.render(t + 0.8));
+}
+
 // 4. UR-30. Six blasts alone, so the body and the tail are audible on their own.
 {
   const { ctx, output } = onBus("sfx");

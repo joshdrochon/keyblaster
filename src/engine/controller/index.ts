@@ -35,6 +35,8 @@ import {
 } from "./window.js";
 
 export {
+  CONCURRENCY_TARGET_MAX,
+  CONCURRENCY_TARGET_MIN,
   DEFAULT_KNOBS,
   KNOB_NAMES,
   LENGTH_BIAS_MAX,
@@ -44,6 +46,7 @@ export {
   applyChange,
   asLengthBias,
   clampKnobs,
+  concurrencyTarget,
   knobsDiffCount,
   loosenStep,
   tightenStep,

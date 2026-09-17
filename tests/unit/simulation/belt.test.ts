@@ -10,7 +10,8 @@ import {
 } from "./flight.js";
 import { DEFAULT_CALIBRATION } from "@engine/types.js";
 import { DEFAULT_FLIGHT_CONFIG, stagePoolFor } from "@game/flight/stage.js";
-import { MAX_LIVE_MAX, MAX_LIVE_MIN } from "@engine/controller/knobs.js";
+import { MAX_LIVE_MAX, MAX_LIVE_MIN, concurrencyTarget } from "@engine/controller/knobs.js";
+import { MAX_INTENSITY_INDEX, intensityIndex } from "@game/audio/music.js";
 import { HULL_BASE_MARKS, hullForStage, survivableHitRate } from "@engine/hull/index.js";
 import type { WordBook } from "@engine/words/index.js";
 
@@ -108,11 +109,25 @@ interface Summary {
   meanHitRate: number;
   maxDeadMs: number;
   peakLive: number;
+  /**
+   * Time-weighted rocks on the board (UR-51). PEAK IS NOT OCCUPANCY: a belt
+   * that touches four rocks for one instant and sits at one for the rest has
+   * `peakLive` 4 and is, to the child holding the keyboard, the belt they
+   * called boring. This is the number the report is about.
+   */
+  meanLive: number;
+  /** Share of the belt's wall clock spent with three or more rocks live, %. */
+  pctTime3plus: number;
 }
 
 function flyMany(player: SimPlayer, over: Partial<BeltConfig> = {}): Summary {
   const runs: BeltResult[] = [];
   for (let seed = 1; seed <= SEEDS; seed += 1) runs.push(fly(player, over, seed));
+  const deep = runs.reduce(
+    (sum, r) => sum + r.liveTimeMs.slice(3).reduce((a, b) => a + b, 0),
+    0,
+  );
+  const clock = runs.reduce((sum, r) => sum + r.durationMs, 0);
   return {
     stalls: runs.filter((r) => r.stalled).length,
     worstHull: Math.min(...runs.map((r) => r.hull)),
@@ -121,6 +136,8 @@ function flyMany(player: SimPlayer, over: Partial<BeltConfig> = {}): Summary {
     meanHitRate: mean(runs.map((r) => r.hitRate)),
     maxDeadMs: Math.max(...runs.map((r) => r.maxDeadMs)),
     peakLive: Math.max(...runs.map((r) => r.peakLive)),
+    meanLive: mean(runs.map((r) => r.meanLive)),
+    pctTime3plus: clock === 0 ? 0 : (deep / clock) * 100,
   };
 }
 
@@ -565,5 +582,172 @@ describe("D51 / AC-11.2: the game has to find out how fast the child types", () 
     expect(evidence.runs.unmeasured.stalls).toBe(STALL_SEEDS);
     expect(evidence.runs.refinedFromPlay.stalls).toBe(0);
     expect(evidence.runs.ritualRan.stalls).toBe(0);
+  });
+});
+
+/**
+ * UR-42 / UR-51: HOW MANY ROCKS ARE ACTUALLY ON THE BOARD.
+ *
+ * ================== WHAT THE REPORTS SAY ==================
+ * UR-42 asks why only one asteroid is ever on screen and whether more arrive at
+ * harder levels. UR-51 is the follow-up, after the cost was explained: the belt
+ * is too easy, and the difficulty should track the child flying it.
+ *
+ * ================== WHAT WAS TRUE BEFORE ==================
+ * `peakLive` read 2 at maxLive 7 exactly as at maxLive 2, and the time-weighted
+ * occupancy - which is the number the complaint is actually about - read
+ * 1.00 (median), 1.04 (slow), 1.00 (fast) and 1.03 (grade-2) at BOTH ends of
+ * the knob. Zero percent of every belt was spent with three rocks live. The
+ * primary difficulty knob had two indistinguishable extremes.
+ *
+ * ================== WHAT IS ASSERTED HERE ==================
+ * Both ends, and the floor is the one that matters most. At `MAX_LIVE_MIN` the
+ * belt has to be the belt already measured - the grade-2 child went from 100
+ * stalls in 100 to 3 in 240 and none of that may be traded for a busier sky.
+ * At `MAX_LIVE_MAX` the board has to be genuinely deep for most of the belt,
+ * not deep for an instant.
+ */
+describe("UR-51 / FR-10: the primary knob now changes what is on the board", () => {
+  const ALL: ReadonlyArray<readonly [string, SimPlayer]> = [...PLAYERS, ["grade2", GRADE2]];
+
+  it("UR-51: at the knob's FLOOR the board is exactly the one already measured", () => {
+    // THE HARD CONSTRAINT. Not "similar": the floor multiplies every term this
+    // change adds by zero, so these have to read what belt-survivability.json
+    // recorded before the change - occupancy 1.00-1.04, peak 2, no time at all
+    // at three rocks.
+    //
+    // WATCHED FAILING, with the real numbers: seed CONCURRENCY_TARGET_MIN at
+    // 1.5 and the grade-2 child's occupancy at this setting reads 1.344 against
+    // the 1.021 on record, their hit rate moves 0.9099 -> 0.9435 and their belt
+    // 250.27 s -> 249.02 s. A different game for the child who must not get one.
+    for (const [name, player] of ALL) {
+      const s = flyMany(player, { knobs: { maxLive: MAX_LIVE_MIN } });
+      expect(s.stalls, name).toBe(0);
+      expect(s.peakLive, name).toBeLessThanOrEqual(2);
+      expect(s.meanLive, name).toBeLessThan(1.05);
+      expect(s.pctTime3plus, name).toBe(0);
+    }
+  });
+
+  it("UR-51: at the knob's CEILING three or four rocks are live for most of the belt", () => {
+    // UR-51's claim, as occupancy rather than as a peak. 3.0 is
+    // the bar because it is the number A-21.2's top music layer needs: its
+    // pressure is live + min(combo,10) x 0.5 against a threshold of 8, so index
+    // 2 is unreachable below three live rocks and has never played.
+    //
+    // WATCHED FAILING, with the real numbers, TWO WAYS - and the second one is
+    // the important one.
+    //
+    // (a) With the whole change out, this reads meanLive 1.004 (median), 1.040
+    //     (slow), 1.000 (fast), 1.034 (grade-2) and pctTime3plus 0.0 for all
+    //     four. That is the board the user was complaining about.
+    //
+    // (b) With the PACING half in and the FALL-BUDGET half out - drop `knobs`
+    //     from this harness's `fallTimeMs` call - the belt builds the queue out
+    //     of rocks budgeted for a one-deep board and drops the back of it:
+    //     40 stalls in 40 for the median pilot, hit rate 0.214, meanLive 2.316.
+    //     That is the P0a stall defect, reproduced exactly, and it is why the
+    //     two halves are one change and not two.
+    for (const [name, player] of ALL) {
+      const s = flyMany(player, { knobs: { maxLive: MAX_LIVE_MAX } });
+      expect(s.meanLive, name).toBeGreaterThanOrEqual(3);
+      expect(s.pctTime3plus, name).toBeGreaterThan(85);
+      expect(s.peakLive, name).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("AC-4.3 / UR-51: the deeper board is still survivable, grade-2 included", () => {
+    // The other half of the hard constraint, and it is a stall rate rather than
+    // an opinion about how busy four rocks feels. The shield canister stays OFF,
+    // so this holds without its safety net.
+    for (const [name, player] of ALL) {
+      const s = flyMany(player, { knobs: { maxLive: MAX_LIVE_MAX } });
+      expect(s.stalls, name).toBe(0);
+      expect(s.worstHull, name).toBeGreaterThan(0);
+      expect(s.meanHitRate, name).toBeGreaterThanOrEqual(survivableHitRate(WORDS));
+      // AC-6e.3 still holds: a deeper board must not be bought with dead air.
+      expect(s.maxDeadMs, name).toBeLessThanOrEqual(2000);
+    }
+  });
+
+  it("UR-51: the depth is MONOTONE in the knob, so the ramp is visible at every step", () => {
+    // D20 moves one knob per stage, so a child meets this curve one step at a
+    // time. A step that did nothing would be a stage that felt like no reward.
+    let previous = 0;
+    for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+      const s = flyMany(MEDIAN, { knobs: { maxLive: live } });
+      expect(s.meanLive, `maxLive ${live}`).toBeGreaterThan(previous);
+      expect(s.stalls, `maxLive ${live}`).toBe(0);
+      previous = s.meanLive;
+    }
+  });
+
+  it("A-21.2 / UR-51: the third music layer becomes reachable, without touching a music constant", () => {
+    // THE KNOCK-ON, MEASURED RATHER THAN HOPED FOR. A-21.2 asks for three
+    // intensity layers driven by live asteroids and combo. The pressure is
+    // `live + min(combo,10) x 0.5` against thresholds [4, 8], so index 2 needs
+    // three live rocks even at a maxed combo - and the board has never held
+    // three, so the top layer has never played in the shipping game.
+    //
+    // Nothing in @game/audio is touched here and nothing may be: if the layer
+    // still could not be reached, that would be a separate escalated decision
+    // about what the music means, not a threshold to move.
+    //
+    // THE CONTROL IS THE SHIPPED BOARD: at two live rocks and a maxed combo the
+    // pressure is 7 against a threshold of 8, so index 1 is the ceiling.
+    expect(intensityIndex(2, 10)).toBe(1);
+    expect(MAX_INTENSITY_INDEX).toBe(2);
+
+    for (const [name, player] of ALL) {
+      const s = flyMany(player, { knobs: { maxLive: MAX_LIVE_MAX } });
+      // The board reaches the depth the top layer needs, and holds it for most
+      // of the belt rather than brushing it once.
+      expect(intensityIndex(s.peakLive, 10), name).toBe(MAX_INTENSITY_INDEX);
+      expect(intensityIndex(Math.floor(s.meanLive), 10), name).toBe(MAX_INTENSITY_INDEX);
+      expect(s.pctTime3plus, name).toBeGreaterThan(85);
+    }
+
+    // And at the knob's floor it is still unreachable, which is the same
+    // statement as "the struggling child's belt has not changed".
+    for (const [name, player] of ALL) {
+      const s = flyMany(player, { knobs: { maxLive: MAX_LIVE_MIN } });
+      expect(intensityIndex(s.peakLive, 10), name).toBeLessThan(MAX_INTENSITY_INDEX);
+    }
+  });
+
+  it("records the occupancy evidence", () => {
+    const rows: Record<string, unknown> = {};
+    for (const [name, player] of ALL) {
+      for (const maxLive of [MAX_LIVE_MIN, MAX_LIVE_MAX]) {
+        const s = flyMany(player, { knobs: { maxLive } });
+        rows[`${name}@maxLive${maxLive}`] = {
+          ...s,
+          meanLive: Number(s.meanLive.toFixed(3)),
+          pctTime3plus: Number(s.pctTime3plus.toFixed(1)),
+          concurrencyTarget: Number(concurrencyTarget(maxLive).toFixed(2)),
+        };
+      }
+    }
+    mkdirSync("gauntlet/evidence", { recursive: true });
+    writeFileSync(
+      "gauntlet/evidence/belt-occupancy.json",
+      `${JSON.stringify(
+        {
+          ticket: "UR-51 (decision on UR-42)",
+          stageWordCount: WORDS,
+          seeds: SEEDS,
+          canisters: false,
+          measure:
+            "meanLive is TIME-WEIGHTED rocks on the board; peakLive is the instantaneous maximum. The complaint is about the first.",
+          before:
+            "peakLive 2 and meanLive 1.00-1.04 at BOTH maxLive 2 and maxLive 7, pctTime3plus 0.0 for every pilot",
+          rows,
+          source: "tests/unit/simulation/belt.test.ts",
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    expect(Object.keys(rows).length).toBe(8);
   });
 });

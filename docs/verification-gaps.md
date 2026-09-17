@@ -1,6 +1,6 @@
-# The check and the thing: twenty-two ways this codebase lied to itself
+# The check and the thing: twenty-three ways this codebase lied to itself
 
-Written 2026-09-17, after a night in which twenty-two separate defects
+Written 2026-09-17, after a night in which twenty-three separate defects
 turned out to be the same defect.
 
 Nine had a green test, two had a red one, and one was a picture a person judged. None of the tests
@@ -29,7 +29,7 @@ that binding.
 
 ---
 
-## The twenty-two
+## The twenty-three
 
 | # | What was green | What shipped | Found by |
 |---|---|---|---|
@@ -149,6 +149,20 @@ world stopped moving. Escalated items are now re-measured every pass; a genuine
 pass discharges the escalation and says so, so a reader knows to go and close
 the write-up. Anything still failing stays escalated exactly as before.
 
+| 23 | `G-one-shadow`, PASSING: "Exactly one drawShadow and one drawLantern implementation" | Its regex is `export\s+function\s+drawLantern`, which matches **only exported top-level functions**. `FlightScene.drawLantern` is a **private class method** with hardcoded hex literals (`#F3E7D3`, `#C9B79C`, `#FF6B4A`) that never reads the profile, never calls `render/lantern.ts`, and never consults the ship catalog. **It is the ship the player actually flies.** So `R-lantern` judges a drawing the game does not use, and `profile.shipId` — chosen at profile creation, and unlockable by earning hulls — changes nothing at all | The lead, checking whether an earned hull could be equipped |
+
+Instance 23 is the guard failing at its own stated purpose. Its comment
+explains that it exists because `R-shadow` judged one render and passed it
+while four menu scenes drew a second, unjudged Shadow — "a reference compare is
+only worth what it covers, and nothing was checking that it covered
+everything." The fix caught exported duplicates and missed method duplicates,
+and the duplicate it missed is the one on screen during the entire game.
+
+It also has a user-facing consequence, which is how it was found: a child picks
+a ship when they make a profile, and can earn more hulls by playing. Neither
+does anything. The reward exists, the unlock fires, the catalog is correct, and
+the flight screen draws the same hardcoded cream ship regardless.
+
 Instance 11 is the worst thing in this document. The other ten are checks that
 measured the wrong thing; this one is a **human** looking at the wrong thing,
 carefully, repeatedly, and reaching conclusions about art they were never
@@ -231,6 +245,6 @@ All of that machinery verifies **internal consistency**. None of it verifies
 that the thing being checked is the thing being shipped. That binding is
 maintained by attention, and attention is exactly what a green suite spends.
 
-Every one of the twenty-two was ultimately found the same way: by someone looking at
+Every one of the twenty-three was ultimately found the same way: by someone looking at
 the actual artifact — a screen, a waveform, a route, a rendered page — rather
 than at a result. That is the cheapest available guard and the easiest to skip.

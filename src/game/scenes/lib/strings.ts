@@ -52,7 +52,6 @@ export const SCENE_STRING_KEYS = [
   "map.hint",
   "map.progress",
   "briefing.heading",
-  "briefing.window",
   "briefing.back",
   "briefing.hint",
   "preflight.step.hull",

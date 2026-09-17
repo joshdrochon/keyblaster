@@ -16,9 +16,16 @@ import {
   paceSpawn,
   recognitionCostMs,
   spawnGapMs,
+  type SpawnPace,
+  standingDepth,
 } from "@engine/pacing/index.js";
 import { RECOGNITION_BASE_MS, fallTimeMs } from "@engine/fallTime/index.js";
-import { KNOB_NAMES, MAX_LIVE_MAX, MAX_LIVE_MIN } from "@engine/controller/knobs.js";
+import {
+  CONCURRENCY_TARGET_MAX,
+  KNOB_NAMES,
+  MAX_LIVE_MAX,
+  MAX_LIVE_MIN,
+} from "@engine/controller/knobs.js";
 import { LOOSEN_BELOW } from "@engine/controller/index.js";
 import { DEFAULT_CALIBRATION, EASE_NEW } from "@engine/types.js";
 
@@ -172,12 +179,27 @@ describe("AC-10.1 / AC-10.4: pacing reads the knobs, it is not one", () => {
       biasMs: 0,
       hitRate: 0.85,
     });
-    expect(Object.keys(pace).sort()).toEqual(["gapMs", "leadMs", "outstandingMs"]);
+    expect(Object.keys(pace).sort()).toEqual([
+      "gapMs",
+      "leadMs",
+      "outstandingMs",
+      "standingMs",
+    ]);
   });
 
-  it("AC-10.1: tightening maxLive buys overlap, never a faster feed", () => {
-    // The gap shortens with maxLive, but only by the lead - which is taken out
-    // of the rock's own spare fall time, so the work per second is unchanged.
+  it("AC-10.1 / UR-51: tightening maxLive buys a QUEUE and an overlap, and nothing else", () => {
+    // The gap shortens with maxLive, and this pins what it shortens BY, to the
+    // millisecond, so a third term can never be smuggled into the belt's speed.
+    //
+    // WHAT CHANGED AND WHY (UR-51). This used to read
+    //     loose.gapMs - tight.gapMs === tight.leadMs - loose.leadMs
+    // i.e. "the only thing maxLive buys is overlap". That was true, and it was
+    // the defect: overlap is capped at MAX_LEAD_MS and taken from one rock's
+    // slack, so it could never put a second rock on the board. Watched failing
+    // against the shipped assertion, this expression reads 1470 where the old
+    // one expects 470 - the extra 1000 ms is the standing queue, which is the
+    // whole of the fix. The accounting identity is kept rather than deleted:
+    // every millisecond of the difference is still named.
     const base = {
       liveClearMs: [2400],
       fallMs: 4600,
@@ -188,7 +210,17 @@ describe("AC-10.1 / AC-10.4: pacing reads the knobs, it is not one", () => {
     const tight = paceSpawn({ ...base, knobs: knobs(MAX_LIVE_MAX) });
     expect(tight.gapMs).toBeLessThan(loose.gapMs);
     expect(tight.outstandingMs).toBe(loose.outstandingMs);
-    expect(loose.gapMs - tight.gapMs).toBe(tight.leadMs - loose.leadMs);
+    const reconstruct = (p: SpawnPace): number =>
+      Math.min(
+        MAX_SPAWN_GAP_MS,
+        Math.max(MIN_SPAWN_GAP_MS, p.outstandingMs - p.standingMs - p.leadMs),
+      );
+    expect(loose.gapMs).toBe(reconstruct(loose));
+    expect(tight.gapMs).toBe(reconstruct(tight));
+    // The floor of the knob is the shipped belt, exactly: no queue at all.
+    expect(loose.standingMs).toBe(0);
+    // And the queue the top of the knob asks for is three more rocks' work.
+    expect(tight.standingMs).toBe(2400 * (CONCURRENCY_TARGET_MAX - 1));
   });
 
   it("AC-10.1: the overlap is bounded by the rock's own slack, at every knob", () => {
@@ -360,5 +392,117 @@ describe("AC-6e.3 / AC-4.3: the gap itself", () => {
     });
     expect(gap).toBeGreaterThan(1800);
     expect(gap / 850).toBeGreaterThan(2);
+  });
+});
+
+/**
+ * UR-42 / UR-51: THE BELT HAS TO BUILD THE QUEUE, NOT JUST ALLOW IT.
+ *
+ * The gap was `outstanding - lead`, which schedules the next rock for the
+ * moment the board is expected to be EMPTY. That is a steady state of one rock
+ * at every knob setting, and it is why `peakLive` read 2 at maxLive 7 exactly
+ * as at maxLive 2. A board of N rocks is a board with N-1 rocks' work standing
+ * on it; there is no other way to have one.
+ */
+describe("UR-51 / FR-10: the belt holds a standing queue sized by the primary knob", () => {
+  it("UR-51: at the knob's FLOOR it holds nothing, so the gentlest belt is the shipped belt", () => {
+    // The whole safety argument, in one number. Everything the change does to
+    // the pacing is multiplied by this, so zero here is the grade-2 child's
+    // belt being the one already measured rather than one a simulation has to
+    // vouch for.
+    //
+    // WATCHED FAILING, with the real numbers: seed CONCURRENCY_TARGET_MIN at
+    // 1.5 and `standingDepth` reads 0.5 where 0 is expected, `standingMs` reads
+    // 1200 where 0 is expected, the floor's own gap moves 3625 -> 2375, and the
+    // grade-2 child's board occupancy moves 1.021 -> 1.344 rocks over 40 seeds.
+    expect(standingDepth(MAX_LIVE_MIN, 1)).toBe(0);
+    const pace = paceSpawn({
+      liveClearMs: [2400],
+      fallMs: 4600,
+      biasMs: 0,
+      hitRate: 0.95,
+      knobs: knobs(MAX_LIVE_MIN),
+    });
+    expect(pace.standingMs).toBe(0);
+  });
+
+  it("UR-51: at the knob's CEILING it holds three more rocks' work", () => {
+    expect(standingDepth(MAX_LIVE_MAX, 1)).toBe(CONCURRENCY_TARGET_MAX - 1);
+  });
+
+  it("UR-51: the queue is monotone in the knob and never negative", () => {
+    let previous = -1;
+    for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+      const depth = standingDepth(live, 1);
+      expect(depth, `maxLive ${live}`).toBeGreaterThan(previous);
+      expect(depth, `maxLive ${live}`).toBeGreaterThanOrEqual(0);
+      previous = depth;
+    }
+  });
+
+  it("D31 / UR-51: a player below the band gets a SHALLOWER board, immediately", () => {
+    // D31 in the channel that is now the difficulty. Relief already stretched
+    // the gap; without this it would also have stretched the queue the gap is
+    // measured against, because both scale with the same service estimate - so
+    // the child who is missing would have kept the deep board that is missing
+    // them. At the maximum relief a target of 4 is flown as a target of 3.
+    //
+    // WATCHED FAILING, with the real number: take the relief term out of the
+    // divisor and the struggling player's standing depth reads 3 where 2 is
+    // expected.
+    expect(standingDepth(MAX_LIVE_MAX, RELIEF_MAX)).toBe(
+      (CONCURRENCY_TARGET_MAX - 1) / RELIEF_MAX,
+    );
+    expect(standingDepth(MAX_LIVE_MAX, RELIEF_MAX)).toBeLessThan(
+      standingDepth(MAX_LIVE_MAX, 1),
+    );
+    // And it is bounded below by the shipped belt: relief may shallow the
+    // board, never deepen it, and never below zero.
+    expect(standingDepth(MAX_LIVE_MIN, RELIEF_MAX)).toBe(0);
+  });
+
+  it("UR-51: a non-finite relief reads as no relief, never as NaN", () => {
+    expect(standingDepth(MAX_LIVE_MAX, Number.NaN)).toBe(CONCURRENCY_TARGET_MAX - 1);
+    // Below 1 is clamped up: relief may shallow the board, never deepen it.
+    expect(standingDepth(MAX_LIVE_MAX, 0.5)).toBe(CONCURRENCY_TARGET_MAX - 1);
+  });
+
+  it("UR-51: the queue is priced in the PLAYER's own service time, not in a constant", () => {
+    // A constant here would be the 850 ms defect by another route: a queue
+    // three rocks deep means three rocks' worth of THIS child's work, and a
+    // slow child's rock is worth more than a fast one's.
+    const fast = paceSpawn({
+      liveClearMs: [1200],
+      fallMs: 9000,
+      biasMs: 0,
+      hitRate: 0.95,
+      knobs: knobs(MAX_LIVE_MAX),
+    });
+    const slow = paceSpawn({
+      liveClearMs: [4800],
+      fallMs: 22000,
+      biasMs: 0,
+      hitRate: 0.95,
+      knobs: knobs(MAX_LIVE_MAX),
+    });
+    expect(fast.standingMs).toBe(1200 * (CONCURRENCY_TARGET_MAX - 1));
+    expect(slow.standingMs).toBe(4800 * (CONCURRENCY_TARGET_MAX - 1));
+  });
+
+  it("UR-51: the queue never lets the belt outrun the gap's own floor", () => {
+    // However deep the board is asked to be, MIN_SPAWN_GAP_MS still bounds how
+    // fast it may be filled. Without that the queue would be built in one
+    // frame, which is a wall and not a belt.
+    for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+      const pace = paceSpawn({
+        liveClearMs: [2400],
+        fallMs: 4600,
+        biasMs: 0,
+        hitRate: 0.95,
+        knobs: knobs(live),
+      });
+      expect(pace.gapMs, `maxLive ${live}`).toBeGreaterThanOrEqual(MIN_SPAWN_GAP_MS);
+      expect(pace.gapMs, `maxLive ${live}`).toBeLessThanOrEqual(MAX_SPAWN_GAP_MS);
+    }
   });
 });

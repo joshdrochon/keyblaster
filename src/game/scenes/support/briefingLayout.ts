@@ -72,8 +72,12 @@ export const PAGE_X = GUTTER;
  * The page IS this screen's heading - there is no separate title - so it starts
  * where every other screen's title starts. That is the "every page is following
  * suit" half of the same report.
+ *
+ * It is `HEADING_TOP` rather than the 84 it was written as, because UR-50.3
+ * makes the WINDOW start here too: two objects that must agree should read
+ * their line from the grid, not each copy the same literal.
  */
-export const PAGE_TOP = 84;
+export const PAGE_TOP = HEADING_TOP;
 
 /**
  * 884, not 852: the extra 32 px of column is 32 px fewer wrapped lines, which
@@ -181,11 +185,67 @@ export function columnBottom(layout: BriefingLayout): number {
 }
 
 // ---------------------------------------------------------------------------
-// The way out (UR-27)
+// The cockpit window, and the column of things under it (UR-50)
 // ---------------------------------------------------------------------------
 
 /**
- * THE BACK CONTROL, top-right.
+ * THE GLASS.
+ *
+ * `y` IS `PAGE_TOP`, and that is the point of it. It used to be 140 while the
+ * page started at 84, so the screen's two big objects began 56 px apart for no
+ * reason a viewer could see. What filled the gap was a caption reading "through
+ * the window" - a label naming the thing it sat on, which is the kind of copy
+ * that exists to justify a layout rather than to tell anyone anything. A player
+ * asked for the caption to go, and their reasoning was the useful half: without
+ * it the two columns can start on the same line (UR-50.3).
+ *
+ * The height comes from the budget BELOW it, which is fixed and tight:
+ *   24 gap + 76 shelf + 24 + 66 chip + 24 + 92 launch + 14 + 24 hint + 16 edge
+ * is 360 px, so the glass may reach 1080 - 360 = 720. At `y` 84 that is 636,
+ * which is within 4 px of the 640 it has always been - the window did not have
+ * to shrink to gain the alignment, it only had to move.
+ */
+export const WINDOW = { x: 1012, y: PAGE_TOP, w: 812, h: 636, r: 56 } as const;
+
+/** The right edge of the glass, which is this screen's right margin. */
+export const RIGHT_MARGIN = WINDOW.x + WINDOW.w;
+
+/**
+ * THE STOP-PROGRESS SHELF, THE WIDTH OF THE GLASS (UR-50.2).
+ *
+ * Reported as "the black bar is narrower than the window". Measured, the BAR
+ * was 60 px WIDER than the glass - `x - 30, w + 60` - and the thing that is
+ * actually narrow is its CONTENTS: the nine lamps ran `x + 30 + i * 92`, so
+ * 1042..1778 against a 1012..1824 window. That left 30 px of empty bar on the
+ * left and 46 on the right, and an inset, off-centre row of dots inside an
+ * over-wide bar is what reads as "narrower than the window".
+ *
+ * So both halves move to the glass: the bar is exactly the window's box, and
+ * the lamps are centred in it with equal air at both ends. The report was
+ * right about the screen and wrong about which rectangle; the fix is the one
+ * the report asked for either way.
+ */
+export const SHELF = {
+  x: WINDOW.x,
+  y: WINDOW.y + WINDOW.h + 24,
+  w: WINDOW.w,
+  h: 76,
+  lamps: 9,
+  lampR: 11,
+} as const;
+
+/** Lamp centres, centred as a group inside the shelf rather than inset from it. */
+export function shelfLamps(): readonly number[] {
+  const pitch = SHELF.w / SHELF.lamps;
+  return Array.from({ length: SHELF.lamps }, (_, i) => SHELF.x + pitch * (i + 0.5));
+}
+
+// ---------------------------------------------------------------------------
+// The two actions (UR-27, moved by UR-50.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE WAY OUT.
  *
  * A player: "if i click on a planet I should have a way to go back to the map,
  * make a bug for it". Escape ALREADY went back - `BriefingScene` has passed
@@ -195,44 +255,48 @@ export function columnBottom(layout: BriefingLayout): number {
  * player who arrived by CLICKING a planet had no pointer target at all, which
  * is the half-supported input that makes a mechanic worse than absent.
  *
- * The shape is the Director map's own: that screen already parks its secondary
- * navigation ("beacon log", "settings") in chips along the top right. Reusing
- * it means the way out of a stop looks like the ways out of the map, rather
- * than being a fourth kind of button on a screen that is already carrying two.
+ * IT USED TO SIT TOP-RIGHT, in the Director map's chip shape, so that the way
+ * out of a stop looked like the ways out of the map. The same player has since
+ * looked at it and asked for the two actions to be together, which is the
+ * better call and not a close one: the top-right chip is 820 px from the button
+ * it is an alternative to, so the screen asks "launch?" in one corner and
+ * answers "or don't" in another.
+ *
+ * STACKED, NOT SIDE BY SIDE, and that is forced rather than chosen. Shadow
+ * stands under the glass and his drawn box reaches x 1156; the glass centre is
+ * 1418; a launch button 380 wide plus a 262 chip beside it is 666 of row, which
+ * centred would start at 1085 and put the primary action through him. Stacking
+ * also keeps the hierarchy legible - the big one is the forward one - and does
+ * not depend on the page's height, which varies by stop.
  */
-export const BACK_CHIP = { w: 262, h: 66 } as const;
+export const BACK_CHIP = { w: 262, h: 66, y: SHELF.y + SHELF.h + 24 } as const;
 
-/**
- * The window's right edge, which is this screen's right margin.
- *
- * `BriefingScene.WINDOW` is `{ x: 1012, w: 812 }`, so 1824 - and at the
- * artboard width that is also `contentRight()`. The two are NOT the same thing
- * and the difference is a defect I shipped: the chip was anchored to
- * `contentRight()`, which grows with the window, while every other object on
- * this screen is fixed at 1920 coordinates. On a 2561-wide world the chip's
- * text measured x=2246 and the composition it belongs to had not moved -
- * 641 px adrift, in the same change that added it.
- *
- * Until the screen reflows as a whole (escalated), the chip is anchored to the
- * same frame as its neighbours. Mixing two anchoring models inside one screen
- * is worse than either model.
- */
-export const RIGHT_MARGIN = 1824;
+/** The launch button, centred under the glass, below the way out. */
+export const LAUNCH = { w: 380, h: 92, y: BACK_CHIP.y + BACK_CHIP.h + 24 } as const;
+
+/** The vertical centre line both actions sit on: the glass's own. */
+export const ACTION_CX = WINDOW.x + WINDOW.w / 2;
 
 export function backChip(): Rect {
   return {
-    x: RIGHT_MARGIN - BACK_CHIP.w,
-    y: HEADING_TOP,
+    x: ACTION_CX - BACK_CHIP.w / 2,
+    y: BACK_CHIP.y,
     w: BACK_CHIP.w,
     h: BACK_CHIP.h,
   };
 }
 
+export function launchButton(): Rect {
+  return {
+    x: ACTION_CX - LAUNCH.w / 2,
+    y: LAUNCH.y,
+    w: LAUNCH.w,
+    h: LAUNCH.h,
+  };
+}
+
 /** Where Shadow stands: under the glass, clear of the page and the buttons. */
 export const SHADOW_AT = { x: 1076, y: 992, scale: 0.78 } as const;
-
-/** The launch button, centred under the glass. */
-export const LAUNCH = { w: 380, h: 92, y: 904 } as const;
 
 /**
  * Shadow's drawn footprint, in multiples of the 64 px nominal radius

@@ -1,0 +1,18 @@
+{
+  "description": "A friendly pocket-sized robot co-pilot in a children's space game. Thin, bright, slightly tinny voice, like a small speaker inside a metal shell. Male, youthful, mid-to-high pitch. Calm and matter-of-fact, gently mechanical cadence with even pacing. Speaks to a child as an equal, never talks down. CLEAN and NATURAL above all: no breathiness, no wobble, no artefacts.",
+  "text": "Belt ahead. Rocks with words on them. Type the word and the blaster does the rest. I will keep the lantern steady while you fly. Ready when you are, pilot.",
+  "previews": [
+    {
+      "file": "design-reference/voice-samples/shadow/brass-1.mp3",
+      "generated_voice_id": "J1UkN5Wmr20DZIiLKXHI"
+    },
+    {
+      "file": "design-reference/voice-samples/shadow/brass-2.mp3",
+      "generated_voice_id": "UqvIMLFWfcG3OEt72VJa"
+    },
+    {
+      "file": "design-reference/voice-samples/shadow/brass-3.mp3",
+      "generated_voice_id": "HjLAjC1xd0CVZINN6JK0"
+    }
+  ]
+}

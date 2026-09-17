@@ -381,6 +381,27 @@ export interface FlightConfig {
   readonly increasedLetterSpacing: boolean;
   /** C07: never hard-code "Lantern"; this is the profile's value. */
   readonly shipName: string;
+  /**
+   * WHICH HULL IS FLOWN (D79, AC-6d.1b), or `null` for "ask the profile".
+   *
+   * NULL IS THE SHIPPED VALUE AND IT IS THE POINT. Every screen between
+   * Pre-flight and here forwards this config by hand, so a non-null default
+   * would mean the hand-off chain quietly overriding the child's own choice
+   * with `DEFAULT_SHIP_ID` - the same field-that-nothing-reads defect this was
+   * added to fix, wearing the opposite coat. `null` means the scene asks
+   * `activeProfile()`, which is the only authority on the real path.
+   *
+   * A STATED value wins, and exists for one reason: a standalone mount (every
+   * e2e boot of screen 6) needs to be able to put a SPECIFIC hull on the belt,
+   * because "picking a different ship changes the ship" is otherwise not a
+   * thing any check can ask.
+   *
+   * IT EXISTS BECAUSE IT DID NOT. `profile.shipId` was chosen at profile
+   * creation, persisted, migrated, PII-scanned and unlockable, and the flight
+   * screen drew a hardcoded cream ship whatever it said. A reward that fires and
+   * changes nothing is worse than no reward.
+   */
+  readonly shipId: string | null;
   readonly calibration: Calibration;
   readonly book: WordBook;
   readonly knobs: Partial<Knobs>;
@@ -413,6 +434,23 @@ export interface FlightConfig {
    * moved: `trySpawn` gates on `controller.knobs.maxLive` (2-7, FR-10), so the
    * number of rocks in the air at once is what it always was; there are simply
    * more of them over the stage.
+   *
+   * THAT LAST CLAUSE IS NO LONGER THE WHOLE TRUTH (UR-42, UR-51). It was true
+   * because the GATE was never the binding constraint: `@engine/pacing` fed one
+   * rock per rock's worth of the player's work and FR-8 budgeted a rock for
+   * reading and typing but not for waiting, so the board held one rock at
+   * maxLive 7 exactly as at maxLive 2 - `peakLive: 2` and a time-weighted
+   * occupancy of 1.00-1.04 at both ends. UR-51 is the decision to change that:
+   * the knob now names a board DEPTH (`concurrencyTarget`), the fall budget and
+   * the spawn gap are both sized by it, and at the top of the range the board
+   * really does hold three or four. The count above is unaffected - a belt is
+   * still 58 words and still paced by the player's own hands, measured at
+   * 143.75 s for a median pilot at the knob's floor and 143.46 s at its ceiling
+   * (gauntlet/evidence/belt-occupancy.json).
+   *
+   * THE FLOOR IS STILL THIS BELT. `concurrencyTarget(MAX_LIVE_MIN)` is exactly
+   * 1, so a child who has not earned a step up flies the arithmetic above
+   * unchanged, which is the whole of UR-51's hard constraint.
    *
    * THAT GATE WAS NOT ENOUGH, AND THIS IS WHERE THIS NOTE USED TO BE WRONG. It
    * said the belt "still leaves 850 ms between spawns, so the number of rocks in
@@ -467,6 +505,7 @@ export const DEFAULT_FLIGHT_CONFIG: FlightConfig = {
   uppercase: DEFAULT_SETTINGS.uppercase,
   increasedLetterSpacing: DEFAULT_SETTINGS.increasedLetterSpacing,
   shipName: "Lantern",
+  shipId: null,
   calibration: DEFAULT_CALIBRATION,
   book: {},
   knobs: {},

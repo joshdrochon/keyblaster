@@ -5,15 +5,18 @@ import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { HULL } from "@game/ui/panel";
 import type { Rect } from "@game/ui/layout";
-import { HINT_TOP, headerText } from "@game/ui/grid";
 import {
   PAGE_TOP,
   PAGE_W,
   PAGE_X,
   SHADOW_AT,
+  SHELF,
+  WINDOW,
   backChip,
   briefingLayout,
   columnWidth,
+  launchButton,
+  shelfLamps,
   type Rows,
 } from "./support/briefingLayout";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
@@ -63,12 +66,17 @@ import { goTo, resolveInit, type ResolvedInit, type StoryInit } from "./lib/init
  * line that names the ship uses `{shipName}` (C07).
  */
 /**
- * The page's box is MEASURED now, in `support/briefingLayout.ts` - see that
- * module for the defect (UR-20: the flowed column printed through a pinned
- * footer on five of seven stops). Only the window is still a constant, and its
- * right edge is the product's right gutter (`ui/grid.ts`).
+ * ALL OF THIS SCREEN'S GEOMETRY IS IN `support/briefingLayout.ts` NOW.
+ *
+ * The page's box has been measured there since UR-20 (the flowed column printed
+ * through a pinned footer on five of seven stops). The window, the shelf and
+ * the two actions followed it there for UR-50, because every one of those
+ * defects was a number in this file disagreeing with a number next to it: the
+ * glass started 56 px below the page, the shelf was 60 px wider than the glass
+ * while its lamps were 76 px narrower, and the way out sat 820 px from the
+ * button it is an alternative to. Numbers that have to agree belong in one
+ * file, where a unit test can read them without booting Phaser.
  */
-const WINDOW = { x: 1012, y: 140, w: 812, h: 640, r: 56 };
 
 export class BriefingScene extends Phaser.Scene implements Snapshotable {
   private story!: ResolvedInit;
@@ -108,6 +116,21 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
       width: GAME_WIDTH,
       height: GAME_HEIGHT,
       decorate: ["sky", "celestial", "farField", "midField", "nearField"],
+      // A VIEW OF A MOVING BELT, NOT A PHOTOGRAPH (UR-50.4). The window used to
+      // take the default `worldSpeed` of 0, so nothing fell through it: the only
+      // motion in the glass was the decorative planes marching SIDEWAYS, which
+      // is the other half of this report (UR-50.5) and the thing a player twice
+      // called travelling stars.
+      //
+      // Both halves are one change of axis. `worldSpeed` makes the scrolling
+      // planes carry their debris DOWN past the glass - 30 px/s at speed 1.0, so
+      // 4.5 on the far field and 39 on the near one, slow enough to read as
+      // drift rather than flight - and `crossDrift: false` stops the sideways
+      // march. The starfield is on the `sky` layer, which is PINNED and only
+      // twinkles (UR-14, `render/starField.ts`), so the stars stay put while
+      // the debris falls, which is what item 4 and item 5 together ask for.
+      worldSpeed: 30,
+      crossDrift: false,
       seed: 0x8e11,
     });
     // The window is the only hole in the hull, so the whole stack is clipped
@@ -142,8 +165,13 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
       depth: 20,
     });
 
-    // --- one button -------------------------------------------------------
-    const btn = { w: 380, h: 92, x: WINDOW.x + WINDOW.w / 2 - 190, y: GAME_HEIGHT - 176 };
+    // --- the two actions, together (UR-50.1) ------------------------------
+    //
+    // The way out used to sit top-right, 820 px from the button it is an
+    // alternative to. It is directly above it now. `briefingLayout` owns both
+    // boxes and the reason they are stacked rather than side by side (Shadow
+    // stands where the row's left half would be).
+    const btn = launchButton();
     plate(this, btn.x, btn.y, btn.w, btn.h, {
       fill: INK.panelRaised,
       stroke: INK.accent,
@@ -187,7 +215,21 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
       .setOrigin(0.5)
       .setDepth(22);
 
+    // TOP TO BOTTOM, which is now the order they are DRAWN in. Arrow keys walk
+    // this list, so a list ordered [launch, back] while the screen shows back
+    // above launch would make Down move the ring upwards. `openingIndex`
+    // (`lib/kit.ts`) opens on the target flagged `primary`, not on index 0, so
+    // launch still holds focus when the screen opens - which is the property
+    // the one-primary-action rule actually cares about.
     const targets: FocusTarget[] = [
+      {
+        id: "back",
+        x: chip.x,
+        y: chip.y,
+        w: chip.w,
+        h: chip.h,
+        activate: () => this.goBack(),
+      },
       {
         id: "launch",
         // Forward action: launching is why this screen exists (see kit.ts).
@@ -197,14 +239,6 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
         w: btn.w,
         h: btn.h,
         activate: () => this.launch(),
-      },
-      {
-        id: "back",
-        x: chip.x,
-        y: chip.y,
-        w: chip.w,
-        h: chip.h,
-        activate: () => this.goBack(),
       },
     ];
     const ring = createFocusRing(this, 30);
@@ -264,12 +298,15 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     g.fillRect(WINDOW.x, WINDOW.y + WINDOW.h * 0.7, WINDOW.w, 12);
 
     // Instrument shelf: quiet, unlabelled, no readouts a child could fail.
+    // THE WIDTH OF THE GLASS, and the lamps centred in it (UR-50.2). See
+    // `briefingLayout.SHELF` for the measurement that was actually wrong.
     g.fillStyle(hexToNum(INK.panel), 1);
-    g.fillRoundedRect(WINDOW.x - 30, WINDOW.y + WINDOW.h + 24, WINDOW.w + 60, 76, SPACE.radius);
-    for (let i = 0; i < 9; i += 1) {
+    g.fillRoundedRect(SHELF.x, SHELF.y, SHELF.w, SHELF.h, SPACE.radius);
+    const lampY = SHELF.y + SHELF.h / 2;
+    for (const [i, cx] of shelfLamps().entries()) {
       const lit = i % 3 === 0;
       g.fillStyle(hexToNum(lit ? accent : INK.line), lit ? 0.75 : 1);
-      g.fillCircle(WINDOW.x + 30 + i * 92, WINDOW.y + WINDOW.h + 62, 11);
+      g.fillCircle(cx, lampY, SHELF.lampR);
     }
   }
 
@@ -338,12 +375,11 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     g.fillStyle(hexToNum(accent), 0.85);
     g.fillRoundedRect(laid.page.x + 34, laid.page.y + 34, 8, laid.page.h - 68, 4);
 
-    // "through the window": 4.31:1 in `INK.textFaint` on the hull.
-    label(this, WINDOW.x + 8, headerText(0, 0, 0).y, text.text("briefing.window"), {
-      size: TYPE.caption,
-      color: INK.textDim,
-      lang,
-    }).setDepth(18);
+    // NO CAPTION OVER THE GLASS (UR-50.3). There used to be a "through the
+    // window" label here, on the hull above the window, and it was the only
+    // reason the window could not start on the page's own line. A player asked
+    // for it to go; the argument for going is that it named the thing it sat
+    // on. The alignment it was costing is asserted in `briefingLayout.test.ts`.
   }
 
   /**

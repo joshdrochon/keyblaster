@@ -19,6 +19,12 @@ const BOOT_MODULE = "/src/game/flight/boot.ts";
 export interface BootOptions {
   stopId?: string;
   seed?: number;
+  /**
+   * Which hull to fly (D79). A standalone mount has no profile, so this is the
+   * only way to put a specific ship on the belt - and the only way to check
+   * that picking a different one changes what is drawn.
+   */
+  shipId?: string;
   debug?: boolean;
   stageWordCount?: number;
   stageDurationMs?: number;

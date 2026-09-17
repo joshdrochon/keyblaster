@@ -121,7 +121,25 @@ export class TitleScene extends Phaser.Scene {
   private items: MenuItem[] = [];
   private focusIndex = 0;
   private focusRing!: Phaser.GameObjects.Graphics;
-  private accent = "#FFC857";
+  /**
+   * THE CHROME ACCENT IS FIXED (UR-49, coding-standards rule 1).
+   *
+   * `readonly`, and that is the fix rather than a detail of it. This used to be
+   * a mutable field seeded with the same literal, and `create` overwrote it
+   * with `paletteAt(furthestBeacon).accent` - so a themed value reached the
+   * wordmark tint, the "KEY" glyphs, the accent rule, the primary button plate
+   * AND `drawFocusRing`. At Saturn that is pale blue on a bright beige sky.
+   *
+   * A theme may set the SKY and nothing else. `pal` still reaches
+   * `buildParallax` below, which is the one seam it is allowed through; making
+   * this field readonly means the compiler now refuses the assignment that
+   * caused the defect, rather than a reviewer having to notice it again.
+   *
+   * It also restores something that was never meant to move: the focus ring is
+   * specified as one gold for the whole menu system (`INK.accent`), and it had
+   * been quietly wearing the stop's colour on every themed boot.
+   */
+  private readonly accent = INK.accent;
   private langIndex = 0;
 
   constructor() {
@@ -135,10 +153,12 @@ export class TitleScene extends Phaser.Scene {
     const H = this.scale.height;
 
     // The title wears the palette of the furthest beacon, so a returning pilot
-    // opens the game somewhere they have already been (D13).
+    // opens the game somewhere they have already been (D13). THE SKY, AND
+    // NOTHING ELSE (UR-49): `pal` goes to `buildParallax` and stops there. It
+    // used to be copied into `this.accent` on the next line, which is what put
+    // a stop colour on the type, the button and the focus ring.
     const furthest = furthestBeacon(store);
     const pal = paletteAt(furthest ?? "earth", context.colorblindPalette);
-    this.accent = pal.accent;
 
     /**
      * UR-06: KEEP THE DEBRIS OFF OUR OWN TYPE.
@@ -175,6 +195,11 @@ export class TitleScene extends Phaser.Scene {
       palette: pal,
       reducedMotion: context.reducedMotion,
       worldSpeed: TITLE_WORLD_SPEED,
+      // NOTHING TRAVELS ON THIS SCREEN (UR-50.5). `worldSpeed: 0` never did
+      // this on its own: `DRIFT_X` gives every decorative plane a px/s FLOOR
+      // (+5, -8, +11, -15) that runs at any world speed, so the planes marched
+      // across the frame while the comment next to them said they did not.
+      crossDrift: false,
       seed: 0x1a17e,
       keepClear: textKeepClear,
     });

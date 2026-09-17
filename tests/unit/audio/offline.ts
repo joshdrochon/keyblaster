@@ -442,13 +442,23 @@ class OfflineBufferSource extends OfflineNode implements AudioBufferSourceNodeLi
     const data = this.buffer?.getChannelData(0);
     if (!data || data.length === 0) return out;
     const sr = this.ctx.sampleRate;
+    // Playback rate is read once per block, which is what this package does to
+    // it - nothing sweeps it - and resampled with linear interpolation. It is
+    // here because UR-48 uses a rate jitter as its main defence against a
+    // granular texture repeating, and a renderer that ignored the rate would
+    // measure that defence as working when it does nothing.
+    const rate = Math.max(0, this.playbackRate.at(startTime));
     for (let i = 0; i < RENDER_QUANTUM; i++) {
       const t = startTime + i / sr;
       if (t < this.startTimeSec || t >= this.stopTimeSec) continue;
-      const frame = Math.round((t - this.startTimeSec) * sr) + this.offsetFrames;
-      const index = this.loop ? frame % data.length : frame;
-      if (index >= data.length) continue;
-      out[i] = data[index] as number;
+      const position = (t - this.startTimeSec) * sr * rate + this.offsetFrames;
+      const whole = Math.floor(position);
+      const frac = position - whole;
+      const a = this.loop ? whole % data.length : whole;
+      if (a < 0 || a >= data.length) continue;
+      const b = this.loop ? (whole + 1) % data.length : whole + 1;
+      const next = b >= 0 && b < data.length ? (data[b] as number) : 0;
+      out[i] = (data[a] as number) * (1 - frac) + next * frac;
     }
     return out;
   }
@@ -610,7 +620,7 @@ export function bandEnergyFraction(
   loHz: number,
   hiHz: number,
 ): number {
-  const spectrum = powerSpectrum(samples, sampleRate);
+  const spectrum = powerSpectrum(samples, sampleRate, "rect");
   let band = 0;
   let total = 0;
   for (const bin of spectrum) {
@@ -637,7 +647,11 @@ export interface SpectrumBin {
  * neither end's envelope is in the window and a long render costs the same as a
  * short one.
  */
-export function powerSpectrum(samples: Float32Array, sampleRate: number): SpectrumBin[] {
+export function powerSpectrum(
+  samples: Float32Array,
+  sampleRate: number,
+  shape: "hann" | "rect" = "hann",
+): SpectrumBin[] {
   const n = 1 << 16;
   const re = new Float64Array(n);
   const im = new Float64Array(n);
@@ -648,9 +662,27 @@ export function powerSpectrum(samples: Float32Array, sampleRate: number): Spectr
   // the window is ~0 across the whole of it - which made every band measurement
   // over a short window (an attack, a transient) a measurement of the window.
   // The rest of the frame stays zero, which is ordinary zero-padding.
+  // HANN FOR SHAPE, RECT FOR ENERGY, and the difference is not cosmetic.
+  //
+  // A Hann window is ~0 at both ends of the analysis frame. That is right for
+  // asking WHERE a sustained sound sits - it stops a tone smearing across the
+  // spectrum - and it is catastrophic for asking HOW MUCH energy a ONE-SHOT
+  // has, because a one-shot puts all of its energy at the START of the frame,
+  // exactly where the window is zero. Measuring the blast's sub layer this way
+  // reported it four times quieter than it is.
+  //
+  // So band energy uses a rectangular window with a short taper on the tail
+  // only: nothing at the onset is attenuated, and the frame still ends smoothly
+  // enough not to manufacture broadband leakage of its own.
   const denom = Math.max(1, have - 1);
+  const taper = Math.max(1, Math.floor(have * 0.05));
   for (let i = 0; i < have; i++) {
-    const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / denom);
+    const w =
+      shape === "hann"
+        ? 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / denom)
+        : i >= have - taper
+          ? 0.5 - 0.5 * Math.cos((Math.PI * (have - i)) / taper)
+          : 1;
     re[i] = (samples[start + i] as number) * w;
   }
 
@@ -799,4 +831,27 @@ export function envelopeAutocorrelation(
   }
   const den = Math.sqrt(a2 * b2);
   return den <= 0 ? 0 : num / den;
+}
+
+/**
+ * ABSOLUTE energy in a band, as an RMS level.
+ *
+ * `bandEnergyFraction` answers "how much of this sound is down there", which is
+ * the right question for a timbre and the WRONG one for a budget: a fraction
+ * moves when any OTHER layer changes, so two fraction bars on the same sound
+ * compete with each other. UR-48 added a large mid-band layer to the blast and
+ * both of UR-30's fraction bars fell without one sample of the low end or the
+ * attack changing.
+ *
+ * This does not move when something else is added. It is what a level claim -
+ * "the blast still has its weight", "the crack is still there" - should be
+ * measured against.
+ */
+export function bandRms(
+  samples: Float32Array,
+  sampleRate: number,
+  loHz: number,
+  hiHz: number,
+): number {
+  return rms(samples) * Math.sqrt(bandEnergyFraction(samples, sampleRate, loHz, hiHz));
 }

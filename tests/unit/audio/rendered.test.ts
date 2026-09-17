@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 import {
   OfflineAudioContextLike,
   bandEnergyFraction,
+  bandRms,
   largestStep,
   peak,
   rms,
@@ -52,6 +53,12 @@ import { SHADOW_CHIRP, chirpDurationMs, chirpPeakGain, chirpSeparation, playChir
 import { DUCK_ATTACK_MS, buildAudioGraph, busSpec } from "../../../src/game/audio/graph.js";
 import { installAudio, type ChannelHandler } from "../../../src/game/audio/wiring.js";
 import { MAX_INTENSITY_INDEX } from "../../../src/game/audio/music.js";
+import {
+  CRUMBLE_VARIANTS,
+  crumbleSamples,
+  crumbleSeed,
+  onsetTimes,
+} from "../../../src/game/audio/crumble.js";
 import { seededRandom } from "../../../src/game/audio/context.js";
 import { fakeVoiceEnvironment } from "./fakes.js";
 
@@ -371,15 +378,33 @@ describe("UR-30: the blast has a body, and the typing is never the same twice", 
   });
 
   /**
-   * And the crack is still on top of it. Measured over the first 50 ms, which
-   * is where an impact's transient lives: 11-18% above 1 kHz. Without this the
-   * "fix" for an empty blast is just a thud, which is the same defect wearing
-   * a different frequency.
+   * AND THE CRACK IS STILL ON TOP OF IT - measured as SHAPE rather than level,
+   * which is the honest way to ask it and turned out to be the more revealing
+   * one.
+   *
+   * The old bar was `above 1 kHz > 8% of the attack's energy`. Chasing that
+   * number after UR-48 would have meant putting the wash of white noise back,
+   * because the hiss was most of what the old attack's high band WAS - and the
+   * hiss is the explosion the report asked to be rid of.
+   *
+   * What "it still cracks" actually means is that the sound STARTS with an edge
+   * rather than fading up. So: the attack's high band against the BODY's high
+   * band. A wash scores about 1. Measured, the old blast scored 173 to 1411 -
+   * not a sharper transient but an EMPTY BODY, essentially nothing above 1 kHz
+   * after 150 ms, which is the clearest single number for why it read as a bomb
+   * and then silence. The crumble scores 5 to 7: a real edge, and then a rock.
    */
   it("the blast still cracks before it thumps", () => {
     for (let i = 0; i < variantsFor("blast").length; i++) {
-      const attack = renderBlast(i).subarray(0, Math.floor(SR * 0.05));
-      expect(bandEnergyFraction(attack, SR, 1000, SR / 2), `blast.${i} attack`).toBeGreaterThan(0.08);
+      const samples = renderBlast(i);
+      const attack = bandRms(samples.subarray(0, Math.floor(SR * 0.05)), SR, 1000, SR / 2);
+      const body = bandRms(
+        samples.subarray(Math.floor(SR * 0.15), Math.floor(SR * 0.5)),
+        SR,
+        1000,
+        SR / 2,
+      );
+      expect(attack / body, `blast.${i} transient over body`).toBeGreaterThan(3);
     }
   });
 
@@ -1344,5 +1369,134 @@ describe("A-21.2: the music index follows live asteroids and combo", () => {
     const ownStep = stepQuantile(flown.samples, 0.999);
     // Against the signal's own step distribution, as every click test here is.
     expect(worst.step).toBeLessThan(ownStep * 4);
+  });
+});
+
+/**
+ * UR-48 - THE ROCK COMES APART.
+ *
+ * "Is there any reason why when the asteroids are shot down they cant make a
+ * nice crumbling sound? It needs to be the most satisfying part of the game."
+ *
+ * The blast was an explosion: a sweep, a wash of white noise, a sub, a tail.
+ * The single number that gives that away is the high band AFTER the attack -
+ * the old blast measured 0.00005 to 0.00032 there, which is nothing. It banged
+ * and then there was only the sub. A rock coming apart keeps making sound while
+ * the pieces fall.
+ *
+ * These are the properties that separate the two, and none of them can be
+ * satisfied by a louder or a longer bang.
+ */
+describe("UR-48: a blasted rock crumbles rather than detonating", () => {
+  const renderBlastAt = (index: number): Float32Array => {
+    const { ctx, output } = onBus("sfx");
+    const bus = new SfxBus(ctx, output);
+    for (let k = 0; k < 12; k++) {
+      ctx.currentTime = k * 2;
+      if (bus.play("blast").variant.index !== index) continue;
+      ctx.currentTime = 0;
+      return ctx.render(k * 2 + 1.2).subarray(Math.floor(k * 2 * SR));
+    }
+    throw new Error(`blast.${index} never came up`);
+  };
+
+  /**
+   * THE CRUMBLE TEST. The old blast fails it by two to three orders of
+   * magnitude - 0.00005 to 0.00032 against this 0.003 bar - because there was
+   * nothing there at all after the bang.
+   */
+  it("there is still a rock falling apart 150 ms after the bang", () => {
+    for (let i = 0; i < variantsFor("blast").length; i++) {
+      const body = bandRms(
+        renderBlastAt(i).subarray(Math.floor(SR * 0.15), Math.floor(SR * 0.5)),
+        SR,
+        1000,
+        SR / 2,
+      );
+      expect(body, `blast.${i} body`).toBeGreaterThan(0.003);
+    }
+  });
+
+  /**
+   * GRANULAR, NOT ONE EVENT. A crumble is many small impacts; an explosion is
+   * one. `onsetTimes` counts rises in the envelope that clear its own running
+   * level, so the number is a property of the sound rather than of a threshold
+   * someone picked. The old blast produces a single onset.
+   */
+  it("a blast is many fragments landing, not one impact", () => {
+    for (let i = 0; i < variantsFor("blast").length; i++) {
+      const onsets = onsetTimes(renderBlastAt(i), SR);
+      expect(onsets.length, `blast.${i} onsets`).toBeGreaterThanOrEqual(6);
+      // And they are spread through the fall, not all inside the attack.
+      expect(onsets.filter((t) => t > 0.15).length, `blast.${i} late onsets`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  /**
+   * THE REPETITION TRAP, and the one that worried me most. This fires about
+   * fifty-eight times a belt, and a granular texture is the worst case: the ear
+   * latches onto the pattern of the fragments far faster than onto an envelope.
+   *
+   * Twelve consecutive blasts, compared pairwise over their whole length. Two
+   * that shared a crumble AND a playback rate would be nearly identical; the bag
+   * plus the rate jitter mean no two ever are.
+   */
+  it("no two of twelve consecutive blasts are the same fall", () => {
+    const { ctx, output } = onBus("sfx");
+    const bus = new SfxBus(ctx, output);
+    const gap = 1.4;
+    for (let k = 0; k < 12; k++) {
+      ctx.currentTime = k * gap;
+      bus.play("blast");
+    }
+    ctx.currentTime = 0;
+    const all = ctx.render(12 * gap + 0.8);
+    const takes = Array.from({ length: 12 }, (_, k) =>
+      all.subarray(Math.floor(k * gap * SR), Math.floor((k * gap + 0.8) * SR)),
+    );
+
+    let closest = 1;
+    for (let a = 0; a < takes.length; a++) {
+      for (let b = a + 1; b < takes.length; b++) {
+        const x = takes[a] as Float32Array;
+        const y = takes[b] as Float32Array;
+        const n = Math.min(x.length, y.length);
+        let diff = 0;
+        for (let i = 0; i < n; i++) {
+          diff = Math.max(diff, Math.abs((x[i] as number) - (y[i] as number)));
+        }
+        closest = Math.min(closest, diff / peak(x));
+      }
+    }
+    // The nearest pair in twelve still differs by most of a blast's own peak.
+    expect(closest).toBeGreaterThan(0.5);
+  });
+
+  it("every baked crumble is granular, and none of them is a thin one", () => {
+    // The six are baked from different seeds and one of them being sparse would
+    // be audible as one blast in six sounding wrong. Stratified grain times are
+    // what hold this; free draws produced a variant with a third of the onsets.
+    for (let v = 0; v < CRUMBLE_VARIANTS; v++) {
+      const samples = crumbleSamples(SR, crumbleSeed(v));
+      const onsets = onsetTimes(samples, SR);
+      expect(onsets.length, `crumble ${v}`).toBeGreaterThanOrEqual(10);
+      expect(onsets[onsets.length - 1] as number, `crumble ${v} fall length`).toBeGreaterThan(0.3);
+      expect(peak(samples), `crumble ${v}`).toBeCloseTo(1, 5);
+    }
+  });
+
+  it("a crumble ends quietly, so a blast never clicks at its tail", () => {
+    for (let v = 0; v < CRUMBLE_VARIANTS; v++) {
+      const samples = crumbleSamples(SR, crumbleSeed(v));
+      const last = samples[samples.length - 1] as number;
+      expect(Math.abs(last), `crumble ${v} last sample`).toBeLessThan(0.01);
+    }
+  });
+
+  it("the crumble is dry stone, not a cymbal: almost nothing above 8 kHz", () => {
+    for (let v = 0; v < CRUMBLE_VARIANTS; v++) {
+      const samples = crumbleSamples(SR, crumbleSeed(v));
+      expect(bandEnergyFraction(samples, SR, 8000, SR / 2), `crumble ${v}`).toBeLessThan(0.02);
+    }
   });
 });

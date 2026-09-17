@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  CONCURRENCY_TARGET_MAX,
+  CONCURRENCY_TARGET_MIN,
   DEFAULT_KNOBS,
   KNOB_NAMES,
   LENGTH_BIAS_MAX,
@@ -13,6 +15,7 @@ import {
   applyChange,
   asLengthBias,
   clampKnobs,
+  concurrencyTarget,
   createController,
   createWindow,
   decideStage,
@@ -507,5 +510,69 @@ describe("knob bounds clamp under sustained pressure", () => {
     expect(s.knobs).toEqual(knobs(2, -1));
     for (let i = 0; i < 5; i++) s = endStage(play(s, 20, 0));
     expect(s.knobs).toEqual(knobs(7, -1));
+  });
+});
+
+/**
+ * UR-42 / UR-51: WHAT `maxLive` BUYS.
+ *
+ * The knob moved and nothing on the board did. `belt-survivability.json`
+ * recorded `peakLive: 2` at maxLive 7 exactly as at maxLive 2, and the
+ * time-weighted occupancy of the board read 1.00-1.04 rocks at both ends of the
+ * range - so the primary difficulty knob had two indistinguishable extremes.
+ * `concurrencyTarget` is the number that makes it mean something, and these are
+ * the properties the rest of the engine leans on.
+ */
+describe("UR-51 / FR-10: concurrencyTarget turns the primary knob into a board depth", () => {
+  it("UR-51: the FLOOR is exactly 1, so the gentlest belt is the shipped belt", () => {
+    // THE HARD CONSTRAINT, AS ARITHMETIC. Every other part of this change -
+    // the fall budget in @engine/fallTime, the standing queue in @engine/pacing
+    // - multiplies by this number or by (this number - 1). Exactly 1 here is
+    // what makes a struggling child's belt byte-identical to the one measured
+    // at 3 stalls in 240 route-belts, rather than something a simulation has to
+    // vouch for afterwards.
+    //
+    // WATCHED FAILING, with the real numbers: set CONCURRENCY_TARGET_MIN to 1.5
+    // and this reads 1.5, and the grade-2 child at the knob's floor stops
+    // flying the belt that was measured. Occupancy 1.021 -> 1.344 rocks, hit
+    // rate 0.9099 -> 0.9435, belt 250.27 s -> 249.02 s, route stalls 3/240 ->
+    // 0/240 over 40 seeds.
+    //
+    // NOTE THE DIRECTION, because it is the trap. Breaking the floor made the
+    // grade-2 child's belt EASIER, not harder - a deeper board comes with a
+    // deeper fall budget. So "the child still survives" is not evidence the
+    // floor is intact; only the floor itself is. That is why this is asserted
+    // on the constant rather than inferred from a stall rate.
+    expect(concurrencyTarget(MAX_LIVE_MIN)).toBe(1);
+    expect(CONCURRENCY_TARGET_MIN).toBe(1);
+  });
+
+  it("UR-51: the CEILING is 4, which is the depth UR-51 settles on", () => {
+    expect(concurrencyTarget(MAX_LIVE_MAX)).toBe(4);
+    expect(CONCURRENCY_TARGET_MAX).toBe(4);
+  });
+
+  it("UR-51: it is monotone across FR-10's whole range, with no step larger than one rock", () => {
+    // A jump of a whole rock at one boundary would make one stage end in six a
+    // cliff and the rest of them nothing, which is the ramp being invisible by
+    // another route.
+    let previous = concurrencyTarget(MAX_LIVE_MIN);
+    for (let live = MAX_LIVE_MIN + 1; live <= MAX_LIVE_MAX; live += 1) {
+      const here = concurrencyTarget(live);
+      expect(here, `maxLive ${live}`).toBeGreaterThan(previous);
+      expect(here - previous, `maxLive ${live}`).toBeLessThan(1);
+      previous = here;
+    }
+  });
+
+  it("UR-51: a corrupt or out-of-range knob reads as the floor, never as NaN", () => {
+    // clampKnobs' rule, restated where it is consumed: a restored profile must
+    // never be able to stop a child's game. NaN here would propagate into the
+    // fall budget and every rock would fall for NaN ms.
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, -1, 0]) {
+      expect(concurrencyTarget(bad), String(bad)).toBe(1);
+    }
+    // Above the cap it saturates rather than extrapolating.
+    expect(concurrencyTarget(MAX_LIVE_MAX + 5)).toBe(CONCURRENCY_TARGET_MAX);
   });
 });

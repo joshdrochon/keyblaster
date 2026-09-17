@@ -272,36 +272,35 @@ test.describe("Pre-flight (row 5, D51/FR-11)", () => {
       { timeout: 60_000 },
     );
     const after = await snapshot(page, KEY);
-    // It IS the short one, and it is not the long one. Both halves matter:
-    // D51's cost is still paid once, and UR-28's hollow screen is gone.
+    // It is the CEREMONY and not the ritual. Since UR-57 the two ask for the
+    // same 5-6 words, so the word count no longer separates them - what does is
+    // `ritual`, and what it names is what happens to the answer: the ritual
+    // replaces the stored baseline, the ceremony blends into it.
     expect(after["ritual"]).toBe("launch");
-    expect(after["promptedWords"]).toBeLessThanOrEqual(2);
-    expect(after["promptedWords"]).toBeGreaterThan(0);
-    expect(after["promptedWords"] as number).toBeLessThan(
-      before["promptedWords"] as number,
-    );
+    expect(after["promptedWords"] as number).toBeGreaterThan(0);
     const ceremony = await run();
 
-    // WHAT IS COMPARED, AND WHY IT IS NOT THE CLOCK OR THE KEYSTROKE COUNT.
+    // WHAT IS COMPARED, AND WHY IT IS NEITHER THE CLOCK NOR THE WORD COUNT.
     //
-    // Both of those were tried and both measured the HOST rather than the
-    // product. The clock went red at 23 282 ms against a flat 20 000 ms on a
-    // machine running five other Playwright lanes. The keystroke count then
-    // went red at 2-vs-2, because D100's assist bounds BOTH modes: a starved
-    // browser means the harness misses its window, the screen gives up after
-    // two untouched words, and the ritual presents the harness with no more
-    // words than the ceremony does. That is the assist working correctly and it
-    // makes the count useless as a comparison.
+    // The clock was tried and measured the HOST: it went red at 23 282 ms
+    // against a flat 20 000 ms on a machine running five other Playwright
+    // lanes, because the scene sits in `typing` while a starved browser catches
+    // up. The keystroke count was tried and went red at 2-vs-2, because D100's
+    // assist bounds both modes and a slow host trips the give-up in each.
     //
-    // `promptedWords` is what the PLAN asked for - 5 or 6 against at most 2 -
-    // and it is fixed before a single frame renders, so it cannot be moved by
-    // load. It is also the claim AC-11.2 actually makes: the returning pilot is
-    // not asked to do the long one. The absolute time bound that used to live
-    // here is arithmetic on exported constants and is asserted exactly, without
-    // a browser, in tests/unit/scenes/preflightAssist.test.ts.
-    expect(after["promptedWords"] as number).toBeLessThanOrEqual(2);
+    // UR-57 then removed the last count-based difference on purpose: the
+    // ceremony asks for the same 5-6 words the ritual does. So what AC-11.2
+    // still claims, and all it claims, is that the returning pilot is not put
+    // through the MEASUREMENT again - `ritual` says which path ran, and the two
+    // paths differ in what they do with the answer. The absolute time bounds
+    // are arithmetic on exported constants and are asserted exactly, without a
+    // browser, in tests/unit/scenes/preflightAssist.test.ts.
+    expect(before["ritual"]).toBe("full");
+    expect(after["ritual"]).toBe("launch");
+    // Both plans ask for a real sequence, not a token word.
     expect(before["promptedWords"] as number).toBeGreaterThanOrEqual(5);
-    // The ceremony did run to the end and did hand off, under the same load.
+    expect(after["promptedWords"] as number).toBeGreaterThanOrEqual(5);
+    // Both ran to the end and handed off, under the same load.
     expect(ceremony.elapsedMs).toBeGreaterThan(0);
     expect(full.elapsedMs).toBeGreaterThan(0);
   });
@@ -329,6 +328,41 @@ test.describe("Pre-flight (row 5, D51/FR-11)", () => {
     expect(seen.length, "a later stop showed nothing to type").toBeGreaterThan(0);
     expect(samples.some((s) => s.currentWord !== null)).toBe(true);
     expectNoGrades(samples);
+
+    // UR-57, and this is the user-visible claim: the check has THREE steps that
+    // ask for something, not one that does and two that light on their own. The
+    // active row is the step being run, so a word seen while row `i` is active
+    // is a word that step asked for.
+    const askedOn = new Set<number>();
+    for (const sample of samples) {
+      if (sample.currentWord === null) continue;
+      const active = sample.rowStates.indexOf("active");
+      if (active >= 0) askedOn.add(active);
+    }
+    //
+    // THE INVARIANT, AND WHY IT IS CONDITIONAL. Every step asks for a word
+    // UNLESS D100's assist gave up first - two words in a row that nobody
+    // completed and the screen stops asking. On a loaded host the harness
+    // itself misses those windows, so demanding all three unconditionally
+    // measures the machine: this assertion went red at "only steps 0,1" on a
+    // box at load 25 with seven browsers on it. `stoppedAsking` is the scene's
+    // own answer for which case happened, so it is what the branch turns on.
+    //
+    // This is NOT a weaker claim than "all three": a ceremony that plans words
+    // on one step still fails it, because nothing was carried and the screen
+    // never gave up. The deterministic form - all three steps planned, at their
+    // declared word counts, every seed - is asserted without a browser in
+    // tests/unit/calibration/launchCeremony.test.ts.
+    const gaveUp = (await snapshot(page, KEY))["stoppedAsking"] === true;
+    if (gaveUp) {
+      expect(askedOn.size, "gave up before any step asked").toBeGreaterThan(0);
+    } else {
+      expect(
+        [...askedOn].sort(),
+        `only steps ${[...askedOn].sort().join(",")} ever asked for a word`,
+      ).toEqual([0, 1, 2]);
+    }
+
     const final = await snapshot(page, KEY);
     expect(final["rowStates"]).toEqual(["lit", "lit", "lit"]);
     expect(await transitions(page)).toContain("Flight");

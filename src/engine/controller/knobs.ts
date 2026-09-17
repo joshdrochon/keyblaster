@@ -48,6 +48,84 @@ export const DEFAULT_KNOBS: Knobs = {
   lengthBias: 0,
 };
 
+// ---------------------------------------------------------------------------
+// What `maxLive` actually BUYS (UR-42, UR-51)
+// ---------------------------------------------------------------------------
+
+/**
+ * How many word-asteroids the belt INTENDS to hold answerable at once, at this
+ * setting of the primary knob.
+ *
+ * ================== WHY THIS EXISTS ==================
+ * `maxLive` was a ceiling nothing reached. `gauntlet/evidence/belt-survivability.json`
+ * recorded `peakLive: 2` at maxLive 7 exactly as at maxLive 2, over 40 seeds and
+ * three player speeds, and the time-weighted occupancy was 1.00-1.04 rocks at
+ * both ends. A knob whose two extremes are indistinguishable is not a
+ * difficulty range, and UR-51 is the report that says so.
+ *
+ * THE CONSTRAINT THE KNOB COULD NOT SEE. A player is a single server (AC-2.1
+ * gives every live word a distinct first letter so the lock is unambiguous), so
+ * a board holding N rocks is a board where the last one WAITS N-1 service times
+ * before anyone can touch it - and it falls the whole time. By Little's law a
+ * belt running at the player's own throughput holds N rocks only if each rock
+ * lives N service times, so N is bounded by
+ *
+ *     N  <=  fallTimeMs / expectedClearMs
+ *
+ * At FR-8's shipped budget that ratio is 1.18 (fast), 1.25 (median) and 1.38
+ * (grade-2) - one, at every pilot speed, in every shipped pool. Raising
+ * `maxLive` could not put a second answerable rock on the board because FR-8's
+ * fall budget bound first. That is UR-42; UR-51 is the decision taken on it -
+ * widen the budget, and make the knob express the range.
+ *
+ * ================== SO THE KNOB NOW MEANS A DEPTH ==================
+ * This is the one number both halves read. `@engine/fallTime` scales FR-8's
+ * budget by it, so a rock granted a place in a 4-deep queue is granted the fall
+ * time to survive the queue; `@engine/pacing` holds that many rocks' worth of
+ * work standing on the board, so the queue is actually built. Neither half is
+ * meaningful without the other: budget without pacing is a slower game, pacing
+ * without budget is the P0a stall defect.
+ *
+ * ================== THE FLOOR IS EXACTLY 1, AND THAT IS THE SAFETY ==========
+ * At `MAX_LIVE_MIN` this returns 1, so the fall-budget scale is x1 and the
+ * pacing allowance is zero: the belt a struggling child flies is BIT-IDENTICAL
+ * to the one measured at 3 stalls in 240 route-belts. The hard constraint on
+ * UR-51 - harder for a fast typist, not unsurvivable for a grade-2 child - is
+ * therefore a property of this function's floor rather than a hope about a
+ * simulation. `tests/unit/controller/controller.test.ts` pins it.
+ */
+export const CONCURRENCY_TARGET_MIN = 1;
+
+/**
+ * Depth at `MAX_LIVE_MAX`. Four, per UR-51, and because the fall budget it
+ * implies still clears `expectedClearMs` for the grade-2 pilot with margin -
+ * measured, in gauntlet/evidence/belt-concurrency.json, not assumed.
+ */
+export const CONCURRENCY_TARGET_MAX = 4;
+
+/**
+ * Intended board depth for a knob setting, interpolated across FR-10's 2..7.
+ *
+ * Continuous rather than integral on purpose: the knob moves one step per stage
+ * (D20, AC-10.1) and a depth that jumped a whole rock every step would make one
+ * stage boundary in three a cliff. A fractional target moves the fall budget and
+ * the standing allowance smoothly, and the board's own integer depth falls out.
+ *
+ *     maxLive  2    3    4    5    6    7
+ *     target   1.0  1.6  2.2  2.8  3.4  4.0
+ */
+export function concurrencyTarget(maxLive: number): number {
+  const span = MAX_LIVE_MAX - MAX_LIVE_MIN;
+  // A corrupt knob reads as the floor rather than as NaN: a restored profile
+  // must never be able to stop a child's game (clampKnobs, same rule).
+  const live = Number.isFinite(maxLive) ? Math.floor(maxLive) : MAX_LIVE_MIN;
+  const steps = Math.min(span, Math.max(0, live - MAX_LIVE_MIN));
+  return (
+    CONCURRENCY_TARGET_MIN +
+    (steps / span) * (CONCURRENCY_TARGET_MAX - CONCURRENCY_TARGET_MIN)
+  );
+}
+
 /** A single knob move. AC-10.1: at most one of these per stage, ever. */
 export interface KnobChange {
   readonly knob: KnobName;
