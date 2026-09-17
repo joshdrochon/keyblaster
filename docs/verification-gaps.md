@@ -1,6 +1,6 @@
-# The check and the thing: twenty ways this codebase lied to itself
+# The check and the thing: twenty-one ways this codebase lied to itself
 
-Written 2026-09-17, after a night in which twenty separate defects
+Written 2026-09-17, after a night in which twenty-one separate defects
 turned out to be the same defect.
 
 Nine had a green test, two had a red one, and one was a picture a person judged. None of the tests
@@ -29,7 +29,7 @@ that binding.
 
 ---
 
-## The twenty
+## The twenty-one
 
 | # | What was green | What shipped | Found by |
 |---|---|---|---|
@@ -126,6 +126,21 @@ not the thing on screen. The guard that catches all three is the same and it is
 embarrassingly cheap: at boot, assert there is exactly one game canvas, at most
 one backdrop, and that it is actually on screen.
 
+| 21 | `settings.spec.ts:41` failing with `Expected: "true"` / `Received: ""` — read by two people, including the lead, as *the attribute is empty, so the focus ring is missing* | **The attribute was never read.** `Received: ""` is what Playwright reports for a call that did not complete; the log ends `Protocol error (Runtime.callFunctionOn): session closed`. The test hit its 30s timeout and the blame landed on whichever call was in flight. Settings publishes `data-focus-ring="true"` correctly. Measured cost under 3 workers: **29.7s against a 30.0s budget** | The UI lane, running TWO negative controls — forcing the attribute to `"false"` gives `Received: "false"`, while cutting the timeout on healthy code reproduces `Received: ""` byte-for-byte |
+
+Instance 21 is the only one here where the misleading thing is **an error
+message rather than a check**. Everything above it is a test bound to the wrong
+object. This is a test bound to the right object, reporting a failure honestly,
+in a format that reads as a measurement and is not one. `Received: ""` looks
+exactly like a value. It is the absence of one.
+
+The lesson generalises past this repo: **a number that arrives in the expected
+format is not thereby a number.** The only thing that separated the two
+readings was running both controls — forcing the real defect and forcing the
+real timeout — and observing that only one of them matched the failure
+byte-for-byte. Two causes that produce identical output need two controls, not
+one.
+
 Instance 11 is the worst thing in this document. The other ten are checks that
 measured the wrong thing; this one is a **human** looking at the wrong thing,
 carefully, repeatedly, and reaching conclusions about art they were never
@@ -208,6 +223,6 @@ All of that machinery verifies **internal consistency**. None of it verifies
 that the thing being checked is the thing being shipped. That binding is
 maintained by attention, and attention is exactly what a green suite spends.
 
-Every one of the twenty was ultimately found the same way: by someone looking at
+Every one of the twenty-one was ultimately found the same way: by someone looking at
 the actual artifact — a screen, a waveform, a route, a rendered page — rather
 than at a result. That is the cheapest available guard and the easiest to skip.

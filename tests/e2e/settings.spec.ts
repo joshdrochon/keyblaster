@@ -41,6 +41,35 @@ test.describe("row 11 - settings", () => {
   test("AC-18.1 reachable, operable and returnable by keyboard alone", async ({
     page,
   }) => {
+    /**
+     * Slow for the same reason as the three tests below it: a full lap of the
+     * console is TWELVE real keystrokes, and this row has eleven controls.
+     *
+     * Measured from the trace of a failing full-suite run (three workers, each
+     * driving a software-rendered WebGL game): every protocol round trip costs
+     * 0.5-1.1s, so `press` is ~1.55s per key and the lap alone is ~18s of a
+     * 30s budget - seed's two boots have already spent 5.5s of it. The test
+     * needed ~33s and the clock stopped it at 30.
+     *
+     * The failure that produced is worth naming, because it cost a lane a day:
+     * Playwright blamed whichever call was in flight when the budget ran out,
+     * and reported `data-focus-ring` as `Received: ""`. That reads exactly like
+     * "the console does not publish a focus ring" and is nothing of the kind -
+     * `""` is what an unread attribute reports after `session closed`. The same
+     * run timed out inside `page.evaluate` and blamed that instead.
+     *
+     * Two negative controls separate the two readings, because they look
+     * identical in a report and mean opposite things:
+     *  - force `data-focus-ring` to "false" in `publishMirror` -> the failure
+     *    says `Received: "false"`. That is a ring that is not drawn.
+     *  - leave the code alone and pass `--timeout=12000` -> the failure says
+     *    `Received: ""`, at this line, on a quiet machine. That is a clock that
+     *    ran out before the attribute was ever read.
+     * The full-suite failures are the second one. The ring IS drawn and the
+     * attribute IS published: a fresh boot of this scene reports
+     * `data-focus-ring="true"`, `data-focus="settings.music"` and eleven items.
+     */
+    test.slow();
     await seed(page, [{ name: "Ana" }], SETTINGS);
     await assertVisibleFocus(page, SETTINGS);
 
@@ -295,6 +324,11 @@ test.describe("row 11 - settings", () => {
   test("AC-19.1 / AC-14.1 content language is filtered by input method", async ({
     page,
   }) => {
+    // Next in line behind the test at the top of this file: measured at 26.6s
+    // of a 30s budget under the suite's own three-worker load, which is 89% and
+    // no room for a slow morning. It is two `adjust` walks past a seed, and it
+    // has not failed yet - this is the one that would have gone next.
+    test.slow();
     await seed(page, [{ name: "Ana" }], SETTINGS);
 
     // D95: the shipped menu is English only, on every input method. AC-14.1's
