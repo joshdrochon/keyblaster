@@ -62,35 +62,35 @@ one constant with a test already in place.
 
 ## 3. Where the art stands, and one decision for you
 
-**a. Saturn and Pluto are broken, and my earlier advice here was wrong.**
-I previously wrote "ship as built". A blind critic then looked at the pictures
-and I withdraw that.
+**a. Saturn and Pluto: the ice is back, the bodies are dark. One call for you.**
 
-Making the asteroids visible works — a child can now see them at every stop
-and every height, verified independently at 108 measurement points. But at the
-two stops whose material is WHITE, the fix satisfied the contrast metric by
-turning the rock into a black blob:
+This went through two wrong answers before landing. I first said "ship as
+built" when the rocks were black blobs — wrong. A blind critic caught that.
+Then I proposed the fix should push those rocks BRIGHTER than the sky, since
+those skies are bright — also wrong, and the art lane proved it with a
+measurement I could not argue with:
 
-| stop | art direction says | what ships |
+| stop | brightest sky it falls past | the material |
 |---|---|---|
-| Saturn | ice chunks, **white** with ice-blue facets (L238) | **L61** — brown pebbles on a beige sky. No ice in the picture at all |
-| Pluto | **frost-white** ice, lilac facets (L234/214/157) | L40 / L33 / **L25** — three black blobs |
+| Saturn | **238** | ice chunk `#F6EEDC` = **238.3** — *the same hex as the sky's own middle gradient stop* |
+| Pluto | **231** (top 243.9) | frost-white `#E7EAF2` = **234.0** |
 
-Pluto's facet tones land below the minimum rock luminance, so its two-tone
-fill is black on black. Materials across every stop are also squeezed into a
-16-luma box, so Jupiter's four rock types sit ~5 levels apart and are told
-apart only by a 1.4px rim.
+There is no headroom upward. Clearing that way needs a blown-white core with
+no room for a facet or any shading at all.
 
-This is the failure I asked the critic to watch for: *a rock that passes a
-contrast bar by being a black blob has satisfied the metric and ruined the
-game.* It is back with the art lane. Mars, Jupiter and Neptune survive
-unharmed — Neptune is the best frame in the set.
+What actually worked is better than either idea: the visibility measure only
+reads the **middle** of the rock, and a lit object keeps its colour on its
+**edge**. The material is now painted in the lit face and terminator, outside
+anything the measure samples. So the ice, the warm silicate, the cool metal
+and the reddish Trojan are all back, and Jupiter's four rocks read as four
+materials again. Material separation also went from 5 levels apart to 9.
 
-**Nothing to decide here unless the lane cannot solve it.** Visible-AND-white
-is achievable; the sky at those stops is bright, so a white rock needs a dark
-rim and a darker facet rather than a dark body. If it comes back unsolved you
-will have to choose between a white rock and a visible one, and I would take
-visible — but we are not there yet.
+**The remaining call.** The rock BODIES at Saturn and Pluto are still dark
+(L*23 and L*16-21), with the white on the lit face. Art direction section 4
+says "white" and "frost-white". Lean: **ship as built** — it is the only
+option that holds the visibility bar at every height on every stop, and the
+ice is in the frame rather than absent. Flipping to white chunks is one
+constant if you prefer the look and accept they get harder to see.
 
 **b. One word-asteroid at a time**
 

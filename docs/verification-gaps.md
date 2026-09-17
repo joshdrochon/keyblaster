@@ -1,13 +1,13 @@
-# The check and the thing: seventeen ways this codebase lied to itself
+# The check and the thing: eighteen ways this codebase lied to itself
 
-Written 2026-09-17, after a night in which seventeen separate defects
+Written 2026-09-17, after a night in which eighteen separate defects
 turned out to be the same defect.
 
 Nine had a green test, two had a red one, and one was a picture a person judged. None of the tests
 were wrong about what they asserted. They were wrong about **what they were
 asserting it against.**
 
-This document exists because the eighteenth instance is cheaper to prevent
+This document exists because the nineteenth instance is cheaper to prevent
 than to find, and because "we have 2891 passing tests" stopped being reassuring at
 about the third one.
 
@@ -29,7 +29,7 @@ that binding.
 
 ---
 
-## The seventeen
+## The eighteen
 
 | # | What was green | What shipped | Found by |
 |---|---|---|---|
@@ -59,6 +59,12 @@ from the same bug.
 
 | 15 | `tests/unit/flight/shardTint.test.ts`, cited in the source as the check binding shard tint to rock colour | Its headline assertion is `expect(wordRockFill(type)).toBe(wordRockFill(type))` — **f(x) === f(x)** — followed by `void declared;`. Nothing in the file touches `fractureRock` or `setParticleTint`. Revert the fix it guards and all three tests still pass. **Produced by the very fix that diagnosed instance 5** | The blind critic on asteroid visibility, reverting the line to see if anything noticed |
 
+Instance 18 is the plainest argument in this document for guard 2, and the
+cheapest to act on: the sweep that caught it is four extra lines and one loop.
+The reason it keeps happening is that a default parameter is invisible at the
+call site — nothing in `bootFlight(page, { knobs: { maxLive: 4 } })` says
+"mars", and nobody reviewing it sees a subset being chosen.
+
 Instance 15 is the sharpest warning in this document, because of who wrote it
 and when. It was written by a lane that had spent the night finding this exact
 defect class, in the same change where it fixed another instance of it, hours
@@ -68,6 +74,7 @@ Only reverting the code and watching the test fail does.
 
 | 16 | `hull-feedback.spec.ts:361`, green, proving a child sees hull damage | The assertion is **area-weighted**: it compares `hitShip * 300 * 300` against `hitPips * 76 * 24 * 10`. The ship rect is **49x larger**, so a sub-JND change smeared over it beats a 200-level change on a pip, and its absolute floor of 0.002 linearised luminance is about half an sRGB level. Measured with a no-strike control in the DEFAULT configuration: one hull hit changes the ship **1.00x** at Mars and **0.97x** at Neptune — *no more than doing nothing does*. The test is green and the change is real. It is not evidence anyone can see it | The blind critic on the flight work, running a no-strike control |
 | 17 | `UR-36` deleted the parallel `Phaser.Game`, and `tests/unit/arch/oneBootPath.test.ts` guards it | **The e2e harness re-creates it at runtime.** `flightBoot.ts:63` routes `**/src/main.ts`, but after any file in the graph is saved Vite serves `/src/main.ts?t=<timestamp>`, and Playwright's glob does not match a query string. Measured across 8 consecutive boots: `mainRouteHits = 0` every time, **four canvases on the page, two `Phaser.Game`s**, and which one `__kbGame` points at is a RACE — canvas at y=0 in four runs, y=720 in the other four. The guard greps source for `new Phaser.Game`; it cannot see a second game created at runtime | The same critic — whose own "Saturn flight screen" capture came back as **the Title screen**, reproducing instance 11 live, against itself |
+| 18 | `V-22.4` in `flight.spec.ts` — **the acceptance check for AC-22.4**, the ticket about asteroids being invisible | Its `bootFlight` passed no `stopId`, so it took `DEFAULT_FLIGHT_CONFIG.stopId` — **mars** — and `"mars"` was written into the `expectedLuma` lookup as a literal. One stop of six, and the one where the fix was strongest and cost least; the other five had **no pixel coverage anywhere in the suite**. Instances 2 and 3 are both, verbatim, "the harness boots Mars only". This is the third time, inside the gate for the ticket about it. Swept across all six stops, the same one-line revert now reads 0.0047 / 0.0077 / 0.0090 / 0.0215 / 0.0228 — and **0.1400 at Uranus, which passes the defect**, because its material was already dark. "It passed on Mars" was never evidence about anywhere else | The debris lane, told by the coordinator to check its own gate |
 
 Instance 17 is the one to be frightened of. It fires only when a file is saved
 mid-run, which is the normal condition of a parallel overnight build — so the
@@ -75,6 +82,14 @@ evidence is trustworthy when nobody is working and unreliable exactly when
 everybody is. A static guard could never catch it. The fix is one character
 (`**/src/main.ts*`) plus a boot-time assertion that exactly one non-backdrop
 canvas exists: the runtime half of a guard the repo only enforced statically.
+
+| 18 | `V-22.4`, the acceptance gate for asteroid visibility, booting **Mars only** — the third verbatim recurrence of instances 2 and 3, inside the gate for the ticket about them | Rebuilt to sweep all six belted stops and to PLACE rocks down the fall rather than wait for luck: 73 objects, 24 frames, 38 readings in the bottom band. Then the negative control, same one-line revert, run through the sweep: mars 0.0047, jupiter 0.0077, pluto 0.0090, neptune 0.0215, saturn 0.0228 — and **uranus 0.1400, which PASSES the defect**. One stop in six does not reproduce the bug at all, so a single-stop verdict was never a weak signal; it was **a coin toss about the other five** | The art lane, rebuilding the gate rather than the fix |
+
+Instance 18 is the cheapest lesson here. "The harness samples instead of
+sweeping" sounds like a matter of thoroughness — a bit less coverage, a bit
+more risk. It is not. Uranus would have reported the defect as *fixed* while
+five stops were broken, with no hint that anything was wrong. A sampled gate
+does not give you a weaker answer; it gives you a random one.
 
 Instance 11 is the worst thing in this document. The other ten are checks that
 measured the wrong thing; this one is a **human** looking at the wrong thing,
@@ -158,6 +173,6 @@ All of that machinery verifies **internal consistency**. None of it verifies
 that the thing being checked is the thing being shipped. That binding is
 maintained by attention, and attention is exactly what a green suite spends.
 
-Every one of the seventeen was ultimately found the same way: by someone looking at
+Every one of the eighteen was ultimately found the same way: by someone looking at
 the actual artifact — a screen, a waveform, a route, a rendered page — rather
 than at a result. That is the cheapest available guard and the easiest to skip.
