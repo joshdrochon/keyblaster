@@ -622,12 +622,35 @@ export function driftTile(w: number, h: number, o: DriftTileOptions): TileOp[] {
     const cy = ((i + o.rand() * 0.8) / o.count) * h;
     const u = o.rand();
     // Outside the lane guard: the left band, or the right band, never between.
+    //
+    // THE BAND IS MEASURED TO THE SHAPE'S EDGE, NOT ITS CENTRE, and shapes are
+    // allowed to hang off the frame. The previous arithmetic placed CENTRES
+    // inside `[radius, w * laneGuard - radius]`, which is fine while a rock is
+    // small and silently inverts once `radius` passes `w * laneGuard / 2`: at
+    // 200 px on a 1280 px stage the left band ran to cx 200, and 200 + 200 put
+    // 67 px of rock inside the word lane. That is a plate a child cannot read,
+    // arriving as a side effect of making the foreground bigger.
+    //
+    // Letting a near object be CROPPED by the frame is also what the reference
+    // does - `alto-03`'s palms run off the top and both sides - so the fix and
+    // the look want the same thing.
+    // EDGE-ACCURATE. `w * laneGuard` is where the rock must STOP, so the
+    // rightmost centre on the left band is that minus the radius - with no
+    // `Math.max` floor under it. A floor lets a big shape overhang the guard,
+    // and the render that first grew these put a 130 px rock at cx 250 with its
+    // edge at 380, straight over a word plate: the capture reads "acon".
+    //
+    // When the radius exceeds the whole band the centre goes negative and the
+    // shape is simply cropped by the frame, which is what `alto-03` does with
+    // its palms and is the correct behaviour for a near-camera object.
+    const reach = w * o.laneGuard - radius;
     const cx =
       o.laneGuard <= 0
         ? radius + u * (w - radius * 2)
         : u < 0.5
-          ? radius + u * 2 * (w * o.laneGuard - radius * 2)
-          : w * (1 - o.laneGuard) + (u - 0.5) * 2 * (w * o.laneGuard - radius * 2) + radius;
+          ? -radius * 0.35 + u * 2 * (reach + radius * 0.35)
+          : w + radius * 0.35 - (u - 0.5) * 2 * (reach + radius * 0.35);
+    // (both branches are symmetric about the frame's centre line)
     const spin = o.rand() * Math.PI * 2;
     const shape = driftOutline(m.radii, cx, cy, radius, spin);
 

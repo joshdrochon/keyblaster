@@ -6,9 +6,11 @@ import {
   markStopCleared,
   nextStop,
   routeComplete,
+  litCount,
+  routeView,
   unlockedStops,
 } from "@engine/progress/index.js";
-import { STOP_IDS, type Profile, type StopProgress } from "@engine/types.js";
+import { STOP_IDS, type Profile, type StopId, type StopProgress } from "@engine/types.js";
 
 const at = (n: number) => ({ atMs: n });
 
@@ -127,5 +129,78 @@ describe("clearStopOnProfile", () => {
     expect(after.progress.find((p) => p.stopId === "earth")?.cleared).toBe(true);
     expect(after.name).toBe("Ada");
     expect(before.progress).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE CONTRADICTION BUG
+// ---------------------------------------------------------------------------
+
+/**
+ * "7 OF 7 BEACONS LIT" OVER SEVEN STOPS LABELLED "LOCKED".
+ *
+ * The Director map asked two different questions of the same array. Its header
+ * counted `isCharted`, which read `beaconPlacedAt`; its labels and discs read
+ * `unlockedStops`, which reads `cleared`. Two fields, two readers, no rule
+ * keeping them in step - so an entry missing one of them rendered a screen that
+ * told a child who had finished the game that it was locked.
+ *
+ * That is not only a fixture problem. `beaconPlacedAt !== null` is TRUE for an
+ * entry where the field is simply absent, so any record written by anything
+ * other than `markStopCleared` lights a lamp it has not earned. The rule is
+ * stated once here instead: a stop is charted when it is CLEARED and its beacon
+ * is placed, and `routeView` is the single derivation the map reads.
+ */
+describe("a charted stop can never be a locked stop", () => {
+  /** The shape `scripts/capture-screens.mjs` was passing: a legacy `charted` flag. */
+  const legacy = (stopId: StopId) =>
+    ({ stopId, charted: true, stars: 3, bestWpm: 26, bestAccuracy: 97 } as unknown as StopProgress);
+
+  it("does not light a beacon for an entry that was never cleared", () => {
+    const progress = STOP_IDS.map(legacy);
+    expect(isCharted(progress, "pluto")).toBe(false);
+    expect(STOP_IDS.filter((s) => isCharted(progress, s))).toHaveLength(0);
+  });
+
+  it("routeView never reports a stop as both lit and locked", () => {
+    for (const progress of [
+      STOP_IDS.map(legacy),
+      [] as StopProgress[],
+      markStopCleared([], "earth", at(1)),
+      STOP_IDS.reduce<StopProgress[]>((acc, id) => markStopCleared(acc, id, at(1)), []),
+    ]) {
+      for (const stop of routeView(progress)) {
+        expect(
+          stop.charted && stop.locked,
+          `${stop.stopId} was drawn lit and labelled locked`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("the lit count and the labels come from one derivation", () => {
+    const full = STOP_IDS.reduce<StopProgress[]>(
+      (acc, id) => markStopCleared(acc, id, at(1)),
+      [],
+    );
+    const view = routeView(full);
+    expect(view.filter((s) => s.charted)).toHaveLength(STOP_IDS.length);
+    expect(view.filter((s) => s.locked)).toHaveLength(0);
+    expect(litCount(full)).toBe(STOP_IDS.length);
+  });
+
+  it("mid-run: four lit, Uranus open, the rest locked", () => {
+    const mid = ["earth", "mars", "jupiter", "saturn"].reduce<StopProgress[]>(
+      (acc, id) => markStopCleared(acc, id as StopId, at(1)),
+      [],
+    );
+    const view = routeView(mid);
+    expect(litCount(mid)).toBe(4);
+    expect(view.filter((s) => s.locked).map((s) => s.stopId)).toEqual([
+      "neptune",
+      "pluto",
+    ]);
+    expect(view.find((s) => s.stopId === "uranus")?.locked).toBe(false);
+    expect(view.find((s) => s.stopId === "uranus")?.charted).toBe(false);
   });
 });

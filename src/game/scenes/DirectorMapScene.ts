@@ -11,19 +11,20 @@ import {
   createKeyboardMenu,
   label,
   plate,
+  skyText,
+  skyTextSamples,
   visibleText,
   type FocusTarget,
   type KeyboardMenu,
   type SceneSnapshot,
   type Snapshotable,
 } from "./lib/kit";
+import { litCount, routeView, type StopView } from "@engine/progress/index.js";
 import { hasStageBundle, stageBundle } from "./lib/content";
 import {
   goTo,
-  isCharted,
   progressFor,
   resolveInit,
-  unlockedStops,
   withStoredProgress,
   type ResolvedInit,
   type StoryInit,
@@ -59,6 +60,15 @@ const PANEL = { x: 200, y: 700, w: GAME_WIDTH - 400, h: 250 };
 const CHIP = { w: 262, h: 66, y: 74, gap: 22 };
 const BLINK_PERIOD_MS = 2600;
 const BLINK_STAGGER = 0.085;
+/**
+ * How far the lamp floats above the planet's limb.
+ *
+ * It was 38 px above a 46 px disc, plus a 34 px halo, which put a bright ring
+ * in open sky with a hairline connecting it to a planet 38 px below - it read
+ * as a separate object, not as this stop's beacon. 16 px puts the halo's lower
+ * edge inside the disc, so the lamp is unmistakably ON the world it marks.
+ */
+const LAMP_RISE = 16;
 
 interface NodeView {
   readonly stopId: StopId;
@@ -76,7 +86,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   private menu!: KeyboardMenu;
   private nodes: NodeView[] = [];
   private routeG!: Phaser.GameObjects.Graphics;
-  private open!: ReadonlySet<StopId>;
+  /** The single route derivation every part of this screen draws from. */
+  private view: readonly StopView[] = [];
   private panelTitle!: Phaser.GameObjects.Text;
   private panelChapter!: Phaser.GameObjects.Text;
   private panelBoard!: Phaser.GameObjects.Text;
@@ -110,7 +121,6 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   create(): void {
     const { text, ctx, progress } = this.story;
     ensureTextures(this);
-    this.open = unlockedStops(progress, STOP_IDS);
     this.cameras.main.setBackgroundColor(INK.bgDeep);
 
     // The chart's own sky: Earth's night palette, no planet framing and no
@@ -124,25 +134,53 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       seed: 0x0d13,
     });
 
-    const litCount = STOP_IDS.filter((s) => isCharted(progress, s)).length;
+    // ONE DERIVATION FOR THE WHOLE SCREEN (D13, engine/progress `routeView`).
+    //
+    // The header used to count `isCharted` while the labels and discs read
+    // `unlockedStops`. Two readers, two fields, and a capture that said
+    // "7 of 7 beacons lit" over seven stops labelled "Locked". Everything
+    // below - count, disc, label, lamp, route line, focus - now reads this one
+    // array, so the header and the label under a planet cannot disagree.
+    this.view = routeView(progress, STOP_IDS);
+    const lit = litCount(progress);
 
-    label(this, 96, 68, text.text("map.heading"), {
+    // THE HEADER SITS ON A PLATE (AC-22.8). Sky-borne chrome was the one place
+    // the contrast rubric never looked, and five screens shipped at 1.2-1.7:1.
+    skyText(this, 96, 68, text.text("map.heading"), {
+      screen: "map",
+      id: "map.heading",
       size: TYPE.heading,
       color: INK.text,
       lang: this.story.lang,
-    }).setDepth(10);
-    label(this, 98, 132, text.text("map.subheading"), {
+      depth: 10,
+      padY: 14,
+    });
+    skyText(this, 98, 138, text.text("map.subheading"), {
+      screen: "map",
+      id: "map.subheading",
       size: TYPE.caption,
-      color: INK.textFaint,
+      // `textFaint` measures 3.4:1 even on the plate, so the subheading is
+      // `textDim` and the hierarchy is carried by SIZE instead of by dimness.
+      color: INK.textDim,
       lang: this.story.lang,
-    }).setDepth(10);
-    label(
+      depth: 10,
+      padY: 8,
+    });
+    skyText(
       this,
       96,
-      170,
-      text.text("map.progress", { lit: litCount, total: STOP_IDS.length }),
-      { size: TYPE.caption, color: INK.lit, lang: this.story.lang },
-    ).setDepth(10);
+      186,
+      text.text("map.progress", { lit, total: STOP_IDS.length }),
+      {
+        screen: "map",
+        id: "map.progress",
+        size: TYPE.caption,
+        color: INK.lit,
+        lang: this.story.lang,
+        depth: 10,
+        padY: 8,
+      },
+    );
 
     this.routeG = this.add.graphics().setDepth(3);
     this.buildNodes();
@@ -156,7 +194,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     }).setDepth(10);
     this.panelChapter = label(this, PANEL.x + 42, PANEL.y + 96, "", {
       size: TYPE.caption,
-      color: INK.textFaint,
+      color: INK.textDim,
       lang: this.story.lang,
     }).setDepth(10);
     this.panelBoard = label(this, PANEL.x + 42, PANEL.y + 146, "", {
@@ -174,14 +212,17 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       .setOrigin(1, 0)
       .setDepth(10);
 
-    label(this, GAME_WIDTH / 2, GAME_HEIGHT - 52, text.text("map.hint"), {
+    skyText(this, GAME_WIDTH / 2, GAME_HEIGHT - 66, text.text("map.hint"), {
+      screen: "map",
+      id: "map.hint",
       size: TYPE.caption,
-      color: INK.textFaint,
+      color: INK.textDim,
       align: "center",
       lang: this.story.lang,
-    })
-      .setOrigin(0.5)
-      .setDepth(10);
+      depth: 10,
+      originX: 0.5,
+      padY: 8,
+    });
 
     this.shadow = drawShadow(this, GAME_WIDTH - 150, GAME_HEIGHT - 190, "idle", {
       scale: 0.8,
@@ -254,11 +295,10 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     const { progress, ctx } = this.story;
     const step = (ROUTE_X1 - ROUTE_X0) / (STOP_IDS.length - 1);
 
-    STOP_IDS.forEach((stopId, i) => {
+    this.view.forEach((stop, i) => {
+      const { stopId, charted, locked } = stop;
       const x = ROUTE_X0 + step * i;
       const pal = paletteAt(stopId, ctx.colorblindPalette);
-      const charted = isCharted(progress, stopId);
-      const locked = !this.open.has(stopId);
       const entry = progressFor(progress, stopId);
 
       // The planet disc. A locked stop keeps its silhouette and loses its
@@ -284,33 +324,49 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
 
       const beacon = this.add.graphics().setDepth(6);
 
-      label(this, x, ROUTE_Y + NODE_R + 34, this.stopName(stopId), {
-        size: TYPE.label,
-        color: locked ? INK.locked : INK.text,
-        align: "center",
-        lang: this.story.lang,
-      })
-        .setOrigin(0.5, 0)
-        .setDepth(7);
-
-      if (locked) {
-        label(this, x, ROUTE_Y + NODE_R + 74, this.story.text.text("map.locked"), {
-          size: TYPE.caption,
-          color: INK.locked,
+      // THE CAPTION IS ONE BLOCK ON ONE PLATE, and its words come from the
+      // same `routeView` entry as the disc above it.
+      //
+      // Both lines used to be INK.locked - the dimmest ink in the theme - on
+      // open chart sky, measured at 1.4:1. A child aged seven cannot read that,
+      // and "Locked" was the word they could not read under a lamp that said
+      // they had finished. "Not yet" is still said by the DIMMER of two legible
+      // inks, never by an illegible one (D31: not-yet, never denied).
+      const status = locked
+        ? this.story.text.text("map.locked")
+        : charted
+          ? this.story.text.text("map.charted")
+          : "";
+      skyText(
+        this,
+        x,
+        ROUTE_Y + NODE_R + 26,
+        status === "" ? this.stopName(stopId) : `${this.stopName(stopId)}\n${status}`,
+        {
+          screen: "map",
+          id: `map.stop.${stopId}`,
+          size: TYPE.label,
+          color: locked ? INK.textDim : INK.text,
           align: "center",
           lang: this.story.lang,
-        })
-          .setOrigin(0.5, 0)
-          .setDepth(7);
-      } else if (charted && isBeltStop(stopId)) {
+          depth: 7,
+          originX: 0.5,
+          padX: 16,
+          padY: 8,
+        },
+      );
+
+      if (!locked && charted && isBeltStop(stopId)) {
         // D27: each charted stop shows its star rating, right on the map.
         // Earth is exempt by construction: it has no belt, so it has no hull
         // hits and therefore no rating (types.ts, BELT_STOP_IDS). Drawing three
         // empty stars under Earth would invent a nought out of nothing.
+        // BELOW the caption plate, not through it. The plate is two lines of
+        // TYPE.label plus padding - about 78px - so the stars start after it.
         this.drawStars(
           this.add.graphics().setDepth(7),
           x,
-          ROUTE_Y + NODE_R + 82,
+          ROUTE_Y + NODE_R + 116,
           14,
           entry.stars,
           pal.accent,
@@ -339,7 +395,11 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
         g.fillStyle(hexToNum(accent), 1);
         fillShape(g, pts);
       } else {
-        g.lineStyle(2, hexToNum(INK.locked), 1);
+        // The empty star is an OUTLINE on open sky, so it is drawn in the same
+        // dim-but-legible ink as the "not yet" caption rather than in
+        // INK.locked, which disappears into the chart at 1.6:1. Three stars a
+        // child cannot count is a rating that does not exist.
+        g.lineStyle(2, hexToNum(INK.textDim), 0.75);
         g.beginPath();
         pts.forEach((p, idx) => (idx === 0 ? g.moveTo(p.x, p.y) : g.lineTo(p.x, p.y)));
         g.closePath();
@@ -364,7 +424,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     const { text, progress } = this.story;
     const entry: StopProgress = progressFor(progress, stop);
     const bundle = hasStageBundle(stop) ? stageBundle(stop) : null;
-    const locked = !this.open.has(stop);
+    const locked = this.view.find((v) => v.stopId === stop)?.locked ?? true;
 
     this.panelTitle.setText(this.stopName(stop));
     this.panelChapter.setText(bundle?.chapterTitle ?? "");
@@ -395,7 +455,9 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     this.panelAction.setText(
       locked ? text.text("map.locked") : text.text("map.travel"),
     );
-    this.panelAction.setColor(locked ? INK.locked : INK.accent);
+    // The board is a plate, but INK.locked on INK.panel is 1.6:1 - the same
+    // failure as the map labels, indoors. `textDim` is 7.9:1 on the panel.
+    this.panelAction.setColor(locked ? INK.textDim : INK.accent);
   }
 
   private travel(node: NodeView): void {
@@ -476,10 +538,10 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     // Sharp attack, long decay: a lighthouse, not a sine.
     const strength = phase < 0.12 ? phase / 0.12 : Math.max(0, 1 - (phase - 0.12) / 0.88) ** 2;
     const lx = node.x;
-    const ly = ROUTE_Y - NODE_R - 38;
+    const ly = ROUTE_Y - NODE_R - LAMP_RISE;
     const c = hexToNum(node.accent);
     g.lineStyle(3, c, 0.8);
-    g.lineBetween(lx, ROUTE_Y - NODE_R + 4, lx, ly + 8);
+    g.lineBetween(lx, ROUTE_Y - NODE_R + 14, lx, ly + 6);
     g.fillStyle(c, 0.1 + 0.22 * strength);
     g.fillCircle(lx, ly, 34 + 16 * strength);
     g.fillStyle(c, 0.35 + 0.45 * strength);
@@ -495,6 +557,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       focusIndex: this.menu.index,
       focusId: this.menu.targets[this.menu.index]?.id ?? null,
       litCount: this.nodes.filter((n) => n.charted).length,
+      skyText: skyTextSamples(this),
       starGlyphs: this.starGlyphs,
       entryPoints: this.menu.targets
         .map((t) => t.id)

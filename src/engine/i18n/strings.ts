@@ -25,30 +25,30 @@ import type { Lang } from "../types.js";
 /** English is the source table; every other language is typed against it. */
 export const EN = {
   "title.tagline": "Light the way home.",
-  "title.play": "Play",
-  "title.settings": "Settings",
-  "title.beaconLog": "Beacon Log",
+  "title.play": "play",
+  "title.settings": "settings",
+  "title.beaconLog": "beacon log",
 
   "profile.heading": "Who is flying today?",
-  "profile.pilotName": "Pilot name",
-  "profile.chooseShip": "Choose your ship",
-  "profile.nameShip": "Name your ship",
+  "profile.pilotName": "pilot name",
+  "profile.chooseShip": "choose your ship",
+  "profile.nameShip": "name your ship",
   "profile.shipNameDefault": "Lantern",
 
-  "map.heading": "Route to Pluto",
-  "map.locked": "Locked",
+  "map.heading": "route to Pluto",
+  "map.locked": "locked",
   "map.stars": "{stars} of 3 stars",
 
   "briefing.shipReady": "The {shipName} is fuelled and ready.",
-  "briefing.start": "Launch",
+  "briefing.start": "launch",
 
-  "preflight.heading": "Warm up your hands",
+  "preflight.heading": "warm up your hands",
   "preflight.prompt": "Type the words you see.",
 
-  "flight.hull": "Hull",
+  "flight.hull": "hull",
   "flight.wpm": "{wpm} words per minute",
 
-  "warp.heading": "Warp break",
+  "warp.heading": "warp break",
   "warp.prompt": "Type the sentence to charge the warp drive.",
   /*
    * D30. The break is the most important five seconds in the game and it used
@@ -65,16 +65,16 @@ export const EN = {
 
   "results.accuracy": "Accuracy {accuracy}%",
   "results.shipIntact": "The {shipName} came through without a scratch.",
-  "results.continue": "Continue",
+  "results.continue": "continue",
 
-  "settings.uiLang": "Menu language",
-  "settings.contentLang": "Typing language",
-  "settings.inputMethod": "How you type Hindi",
+  "settings.uiLang": "menu language",
+  "settings.contentLang": "typing language",
+  "settings.inputMethod": "how you type Hindi",
   "settings.inputMethodTranslit": "Roman letters (type ghar for घर)",
   "settings.inputMethodInscript": "Devanagari keyboard",
   "settings.contentLangUnavailable": "Pick a Hindi keyboard to type in Hindi.",
 
-  "common.back": "Back",
+  "common.back": "back",
 } as const;
 
 /** Every UI string the engine knows about. */
@@ -90,31 +90,31 @@ export const STRING_KEYS: readonly StringKey[] = Object.keys(
  */
 export const ES: Record<StringKey, string> = {
   "title.tagline": "Ilumina el camino a casa.",
-  "title.play": "Jugar",
-  "title.settings": "Ajustes",
-  "title.beaconLog": "Registro de balizas",
+  "title.play": "jugar",
+  "title.settings": "ajustes",
+  "title.beaconLog": "registro de balizas",
 
   "profile.heading": "¿Quién vuela hoy?",
-  "profile.pilotName": "Nombre del piloto",
-  "profile.chooseShip": "Elige tu nave",
-  "profile.nameShip": "Ponle nombre a tu nave",
+  "profile.pilotName": "nombre del piloto",
+  "profile.chooseShip": "elige tu nave",
+  "profile.nameShip": "ponle nombre a tu nave",
   // Proper name: not translated, only defaulted (C07).
   "profile.shipNameDefault": "Lantern",
 
-  "map.heading": "Ruta a Plutón",
-  "map.locked": "Bloqueado",
+  "map.heading": "ruta a Plutón",
+  "map.locked": "bloqueado",
   "map.stars": "{stars} de 3 estrellas",
 
   "briefing.shipReady": "La {shipName} está cargada y lista.",
-  "briefing.start": "Despegar",
+  "briefing.start": "despegar",
 
-  "preflight.heading": "Calienta las manos",
+  "preflight.heading": "calienta las manos",
   "preflight.prompt": "Escribe las palabras que ves.",
 
-  "flight.hull": "Casco",
+  "flight.hull": "casco",
   "flight.wpm": "{wpm} palabras por minuto",
 
-  "warp.heading": "Pausa de salto",
+  "warp.heading": "pausa de salto",
   "warp.prompt": "Escribe la frase para cargar el motor de salto.",
   "warp.beltCleared": "Cinturón limpio. Escribe para cargar el motor de salto.",
   "warp.nextStop": "Destino: {stop}.",
@@ -125,17 +125,17 @@ export const ES: Record<StringKey, string> = {
 
   "results.accuracy": "Precisión {accuracy}%",
   "results.shipIntact": "La {shipName} llegó sin un solo rasguño.",
-  "results.continue": "Continuar",
+  "results.continue": "continuar",
 
-  "settings.uiLang": "Idioma del menú",
-  "settings.contentLang": "Idioma de escritura",
-  "settings.inputMethod": "Cómo escribes en hindi",
-  "settings.inputMethodTranslit": "Letras latinas (escribe ghar para घर)",
-  "settings.inputMethodInscript": "Teclado devanagari",
+  "settings.uiLang": "idioma del menú",
+  "settings.contentLang": "idioma de escritura",
+  "settings.inputMethod": "cómo escribes en hindi",
+  "settings.inputMethodTranslit": "letras latinas (escribe ghar para घर)",
+  "settings.inputMethodInscript": "teclado devanagari",
   "settings.contentLangUnavailable":
     "Elige un teclado de hindi para escribir en hindi.",
 
-  "common.back": "Atrás",
+  "common.back": "atrás",
 };
 
 /**

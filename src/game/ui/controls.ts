@@ -248,9 +248,23 @@ export class MenuButton extends Control {
     this.onPress();
   }
 
+  /**
+   * FOCUS IS CARRIED BY THE RING AND THE PLATE, NEVER BY DIMMING THE WORD.
+   *
+   * The pause menu shipped with "settings" and "quit to map" in `textDim` beside
+   * a white "back to the belt", and two of the three things a paused child can
+   * do read as DISABLED. They are not disabled. Greying is the one visual
+   * convention that means "this will not work", and spending it on "this is not
+   * the item under the cursor" leaves nothing to say the real thing with.
+   *
+   * So an unfocused button is the same ink as a focused one, and the state is
+   * carried by the accent ring, the raised plate and the 1.5% pop. A genuinely
+   * LOCKED button is the one that dims - to `textDim`, which is still 9:1 on
+   * the plate, because a locked control is meant to be read and wanted (D73).
+   */
   protected redraw(): void {
     this.paintPlate();
-    this.text.setColor(this.focused ? INK.text : INK.textDim);
+    this.text.setColor(this.locked ? INK.textDim : INK.text);
   }
 
   toMirror(): MirrorItem {
@@ -355,7 +369,8 @@ export class ListRow extends Control {
         this.boxH / 2,
       );
       this.container.add(glyph);
-      if (this.locked) glyph.setAlpha(0.3);
+      // Dim, not erased: an unlit beacon is the same silhouette a step down.
+      if (this.locked) glyph.setAlpha(0.62);
     }
     this.container.add(this.title);
     if (this.detail) this.container.add(this.detail);
@@ -366,12 +381,17 @@ export class ListRow extends Control {
     this.onPress?.();
   }
 
+  /**
+   * A LOCKED ROW IS DIM, NOT INVISIBLE (D73, AC-22.8). `INK.locked` (#3A4656)
+   * measures 1.6:1 on the row plate: "pluto / not lit yet" and every unearned
+   * trophy's criterion were drawn in an ink a child cannot read, which is the
+   * opposite of what a locked row is for. Locked now means `textDim` - 9:1,
+   * clearly a step below the white of an open row, and still a sentence.
+   */
   protected redraw(): void {
     this.paintPlate();
-    this.title.setColor(
-      this.locked ? INK.locked : this.focused ? INK.text : INK.textDim,
-    );
-    this.detail?.setColor(this.locked ? INK.locked : INK.textDim);
+    this.title.setColor(this.locked ? INK.textDim : INK.text);
+    this.detail?.setColor(INK.textDim);
   }
 
   toMirror(): MirrorItem {
@@ -401,6 +421,15 @@ export interface TileOptions {
     x: number,
     y: number,
   ) => Phaser.GameObjects.Container;
+  /**
+   * Where the drawn thing sits. "top" is the gallery tile - a ship or a pilot
+   * mark is the SUBJECT and the name is its caption. "left" is the record card:
+   * a small mark identifying a line of text that is itself the subject, which
+   * is what a trophy's criterion is. It also costs a third of the height, and
+   * twelve trophies over four rows is the block on the Beacon Log that runs out
+   * of room first.
+   */
+  readonly glyphSide?: "top" | "left";
 }
 
 /**
@@ -437,10 +466,17 @@ export class Tile extends Control {
     this.onPress = options.onPress;
     this.boxW = options.width;
 
-    const inner = options.width - SPACE.rowPadX * 2;
-    this.title = uiText(scene, SPACE.rowPadX, 0, options.label, {
+    const side = options.glyphSide ?? "top";
+    const textLeft =
+      side === "left"
+        ? SPACE.rowPadX + options.glyphHeight + SPACE.gap * 0.7
+        : SPACE.rowPadX;
+    const inner = options.width - textLeft - SPACE.rowPadX;
+    const align = side === "left" ? "left" : "center";
+
+    this.title = uiText(scene, textLeft, 0, options.label, {
       size: TYPE.label,
-      align: "center",
+      align,
       lang: style.lang,
       uppercase: style.uppercase,
       increasedLetterSpacing: style.increasedLetterSpacing,
@@ -449,41 +485,54 @@ export class Tile extends Control {
     this.detail =
       options.detail === undefined
         ? null
-        : uiText(scene, SPACE.rowPadX, 0, options.detail, {
+        : uiText(scene, textLeft, 0, options.detail, {
             size: TYPE.caption,
             color: INK.textDim,
-            align: "center",
+            align,
             lang: style.lang,
             uppercase: style.uppercase,
             increasedLetterSpacing: style.increasedLetterSpacing,
             wrapWidth: inner,
           });
 
-    const glyphTop = SPACE.rowPadY;
-    const textTop = glyphTop + options.glyphHeight + SPACE.gap;
-    this.title.setY(textTop);
-    this.detail?.setY(textTop + this.title.height + 6);
-    this.boxH =
-      textTop +
-      this.title.height +
-      (this.detail ? this.detail.height + 6 : 0) +
-      SPACE.rowPadY;
+    const textH =
+      this.title.height + (this.detail ? this.detail.height + 6 : 0);
 
-    this.title.setX(
-      Math.round(SPACE.rowPadX + (inner - this.title.width) / 2),
-    );
-    if (this.detail) {
-      this.detail.setX(
-        Math.round(SPACE.rowPadX + (inner - this.detail.width) / 2),
-      );
+    if (side === "left") {
+      // The card is as tall as whichever half is taller, and the mark is
+      // centred against the text rather than the other way round.
+      this.boxH = SPACE.rowPadY * 2 + Math.max(options.glyphHeight, textH);
+      const top = Math.round((this.boxH - textH) / 2);
+      this.title.setY(top);
+      this.detail?.setY(top + this.title.height + 6);
+    } else {
+      const glyphTop = SPACE.rowPadY;
+      const textTop = glyphTop + options.glyphHeight + SPACE.gap;
+      this.title.setY(textTop);
+      this.detail?.setY(textTop + this.title.height + 6);
+      this.boxH = textTop + textH + SPACE.rowPadY;
+      this.title.setX(Math.round(textLeft + (inner - this.title.width) / 2));
+      if (this.detail) {
+        this.detail.setX(Math.round(textLeft + (inner - this.detail.width) / 2));
+      }
     }
 
-    const glyph = options.glyph(
-      scene,
-      options.width / 2,
-      glyphTop + options.glyphHeight / 2,
-    );
-    if (this.locked) glyph.setAlpha(0.3);
+    const glyph =
+      side === "left"
+        ? options.glyph(
+            scene,
+            SPACE.rowPadX + options.glyphHeight / 2,
+            this.boxH / 2,
+          )
+        : options.glyph(
+            scene,
+            options.width / 2,
+            SPACE.rowPadY + options.glyphHeight / 2,
+          );
+    // 0.3 put a locked mark at about a tenth of its ink once the glyph's own
+    // dimming was counted too, which is how twelve trophies became twelve
+    // smudges. A locked tile is DIM AND STILL A PICTURE (D73).
+    if (this.locked) glyph.setAlpha(0.62);
     this.container.add(glyph);
     this.container.add(this.title);
     if (this.detail) this.container.add(this.detail);
@@ -507,9 +556,9 @@ export class Tile extends Control {
 
   protected redraw(): void {
     this.paintPlate();
-    this.title.setColor(
-      this.locked ? INK.locked : this.focused ? INK.text : INK.textDim,
-    );
+    // Same rule as ListRow: locked is a step dimmer, never below 4.5:1. An
+    // unearned trophy's name is the invitation; it has to be readable.
+    this.title.setColor(this.locked ? INK.textDim : INK.text);
     if (this.selected && !this.locked) {
       // Selection is a filled bar under the tile, not a colour swap: it still
       // reads desaturated (rubric 4) and under the colourblind palette.
@@ -918,7 +967,9 @@ export class OptionRow<T extends string> extends Control {
     this.paintPlate();
     this.title.setColor(this.focused ? INK.text : INK.textDim);
     const y = SPACE.rowPadY + Math.max(this.title.height, this.readout.height) / 2;
-    const chevron = this.focused ? hexToNum(this.style.accent) : hexToNum(INK.textFaint);
+    const chevron = this.focused
+      ? hexToNum(this.style.accent)
+      : hexToNum(INK.textDim);
     this.g.fillStyle(chevron, 1);
     const rx = this.boxW - SPACE.rowPadX - 18;
     this.g.fillTriangle(rx, y - 9, rx + 11, y, rx, y + 9);
@@ -1034,7 +1085,7 @@ export class TextField extends Control {
   private setValue(next: string): void {
     this.value = next;
     this.entry.setText(next === "" ? this.placeholder : next);
-    this.entry.setColor(next === "" ? INK.textFaint : INK.text);
+    this.entry.setColor(next === "" ? INK.textDim : INK.text);
     this.redraw();
     this.onChange(next);
   }
@@ -1042,7 +1093,9 @@ export class TextField extends Control {
   protected redraw(): void {
     this.paintPlate();
     if (this.entry) {
-      this.entry.setColor(this.value === "" ? INK.textFaint : INK.text);
+      // A placeholder is copy a child reads before they type over it, so it
+      // clears the same 4.5:1 bar as everything else (AC-22.8).
+      this.entry.setColor(this.value === "" ? INK.textDim : INK.text);
     }
     if (!this.focused) {
       this.caret?.destroy();

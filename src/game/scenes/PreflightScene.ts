@@ -20,7 +20,15 @@ import { DEFAULT_CALIBRATION, STOP_IDS, type Calibration } from "@engine/types";
 import { label, plate, visibleText, type SceneSnapshot, type Snapshotable } from "./lib/kit";
 import { createWordPrompt, type WordPrompt } from "./lib/typedWord";
 import { ritualPool, stageBundle } from "./lib/content";
-import { goTo, resolveInit, type ResolvedInit, type StoryInit } from "./lib/init";
+import {
+  goTo,
+  persistCalibration,
+  profileNeedsCalibration,
+  resolveInit,
+  storedCalibration,
+  type ResolvedInit,
+  type StoryInit,
+} from "./lib/init";
 import type { SceneStringKey } from "./lib/strings";
 import { audioFrom } from "@game/audio/wiring";
 
@@ -138,8 +146,26 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     const stopId = this.story.stopId;
     const pal = paletteAt(stopId, ctx.colorblindPalette);
 
-    // D51/AC-11.2: only a profile that has never been measured is measured.
-    this.plan = this.story.newProfile
+    // D51/AC-11.2: only a profile that has never been measured is measured -
+    // and "never been measured" is now asked of the PROFILE.
+    //
+    // THIS LINE USED TO READ `this.story.newProfile`, AND THAT FLAG IS NEVER
+    // SET. Title, ProfilePicker, ProfileCreate, the map and the briefing all
+    // pass `false` (the briefing forwards what it was given, which is `false`),
+    // so `calibrating` was false for every child who ever played, the ritual
+    // never ran once, and `calibration.ikiMs` stayed on FR-8's 350 ms default
+    // for ever. Fall time is set from that number, so a grade-2 typist at
+    // 600 ms between keys was handed a belt tuned for a child who types nearly
+    // twice as fast: every cold word breached. See `scenes/lib/init.ts`.
+    //
+    // `needsCalibration` is the engine's own predicate for the same question
+    // (no typing history AND the untouched default baseline), so a returning
+    // pilot is still skipped and still gets the costume with nothing underneath.
+    // The payload flag is kept as an OVERRIDE so a harness can mount the ritual
+    // deliberately; it is no longer what the real game depends on.
+    this.calibration = storedCalibration(this) ?? this.story.calibration;
+    const wantsRitual = this.story.newProfile || profileNeedsCalibration(this);
+    this.plan = wantsRitual
       ? planRitual(ritualPool(stopId), rng(0x51_7a1 + STOP_IDS.indexOf(stopId) * 977))
       : null;
     this.calibrating = this.plan !== null;
@@ -408,6 +434,12 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     if (this.calibrating) {
       this.calibration = computeCalibration(this.played).calibration;
     }
+    // AC-11.1 "stored on the profile". The ritual's answer used to travel to
+    // Flight as scene data and nowhere else, so it was gone by the next stop
+    // and gone entirely on reload - the twenty seconds bought one stage at
+    // most. Written for the returning case too: `storedCalibration` may have
+    // rebuilt a baseline from history (D51), and that is worth keeping.
+    persistCalibration(this, this.calibration);
     this.say("preflight.line.done", "saluting");
     this.tweens.add({
       targets: this.readyText,

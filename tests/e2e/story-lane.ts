@@ -77,6 +77,16 @@ export const PROGRESS_VARIANTS = {
 declare global {
   interface Window {
     __kb?: {
+      services?: {
+        store?: {
+          activeProfile(): { id: string; calibration: StoredCalibration } | null;
+          updateProfile(
+            id: string,
+            update: (p: { id: string; calibration: StoredCalibration }) => unknown,
+          ): unknown;
+          flush(): unknown;
+        };
+      };
       game: {
         scene: {
           getScene(key: string): unknown;
@@ -172,6 +182,52 @@ export async function typeWord(page: Page, word: string, delayMs = 24): Promise<
     await page.keyboard.press(ch);
     await page.waitForTimeout(delayMs);
   }
+}
+
+/**
+ * What the PROFILE says about this pilot's hands (D51, FR-8).
+ *
+ * The pre-flight ritual is no longer gated on a payload flag - nothing in the
+ * game ever set one - but on whether the stored profile has ever been measured
+ * (`scenes/lib/init.profileNeedsCalibration`). So "a returning pilot" is a
+ * state of the store, and a spec that wants one has to put it there.
+ */
+export interface StoredCalibration {
+  ikiMs: number;
+  fkLatencyMs: number;
+}
+
+export async function setStoredCalibration(
+  page: Page,
+  calibration: StoredCalibration,
+): Promise<void> {
+  await page.evaluate((cal) => {
+    const store = window.__kb?.services?.store;
+    const profile = store?.activeProfile();
+    if (store === undefined || profile === null || profile === undefined) return;
+    store.updateProfile(profile.id, (p) => ({ ...p, calibration: { ...cal } }));
+    store.flush();
+  }, calibration);
+}
+
+export async function storedCalibration(page: Page): Promise<StoredCalibration | null> {
+  return page.evaluate(
+    () => window.__kb?.services?.store?.activeProfile()?.calibration ?? null,
+  );
+}
+
+/** Rebuild a mounted scene with fresh data, without re-booting the page. */
+export async function remount(page: Page, key: string, data: StoryData = {}): Promise<void> {
+  await page.evaluate(
+    ({ k, d }) => {
+      const scene = window.__kb?.game.scene.getScene(k) as
+        | { scene: { restart(data: unknown): void } }
+        | null;
+      scene?.scene.restart(d);
+    },
+    { k: key, d: data },
+  );
+  await waitForSnapshot(page, key);
 }
 
 export async function transitions(page: Page): Promise<string[]> {

@@ -124,11 +124,46 @@ export const AVATARS: readonly { id: string; nameKey: MenuKey }[] = [
   { id: "avatar-6", nameKey: "ui.avatar.avatar-6" },
 ];
 
+/**
+ * The twelve trophy marks, as ids rather than as draw functions, so this file
+ * stays presentation DATA and `chrome.ts` stays the only place that knows how
+ * to hold a pen. `chrome.drawTrophy` switches on one of these.
+ *
+ * WHY THERE ARE TWELVE OF THEM. The Beacon Log shipped with one generic mark
+ * repeated twelve times at ~10% alpha: twelve identical icons carry exactly as
+ * much information as no icons, and at that alpha they were barely on the
+ * screen at all. An unearned trophy is an INVITATION (D31/D74), so it has to be
+ * a picture of the thing being offered - the belt you cross, the ring you
+ * weave, the eye you need - and it has to be visible while it is still unlit.
+ *
+ * Each is a SILHOUETTE, not a colour variant, so the set survives the
+ * colourblind palette and a desaturated screenshot (D41), and every one of them
+ * is drawn in code (D83).
+ */
+export const TROPHY_GLYPH_IDS = [
+  "beacon",
+  "path",
+  "belt",
+  "ring",
+  "chain",
+  "chainLong",
+  "eye",
+  "hull",
+  "spool",
+  "map",
+  "eclipse",
+  "lamp",
+] as const;
+
+export type TrophyGlyphId = (typeof TROPHY_GLYPH_IDS)[number];
+
 export interface TrophyDef {
   readonly id: string;
   readonly nameKey: MenuKey;
   /** What earns it, shown whether or not it is earned. */
   readonly howKey: MenuKey;
+  /** Its own mark. No two trophies share one. */
+  readonly glyph: TrophyGlyphId;
 }
 
 /**
@@ -143,18 +178,18 @@ export interface TrophyDef {
  * ("not yet") rather than an absence.
  */
 export const TROPHIES: readonly TrophyDef[] = [
-  { id: "firstLight", nameKey: "ui.trophy.firstLight", howKey: "ui.trophy.firstLight.how" },
-  { id: "pathfinder", nameKey: "ui.trophy.pathfinder", howKey: "ui.trophy.pathfinder.how" },
-  { id: "beltRunner", nameKey: "ui.trophy.beltRunner", howKey: "ui.trophy.beltRunner.how" },
-  { id: "ringWeaver", nameKey: "ui.trophy.ringWeaver", howKey: "ui.trophy.ringWeaver.how" },
-  { id: "chain25", nameKey: "ui.trophy.chain25", howKey: "ui.trophy.chain25.how" },
-  { id: "chain50", nameKey: "ui.trophy.chain50", howKey: "ui.trophy.chain50.how" },
-  { id: "sharpEye", nameKey: "ui.trophy.sharpEye", howKey: "ui.trophy.sharpEye.how" },
-  { id: "steadyHull", nameKey: "ui.trophy.steadyHull", howKey: "ui.trophy.steadyHull.how" },
-  { id: "longMemory", nameKey: "ui.trophy.longMemory", howKey: "ui.trophy.longMemory.how" },
-  { id: "mapMaker", nameKey: "ui.trophy.mapMaker", howKey: "ui.trophy.mapMaker.how" },
-  { id: "darkSide", nameKey: "ui.trophy.darkSide", howKey: "ui.trophy.darkSide.how" },
-  { id: "lastLight", nameKey: "ui.trophy.lastLight", howKey: "ui.trophy.lastLight.how" },
+  { id: "firstLight", nameKey: "ui.trophy.firstLight", howKey: "ui.trophy.firstLight.how", glyph: "beacon" },
+  { id: "pathfinder", nameKey: "ui.trophy.pathfinder", howKey: "ui.trophy.pathfinder.how", glyph: "path" },
+  { id: "beltRunner", nameKey: "ui.trophy.beltRunner", howKey: "ui.trophy.beltRunner.how", glyph: "belt" },
+  { id: "ringWeaver", nameKey: "ui.trophy.ringWeaver", howKey: "ui.trophy.ringWeaver.how", glyph: "ring" },
+  { id: "chain25", nameKey: "ui.trophy.chain25", howKey: "ui.trophy.chain25.how", glyph: "chain" },
+  { id: "chain50", nameKey: "ui.trophy.chain50", howKey: "ui.trophy.chain50.how", glyph: "chainLong" },
+  { id: "sharpEye", nameKey: "ui.trophy.sharpEye", howKey: "ui.trophy.sharpEye.how", glyph: "eye" },
+  { id: "steadyHull", nameKey: "ui.trophy.steadyHull", howKey: "ui.trophy.steadyHull.how", glyph: "hull" },
+  { id: "longMemory", nameKey: "ui.trophy.longMemory", howKey: "ui.trophy.longMemory.how", glyph: "spool" },
+  { id: "mapMaker", nameKey: "ui.trophy.mapMaker", howKey: "ui.trophy.mapMaker.how", glyph: "map" },
+  { id: "darkSide", nameKey: "ui.trophy.darkSide", howKey: "ui.trophy.darkSide.how", glyph: "eclipse" },
+  { id: "lastLight", nameKey: "ui.trophy.lastLight", howKey: "ui.trophy.lastLight.how", glyph: "lamp" },
 ];
 
 export function shipDef(id: string): ShipDef {

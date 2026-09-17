@@ -20,7 +20,17 @@ import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import { DUR, INK, TYPE } from "@game/ui/theme";
 import { hasStageBundle, stageBundle } from "./lib/content";
 import { goTo, type StoryInit } from "./lib/init";
-import { label, plate, createFocusRing, visibleText, type FocusRing, type SceneSnapshot } from "./lib/kit";
+import {
+  label,
+  plate,
+  createFocusRing,
+  skyText,
+  skyTextSamples,
+  visibleText,
+  type FocusRing,
+  type PlatedText,
+  type SceneSnapshot,
+} from "./lib/kit";
 import {
   laneInit,
   latchOnRender,
@@ -162,7 +172,10 @@ export class WarpScene extends Phaser.Scene {
   private letters: Phaser.GameObjects.Text[] = [];
   private meterFill!: Phaser.GameObjects.Graphics;
   private percentLabel!: Phaser.GameObjects.Text;
+  /** The plated wrapper, so the plate is re-cut when the number changes width. */
+  private percentPlated!: PlatedText;
   private chargedLabel!: Phaser.GameObjects.Text;
+  private chargedPlate: Phaser.GameObjects.Graphics | null = null;
   private noteText!: Phaser.GameObjects.Text;
 
   private coachResult: CoachResult | null = null;
@@ -386,24 +399,47 @@ export class WarpScene extends Phaser.Scene {
     return g;
   }
 
+  /**
+   * THE HEADER SITS ON A PLATE (AC-22.8).
+   *
+   * It did not, and that is why "Warp break" measured 1.60:1 and "Belt cleared.
+   * Type this to charge the warp drive." measured 1.35:1 against Mars' ochre
+   * sky. The word plate below them has always measured 17.4:1, because the word
+   * plate is the only pair the contrast rubric ever looked at. The line a child
+   * has to read to know WHAT TO DO was the least legible text on the screen.
+   *
+   * `skyText` draws the same plate the word gets and registers the colour pair,
+   * so this header is now measured by V-22.8 along with everything else.
+   */
   private buildHeader(): Phaser.GameObjects.GameObject[] {
-    const pal = this.lane.palette;
-    const heading = label(this, 160, 96, this.lane.copy.text("warp.heading"), {
+    const heading = skyText(this, 160, 96, this.lane.copy.text("warp.heading"), {
+      screen: "warp",
+      id: "warp.heading",
       size: TYPE.heading,
-      color: pal.accent,
+      color: INK.text,
       lang: this.lane.lang,
+      depth: this.headerDepth(),
+      padY: 14,
     });
     // "belt cleared - type this to charge the warp drive". The line used to be
     // "the belt is clear. everything is still out here.", which is atmosphere:
     // it never said that the asteroids were GONE because the player destroyed
     // them, and it never said what the typing below it was for.
-    const calm = label(this, 160, 162, this.lane.copy.text("warp.beltCleared"), {
+    const calm = skyText(this, 160, 172, this.lane.copy.text("warp.beltCleared"), {
+      screen: "warp",
+      id: "warp.beltCleared",
       size: TYPE.body,
-      color: pal.plateText,
-      alpha: 0.9,
+      color: INK.textDim,
       lang: this.lane.lang,
+      depth: this.headerDepth(),
+      padY: 10,
     });
-    return [heading, calm];
+    return [...heading.objects, ...calm.objects];
+  }
+
+  /** Depth the header's text draws at; its plate takes one below. */
+  private headerDepth(): number {
+    return 10;
   }
 
   private buildSentencePanel(): Phaser.GameObjects.GameObject[] {
@@ -573,23 +609,47 @@ export class WarpScene extends Phaser.Scene {
     const pal = this.lane.palette;
     const made: Phaser.GameObjects.GameObject[] = [];
 
-    made.push(
-      label(this, METER.x, METER.y - 44, this.lane.copy.text("warp.chargeLabel"), {
+    // "warp drive" and the percentage are read off the sky either side of the
+    // meter, so they are plated and measured like everything else. The
+    // percentage was `pal.accent` on a bright stop's sky - the same 1.6:1 as
+    // the heading, on the number that tells the child how close they are.
+    const chargeLabel = skyText(
+      this,
+      METER.x,
+      METER.y - 52,
+      this.lane.copy.text("warp.chargeLabel"),
+      {
+        screen: "warp",
+        id: "warp.chargeLabel",
         size: TYPE.label,
-        color: pal.plateText,
+        color: INK.textDim,
         lang: this.lane.lang,
-      }),
+        depth: this.headerDepth(),
+        padY: 8,
+      },
     );
+    made.push(...chargeLabel.objects);
 
-    this.percentLabel = label(
+    const percent = skyText(
       this,
       METER.x + METER.w,
-      METER.y - 44,
+      METER.y - 52,
       this.lane.copy.text("warp.chargePercent", { percent: 0 }),
-      { size: TYPE.label, color: pal.accent, align: "right", lang: this.lane.lang },
+      {
+        screen: "warp",
+        id: "warp.chargePercent",
+        size: TYPE.label,
+        color: INK.accent,
+        align: "right",
+        lang: this.lane.lang,
+        depth: this.headerDepth(),
+        originX: 1,
+        padY: 8,
+      },
     );
-    this.percentLabel.setOrigin(1, 0);
-    made.push(this.percentLabel);
+    this.percentPlated = percent;
+    this.percentLabel = percent.text;
+    made.push(...percent.objects);
 
     const track = this.add.graphics();
     track.fillStyle(hexToNum(INK.panelSunken), 0.95);
@@ -605,15 +665,20 @@ export class WarpScene extends Phaser.Scene {
     // "warp drive charged - next stop Jupiter". The old line was "warp drive
     // charged. hold on." - true, and it never told the player they were about
     // to travel anywhere, let alone where.
-    this.chargedLabel = label(
-      this,
-      METER.x,
-      METER.y + 44,
-      this.chargedCopy(),
-      { size: TYPE.label, color: pal.accent, lang: this.lane.lang },
-    );
+    const charged = skyText(this, METER.x, METER.y + 44, this.chargedCopy(), {
+      screen: "warp",
+      id: "warp.charged",
+      size: TYPE.label,
+      color: INK.accent,
+      lang: this.lane.lang,
+      depth: this.headerDepth(),
+      padY: 8,
+    });
+    this.chargedLabel = charged.text;
+    this.chargedPlate = charged.plate;
     this.chargedLabel.setVisible(false);
-    made.push(this.chargedLabel);
+    charged.plate?.setVisible(false);
+    made.push(...charged.objects);
 
     return made;
   }
@@ -872,7 +937,9 @@ export class WarpScene extends Phaser.Scene {
 
     this.paintLetters();
     this.easeMeterTo(chargeFraction(this.sentence));
-    this.percentLabel.setText(
+    // Through the plated wrapper: "9%" and "100%" are different widths, and a
+    // plate cut for the first leaves the last hanging off its own edge.
+    this.percentPlated.setText(
       this.lane.copy.text("warp.chargePercent", { percent: chargePercent(this.sentence) }),
     );
 
@@ -950,6 +1017,7 @@ export class WarpScene extends Phaser.Scene {
     // fired on the frame the acceleration starts so the two are one event.
     audioFrom(this.registry)?.play("warp", "warp-scene:jump");
     this.chargedLabel.setVisible(true);
+    this.chargedPlate?.setVisible(true);
     this.shadow.setPose("cheering");
     this.lantern?.setIris(1);
     // The meter finishes on the same curve it filled on, so the last step is
@@ -1096,6 +1164,8 @@ export class WarpScene extends Phaser.Scene {
     return {
       scene: SCENE_KEYS.warp,
       stopId: this.stopId,
+      /** Every colour pair this screen draws over the sky (V-22.8). */
+      skyText: skyTextSamples(this),
       accent: this.lane.palette.accent,
       reducedMotion: this.lane.reducedMotion,
       sentence: this.sentence.text,

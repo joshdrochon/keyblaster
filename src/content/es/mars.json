@@ -41,7 +41,7 @@
   "preflightLine": "Cinturón adelante. Rocas con palabras. Escribe la palabra y el blaster hace el resto. Cuando quieras.",
   "activationWord": null,
   "warpSentence": "Marte es el planeta rojo.",
-  "beaconHeadline": "FARO MARTE",
-  "beaconState": "COLOCADO",
+  "beaconHeadline": "faro Marte",
+  "beaconState": "colocado",
   "beaconFlavor": "Óxido y ríos. Alguien volverá por ellos."
 }

@@ -42,7 +42,7 @@
   "preflightLine": "Los anillos son bonitos. También son rocas. La misma regla: escríbela antes de que llegue.",
   "activationWord": null,
   "warpSentence": "Saturno lleva anillos de hielo y roca.",
-  "beaconHeadline": "FARO SATURNO",
-  "beaconState": "COLOCADO",
+  "beaconHeadline": "faro Saturno",
+  "beaconState": "colocado",
   "beaconFlavor": "Pasamos entre los anillos. La próxima nave no tendrá que hacerlo."
 }

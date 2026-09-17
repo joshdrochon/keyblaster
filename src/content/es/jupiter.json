@@ -42,7 +42,7 @@
   "preflightLine": "Júpiter tira fuerte. Más rocas y más rápidas. Mira las palabras, no la tormenta.",
   "activationWord": null,
   "warpSentence": "Júpiter es el planeta más grande de todos.",
-  "beaconHeadline": "FARO JÚPITER",
-  "beaconState": "COLOCADO",
+  "beaconHeadline": "faro Júpiter",
+  "beaconState": "colocado",
   "beaconFlavor": "Tan grande que tapa el mapa. Lo encontramos igual."
 }

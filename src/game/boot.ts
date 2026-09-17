@@ -30,6 +30,8 @@ import {
   type SceneContext,
 } from "./sceneKeys.js";
 import { hexToNum, paletteFor } from "./render/palette.js";
+import { WORLD_STOP_KEY } from "./render/parallax.js";
+import { INK } from "./ui/theme.js";
 import { LANTERN_SHOT_KEY, LanternShotScene } from "./render/lanternShot.js";
 import { createTranslator, isShipped, type Translator } from "../engine/i18n/index.js";
 import {
@@ -37,7 +39,14 @@ import {
   createProfileStore,
   type ProfileStore,
 } from "../engine/persistence/index.js";
-import { DEFAULT_SETTINGS, STOP_IDS, isLang, type Lang, type StopId } from "../engine/types.js";
+import {
+  DEFAULT_SETTINGS,
+  STOP_IDS,
+  isLang,
+  isStopId,
+  type Lang,
+  type StopId,
+} from "../engine/types.js";
 import {
   AUDIO_REGISTRY_KEY,
   createAudioSystem,
@@ -212,6 +221,18 @@ async function discoverScenes(): Promise<Discovered[]> {
  * have": pausing at Saturn must not drop you back to Earth's wind.
  */
 function currentStop(game: Phaser.Game, context: SceneContext): StopId | null {
+  // THE WORLD'S OWN ANSWER FIRST. `buildParallax` publishes the stop whose
+  // palette it just drew the sky in, and that is the only source that cannot
+  // disagree with the picture on screen.
+  //
+  // The scene-tree lookup below it can, and did. A scene opened straight from a
+  // URL carries no `stopId` in its data - `?scene=Flight` boots with `data: {}` -
+  // so the search found nothing and fell through to the shared `SceneContext`
+  // default, which is Earth, while `FlightScene` had resolved Mars for itself.
+  // At a 4:3 window the letterbox bars measured `#0b1b3a` over `#08111f`:
+  // Earth's sky and Earth's ground, framing a Mars screen.
+  const drawn = game.registry.get(WORLD_STOP_KEY) as unknown;
+  if (typeof drawn === "string" && isStopId(drawn)) return drawn;
   let found: StopId | null = null;
   for (const scene of game.scene.getScenes(true)) {
     const stop = stopIdFromSceneData(scene.sys.settings.data);
@@ -378,8 +399,25 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
           colorblind: () => context.colorblindPalette,
         });
 
-  const earth = paletteFor("earth");
-  const voidColor = earth.colors[earth.colors.length - 1] ?? "#08111F";
+  /**
+   * The WebGL clear colour, and it belongs to no stop on purpose.
+   *
+   * This was `paletteFor("earth").colors[last]` - Earth's ground - on every
+   * screen in the game, because the clear colour is fixed at construction and
+   * the stop is not known then. The letterbox itself is painted by
+   * `installViewportBackdrop`, which follows the stop, so this is only ever seen
+   * in the sub-pixel seam at the canvas edge; a critic measuring a capture found
+   * `#08111f` down a 1 px left column of a Mars frame and correctly called it a
+   * leftover, because that is exactly what it looked like.
+   *
+   * `INK.panel` is the game's own near-black - the colour every word plate and
+   * HUD panel is drawn in - so it is stop-neutral by construction and can never
+   * read as one planet's palette leaking onto another's screen. Fixing it by
+   * repainting the clear on every stop change would mean poking
+   * `renderer.config.backgroundColor` at runtime, which is more machinery than a
+   * one-pixel seam is worth.
+   */
+  const voidColor = INK.panel;
   // The reference-compare harness renders on alpha so the judge sees the
   // silhouette and nothing else. The game itself is never transparent (D35).
   const lanternShot = params.get("lantern") !== null;

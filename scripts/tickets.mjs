@@ -161,6 +161,9 @@ export function citationStrength(id, files = TEST_FILES) {
   // title, so the optional group steps over one bracketed argument list.
   //
   // WHAT IS DELIBERATELY EXCLUDED, and why each one was a live false pass:
+  //   .fails - a test whose GREEN COMES FROM THE ASSERTION FAILING. AC-10.2's
+  //     only citation was one of these, and both audits record that the AC does
+  //     not hold. Crediting it is the purest form of the false pass.
   //   .skip/.todo/.fixme - a citation with no assertion behind it. CLAUDE.md
   //     forbids skipped tests on main, and an earlier revision of this file's
   //     OWN TESTS advertised "test.skip variants are seen" as a feature.
@@ -172,7 +175,7 @@ export function citationStrength(id, files = TEST_FILES) {
   // That errs toward pessimism, which is the safe direction.
   const BOUND = "(?![\\w.])"; // no longer id may extend this one
   const titleRe = new RegExp(
-    `\\b(?:describe|it|test)(?:\\.(?!skip|todo|fixme|concurrent\\.skip)\\w+)*\\s*\\(\\s*(?:\\[[^\\]]*\\]\\s*\\)\\s*\\(\\s*)?(["'\`])(?:(?!\\1).)*?${escapeRe(id)}${BOUND}`,
+    `\\b(?:describe|it|test)(?:\\.(?!skip|todo|fixme|fails|concurrent\\.skip)\\w+)*\\s*\\(\\s*(?:\\[[^\\]]*\\]\\s*\\)\\s*\\(\\s*)?(["'\`])(?:(?!\\1).)*?${escapeRe(id)}${BOUND}`,
     "s",
   );
   const mentionRe = new RegExp(`${escapeRe(id)}${BOUND}`);
@@ -185,12 +188,55 @@ export function citationStrength(id, files = TEST_FILES) {
       .split("\n")
       .filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l))
       .join("\n");
-    if (titleRe.test(live)) hits.strong.push(f.path);
+    if (titleRe.test(live) && hasRunningAssertion(live, id)) hits.strong.push(f.path);
     else hits.weak.push(f.path);
   }
   if (hits.strong.length) return { level: "STRONG", files: hits.strong };
   if (hits.weak.length) return { level: "WEAK", files: hits.weak };
   return { level: "NONE", files: [] };
+}
+
+/**
+ * Does the title match lead to a test that actually RUNS?
+ *
+ * A `describe("AC-x.y ...")` is a legitimate title match, but if the only test
+ * inside it is `it.fails(...)` then the block's green comes from an assertion
+ * FAILING. That is how AC-10.2 sat DONE: its sole citation is a describe whose
+ * one test is `it.fails`, with both audits recording that the AC does not hold.
+ *
+ * Braces are matched from the describe's own `(` so the scan stays inside that
+ * block rather than borrowing a sibling's assertion. If the id is on a running
+ * `it`/`test` title directly, the question does not arise.
+ */
+function hasRunningAssertion(src, id) {
+  const direct = new RegExp(
+    `\\b(?:it|test)(?:\\.(?!skip|todo|fixme|fails)\\w+)*\\s*\\(\\s*(?:\\[[^\\]]*\\]\\s*\\)\\s*\\(\\s*)?(["'\`])(?:(?!\\1).)*?${escapeRe(id)}(?![\\w.])`,
+    "s",
+  );
+  if (direct.test(src)) return true;
+
+  const openers = [...src.matchAll(new RegExp(`\\bdescribe(?:\\.\\w+)*\\s*\\(`, "g"))];
+  for (const m of openers) {
+    const head = src.slice(m.index, m.index + 400);
+    if (!new RegExp(`${escapeRe(id)}(?![\\w.])`).test(head)) continue;
+    // Walk braces from this describe's call to find its block.
+    let depth = 0;
+    let i = m.index + m[0].length - 1;
+    let start = -1;
+    for (; i < src.length; i++) {
+      const c = src[i];
+      if (c === "(" || c === "{") {
+        depth++;
+        if (c === "{" && start < 0) start = i;
+      } else if (c === ")" || c === "}") {
+        depth--;
+        if (depth <= 0) break;
+      }
+    }
+    const body = src.slice(start < 0 ? m.index : start, i);
+    if (/\b(?:it|test)(?:\.(?!skip|todo|fixme|fails)\w+)*\s*\(/.test(body)) return true;
+  }
+  return false;
 }
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -325,7 +371,10 @@ function parseCollisions() {
   src.split("\n").forEach((line, i) => {
     const m = line.match(/^-\s*\*\*(C\d+)\s*·\s*([^*]+?)\*\*\s*(.*)$/);
     if (!m) return;
-    const resolved = !/status:\s*unresolved/i.test(line);
+    // Was `!/status: unresolved/`, i.e. DONE by absence. A collision with no
+    // status line at all, or a status on the following line, read as resolved.
+    // Require the log to SAY so.
+    const resolved = /status:\s*\*{0,2}\s*(resolved|decided|closed)/i.test(line);
     out.push({ id: m[1], title: m[2].trim().replace(/\.$/, ""), resolved, line: i + 1 });
   });
   return out;
@@ -424,6 +473,16 @@ export function buildTickets() {
 
   const { acs, citedDecisions } = parsePrd();
   const knownIds = new Set([...RUBRIC.map((r) => r.id), ...acs.keys()]);
+  const prdEdges = prdRubricEdges();
+  // Ids named by an escalation that is still open.
+  const openEscalationFor = new Map();
+  for (const e of parseEscalations()) {
+    if (e.resolved) continue;
+    for (const ref of e.refs) {
+      if (!openEscalationFor.has(ref)) openEscalationFor.set(ref, firstSentence(e.heading, 90));
+    }
+  }
+  const strictlyCited = decisionsCitedByCriteria();
   const falsePasses = knownFalsePasses(knownIds);
   const decisions = decisionText();
   const decisionStatus = parseDecisions();
@@ -454,6 +513,14 @@ export function buildTickets() {
       if (!rubricByAc.has(ac)) rubricByAc.set(ac, []);
       rubricByAc.get(ac).push({ id: item.id, state });
     }
+    // ...and the edges the PRD states in prose, which rubric.mjs does not carry.
+    for (const [acId, named] of prdEdges) {
+      if (!named.includes(item.id)) continue;
+      if (!rubricByAc.has(acId)) rubricByAc.set(acId, []);
+      if (!rubricByAc.get(acId).some((b) => b.id === item.id)) {
+        rubricByAc.get(acId).push({ id: item.id, state });
+      }
+    }
   }
 
   // --- Acceptance criteria ------------------------------------------------
@@ -466,6 +533,16 @@ export function buildTickets() {
     if (fp) {
       state = STATE.FALSE_PASS;
       why = fp.why;
+    } else if (openEscalationFor.has(id)) {
+      // An AC named by an UNRESOLVED escalation is blocked on a human, whatever
+      // its tests say. AC-10.2 was the case that forced this rule: its citation
+      // is a describe called "AC-10.2 diagnostics: why the low end cannot
+      // converge", six running tests that establish the criterion CANNOT hold.
+      // They are good tests. They are not evidence that the AC is met, and no
+      // amount of citation-grading can tell the difference - only the fact that
+      // someone escalated it can.
+      state = STATE.BLOCKED;
+      why = `escalated: ${openEscalationFor.get(id)}`;
     } else if (cite.level === "NONE") {
       state = STATE.OPEN;
       why = "no test names this AC";
@@ -545,9 +622,16 @@ export function buildTickets() {
     if (id in AC_EXEMPT) {
       state = STATE.EXEMPT;
       why = AC_EXEMPT[id];
-    } else if (citedDecisions.has(id)) {
+    } else if (strictlyCited.has(id)) {
       state = STATE.DONE;
-      why = "cited by at least one acceptance criterion in the PRD";
+      why = "named on an acceptance-criterion or requirement line in the PRD";
+    } else if (citedDecisions.has(id)) {
+      // Mentioned somewhere in the PRD, but not by a criterion. That is where
+      // D03 was DONE for appearing in the NON-GOALS list - cited for being
+      // explicitly not built.
+      state = STATE.UNVERIFIED;
+      why =
+        "mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation";
     } else {
       state = STATE.OPEN;
       why = "DECIDED but no acceptance criterion cites it, and no exemption explains why";
@@ -586,12 +670,25 @@ export function buildTickets() {
   for (const row of inventory) {
     const sceneFor = [...declared].find(([, v]) => v === row)?.[0];
     let state, why;
+    let screenEvidence = [];
     if (nonScene.has(row)) {
       state = STATE.EXEMPT;
       why = "declared a non-scene row in sceneKeys.ts";
     } else if (sceneFor && scenes.has(sceneFor)) {
-      state = STATE.DONE;
-      why = `src/game/scenes/${sceneFor}Scene.ts exists and is mapped to this row`;
+      // Was `existsSync`, so a one-line stub passed. A screen is only DONE when
+      // something DRIVES it: an e2e spec naming the scene key. The file
+      // existing says nothing about whether the screen works.
+      const driven = TEST_FILES.filter(
+        (f) => f.path.includes("/e2e/") && new RegExp(`\\b${escapeRe(sceneFor)}\\b`).test(f.src),
+      ).map((f) => f.path);
+      if (driven.length > 0) {
+        state = STATE.DONE;
+        why = `driven by ${driven.length} e2e spec(s): ${driven.slice(0, 2).join(", ")}`;
+        screenEvidence = driven;
+      } else {
+        state = STATE.UNVERIFIED;
+        why = `src/game/scenes/${sceneFor}Scene.ts exists, but no e2e spec drives it — file existence is not a screen`;
+      }
     } else if (covered.has(row)) {
       state = STATE.UNVERIFIED;
       why = "mapped in sceneKeys.ts, but no matching file in src/game/scenes";
@@ -606,7 +703,7 @@ export function buildTickets() {
       source: "docs/design-brief-v2.md (screen inventory)",
       state,
       why,
-      evidence: [],
+      evidence: screenEvidence,
       refs: sceneFor ? [sceneFor] : [],
     });
   }
@@ -639,6 +736,49 @@ export function buildTickets() {
 }
 
 const refsIn = (s) => [...String(s).matchAll(/\b((?:AC|FR|D|C)-?\d[\w.]*)\b/g)].map((m) => m[1]);
+
+/**
+ * AC -> rubric-item edges the PRD states IN PROSE, e.g. "gauntlet `R-lantern`".
+ *
+ * The board previously built this edge only from `rubric.mjs`'s own `source:`
+ * string, and 11 of 33 rubric items name no AC there - so their failures
+ * propagated nowhere. AC-24.2 sat DONE while R-lantern was OPEN, with the PRD
+ * stating the link in plain text one line away. Both directions are read now.
+ */
+function prdRubricEdges() {
+  const src = read("docs/prd.md");
+  const edges = new Map(); // acId -> [rubricId]
+  for (const line of src.split("\n")) {
+    const ac = line.match(/^\s*-\s*(AC-[\d]+[a-z]?\.[\d]+[a-z]?)\s+/);
+    if (!ac) continue;
+    const named = [...line.matchAll(/gauntlet\s+`([A-Za-z0-9.\-]+)`/g)].map((m) => m[1]);
+    if (named.length) edges.set(ac[1], named);
+  }
+  return edges;
+}
+
+/**
+ * Decisions the PRD cites FROM AN ACCEPTANCE CRITERION, rather than anywhere in
+ * the file.
+ *
+ * `trace-check`'s `citedDecisions` is `/\bD\d+\b/` over the whole document,
+ * which is the substring scan this board exists to replace. It made 54 decision
+ * tickets - 29% of the DONE column - DONE because a token appeared in a section
+ * heading or a bullet. D03 was DONE for being named in the NON-GOALS list, i.e.
+ * for being explicitly not built. Here a decision counts as realised only if an
+ * AC or an FR line mentions it.
+ */
+function decisionsCitedByCriteria() {
+  const src = read("docs/prd.md");
+  const cited = new Set();
+  for (const line of src.split("\n")) {
+    const isAc = /^\s*-\s*AC-[\d]+[a-z]?\.[\d]+/.test(line);
+    const isFr = /^\*\*FR-[\d]+[a-z]*\s/.test(line);
+    if (!isAc && !isFr) continue;
+    for (const m of line.matchAll(/\b(D\d+)\b/g)) cited.add(m[1]);
+  }
+  return cited;
+}
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const fmtAge = (ms) => (ms == null ? "?" : ms > 3600e3 ? `${(ms / 3600e3).toFixed(1)}h` : `${(ms / 60e3).toFixed(0)}m`);
 

@@ -143,6 +143,9 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
       return u <= 0.04045 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4;
     };
     const buckets = [0, 0, 0, 0];
+    let maxL = 0;
+    // A coarse L* histogram, for the percentile below.
+    const hist = new Array<number>(101).fill(0);
     let above90 = 0;
     const n = px.length / 4;
     for (let i = 0; i < n; i += 1) {
@@ -151,12 +154,29 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
         0.7152 * lin(px[i * 4 + 1] as number) +
         0.0722 * lin(px[i * 4 + 2] as number);
       const L = 116 * (y > 0.008856 ? Math.cbrt(y) : 7.787 * y + 16 / 116) - 16;
+      if (L > maxL) maxL = L;
       if (L >= 90) above90 += 1;
+      const bin = Math.max(0, Math.min(100, Math.round(L)));
+      hist[bin] = (hist[bin] as number) + 1;
       const k = L < 40 ? 0 : L < 60 ? 1 : L < 80 ? 2 : 3;
       buckets[k] = (buckets[k] as number) + 1;
     }
     const pct = (v: number): number => Number((((v ?? 0) / n) * 100).toFixed(1));
+    // The 1st percentile of L*: "how dark is the darkest hundredth of the
+    // picture". A statistic over every pixel, so it cannot turn on where a
+    // handful of sample points happened to land.
+    let seen = 0;
+    let p01 = 100;
+    for (let bin = 0; bin <= 100; bin += 1) {
+      seen += hist[bin] as number;
+      if (seen >= n * 0.01) {
+        p01 = bin;
+        break;
+      }
+    }
     return {
+      p01,
+      maxL: Number(maxL.toFixed(1)),
       below40: pct(buckets[0] as number),
       mid: pct(buckets[1] as number),
       upper: pct(buckets[2] as number),
@@ -164,6 +184,8 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
       above90: Number(((above90 / n) * 100).toFixed(2)),
     };
   }, shot.toString("base64"))) as {
+    p01: number;
+    maxL: number;
     below40: number;
     mid: number;
     upper: number;
@@ -183,6 +205,8 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
         stopId: "mars",
         valueRange: { min: Number(grid.min.toFixed(4)), max: Number(grid.max.toFixed(4)) },
         lightnessBuckets: value,
+        darkestPercentileL: value.p01,
+        brightestL: value.maxL,
         barForComparison: {
           source: "design-reference/refs/alto-03_PalmKicker.png",
           below40: 48.2,
@@ -204,7 +228,17 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
   // brown; every patch of it sat in the same third of the range. A frame with a
   // front and a back has both ends of the range in it somewhere.
   expect(grid.max - grid.min, "value range across the frame").toBeGreaterThan(0.35);
-  expect(grid.min, "somewhere in the frame is genuinely dark").toBeLessThan(0.2);
+
+  // REPLACED A POSITION LOTTERY. This used to assert `grid.min < 0.2` over a
+  // fixed 5x9 grid of 45 sample points. Once the foreground became silhouettes
+  // that DRIFT SIDEWAYS rather than a static gradient wash, whether any of those
+  // 45 points landed on something dark became a coin toss, and the test flaked
+  // on alternate runs while the frame was identical in every way that matters.
+  //
+  // The 1st percentile of L* over every pixel answers the same question - is a
+  // meaningful part of this picture genuinely dark - and cannot be moved by
+  // where a shape happens to be this frame.
+  expect(value.p01, "the darkest hundredth of the frame").toBeLessThan(16);
 
   // RE-BASELINED, AND SAID OUT LOUD. The frame measured 13.1 / 19.2 / 66.7 / 1.0
   // before this round's sky and depth-ramp work and 33.4 / 22.8 / 41.7 / 2.1
@@ -217,7 +251,26 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
   // WORLD-BAR item 4: there is a light in the frame and it is the brightest
   // thing in it. Before this round the brightest non-UI pixel was a 3 px star
   // sparkle and 0.9% of the frame was above L*90.
-  expect(value.above90, "share of the frame above L*90 (the light)").toBeGreaterThan(1.1);
+  /**
+   * WORLD-BAR item 4: there is a light in the frame and it is the brightest
+   * thing in it.
+   *
+   * MEASURED TWO WAYS, AND NOT AS `above90`. That was the obvious statistic and
+   * it is a bad one: the atmosphere pass drifts across the whole frame at 24%
+   * and shaves the disc's edge pixels, so the share above L*90 moved between
+   * 0.87 and 1.26 across runs of an identical build. I set the floor at 1.1,
+   * then at 1.0, and it kept landing inside its own noise. A check that fails on
+   * a frame nobody changed is worse than no check - the same lesson as the 5x9
+   * sample grid above.
+   *
+   * The peak is stable because a uniform 24% wash barely moves a near-white
+   * core, and it is also the thing that actually distinguishes the defect: before
+   * this round the brightest non-UI pixel in the frame was a 3 px star sparkle
+   * at L*89, and a tinted glint cannot reach 95 however many of them there are.
+   * The area bound is kept alongside it so one hot pixel cannot satisfy it.
+   */
+  expect(value.maxL, "the brightest thing in the frame is a light").toBeGreaterThan(95);
+  expect(value.above80, "and it has real area, not one hot pixel").toBeGreaterThan(1.0);
 });
 
 /**
@@ -455,4 +508,103 @@ test("D30: the warp break runs OVER a live Flight, not in place of it", async ({
   const shot = await page.screenshot({ type: "png" });
   mkdirSync(EVIDENCE, { recursive: true });
   writeFileSync(join(EVIDENCE, "warp-overlay.png"), shot);
+});
+
+/**
+ * THE LETTERBOX WEARS THE SKY OF THE SCREEN IT FRAMES.
+ *
+ * ---------------------------------------------------------------------------
+ * THE DEFECT, AND WHY NOTHING CAUGHT IT
+ *
+ * `Scale.FIT` leaves two bars at any window that is not 16:9, and
+ * `installViewportBackdrop` paints them with the stop's own sky so they read as
+ * part of the picture. It took the stop from `currentStop()` in `boot.ts`, which
+ * searched the active scenes' `settings.data` and fell through to the shared
+ * `SceneContext` default when it found nothing.
+ *
+ * A scene opened straight from a URL carries no `stopId` in its data -
+ * `?scene=Flight` boots with `data: {}` - so the fallback fired, and the
+ * fallback is EARTH. Measured at a 1200x900 window on the Mars flight screen:
+ *
+ *   top bar     #0b1b3a      Earth's sky
+ *   bottom bar  #08111f      Earth's ground
+ *   picture     #e8a875      Mars
+ *
+ * Every e2e in this repo runs at 1280x720, which is exactly 16:9 and has no
+ * letterbox at all, so the entire feature was untested by construction. A
+ * critic found a 1 px remnant of the related clear colour and called it a
+ * leftover; this is the whole of it.
+ *
+ * `buildParallax` now publishes the stop it actually drew the sky in, and
+ * `currentStop` prefers that - the one answer that cannot disagree with the
+ * picture, because it is set by the thing that draws it.
+ */
+test("the letterbox at a non-16:9 window wears the stop's own sky, not another planet's", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  // 4:3. `Scale.FIT` fits 16:9 into it, so the bars are top and bottom.
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await freezeReloads(page);
+  await page.goto("/?scene=Flight");
+  await expect(page.getByTestId("app")).toHaveAttribute("data-booted", "true");
+  await waitForScene(page, "Flight", 30_000);
+  await page.waitForTimeout(2500);
+
+  const seen = (await page.evaluate(async (b64: string) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const c = document.createElement("canvas");
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const ctx = c.getContext("2d") as CanvasRenderingContext2D;
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, c.width, c.height).data;
+    const at = (x: number, y: number): { r: number; g: number; b: number } => {
+      const i = (y * c.width + x) * 4;
+      return { r: d[i] as number, g: d[i + 1] as number, b: d[i + 2] as number };
+    };
+    const mid = Math.round(c.width / 2);
+    return {
+      size: [c.width, c.height],
+      topBar: at(mid, 3),
+      bottomBar: at(mid, c.height - 4),
+      picture: at(mid, Math.round(c.height / 2)),
+    };
+  }, (await page.screenshot({ type: "png" })).toString("base64"))) as {
+    size: number[];
+    topBar: { r: number; g: number; b: number };
+    bottomBar: { r: number; g: number; b: number };
+    picture: { r: number; g: number; b: number };
+  };
+
+  mkdirSync(EVIDENCE, { recursive: true });
+  writeFileSync(
+    join(EVIDENCE, "letterbox.json"),
+    `${JSON.stringify(
+      { claim: "the letterbox wears the active stop's sky", viewport: "1200x900 (4:3)", stopId: "mars", ...seen },
+      null,
+      2,
+    )}\n`,
+  );
+
+  // MEASURED AS "IS IT THE SAME PLANET", not as an exact colour. The bar is a
+  // gradient of the stop's sky and the picture is the middle of the world, so
+  // they are never the same pixel - but Mars is warm (red channel highest) and
+  // Earth's night palette is cold (blue channel highest by a wide margin), and
+  // that is exactly the confusion this test exists to catch.
+  for (const [where, c] of [
+    ["top", seen.topBar],
+    ["bottom", seen.bottomBar],
+  ] as const) {
+    expect(
+      c.r,
+      `${where} bar rgb(${c.r},${c.g},${c.b}) should be a warm Mars sky, not a cold Earth one`,
+    ).toBeGreaterThan(c.b);
+  }
+  // And the picture itself is warm, so the comparison above is not vacuous.
+  expect(seen.picture.r, "the picture is Mars").toBeGreaterThan(seen.picture.b);
+  // There IS a letterbox at this aspect - otherwise the samples are picture.
+  expect(seen.size[1], "4:3 viewport").toBe(900);
 });

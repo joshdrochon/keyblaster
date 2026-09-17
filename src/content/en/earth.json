@@ -15,7 +15,7 @@
   "preflightLine": "Hull, check. Blaster, check. Pilot... that's you.",
   "activationWord": "launch",
   "warpSentence": null,
-  "beaconHeadline": "EARTH BEACON",
-  "beaconState": "ONLINE",
+  "beaconHeadline": "Earth beacon",
+  "beaconState": "online",
   "beaconFlavor": "Every map starts with a home."
 }

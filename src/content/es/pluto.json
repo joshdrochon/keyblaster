@@ -39,7 +39,7 @@
   "preflightLine": "Último cinturón. Último faro. Todo lo que escribiste nos trajo aquí. Uno más.",
   "activationWord": null,
   "warpSentence": "Plutón es pequeño, frío y está muy lejos.",
-  "beaconHeadline": "FARO PLUTÓN",
-  "beaconState": "COLOCADO",
+  "beaconHeadline": "faro Plutón",
+  "beaconState": "colocado",
   "beaconFlavor": "No es un planeta. Sigue en el mapa. El camino está encendido desde la Tierra."
 }

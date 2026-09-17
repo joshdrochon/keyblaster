@@ -45,7 +45,7 @@
   "preflightLine": "El viento no nos toca en el espacio. Las rocas sí. Manos firmes.",
   "activationWord": null,
   "warpSentence": "Neptuno es azul oscuro y está muy lejos del sol.",
-  "beaconHeadline": "FARO NEPTUNO",
-  "beaconState": "COLOCADO",
+  "beaconHeadline": "faro Neptuno",
+  "beaconState": "colocado",
   "beaconFlavor": "Desde aquí el sol es una estrella. Sigue siendo el sol."
 }

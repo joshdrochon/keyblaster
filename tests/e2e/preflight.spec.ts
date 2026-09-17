@@ -7,7 +7,10 @@ import {
   GRADE_WORDS,
   expectNoPunishment,
   mount,
+  remount,
+  setStoredCalibration,
   snapshot,
+  storedCalibration,
   transitions,
   typeWord,
 } from "./story-lane";
@@ -24,7 +27,39 @@ import {
  * end: the failure mode it guards against is a number that flashes up between
  * steps. `snapshot().text` carries every string the scene is rendering at that
  * instant, so the sampler sees what a child would see.
+ *
+ * WHAT DECIDES WHETHER THE RITUAL RUNS, AND WHY THIS FILE CHANGED.
+ *
+ * It used to be `newProfile`, an init-payload flag - and NOTHING IN `src/` EVER
+ * SET IT. Every screen that can reach Pre-flight passes `false`, so the ritual
+ * never ran for any child and `calibration.ikiMs` stayed on FR-8's 350 ms
+ * default for ever. These tests passed throughout, because they set the flag
+ * themselves: the suite was the only caller the feature had.
+ *
+ * So the question is now asked of the PROFILE, and these tests put the profile
+ * in the state they are about. "A new pilot" is a profile the game has never
+ * measured; "a returning pilot" is one it has. A flag a test sets cannot be the
+ * definition of either, which is the whole lesson of the defect.
  */
+
+/** A pilot the game has already measured - i.e. a returning one (AC-11.2). */
+const MEASURED = { ikiMs: 412, fkLatencyMs: 538 };
+
+/**
+ * Mount Pre-flight for a pilot with a stored baseline.
+ *
+ * Mount first, then write the baseline, then rebuild: `create()` reads the
+ * store, so the profile has to be in the right state before the scene is built,
+ * and a page boot is the only thing that creates the profile in the first place.
+ */
+async function mountReturning(
+  page: Page,
+  data: { stopId: string },
+): Promise<void> {
+  await mount(page, KEY, data);
+  await setStoredCalibration(page, MEASURED);
+  await remount(page, KEY, data);
+}
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -74,7 +109,10 @@ test.describe("Pre-flight (row 5, D51/FR-11)", () => {
     page,
   }) => {
     test.setTimeout(240_000);
-    await mount(page, KEY, { stopId: "mars", newProfile: true });
+    // No flag. A freshly booted page has a profile the game has never measured,
+    // which is exactly the pilot AC-11.1 is about - and, before this round, the
+    // pilot the shipped game silently skipped.
+    await mount(page, KEY, { stopId: "mars" });
 
     const first = await snapshot(page, KEY);
     expect(first.calibrating).toBe(true);
@@ -103,6 +141,18 @@ test.describe("Pre-flight (row 5, D51/FR-11)", () => {
     expect(cal.ikiMs).toBeGreaterThan(0);
     expect(cal.fkLatencyMs).toBeGreaterThan(0);
 
+    // AC-11.1 "stored on the profile". THIS IS THE HALF THAT WAS MISSING: the
+    // ritual's answer used to travel to Flight as scene data and nowhere else,
+    // so twenty seconds of measurement bought one stage and was gone on reload.
+    // Nothing in `src/` called `applyCalibration` at all.
+    const stored = await storedCalibration(page);
+    expect(stored, "the ritual measured the pilot and told nobody").not.toBeNull();
+    expect(stored?.ikiMs).toBe(cal.ikiMs);
+    expect(stored?.fkLatencyMs).toBe(cal.fkLatencyMs);
+    // And it is no longer the shipped default, or the belt is still being flown
+    // for a child who is not there (FR-8: 350 / 500).
+    expect(stored?.ikiMs === 350 && stored?.fkLatencyMs === 500).toBe(false);
+
     // AC-11.3, over every frame we sampled, including the ones between steps.
     expectNoGrades(samples);
     expect(await transitions(page)).toContain("Flight");
@@ -110,7 +160,7 @@ test.describe("Pre-flight (row 5, D51/FR-11)", () => {
 
   test("AC-11.3 nothing on screen is a score, an accuracy or a pass/fail", async ({ page }) => {
     test.setTimeout(240_000);
-    await mount(page, KEY, { stopId: "jupiter", newProfile: true });
+    await mount(page, KEY, { stopId: "jupiter" });
 
     const typed = new Set<string>();
     const samples = await sample(
@@ -135,7 +185,7 @@ test.describe("Pre-flight (row 5, D51/FR-11)", () => {
 
   test("AC-11.2 a returning profile is not calibrated and never types", async ({ page }) => {
     test.setTimeout(240_000);
-    await mount(page, KEY, { stopId: "mars", newProfile: false });
+    await mountReturning(page, { stopId: "mars" });
 
     const first = await snapshot(page, KEY);
     expect(first.calibrating).toBe(false);
@@ -148,9 +198,22 @@ test.describe("Pre-flight (row 5, D51/FR-11)", () => {
     expectNoGrades(samples);
   });
 
+  test("AC-11.2 a returning pilot keeps the baseline they were measured at", async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    await mountReturning(page, { stopId: "mars" });
+    await sample(page, (s) => s.phase !== "done", async () => {});
+    // The narrative ritual must not overwrite a real measurement with the
+    // default it never took.
+    expect(await storedCalibration(page)).toEqual(MEASURED);
+    const final = await snapshot(page, KEY);
+    expect(final["calibration"]).toEqual(MEASURED);
+  });
+
   test("D51 the returning ritual lasts between 5 and 20 seconds", async ({ page }) => {
     test.setTimeout(240_000);
-    await mount(page, KEY, { stopId: "saturn", newProfile: false });
+    await mountReturning(page, { stopId: "saturn" });
     const samples = await sample(page, (s) => s.phase !== "done", async () => {});
     const last = samples[samples.length - 1];
     expect(last).toBeDefined();
@@ -160,7 +223,7 @@ test.describe("Pre-flight (row 5, D51/FR-11)", () => {
 
   test("it reads as a sequence: the systems light in D81's order", async ({ page }) => {
     test.setTimeout(240_000);
-    await mount(page, KEY, { stopId: "mars", newProfile: false });
+    await mountReturning(page, { stopId: "mars" });
 
     mkdirSync(EVIDENCE, { recursive: true });
     await page.waitForTimeout(2_600);

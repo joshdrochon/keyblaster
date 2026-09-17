@@ -6,6 +6,7 @@ import { plate, strokePlate } from "@game/ui/chrome";
 import { SHADOW_HEIGHT, drawShadow } from "@game/render/shadow";
 import { hexToNum } from "@game/render/palette";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
+import { needsOwnBackdrop } from "@game/ui/layout";
 import { uiText } from "@game/ui/text";
 
 /**
@@ -64,18 +65,64 @@ export class PauseScene extends MenuScene {
     if (data?.from) this.from = data.from;
   }
 
-  /** An overlay draws no sky: the frozen belt has to stay visible behind it. */
+  /**
+   * AN OVERLAY DRAWS NO SKY - UNLESS THERE IS NO SKY UNDER IT.
+   *
+   * `pause.png` was a flat #060d18 void with a card floating in it. The reason
+   * is this getter returning a flat `false`: the frozen belt is supposed to show
+   * through, so the overlay draws no backdrop of its own - and the capture
+   * harness boots `?scene=Pause` standalone, as does a child who deep-links one,
+   * with nothing underneath at all. "Show the world behind" and "show nothing"
+   * were the same code path.
+   *
+   * So the question is asked rather than assumed: is anything actually
+   * RENDERING below? `needsOwnBackdrop` in ui/layout.ts holds the rule and is
+   * unit-tested; a scene counts only if it is registered, visible, and either
+   * running or paused. Phaser's `pause` leaves `visible` true and the display
+   * list intact - which is the whole reason `freezeBelow` pauses rather than
+   * sleeps or stops - so the real pause-over-flight case still draws no sky.
+   */
   protected override get wantsBackdrop(): boolean {
-    return false;
+    return needsOwnBackdrop(this.below());
+  }
+
+  /** What is underneath, as the four facts the rule needs. */
+  private below(): {
+    exists: boolean;
+    active: boolean;
+    paused: boolean;
+    visible: boolean;
+  } {
+    const scene = this.scene.get(this.from);
+    if (scene === null || scene === this) {
+      return { exists: false, active: false, paused: false, visible: false };
+    }
+    return {
+      exists: true,
+      active: this.scene.isActive(this.from),
+      paused: this.scene.isPaused(this.from),
+      visible: this.scene.isVisible(this.from),
+    };
   }
 
   protected build(): void {
+    const standalone = this.wantsBackdrop;
     this.freezeBelow();
 
     // The dim overlay. Dark enough that the menu reads, light enough that the
     // player can still see where their ship was - it is a pause, not an exit.
+    // Over the overlay's OWN backdrop it is lighter still: there is no bright
+    // belt to knock back, and 0.66 on top of a sky the scene just drew is a
+    // second way of arriving at the same black rectangle.
     this.add
-      .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, hexToNum(INK.bgDeep), 0.66)
+      .rectangle(
+        0,
+        0,
+        GAME_WIDTH,
+        GAME_HEIGHT,
+        hexToNum(INK.bgDeep),
+        standalone ? 0.38 : 0.66,
+      )
       .setOrigin(0, 0)
       .setDepth(this.depth - 1);
 
@@ -129,9 +176,19 @@ export class PauseScene extends MenuScene {
   }
 
   /**
-   * Freeze what is underneath. `pause` halts the scene's update loop, which is
-   * what makes the asteroids stop; it leaves the display list intact, so the
-   * belt is still drawn behind the overlay.
+   * Freeze what is underneath - PAUSED, NOT HIDDEN.
+   *
+   * `ScenePlugin.pause` halts the scene's update loop, which is what makes the
+   * asteroids stop. It does not touch `visible` and it does not shut the scene
+   * down, so the display list is still there and the SceneManager still renders
+   * it (a PAUSED scene sorts before SLEEPING in Phaser's status order, which is
+   * the check the render loop makes). That is the difference between a frozen
+   * belt behind the card and a black hole behind it, and it is why this must
+   * never become `sleep` or `stop`.
+   *
+   * Belt and braces: if something else has hidden the scene, it is made visible
+   * again, because a "frozen" scene that draws nothing is the void defect back
+   * by another route.
    */
   private freezeBelow(): void {
     const below = this.scene.get(this.from);
@@ -139,6 +196,12 @@ export class PauseScene extends MenuScene {
     if (this.scene.isActive(this.from)) {
       this.scene.pause(this.from);
       this.frozen = true;
+    }
+    if (
+      (this.frozen || this.scene.isPaused(this.from)) &&
+      !this.scene.isVisible(this.from)
+    ) {
+      this.scene.setVisible(true, this.from);
     }
   }
 
@@ -213,6 +276,11 @@ export class PauseScene extends MenuScene {
       from: this.from,
       frozen: this.frozen,
       belowPaused: this.scene.isPaused(this.from),
+      // What the capture harness and the e2e need to tell "a dimmed belt" from
+      // "a card on black": is anything rendering underneath, and did this
+      // overlay therefore have to dress the screen itself?
+      belowVisible: this.below().visible,
+      ownBackdrop: needsOwnBackdrop(this.below()),
     };
   }
 }

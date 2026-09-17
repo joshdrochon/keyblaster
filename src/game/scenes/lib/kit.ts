@@ -1,6 +1,7 @@
 import Phaser from "phaser";
-import { DUR, EASE, FONT_STACK, INK, SPACE, TYPE, chromeCase, letterSpacingPx, lineHeightEm } from "@game/ui/theme";
+import { DUR, EASE, FONT_STACK, INK, SKY_PLATE, SPACE, TYPE, chromeCase, letterSpacingPx, lineHeightEm } from "@game/ui/theme";
 import { hexToNum as rgb } from "@game/render/palette";
+import { recordSkyText as record } from "./skyTextRegistry";
 import type { Lang } from "@engine/types";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
 
@@ -93,6 +94,151 @@ export function plate(
   g.lineStyle(2, rgb(options.stroke ?? INK.line), 0.9);
   g.strokeRoundedRect(x, y, w, h, options.radius ?? SPACE.radius);
   return g;
+}
+
+// ---------------------------------------------------------------------------
+// Sky-borne text (AC-22.8)
+// ---------------------------------------------------------------------------
+
+/**
+ * EVERY PIECE OF TEXT DRAWN OVER THE WORLD GOES THROUGH HERE.
+ *
+ * The defect: the word plate had a contrast plate and measured 17.4:1, while the
+ * headline that names the screen was drawn straight onto the sky. Mars' sky is a
+ * warm ochre; coral ink on it is 1.6:1. "the map is drawn" was 1.19:1 in pink on
+ * the ending's dawn, and it STRADDLED a silhouette edge, so half the word sat on
+ * grey and half on sky - a child cannot read that at any size.
+ *
+ * So a headline is not a Text object any more, it is a Text object ON A PLATE,
+ * and the plate is sized from the text's own measured bounds so it cannot be
+ * mis-set by hand. Every one of them also REGISTERS ITS COLOUR PAIR on the
+ * scene, which is what lets the rubric measure the whole inventory instead of
+ * the one pair somebody remembered to check.
+ *
+ * `behind` defaults to worst-case white in the contrast module, so a scene never
+ * has to know its own sky to be measured honestly.
+ *
+ * The registry itself lives in `skyTextRegistry.ts`, away from Phaser, because
+ * the thing most likely to go wrong is the LIFETIME: a scene object survives
+ * `scene.restart()`, so a registry that never cleared would have handed the
+ * capture three copies of the Director map's rows and called it coverage.
+ * Re-exported here so scenes keep importing one module.
+ */
+export { recordSkyText, skyTextSamples, clearSkyText } from "./skyTextRegistry";
+
+export interface SkyTextOptions extends TextOptions {
+  /** Stable id for the evidence row, e.g. "warp.heading". */
+  readonly id: string;
+  /** Screen id for the evidence row, e.g. "warp". */
+  readonly screen: string;
+  /** Text depth. The plate is drawn one below it. */
+  readonly depth?: number;
+  readonly originX?: number;
+  readonly originY?: number;
+  readonly padX?: number;
+  readonly padY?: number;
+  /**
+   * Suppress the plate ONLY where the text already sits on a panel the scene
+   * drew itself. `plateFill` then names that panel's colour, so the row is
+   * still measured - "it's on a panel, trust me" is how 1.19:1 shipped.
+   */
+  readonly plated?: boolean;
+  readonly plateFill?: string;
+}
+
+export interface PlatedText {
+  readonly text: Phaser.GameObjects.Text;
+  readonly plate: Phaser.GameObjects.Graphics | null;
+  /**
+   * Plate first, then text - THE ORDER MATTERS AND DEPTH DOES NOT SAVE YOU.
+   *
+   * A Phaser Container renders its children in LIST ORDER and ignores their
+   * depth unless something calls `sort`. Warp and Beacon put their header in a
+   * container, and the first version of this helper created the text and then
+   * the plate, so the plate - correctly set to depth-1 - was added second and
+   * painted a black rectangle straight over the headline it was there to make
+   * legible. Adding this array is how a caller gets the order right without
+   * having to know that.
+   */
+  readonly objects: readonly Phaser.GameObjects.GameObject[];
+  /** Re-lays the plate around new content. */
+  setText(content: string): void;
+  destroy(): void;
+}
+
+/**
+ * Text over the world, on a plate, measured.
+ *
+ * The plate is drawn from `text.getBounds()` AFTER the string is set, so it
+ * follows the origin, the line count, the letter spacing and the Devanagari line
+ * height without any of those being restated here. `setText` redraws it, which
+ * is what stops a headline that changes ("PLACED", the per-stop board) from
+ * keeping a plate cut for the string it used to hold.
+ */
+export function skyText(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  content: string,
+  options: SkyTextOptions,
+): PlatedText {
+  const depth = options.depth ?? 10;
+  const padX = options.padX ?? SKY_PLATE.padX;
+  const padY = options.padY ?? SKY_PLATE.padY;
+  // The graphics object is created FIRST so it lands earlier on the display
+  // list (and earlier in any container it is added to) and therefore renders
+  // UNDER the text. It is drawn into afterwards, once the text has bounds.
+  const wantsPlate = options.plated !== true;
+  const g = wantsPlate ? scene.add.graphics().setDepth(depth - 1) : null;
+
+  const text = label(scene, x, y, content, options).setDepth(depth);
+  text.setOrigin(options.originX ?? 0, options.originY ?? 0);
+
+  const layout = (): void => {
+    if (g === null) return;
+    g.clear();
+    if (text.text.length === 0) return;
+    const b = text.getBounds();
+    g.fillStyle(rgb(SKY_PLATE.fill), SKY_PLATE.alpha);
+    g.fillRoundedRect(
+      b.x - padX,
+      b.y - padY,
+      b.width + padX * 2,
+      b.height + padY * 2,
+      SKY_PLATE.radius,
+    );
+    g.lineStyle(2, rgb(SKY_PLATE.stroke), 0.55);
+    g.strokeRoundedRect(
+      b.x - padX,
+      b.y - padY,
+      b.width + padX * 2,
+      b.height + padY * 2,
+      SKY_PLATE.radius,
+    );
+  };
+  layout();
+
+  record(scene, {
+    screen: options.screen,
+    id: options.id,
+    color: options.color ?? INK.text,
+    plateFill: wantsPlate ? SKY_PLATE.fill : (options.plateFill ?? INK.panel),
+    plateAlpha: wantsPlate ? SKY_PLATE.alpha : 1,
+  });
+
+  return {
+    text,
+    plate: g,
+    objects: g === null ? [text] : [g, text],
+    setText(next: string) {
+      text.setText(next);
+      layout();
+    },
+    destroy() {
+      g?.destroy();
+      text.destroy();
+    },
+  };
 }
 
 export interface FocusTarget {

@@ -44,7 +44,7 @@
   "preflightLine": "Belt ahead. Rocks with words on them. Type the word, the blaster does the rest. Ready when you are.",
   "activationWord": null,
   "warpSentence": "Mars is the red planet.",
-  "beaconHeadline": "MARS BEACON",
-  "beaconState": "PLACED",
+  "beaconHeadline": "Mars beacon",
+  "beaconState": "placed",
   "beaconFlavor": "Rust and rivers. Someone will come back for those."
 }

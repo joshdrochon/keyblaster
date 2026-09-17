@@ -7,6 +7,7 @@ import {
   type WordExposure,
 } from "@engine/scoring";
 import { awardTrophies, newTrophies, type StageAward } from "@engine/awards";
+import { WORST_CASE_SKY, compositeOver } from "@engine/contrast/index.js";
 import {
   DEFAULT_CALIBRATION,
   DEFAULT_SETTINGS,
@@ -17,10 +18,10 @@ import {
 import { SCENE_KEYS } from "@game/sceneKeys";
 import { layer } from "@game/render/layers";
 import { buildParallax, EASE, type Parallax } from "@game/render/parallax";
-import { hexToNum } from "@game/render/palette";
+import { hexToNum, lightPositionOf, mixHex } from "@game/render/palette";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import { starPoints } from "@game/render/textures";
-import { DUR, INK, TYPE } from "@game/ui/theme";
+import { DUR, INK, SPACE, TYPE, chromeCase } from "@game/ui/theme";
 import {
   goTo,
   persistStopCleared,
@@ -31,16 +32,35 @@ import {
 import {
   createFocusRing,
   createKeyboardMenu,
-  label,
-  plate,
+  skyText,
+  skyTextSamples,
   visibleText,
   type FocusRing,
   type FocusTarget,
   type KeyboardMenu,
+  type PlatedText,
   type SceneSnapshot,
 } from "./lib/kit";
 import { laneInit, publishBag, textStyles, type LaneInit } from "./support/laneInit";
-import { relativeWindow, type RelativeRow } from "./support/relativeBoard";
+import {
+  openingFocusId,
+  relativeWindow,
+  type RelativeRow,
+} from "./support/relativeBoard";
+import {
+  BOARD_W,
+  BOARD_X,
+  BUTTON_H,
+  PANEL_PAD_X,
+  REPORT_W,
+  SHADOW_GAP,
+  resultsLayout,
+  shadowBox,
+  sunDisc,
+  type Block,
+  type PlacedBlock,
+  type Rect,
+} from "./support/resultsLayout";
 
 /**
  * SCREEN 9 - RESULTS (design-brief-v2.md "9. Results"; D27, D43, D50, D74;
@@ -71,11 +91,79 @@ import { relativeWindow, type RelativeRow } from "./support/relativeBoard";
  * THE RELATIVE BOARD IS OFF UNTIL ASKED (D43): default off, one calm prompt the
  * first time this screen would show it, up to two pilots either side of you,
  * and never a global rank.
+ *
+ * -------------------------------------------------------------------------
+ * WHY THE PANELS ARE MEASURED AND NOT DECLARED
+ *
+ * This screen used to draw two rectangles of a fixed 700 px and hang content off
+ * the top of each at hand-written offsets. On a first run at Mars four of the
+ * six blocks are correctly ABSENT - no delta (D57), no personal best (nothing to
+ * beat), no faster words, no retention set - so about three quarters of both
+ * panels was empty black. A stage report that is mostly nothing does not read as
+ * restraint; it reads as a screen that failed to load.
+ *
+ * So every block MEASURES itself (`Piece.height` comes from the Phaser Text, not
+ * from a table of guesses) and `support/resultsLayout.ts` turns those heights
+ * into rectangles. The same module keeps the panels off Shadow and pulls their
+ * top edge up over the stop's sun, both of which are geometry rather than taste
+ * and both of which are unit-tested without a browser.
+ *
+ * AND EVERY WORD IS MEASURED TOO (AC-22.8). The headline was the stop accent on
+ * the stop's own sky at 1.72:1 and the keyboard hint was `INK.textFaint` at
+ * 2.57:1 - unreadable to the 7-to-11 year olds this is for. Text over the world
+ * now goes through `skyText`, which draws a plate cut from the text's own bounds
+ * and REGISTERS the colour pair; text on a panel this scene drew is registered
+ * too, with the panel's real composited colour, because "it's on a panel, trust
+ * me" is how 1.19:1 shipped elsewhere.
  */
 
-const PANEL = { x: 160, y: 236, w: 980, h: 700 } as const;
-const BOARD = { x: 1180, y: 236, w: 580, h: 700 } as const;
-const BUTTON_Y = 966;
+/** The panel's alpha. Three per cent of sky comes through, which is the point. */
+const PANEL_ALPHA = 0.94;
+/**
+ * What the panel ink ACTUALLY composites to over the brightest sky a stop can
+ * produce. Registered as the backdrop for everything drawn on a panel, so the
+ * rubric measures the surface rather than the swatch.
+ */
+const PANEL_SURFACE = compositeOver(INK.panel, PANEL_ALPHA, WORST_CASE_SKY);
+
+/**
+ * A BUTTON HAS A SURFACE (AC-18.1's visible affordance half).
+ *
+ * The two actions were drawn as `INK.panelRaised` plates on an `INK.panel`
+ * panel - 1.08:1, which is not an edge - with their labels in the stop accent.
+ * A control with no fill difference, no border and coloured text reads as
+ * DISABLED, and a capture showed exactly that: "fly it again" and "continue"
+ * looked like two captions. So the secondary action gets a lifted fill and a
+ * border you can see against the panel, and the primary one is filled in the
+ * stop accent with dark ink on it - the same treatment the Title gives "play",
+ * so "the filled one is the one you meant" holds across the game.
+ */
+const BUTTON_FILL = "#32445E";
+const BUTTON_STROKE = "#5A7195";
+const BUTTON_INK = INK.panelSunken;
+
+/** Where Shadow stands, and how big he is there. */
+const SHADOW_AT = { x: 1830, y: 940, scale: 0.7 } as const;
+
+/**
+ * Wrap widths, fixed BEFORE the layout runs because the layout is computed from
+ * the heights these widths produce. The board's is the NARROWED width - what it
+ * would be if the panel had to give way to Shadow - so a line can never be
+ * measured against a panel wider than the one it ends up in.
+ */
+const REPORT_CONTENT_W = REPORT_W - PANEL_PAD_X * 2;
+const BOARD_CONTENT_W =
+  Math.floor(
+    Math.min(
+      BOARD_W,
+      shadowBox(SHADOW_AT.x, SHADOW_AT.y, SHADOW_AT.scale).x - SHADOW_GAP - BOARD_X,
+    ),
+  ) -
+  PANEL_PAD_X * 2;
+
+/** Column starts inside the report panel, as offsets from its content edge. */
+const COL_ACCURACY = 340;
+const STARS_W = 180;
 
 export interface ResultsInit extends StoryInit {
   readonly tally?: StageTally;
@@ -108,6 +196,27 @@ const EMPTY_TALLY: StageTally = {
   hullHits: 0,
 };
 
+/** One drawn object and where it sits inside its block. */
+interface Part {
+  readonly obj: Phaser.GameObjects.Text | Phaser.GameObjects.Graphics;
+  readonly dx: number;
+  readonly dy: number;
+}
+
+/**
+ * A measured block of panel content.
+ *
+ * `height` is read off the Phaser Text objects after they are built, never
+ * declared: that is the whole mechanism by which a panel can be the size of what
+ * is in it. Parts are positioned RELATIVE to the block, so placing a block twice
+ * (the board rebuilds when the D43 question is answered) is idempotent.
+ */
+interface Piece extends Block {
+  readonly parts: readonly Part[];
+}
+
+const EMPTY_PIECE = (id: string): Piece => ({ id, height: 0, parts: [] });
+
 export class ResultsScene extends Phaser.Scene {
   private lane!: LaneInit;
   private initData: ResultsInit | undefined;
@@ -130,7 +239,18 @@ export class ResultsScene extends Phaser.Scene {
   private promptShown = false;
   /** True once the player has answered the one-time prompt, either way. */
   private promptAnswered = false;
+
+  private reportPieces: Piece[] = [];
+  private boardPieces: Piece[] = [];
   private boardParts: Phaser.GameObjects.GameObject[] = [];
+  private reportPlate!: Phaser.GameObjects.Graphics;
+  private boardPlate!: Phaser.GameObjects.Graphics;
+  /**
+   * The keyboard hint. Kept whole rather than pushed into `boardParts`: it is a
+   * `skyText`, so it is a Text AND the plate cut for it, and splitting the two
+   * across a rebuild leaves an orphan plate on screen for every rebuild.
+   */
+  private hint: PlatedText | null = null;
   private rendered: string[] = [];
 
   constructor() {
@@ -140,7 +260,10 @@ export class ResultsScene extends Phaser.Scene {
   init(data: ResultsInit | undefined): void {
     this.initData = data;
     this.earnedTrophies = [];
+    this.reportPieces = [];
+    this.boardPieces = [];
     this.boardParts = [];
+    this.hint = null;
     this.rendered = [];
     this.promptShown = false;
     this.promptAnswered = false;
@@ -207,19 +330,34 @@ export class ResultsScene extends Phaser.Scene {
     });
 
     const hud = this.parallax.layerOf("hud").container;
-    hud.add(this.buildHeader());
-    hud.add(this.buildRates());
-    hud.add(this.buildStars());
-    hud.add(this.buildPersonalBest());
-    hud.add(this.buildFasterWords());
-    hud.add(this.buildRetention());
+    this.reportPlate = this.add.graphics().setDepth(0);
+    this.boardPlate = this.add.graphics().setDepth(0);
+    hud.add([this.reportPlate, this.boardPlate]);
 
-    this.shadow = drawShadow(this, 1830, 940, this.results.stars === 3 ? "cheering" : "idle", {
-      scale: 0.7,
-      facing: -1,
-      reducedMotion: this.lane.reducedMotion,
-      depth: layer("shipFx").depth,
-    });
+    this.buildHeader();
+    this.reportPieces = [
+      this.statsPiece(),
+      this.hullPiece(),
+      this.personalBestPiece(),
+      this.fasterPiece(),
+      this.retentionPiece(),
+    ];
+    for (const piece of this.reportPieces) {
+      for (const part of piece.parts) hud.add(part.obj);
+    }
+
+    this.shadow = drawShadow(
+      this,
+      SHADOW_AT.x,
+      SHADOW_AT.y,
+      this.results.stars === 3 ? "cheering" : "idle",
+      {
+        scale: SHADOW_AT.scale,
+        facing: -1,
+        reducedMotion: this.lane.reducedMotion,
+        depth: layer("shipFx").depth,
+      },
+    );
 
     this.ring = createFocusRing(this, layer("hud").depth + 1);
     this.menu = createKeyboardMenu(this, this.ring, []);
@@ -231,6 +369,7 @@ export class ResultsScene extends Phaser.Scene {
       this.ring.destroy();
       this.shadow.destroy();
       this.parallax.destroy();
+      this.hint = null;
     });
   }
 
@@ -290,60 +429,163 @@ export class ResultsScene extends Phaser.Scene {
   }
 
   // -------------------------------------------------------------------------
-  // Left panel
+  // Ink
   // -------------------------------------------------------------------------
 
-  private buildHeader(): Phaser.GameObjects.GameObject[] {
-    const pal = this.lane.palette;
+  /**
+   * A piece of text on a panel this scene drew.
+   *
+   * Registered rather than trusted: `plated: true` suppresses the plate (there
+   * already is one) and `plateFill` names the panel's real composited colour, so
+   * the row lands in the contrast evidence with a backdrop that is true.
+   */
+  private ink(
+    id: string,
+    dx: number,
+    dy: number,
+    content: string,
+    options: {
+      readonly size: number;
+      readonly color: string;
+      readonly align?: "left" | "center" | "right";
+      readonly wrapWidth?: number;
+      readonly originX?: number;
+      readonly surface?: string;
+    },
+  ): Part {
+    const t = skyText(this, 0, 0, content, {
+      screen: "results",
+      id,
+      size: options.size,
+      color: options.color,
+      lang: this.lane.lang,
+      plated: true,
+      plateFill: options.surface ?? PANEL_SURFACE,
+      depth: 2,
+      ...(options.align === undefined ? {} : { align: options.align }),
+      ...(options.wrapWidth === undefined ? {} : { wrapWidth: options.wrapWidth }),
+      ...(options.originX === undefined ? {} : { originX: options.originX }),
+    }).text;
+    return { obj: t, dx, dy };
+  }
+
+  private place(piece: Piece, at: PlacedBlock | Rect): void {
+    for (const part of piece.parts) part.obj.setPosition(at.x + part.dx, at.y + part.dy);
+  }
+
+  private drawPanel(g: Phaser.GameObjects.Graphics, r: Rect | null): void {
+    g.clear();
+    if (r === null || r.w <= 0 || r.h <= 0) return;
+    g.fillStyle(hexToNum(INK.panel), PANEL_ALPHA);
+    g.fillRoundedRect(r.x, r.y, r.w, r.h, SPACE.radius);
+    g.lineStyle(2, hexToNum(INK.line), 0.9);
+    g.strokeRoundedRect(r.x, r.y, r.w, r.h, SPACE.radius);
+  }
+
+  // -------------------------------------------------------------------------
+  // The stage report
+  // -------------------------------------------------------------------------
+
+  private buildHeader(): void {
+    // ON A PLATE, BOTH OF THEM. The heading measured 1.72:1 in the stop accent
+    // on Mars' ochre sky and the stop name was little better.
+    skyText(this, 160, 64, this.lane.copy.text("results.heading"), {
+      screen: "results",
+      id: "results.heading",
+      size: TYPE.heading,
+      color: this.lane.palette.accent,
+      lang: this.lane.lang,
+      depth: layer("hud").depth + 2,
+      padY: 12,
+    });
+    skyText(this, 162, 126, this.lane.copy.stopName(this.stopId), {
+      screen: "results",
+      // The stop name is a proper noun from content (D41), so it is the one
+      // string on this screen that keeps its capital.
+      id: "results.stop",
+      size: TYPE.body,
+      color: INK.textDim,
+      lang: this.lane.lang,
+      depth: layer("hud").depth + 2,
+      padY: 8,
+    });
     this.mark("heading");
-    return [
-      label(this, 160, 90, this.lane.copy.text("results.heading"), {
-        size: TYPE.heading,
-        color: pal.accent,
-        lang: this.lane.lang,
-      }),
-      label(this, 160, 154, this.lane.copy.stopName(this.stopId), {
-        size: TYPE.body,
-        color: pal.plateText,
-        alpha: 0.7,
-        lang: this.lane.lang,
-      }),
-      plate(this, PANEL.x, PANEL.y, PANEL.w, PANEL.h, {
-        fill: INK.panel,
-        stroke: INK.line,
-      }),
-    ];
   }
 
   /**
-   * AC-20.1. The delta line exists only when `wpmDelta` is not null, which is
-   * exactly when there is a previous BELT stage to compare against.
+   * AC-20.1 and AC-20.4 in one row: the two rates, their deltas, and the stars.
+   *
+   * The delta line exists only when `wpmDelta` is not null, which is exactly
+   * when there is a previous BELT stage to compare against - and its absence is
+   * the block getting shorter, not a gap where a number would have been.
    */
-  private buildRates(): Phaser.GameObjects.GameObject[] {
-    const made: Phaser.GameObjects.GameObject[] = [];
-    made.push(
-      ...this.statBlock(
-        PANEL.x + 48,
-        PANEL.y + 44,
-        this.lane.copy.text("results.wpmLabel"),
-        `${Math.round(this.results.wpm)}`,
-        this.results.wpmDelta === null ? null : Math.round(this.results.wpmDelta),
-        "wpm",
-      ),
+  private statsPiece(): Piece {
+    const parts: Part[] = [];
+    let height = 0;
+
+    const column = (
+      dx: number,
+      key: string,
+      caption: string,
+      value: string,
+      delta: number | null,
+    ): void => {
+      const cap = this.ink(`results.${key}.caption`, dx, 0, caption, {
+        size: TYPE.caption,
+        color: INK.textDim,
+      });
+      parts.push(cap);
+      const capH = (cap.obj as Phaser.GameObjects.Text).height;
+      const val = this.ink(`results.${key}.value`, dx, capH + 6, value, {
+        size: TYPE.display,
+        color: this.lane.palette.accent,
+      });
+      parts.push(val);
+      const valText = val.obj as Phaser.GameObjects.Text;
+      let bottom = val.dy + valText.height;
+      this.mark(key);
+      if (!this.lane.reducedMotion) {
+        valText.setScale(0.9);
+        this.tweens.add({ targets: valText, scale: 1, duration: 340, ease: EASE.pop });
+      }
+      if (delta !== null) {
+        // Neutral ink, never a warning colour: a delta is a measurement, not a
+        // mark.
+        const line = this.ink(
+          `results.${key}.delta`,
+          dx,
+          bottom + 14,
+          this.deltaLine(delta),
+          { size: TYPE.caption, color: INK.textDim },
+        );
+        parts.push(line);
+        bottom = line.dy + (line.obj as Phaser.GameObjects.Text).height;
+        this.mark(`${key}-delta`);
+      }
+      height = Math.max(height, bottom);
+    };
+
+    column(
+      0,
+      "wpm",
+      this.lane.copy.text("results.wpmLabel"),
+      `${Math.round(this.results.wpm)}`,
+      this.results.wpmDelta === null ? null : Math.round(this.results.wpmDelta),
     );
-    made.push(
-      ...this.statBlock(
-        PANEL.x + 480,
-        PANEL.y + 44,
-        this.lane.copy.text("results.accuracyLabel"),
-        `${Math.round(this.results.accuracy * 100)}%`,
-        this.results.accuracyDelta === null
-          ? null
-          : Math.round(this.results.accuracyDelta * 100),
-        "accuracy",
-      ),
+    column(
+      COL_ACCURACY,
+      "accuracy",
+      this.lane.copy.text("results.accuracyLabel"),
+      `${Math.round(this.results.accuracy * 100)}%`,
+      this.results.accuracyDelta === null
+        ? null
+        : Math.round(this.results.accuracyDelta * 100),
     );
-    return made;
+
+    const stars = this.starsParts();
+    parts.push(...stars.parts);
+    height = Math.max(height, stars.height);
+    return { id: "stats", height, parts };
   }
 
   private deltaLine(amount: number): string {
@@ -354,82 +596,73 @@ export class ResultsScene extends Phaser.Scene {
     return this.lane.copy.text(key, { amount: Math.abs(amount), stop });
   }
 
-  private statBlock(
-    x: number,
-    y: number,
-    caption: string,
-    value: string,
-    delta: number | null,
-    key: string,
-  ): Phaser.GameObjects.GameObject[] {
-    const pal = this.lane.palette;
-    const made: Phaser.GameObjects.GameObject[] = [];
-    made.push(
-      label(this, x, y, caption, {
-        size: TYPE.caption,
-        color: INK.textDim,
-        lang: this.lane.lang,
-      }),
-    );
-    const v = label(this, x, y + 30, value, {
-      size: TYPE.display,
-      color: pal.accent,
-      lang: this.lane.lang,
-    });
-    made.push(v);
-    this.mark(key);
-    if (!this.lane.reducedMotion) {
-      v.setScale(0.9);
-      this.tweens.add({ targets: v, scale: 1, duration: 340, ease: EASE.pop });
-    }
-
-    if (delta === null) return made;
-    // Neutral ink, never a warning colour: a delta is a measurement, not a mark.
-    made.push(
-      label(this, x, y + 122, this.deltaLine(delta), {
-        size: TYPE.caption,
-        color: INK.textDim,
-        lang: this.lane.lang,
-      }),
-    );
-    this.mark(`${key}-delta`);
-    return made;
-  }
-
   /**
    * AC-20.4 via AC-4.4. A stage that took three hull hits stalled and was never
    * cleared, so `starsForHullHits` returns 0 meaning "no rating"; the engine's
    * own note says the screen must DECLINE to render rather than draw a zero
    * that looks like a score.
    */
-  private buildStars(): Phaser.GameObjects.GameObject[] {
-    if (!isClearableHullHits(this.tally.hullHits)) return [];
-    const pal = this.lane.palette;
-    const g = this.add.graphics();
-    const y = PANEL.y + 96;
+  private starsParts(): { parts: Part[]; height: number } {
+    if (!isClearableHullHits(this.tally.hullHits, this.tally.maxHull)) {
+      return { parts: [], height: 0 };
+    }
+    const contentW = REPORT_CONTENT_W;
+    const left = contentW - STARS_W;
+    const cy = 56;
+    const g = this.add.graphics().setDepth(2);
     for (let i = 0; i < 3; i += 1) {
-      const cx = PANEL.x + 770 + i * 66;
-      const pts = starPoints(cx, y, 24, 11).map((p) => new Phaser.Geom.Point(p.x, p.y));
+      const cx = left + 24 + i * 66;
+      const pts = starPoints(cx, cy, 24, 11).map((p) => new Phaser.Geom.Point(p.x, p.y));
       if (i < this.results.stars) {
-        g.fillStyle(hexToNum(pal.accent), 1);
+        g.fillStyle(hexToNum(this.lane.palette.accent), 1);
         g.fillPoints(pts, true);
       } else {
-        // Not-yet-earned is drawn dim, never struck through (D31).
-        g.lineStyle(2, hexToNum(INK.textFaint), 0.8);
+        // Not-yet-earned is drawn dim, never struck through (D31). Dim here is
+        // a legible ink at low alpha rather than `INK.locked`, which cannot be
+        // seen at all on this panel.
+        g.lineStyle(2, hexToNum(INK.textDim), 0.55);
         g.strokePoints(pts, true, true);
       }
     }
     this.mark("stars");
-    return [
-      g,
-      label(
-        this,
-        PANEL.x + 752,
-        PANEL.y + 140,
-        this.lane.copy.text("map.stars", { stars: this.results.stars }),
-        { size: TYPE.caption, color: INK.textFaint, lang: this.lane.lang },
-      ),
-    ];
+    const caption = this.ink(
+      "results.stars.caption",
+      left + STARS_W / 2,
+      cy + 40,
+      this.lane.copy.text("map.stars", { stars: this.results.stars }),
+      { size: TYPE.caption, color: INK.textDim, align: "center", originX: 0.5 },
+    );
+    return {
+      parts: [{ obj: g, dx: 0, dy: 0 }, caption],
+      height: caption.dy + (caption.obj as Phaser.GameObjects.Text).height,
+    };
+  }
+
+  /**
+   * The ship, when there is something good to say about it.
+   *
+   * `results.shipIntact` has been in the string table in three languages since
+   * the table was written and nothing has ever drawn it. A clean run is a real
+   * thing the tally knows and the screen was throwing away, and it is the D74
+   * kind of fact: about the flight, not about the child. A run that DID take
+   * hits says nothing at all, which is the same silence a slower word gets.
+   */
+  private hullPiece(): Piece {
+    if (this.tally.hullHits > 0) return EMPTY_PIECE("hull");
+    if (!isClearableHullHits(this.tally.hullHits, this.tally.maxHull)) {
+      return EMPTY_PIECE("hull");
+    }
+    this.mark("hull");
+    const line = this.ink("results.hull", 0, 0, this.lane.copy.text("results.shipIntact"), {
+      size: TYPE.label,
+      color: INK.text,
+      wrapWidth: REPORT_CONTENT_W,
+    });
+    return {
+      id: "hull",
+      height: (line.obj as Phaser.GameObjects.Text).height,
+      parts: [line],
+    };
   }
 
   /**
@@ -447,60 +680,83 @@ export class ResultsScene extends Phaser.Scene {
    *                           through to the compare branch and formatted the
    *                           absence.
    */
-  private buildPersonalBest(): Phaser.GameObjects.GameObject[] {
-    if (!this.isNewBest && !this.hasPreviousRun) return [];
-    const pal = this.lane.palette;
+  private personalBestPiece(): Piece {
+    if (!this.isNewBest && !this.hasPreviousRun) return EMPTY_PIECE("personal-best");
     const line = this.isNewBest
       ? this.lane.copy.text("results.newPersonalBest")
       : this.lane.copy.text("results.personalBest", {
           wpm: Math.round(this.stopProgress.bestWpm),
         });
     this.mark(this.isNewBest ? "personal-best-new" : "personal-best");
-    return [
-      label(this, PANEL.x + 48, PANEL.y + 208, line, {
+    const part = this.ink(
+      this.isNewBest ? "results.personalBest.new" : "results.personalBest",
+      0,
+      0,
+      line,
+      {
         size: TYPE.label,
-        color: this.isNewBest ? pal.accent : INK.textDim,
-        lang: this.lane.lang,
-      }),
-    ];
+        color: this.isNewBest ? this.lane.palette.accent : INK.textDim,
+        wrapWidth: REPORT_CONTENT_W,
+      },
+    );
+    return {
+      id: "personal-best",
+      height: (part.obj as Phaser.GameObjects.Text).height,
+      parts: [part],
+    };
   }
 
-  /** AC-20.2. Only words that got faster appear. Slower words say nothing. */
-  private buildFasterWords(): Phaser.GameObjects.GameObject[] {
+  /**
+   * AC-20.2. Only words that got faster appear. Slower words say nothing.
+   *
+   * Two columns of three rather than one column of six: the panel is 980 px
+   * wide and a single column of short words down the left of it was most of what
+   * made the report look empty.
+   */
+  private fasterPiece(): Piece {
     const faster = this.results.words.filter((w) => w.faster);
-    if (faster.length === 0) return [];
-    const pal = this.lane.palette;
-    const made: Phaser.GameObjects.GameObject[] = [
-      label(this, PANEL.x + 48, PANEL.y + 272, this.lane.copy.text("results.fasterHeading"), {
-        size: TYPE.label,
-        color: pal.accent,
-        lang: this.lane.lang,
-      }),
-    ];
+    if (faster.length === 0) return EMPTY_PIECE("faster");
+    const heading = this.ink(
+      "results.faster.heading",
+      0,
+      0,
+      this.lane.copy.text("results.fasterHeading"),
+      { size: TYPE.label, color: this.lane.palette.accent },
+    );
     this.mark("faster-heading");
+    const parts: Part[] = [heading];
+    const top = (heading.obj as Phaser.GameObjects.Text).height + 12;
+    const rowH = Math.round(TYPE.label * 1.6);
+    let height = top;
 
-    faster.slice(0, 6).forEach((word, i) => {
-      const t = label(
-        this,
-        PANEL.x + 48,
-        PANEL.y + 316 + i * 38,
+    const shown = faster.slice(0, 6);
+    const perColumn = Math.ceil(shown.length / 2);
+    shown.forEach((word, i) => {
+      const dx = i < perColumn ? 0 : Math.round(REPORT_CONTENT_W / 2);
+      const row = i % perColumn;
+      const part = this.ink(
+        "results.faster.word",
+        dx,
+        top + row * rowH,
         this.lane.copy.text("results.fasterMarker", { word: word.word }),
-        { size: TYPE.label, color: INK.text, alpha: 0.88, lang: this.lane.lang },
+        { size: TYPE.label, color: INK.text },
       );
+      const t = part.obj as Phaser.GameObjects.Text;
       if (!this.lane.reducedMotion) {
         t.setAlpha(0);
         this.tweens.add({
           targets: t,
-          alpha: 0.88,
+          alpha: 1,
           duration: DUR.panel,
           delay: 70 * i,
           ease: EASE.arrive,
         });
       }
       this.mark(`faster:${word.word}`);
-      made.push(t);
+      parts.push(part);
+      height = Math.max(height, part.dy + t.height);
     });
-    return made;
+    return { id: "faster", height, parts };
   }
 
   /**
@@ -508,10 +764,9 @@ export class ResultsScene extends Phaser.Scene {
    * screen, and it is said only when there were retention words to say it
    * about; `wordCount === 0` renders nothing at all.
    */
-  private buildRetention(): Phaser.GameObjects.GameObject[] {
+  private retentionPiece(): Piece {
     const r = this.results.retention;
-    if (r.wordCount === 0) return [];
-    const pal = this.lane.palette;
+    if (r.wordCount === 0) return EMPTY_PIECE("retention");
     const percent = r.hitRate === null ? 0 : Math.round(r.hitRate * 100);
     const delta = r.meanLatencyDeltaMs;
 
@@ -529,20 +784,25 @@ export class ResultsScene extends Phaser.Scene {
     }
     this.mark("retention");
 
-    return [
-      label(this, PANEL.x + 48, PANEL.y + 566, this.lane.copy.text("results.retentionHeading"), {
-        size: TYPE.label,
-        color: pal.accent,
-        lang: this.lane.lang,
-      }),
-      label(this, PANEL.x + 48, PANEL.y + 606, line, {
-        size: TYPE.caption,
-        color: INK.text,
-        alpha: 0.85,
-        wrapWidth: PANEL.w - 96,
-        lang: this.lane.lang,
-      }),
-    ];
+    const heading = this.ink(
+      "results.retention.heading",
+      0,
+      0,
+      this.lane.copy.text("results.retentionHeading"),
+      { size: TYPE.label, color: this.lane.palette.accent },
+    );
+    const body = this.ink(
+      "results.retention.line",
+      0,
+      (heading.obj as Phaser.GameObjects.Text).height + 8,
+      line,
+      { size: TYPE.caption, color: INK.text, wrapWidth: REPORT_CONTENT_W },
+    );
+    return {
+      id: "retention",
+      height: body.dy + (body.obj as Phaser.GameObjects.Text).height,
+      parts: [heading, body],
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -550,7 +810,8 @@ export class ResultsScene extends Phaser.Scene {
   // -------------------------------------------------------------------------
 
   /**
-   * The board panel, the one-time prompt, or nothing at all.
+   * The board panel, the one-time prompt, or nothing at all - and then the
+   * whole screen is laid out around whichever it turned out to be.
    *
    * "Not now" means NOT NOW: the panel disappears rather than asking again on
    * the same screen. A prompt that reappears after being declined is not
@@ -559,105 +820,118 @@ export class ResultsScene extends Phaser.Scene {
   private renderBoard(): void {
     for (const part of this.boardParts) part.destroy();
     this.boardParts = [];
+    for (const piece of this.boardPieces) {
+      for (const part of piece.parts) part.obj.destroy();
+    }
+    this.boardPieces = [];
 
     const hud = this.parallax.layerOf("hud").container;
-    const pal = this.lane.palette;
-    const x = BOARD.x + 40;
-    const y = BOARD.y + 44;
-    const targets: FocusTarget[] = [];
     const showPanel = this.optedIn || !this.promptAnswered;
     /**
-     * Which target the caret opens on for THIS build of the board.
+     * Is the screen ASKING right now?
      *
      * Set only inside the branch that actually draws the question, so it is a
      * fact about what is on screen right now rather than about
      * `this.promptShown`, which is sticky for the snapshot's benefit and stays
-     * true after the question has been answered and removed.
+     * true after the question has been answered and removed. `openingFocusId`
+     * turns it into the id the caret opens on.
      */
-    let openOn: string | undefined;
+    let asking = false;
+    /** Board rows that are buttons, in the order they are drawn. */
+    const boardButtons: { id: string; text: string; activate: () => void }[] = [];
 
-    if (showPanel) {
-      this.boardParts.push(
-        plate(this, BOARD.x, BOARD.y, BOARD.w, BOARD.h, {
-          fill: INK.panel,
-          stroke: INK.line,
-        }),
-      );
-    } else {
-      this.mark("board-declined");
-    }
+    if (!showPanel) this.mark("board-declined");
 
     if (!this.optedIn && !this.promptAnswered) {
       this.promptShown = true;
-      openOn = "board-yes";
+      asking = true;
       this.mark("board-prompt");
-      this.boardParts.push(
-        label(this, x, y, this.lane.copy.text("results.boardPrompt"), {
-          size: TYPE.label,
-          color: INK.text,
-          alpha: 0.9,
-          wrapWidth: BOARD.w - 80,
-          lang: this.lane.lang,
-        }),
-      );
-      targets.push(
-        this.button(x, y + 190, BOARD.w - 80, this.lane.copy.text("results.boardPromptYes"), "board-yes", () =>
-          this.setOptIn(true),
+      this.boardPieces.push(
+        this.textPiece(
+          "board-prompt",
+          "results.board.prompt",
+          this.lane.copy.text("results.boardPrompt"),
+          TYPE.label,
+          INK.text,
         ),
       );
-      targets.push(
-        this.button(x, y + 274, BOARD.w - 80, this.lane.copy.text("results.boardPromptNo"), "board-no", () =>
-          this.setOptIn(false),
-        ),
-      );
+      boardButtons.push({
+        id: "board-yes",
+        text: this.lane.copy.text("results.boardPromptYes"),
+        activate: () => this.setOptIn(true),
+      });
+      boardButtons.push({
+        id: "board-no",
+        text: this.lane.copy.text("results.boardPromptNo"),
+        activate: () => this.setOptIn(false),
+      });
+      for (const b of boardButtons) {
+        this.boardPieces.push({ id: b.id, height: BUTTON_H, parts: [] });
+      }
     } else if (this.optedIn) {
       this.mark("board");
-      this.boardParts.push(
-        label(this, x, y, this.lane.copy.text("results.boardHeading"), {
-          size: TYPE.label,
-          color: pal.accent,
-          lang: this.lane.lang,
-        }),
+      this.boardPieces.push(
+        this.textPiece(
+          "board-heading",
+          "results.board.heading",
+          this.lane.copy.text("results.boardHeading"),
+          TYPE.label,
+          this.lane.palette.accent,
+        ),
       );
       const rows = relativeWindow(this.initData?.relativeBoard ?? []);
       if (rows.length === 0) {
         this.mark("board-empty");
-        this.boardParts.push(
-          label(this, x, y + 52, this.lane.copy.text("results.boardEmpty"), {
-            size: TYPE.caption,
-            color: INK.textDim,
-            wrapWidth: BOARD.w - 80,
-            lang: this.lane.lang,
-          }),
-        );
-      }
-      rows.forEach((row, i) => {
-        // No index, no position, no total. A name and a speed (D43).
-        const rowY = y + 60 + i * 52;
-        this.boardParts.push(
-          label(
-            this,
-            x,
-            rowY,
-            row.isYou ? this.lane.copy.text("results.boardYou") : row.label,
-            {
-              size: TYPE.label,
-              color: row.isYou ? pal.accent : INK.text,
-              alpha: row.isYou ? 1 : 0.8,
-              lang: this.lane.lang,
-            },
+        this.boardPieces.push(
+          this.textPiece(
+            "board-empty",
+            "results.board.empty",
+            this.lane.copy.text("results.boardEmpty"),
+            TYPE.caption,
+            INK.textDim,
           ),
         );
-        const speed = label(this, BOARD.x + BOARD.w - 40, rowY, `${Math.round(row.wpm)}`, {
-          size: TYPE.label,
-          color: row.isYou ? pal.accent : INK.text,
-          alpha: row.isYou ? 1 : 0.8,
-          align: "right",
-          lang: this.lane.lang,
-        });
-        speed.setOrigin(1, 0);
-        this.boardParts.push(speed);
-      });
+      } else {
+        this.boardPieces.push(this.rowsPiece(rows));
+      }
+    }
+
+    for (const piece of this.boardPieces) {
+      for (const part of piece.parts) hud.add(part.obj);
+    }
+
+    const laid = resultsLayout({
+      report: this.reportPieces,
+      board: this.boardPieces,
+      sun: sunDisc(lightPositionOf(this.lane.palette)),
+      shadow: shadowBox(SHADOW_AT.x, SHADOW_AT.y, SHADOW_AT.scale),
+    });
+
+    this.drawPanel(this.reportPlate, laid.report);
+    this.drawPanel(this.boardPlate, laid.board);
+    for (const placed of laid.reportContent) {
+      const piece = this.reportPieces.find((p) => p.id === placed.id);
+      if (piece) this.place(piece, placed);
+    }
+
+    const targets: FocusTarget[] = [];
+    for (const placed of laid.boardContent) {
+      const button = boardButtons.find((b) => b.id === placed.id);
+      if (button === undefined) {
+        const piece = this.boardPieces.find((p) => p.id === placed.id);
+        if (piece) this.place(piece, placed);
+        continue;
+      }
+      targets.push(
+        this.button(
+          { x: placed.x, y: placed.y, w: placed.w, h: BUTTON_H },
+          button.text,
+          button.id,
+          `results.${button.id === "board-yes" ? "board.yes" : "board.no"}`,
+          false,
+          button.activate,
+        ),
+      );
     }
 
     // Replay is drawn first because "back" reads on the left. CONTINUE is the
@@ -666,54 +940,144 @@ export class ResultsScene extends Phaser.Scene {
     // child pressing Enter on reflex moves on with their run rather than
     // silently re-flying the stage they just finished.
     targets.push(
-      this.button(160, BUTTON_Y, 420, this.lane.copy.text("results.replay"), "replay", () =>
-        this.replay(),
+      this.button(
+        laid.replay,
+        this.lane.copy.text("results.replay"),
+        "replay",
+        "results.replay",
+        false,
+        () => this.replay(),
       ),
     );
     targets.push({
-      ...this.button(620, BUTTON_Y, 420, this.lane.copy.text("results.continue"), "continue", () =>
-        this.continueOn(),
+      ...this.button(
+        laid.proceed,
+        this.lane.copy.text("results.continue"),
+        "continue",
+        "results.continue",
+        true,
+        () => this.continueOn(),
       ),
       primary: true,
     });
-    this.boardParts.push(
-      label(this, 1080, BUTTON_Y + 20, this.lane.copy.text("results.hint"), {
-        size: TYPE.caption,
-        color: INK.textFaint,
-        lang: this.lane.lang,
-      }),
-    );
+    this.hint?.destroy();
+    this.hint = skyText(this, laid.hint.x, laid.hint.y, this.lane.copy.text("results.hint"), {
+      screen: "results",
+      id: "results.hint",
+      size: TYPE.caption,
+      // Was `INK.textFaint` on bare sky: 2.57:1, which no seven-year-old can
+      // read. On the plate, in an ink that clears 4.5:1 either way.
+      color: INK.textDim,
+      lang: this.lane.lang,
+      depth: layer("hud").depth + 2,
+      padY: 8,
+    });
 
     hud.add(this.boardParts);
     // The caret opens on CONTINUE (`primary`, above) - except while the D43
     // opt-in question is on screen, when it opens on the question. A one-time
     // prompt the default action skips past is a prompt nobody ever answers,
     // and the defect being fixed here was "replay steals the default", not
-    // "anything that is not continue steals the default".
-    this.menu.setTargets(targets, openOn);
+    // "anything that is not continue steals the default". The rule itself is
+    // `openingFocusId` in support/relativeBoard.ts, where it is unit-tested.
+    this.menu.setTargets(targets, openingFocusId(targets, asking) ?? undefined);
   }
 
+  /** One wrapped line of board copy, measured. */
+  private textPiece(
+    id: string,
+    inkId: string,
+    content: string,
+    size: number,
+    color: string,
+  ): Piece {
+    const part = this.ink(inkId, 0, 0, content, {
+      size,
+      color,
+      wrapWidth: BOARD_CONTENT_W,
+    });
+    return { id, height: (part.obj as Phaser.GameObjects.Text).height, parts: [part] };
+  }
+
+  /** The window around the player: a name and a speed, never a position (D43). */
+  private rowsPiece(rows: readonly RelativeRow[]): Piece {
+    const parts: Part[] = [];
+    const rowH = Math.round(TYPE.label * 1.9);
+    rows.forEach((row, i) => {
+      const y = i * rowH;
+      parts.push(
+        this.ink(
+          row.isYou ? "results.board.you" : "results.board.row",
+          0,
+          y,
+          row.isYou ? this.lane.copy.text("results.boardYou") : row.label,
+          {
+            size: TYPE.label,
+            color: row.isYou ? this.lane.palette.accent : INK.text,
+          },
+        ),
+      );
+      parts.push(
+        this.ink(
+          row.isYou ? "results.board.you" : "results.board.row",
+          BOARD_CONTENT_W,
+          y,
+          `${Math.round(row.wpm)}`,
+          {
+            size: TYPE.label,
+            color: row.isYou ? this.lane.palette.accent : INK.text,
+            align: "right",
+            originX: 1,
+          },
+        ),
+      );
+    });
+    return { id: "board-rows", height: rows.length * rowH, parts };
+  }
+
+  /**
+   * A button with a real surface.
+   *
+   * `primary` is the filled one. Both get a border, because the thing that made
+   * the shipped pair read as disabled was that neither had an edge of any kind.
+   */
   private button(
-    x: number,
-    y: number,
-    w: number,
+    r: Rect,
     text: string,
     id: string,
+    inkId: string,
+    primary: boolean,
     activate: () => void,
   ): FocusTarget {
-    const h = 64;
-    this.boardParts.push(
-      plate(this, x, y, w, h, { fill: INK.panelRaised, stroke: INK.line }),
-    );
-    const t = label(this, x + w / 2, y + h / 2, text, {
+    const accent = this.lane.palette.accent;
+    const g = this.add.graphics().setDepth(1);
+    g.fillStyle(hexToNum(primary ? accent : BUTTON_FILL), 1);
+    g.fillRoundedRect(r.x, r.y, r.w, r.h, SPACE.radius);
+    g.lineStyle(2, hexToNum(primary ? mixHex(accent, "#FFFFFF", 0.35) : BUTTON_STROKE), 1);
+    g.strokeRoundedRect(r.x, r.y, r.w, r.h, SPACE.radius);
+    this.boardParts.push(g);
+
+    // D41: a button label is chrome and chrome is lowercase. Applied HERE and
+    // not only in the string table, because the capture had `fly it again`
+    // sitting next to `Continue` in one row - the table is shared with other
+    // screens and this is the render site that has to be right either way. No
+    // proper noun ever reaches this function: the board's pilot names are rows,
+    // not buttons.
+    const t = skyText(this, r.x + r.w / 2, r.y + r.h / 2, chromeCase(text, false), {
+      screen: "results",
+      id: inkId,
       size: TYPE.label,
-      color: this.lane.palette.accent,
+      color: primary ? BUTTON_INK : INK.text,
       align: "center",
       lang: this.lane.lang,
-    });
-    t.setOrigin(0.5);
+      plated: true,
+      plateFill: primary ? accent : BUTTON_FILL,
+      depth: 2,
+      originX: 0.5,
+      originY: 0.5,
+    }).text;
     this.boardParts.push(t);
-    return { id, x, y, w, h, activate };
+    return { id, x: r.x, y: r.y, w: r.w, h: r.h, activate };
   }
 
   private setOptIn(optedIn: boolean): void {
@@ -809,6 +1173,8 @@ export class ResultsScene extends Phaser.Scene {
         isYou: row.isYou,
       })),
       rendered: [...this.rendered],
+      /** AC-22.8: every colour pair this screen drew, for the contrast rubric. */
+      skyText: skyTextSamples(this),
       focusIndex: this.menu.index,
       focusId: this.menu.targets[this.menu.index]?.id ?? null,
       focusIds: this.menu.targets.map((t) => t.id),

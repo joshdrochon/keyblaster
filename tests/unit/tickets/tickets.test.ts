@@ -416,3 +416,81 @@ describe("escalations can be closed, and their ids are stable", () => {
     }
   });
 });
+
+describe("P2b: the board's own critic findings, closed", () => {
+  const all = tickets as { id: string; kind: string; state: string; why: string; refs?: string[] }[];
+  const by = (id: string) => all.find((t) => t.id === id);
+
+  it("D-4: a test whose green comes from the assertion FAILING is not a citation", () => {
+    // it.fails records "we know this does not hold". Crediting it is the purest
+    // false pass. Graded directly, since the live AC-10.2 is now BLOCKED by its
+    // escalation and would no longer exercise this path.
+    const src = `it.fails("AC-9.9 [ESCALATED]: does not hold", () => { expect(1).toBe(2); });`;
+    expect(citationStrength("AC-9.9", [{ path: "a.test.ts", src }]).level).not.toBe("STRONG");
+  });
+
+  it("D-4b: a describe whose only test is .fails is not a running assertion", () => {
+    const src = `describe("AC-9.9 convergence", () => {\n  it.fails("AC-9.9 nope", () => {});\n});`;
+    expect(citationStrength("AC-9.9", [{ path: "b.test.ts", src }]).level).not.toBe("STRONG");
+  });
+
+  it("NEGATIVE CONTROL: a describe WITH a running test does count", () => {
+    // Without this the rule above could be satisfied by rejecting everything.
+    const src = `describe("AC-9.9 convergence", () => {\n  it("holds", () => { expect(1).toBe(1); });\n});`;
+    expect(citationStrength("AC-9.9", [{ path: "c.test.ts", src }]).level).toBe("STRONG");
+  });
+
+  it("D-6: a decision named only in a heading or a non-goal is not realised", () => {
+    // D03 was DONE for appearing in the NON-GOALS list - cited for being
+    // explicitly NOT built. 54 decision tickets, 29% of the DONE column, rested
+    // on a bare token scan of the whole PRD.
+    const d03 = by("KB-D03");
+    expect(d03?.state).not.toBe(STATE.DONE);
+    expect(d03?.why).toMatch(/not on any acceptance-criterion line|no acceptance criterion/i);
+  });
+
+  it("NEGATIVE CONTROL: decisions cited by a real criterion are still DONE", () => {
+    const done = all.filter((t) => t.kind === "decision" && t.state === STATE.DONE);
+    expect(done.length).toBeGreaterThan(20);
+    for (const d of done) expect(d.why).toMatch(/acceptance-criterion or requirement line/);
+  });
+
+  it("D-7: a screen no e2e spec drives is not DONE on the file existing", () => {
+    for (const sc of all.filter((t) => t.kind === "screen" && t.state === STATE.DONE)) {
+      expect(sc.why, `${sc.id}`).toMatch(/driven by \d+ e2e spec/);
+      expect((sc.refs ?? []).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("D-8: a collision is resolved only when the log SAYS so", () => {
+    // Was the ABSENCE of the word "unresolved" on a single line, so a collision
+    // with no status line at all read as resolved.
+    for (const c of all.filter((t) => t.kind === "collision" && t.state === STATE.DONE)) {
+      expect(c.why).toMatch(/resolved in the log/);
+    }
+    expect(by("KB-C13")?.state).toBe(STATE.BLOCKED);
+  });
+
+  it("D-13: an AC->rubric edge stated in PRD prose is read", () => {
+    // AC-24.2 sat DONE while R-lantern was OPEN, with the PRD naming the link
+    // in plain text one line away. rubric.mjs's own source: string does not
+    // carry it - 11 of 33 items name no AC there.
+    const ac = by("KB-AC-24.2");
+    expect(ac?.refs).toContain("R-lantern");
+    expect(ac?.state).not.toBe(STATE.DONE);
+  });
+
+  it("an AC under an open escalation is BLOCKED whatever its tests say", () => {
+    // AC-10.2's citation is a describe called "why the low end cannot
+    // converge" - six RUNNING tests establishing the criterion cannot hold.
+    // Good tests; not evidence the AC is met. No citation-grading can tell the
+    // difference, only the fact that someone escalated it.
+    expect(by("KB-AC-10.2")?.state).toBe(STATE.BLOCKED);
+    expect(by("KB-AC-10.2")?.why).toMatch(/escalated:/);
+  });
+
+  it("NEGATIVE CONTROL: not every AC is blocked by an escalation", () => {
+    const acs = all.filter((t) => t.kind === "ac");
+    expect(acs.some((t) => t.state === STATE.DONE)).toBe(true);
+  });
+});

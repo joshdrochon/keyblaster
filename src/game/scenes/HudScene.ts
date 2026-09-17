@@ -109,6 +109,31 @@ export class HudScene extends Phaser.Scene {
     if (snap !== null) this.onSnapshot(snap);
   }
 
+  /**
+   * The HUD belongs to a belt, so it lives exactly as long as one.
+   *
+   * IT DID NOT. Nothing stopped this scene except the warp break and the stall
+   * restart, so quitting to the map from the pause menu left the readouts drawn
+   * over the Director map - and over the Settings panel after that, which is
+   * where a real playthrough found it: `["Preflight","Flight","Settings","Hud"]`,
+   * with the HUD on top of the panel the player was trying to read.
+   *
+   * Asked here rather than added to each exit because there are several exits
+   * and the next one written would be a new leak. Paused and sleeping both
+   * count as alive: the pause menu freezes the belt (and the readouts stay, on
+   * purpose - it is a pause, not an exit), and D30's warp break keeps Flight
+   * running underneath it.
+   */
+  override update(): void {
+    const flight = SCENE_KEYS.flight;
+    if (this.scene.manager.keys[flight] === undefined) return;
+    const alive =
+      this.scene.isActive(flight) ||
+      this.scene.isPaused(flight) ||
+      this.scene.isSleeping(flight);
+    if (!alive) this.scene.stop();
+  }
+
   private plate(
     x: number,
     y: number,

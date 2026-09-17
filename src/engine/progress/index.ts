@@ -98,10 +98,68 @@ export function unlockedStops(
   return open;
 }
 
-/** A stop is charted once its beacon is placed (D13). */
+/**
+ * A stop is charted once it is CLEARED and its beacon is placed (D13).
+ *
+ * BOTH HALVES, and the null check is `!= null` rather than `!== null`, because
+ * of this defect: the Director map's header counted `isCharted` while its
+ * labels and discs read `unlockedStops`, which reads `cleared`. An entry that
+ * carried one field and not the other - anything written by something other
+ * than `markStopCleared` - lit a lamp over a disc labelled "Locked". At seven
+ * of seven that told a child who had finished the game that it was locked.
+ *
+ * `markStopCleared` sets both together, so requiring both costs a real record
+ * nothing and makes a malformed one fail CLOSED (dark and locked, which is at
+ * least a state that exists) instead of contradicting itself on screen.
+ */
 export function isCharted(progress: readonly StopProgress[], stopId: StopId): boolean {
   const entry = progress.find((p) => p.stopId === stopId);
-  return entry !== undefined && entry.beaconPlacedAt !== null;
+  return entry !== undefined && entry.cleared === true && entry.beaconPlacedAt != null;
+}
+
+/** One stop as a screen should draw it. */
+export interface StopView {
+  readonly stopId: StopId;
+  readonly cleared: boolean;
+  /** Beacon lit: the lamp, the lit disc, the route segment, the header count. */
+  readonly charted: boolean;
+  /** "Not yet" - never "denied" (D31). Drawn, dimmed, and still focusable. */
+  readonly locked: boolean;
+  readonly stars: Stars;
+}
+
+/**
+ * THE ONE DERIVATION EVERY MAP-LIKE SCREEN READS.
+ *
+ * The header, the disc, the label, the lamp and the route line were five
+ * readers asking two different questions of the same array. They are one
+ * question now: a screen calls `routeView` once and draws what it says, so
+ * "4 of 7 lit" and the label under the fourth planet cannot disagree, whatever
+ * the array underneath looks like.
+ */
+export function routeView(
+  progress: readonly StopProgress[],
+  order: readonly StopId[] = STOP_IDS,
+): readonly StopView[] {
+  const open = unlockedStops(progress, order);
+  return order.map((stopId) => {
+    const entry = progress.find((p) => p.stopId === stopId);
+    const charted = isCharted(progress, stopId);
+    return {
+      stopId,
+      cleared: entry?.cleared === true,
+      charted,
+      // A lit beacon is by definition a stop the player has flown, so it can
+      // never be locked. Stated here rather than trusted of `unlockedStops`.
+      locked: !charted && !open.has(stopId),
+      stars: entry?.stars ?? 0,
+    };
+  });
+}
+
+/** Beacons lit, for the map header. Same source as the labels, by construction. */
+export function litCount(progress: readonly StopProgress[]): number {
+  return routeView(progress).filter((s) => s.charted).length;
 }
 
 /**

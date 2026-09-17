@@ -216,10 +216,19 @@ const VEIL_ALPHA_REDUCED = 0.5;
  * veil are allowed to occupy.
  *
  * AC-22.8 is the hard one: legibility is the game. Word plates fall down the
- * centre, so nothing on a plane IN FRONT of them may sit there. 0.26 leaves the
- * middle 48% of the frame permanently clear.
+ * centre, so nothing on a plane IN FRONT of them may sit there.
+ *
+ * TIGHTENED FROM 0.26, because 0.26 was wrong about where plates actually land.
+ * A plate follows its rock's x across the spawn lane's playable span, and a
+ * capture caught one whose left edge sat at x=275 of 1280 - that is 0.215, well
+ * inside the band 0.26 was handing to the foreground. The word read "acon".
+ *
+ * 0.20 leaves the middle 60% permanently clear, which covers the observed plate
+ * positions with room. The coverage it costs is bought back by letting the big
+ * near silhouettes hang off the frame EDGE instead of reaching inward, which is
+ * what a near-camera object does in the reference anyway.
  */
-const LANE_GUARD = 0.26;
+const LANE_GUARD = 0.2;
 
 
 /**
@@ -442,10 +451,27 @@ function materialsFor(
 // Builder
 // ---------------------------------------------------------------------------
 
+/**
+ * Registry key: the stop whose palette the WORLD IS ACTUALLY DRAWN IN.
+ *
+ * `boot.ts` needs to know where the player is so the letterbox bars can wear the
+ * same sky as the picture inside them. It used to ask the scene tree, and that
+ * answer can disagree with the picture: a scene opened straight from a URL
+ * carries no `stopId` in its data, so the lookup fell through to the shared
+ * `SceneContext` default - Earth - while `FlightScene` had resolved Mars for
+ * itself. Measured at a 4:3 window, the bars came out `#0b1b3a` and `#08111f`,
+ * which are Earth's sky and ground, framing a Mars screen.
+ *
+ * This is the answer that cannot disagree, because it is set by the thing that
+ * does the drawing.
+ */
+export const WORLD_STOP_KEY = "kb.worldStop";
+
 export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Parallax {
   ensureTextures(scene);
 
   const pal = options.palette;
+  scene.game.registry.set(WORLD_STOP_KEY, pal.id);
   const W = options.width ?? scene.scale.width;
   const H = options.height ?? scene.scale.height;
   const decorate = new Set(options.decorate ?? DEFAULT_DECORATE);
@@ -626,6 +652,48 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   // owns the real, typeable debris; this is the silhouette that makes the world
   // read as populated when no word is on screen.
   if (decorate.has("debris")) {
+    /**
+     * THE DARK HALF OF THE LADDER: BUILT, MEASURED, AND NOT SHIPPED.
+     *
+     * The finding is real and worth keeping. `depthRamp` computes 53 / 41 / 28 /
+     * 16 on Mars while the frame measures L*37.8-52.9, because only the two
+     * lightest bands have geometry: `ramp[3]` was used by `canyonTile` alone,
+     * that was deleted with the edge bars, and the darkest value in the stack
+     * quietly stopped being drawn. No test noticed, because none of them
+     * measures band AREA.
+     *
+     * The fix looked obvious - put `ramp[3]` silhouettes HERE, on the debris
+     * layer. Word plates draw at 4.5 and this is 4, so plates are in FRONT of
+     * it: no lane guard needed, full width, centre included. That is the one
+     * place near-black mass can live without being anchored to the two vertical
+     * edges, and edge-anchoring is what made the previous coverage attempt read
+     * as a border on 56 of 64 rows.
+     *
+     * IT WAS BUILT AND IT DID NOT WORK. Two masses per tile at 0.30-0.52 of the
+     * tile height:
+     *
+     *   upper frame below L*40     5.8%  ->  5.7%     (`alto-03`: 29.5%)
+     *   Title left edge band       0.39  ->  0.59     (threshold 0.45)
+     *
+     * A tenth of a point of the thing it was for, and it tripped the
+     * seamless-screen guard - because a tall dark mass standing at an edge is
+     * indistinguishable from a bar to any measurement, and to a player looking
+     * at one frame.
+     *
+     * THE REASON IT CANNOT WORK IS THE SKY. The upper half of this frame is
+     * mostly sky by area and 81.4% of it sits in the L*60-80 box; `alto-03`'s
+     * upper half is 30.9% there because its sky is a third of its picture and
+     * land fills the rest. Geometry on a plane cannot move a number dominated by
+     * the gradient behind it. That is the horizon, and the horizon is the A/B/C
+     * direction call.
+     *
+     * Also recorded, from `BANDS_BEHIND_DEBRIS` in palette.ts: band 2 could
+     * never have joined band 3 here anyway. Four bands span ~90 luminance with
+     * ~30 between neighbours, a rock needs 18 of clearance on both sides, and
+     * with every band behind it the only windows left on Mars are below 48 and
+     * above 144 - and its sky sweeps 207 -> 38 straight through both.
+     */
+
     layerOf("debris").container.add(
       drawOps(
         scene,
@@ -681,6 +749,8 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
       "nearField",
       driftTile(W, H, {
         materials: materialsFor(pal, objectInk, 0, 0.8, true),
+        // HELD, AND THE REASON IS A CONSTRAINT COLLISION - see the note on
+        // `LANE_GUARD` and the foreVeil block below.
         count: 4,
         minPx: 70,
         maxPx: 132,
@@ -706,6 +776,42 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
       "foreVeil",
       driftTile(W, H, {
         materials: materialsFor(pal, objectInk, 0, 0.92, false),
+        /**
+         * THE COVERAGE PASS STOPPED HERE, and the numbers say why.
+         *
+         * The ask was to put near-black mass into the UPPER frame, the way
+         * `alto-03` does with palm trunks: 20.7% of its top half is below L*40
+         * against 2.0% of ours. The near-plane and foreVeil silhouettes are the
+         * only near-black things we have, so growing them is the obvious move.
+         *
+         * Three constraints do not fit together:
+         *
+         *   1. Near-plane objects must stay out of the centre 60%, because word
+         *      plates fall there and legibility is the game (AC-22.8). A capture
+         *      taken during this pass caught a grown rock over a plate reading
+         *      "acon".
+         *   2. Therefore near-black mass can only live in the outer 40%.
+         *   3. Filling the outer 40% at most heights IS A BORDER, which is the
+         *      defect a player reported three times in the words "the bars on
+         *      the left and right... should be one seamless screen".
+         *
+         * Measured on the Title, as the fraction of rows where the edge band
+         * differs from the middle of the picture:
+         *
+         *   count 4 / 2, 70-132 / 130-230 px    0.30 left, 0.33 right
+         *   count 6 / 3,  90-180 / 170-300 px   0.38 left, 0.63 right
+         *   count 10 / 8, 130-260 / 220-460 px  0.63 left, 0.88 right
+         *
+         * The threshold is 0.45, and at 0.88 the right edge differs from the
+         * middle on 56 of 64 rows. That is the bar, back.
+         *
+         * So these are held at the level that is demonstrably not a border. The
+         * upper-frame dark this pass was asked for cannot come from here; it has
+         * to come from geometry BEHIND the plates, on the two dark ramp bands -
+         * which currently carry no silhouette geometry at all, and that is the
+         * real finding underneath the critic's "bands 2 and 3 have almost no
+         * on-screen area". Adding it is a bigger change than a constant.
+         */
         count: 2,
         minPx: 130,
         maxPx: 230,
@@ -919,7 +1025,6 @@ function celestialBody(
   // touching the hue the haze produced.
   const hazed = atmospheric(pal.colors[2] ?? pal.accent, sky, 0.84);
   const body = withLightness(hazed, Math.min(96, lightness(sky) + 6));
-  const dark = withLightness(hazed, Math.max(4, lightness(sky) - 12));
 
   const c = scene.add.container(0, 0);
   // THE ADDITIVE GLOW IS GONE. It was a second light source in a frame whose
@@ -937,18 +1042,23 @@ function celestialBody(
   // was one more pale join. The reference's celestial bodies are flat shapes in
   // one or two values (`alto-01`, `alto-05`: a crescent, and nothing else), so
   // this is a disc and a terminator and that is all.
-  // TWO circles, not three. The previous version drew the dark disc, a lit disc
-  // at 0.9r and the body at 0.74r, which from any distance is a RING - a critic
-  // measuring the frame described it as "ringed, and darker than its own
-  // background". A planet is a disc with a terminator on it.
-  g.fillStyle(hexToNum(dark), 1);
-  g.fillCircle(cx, cy, r);
+  // ONE FLAT DISC. Nothing else.
+  //
+  // This has now been three circles (dark / lit / body - from any distance a
+  // RING, and a critic described it exactly that way), two (a terminator
+  // crescent, measured as "two overlapping circles with a hard seam at x=850"),
+  // and two again with the bite drawn in the sky's colour - which fails for a
+  // reason worth writing down: the sky is a GRADIENT, so a bite painted in
+  // `skyStops[1]` matches the sky at exactly one height and reads as a second
+  // pale disc everywhere else. Graphics cannot erase, so there is no third
+  // attempt available along that line.
+  //
+  // A flat disc is also what the reference actually does. `alto-01` and
+  // `alto-05` each draw their moon as ONE filled shape - the crescent is the
+  // path, not two circles composited. A distant body here is a shape, and this
+  // one is round.
   g.fillStyle(hexToNum(body), 1);
-  g.fillCircle(
-    cx - Math.cos(lightAngleOf(pal)) * r * 0.16,
-    cy - Math.sin(lightAngleOf(pal)) * r * 0.16,
-    r * 0.94,
-  );
+  g.fillCircle(cx, cy, r);
   c.add(g);
   return c;
 }
@@ -1078,8 +1188,12 @@ function vignette(
   // filter, and it flattens the objects it was supposed to frame.
   //
   // The reference's near-black is opaque OBJECTS - the near-plane and foreVeil
-  // silhouettes. This is only the seat underneath them.
-  ramp(h, h - h * 0.24, 0.55);
+  // silhouettes. This is only the seat underneath them, and it was pulled back
+  // again when those silhouettes grew: 93% of the bottom fifth was already below
+  // L*40 from the wash alone, and a wash returns the same value at x=150 and
+  // x=1000, so it contributes darkness without contributing any depth. Where
+  // silhouette can carry the dark, it should.
+  ramp(h, h - h * 0.20, 0.46);
   // A touch on the top edge too, so the HUD plate has something to sit on.
   ramp(0, h * 0.16, 0.18);
   return g;

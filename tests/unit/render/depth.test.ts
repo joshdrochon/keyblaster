@@ -25,7 +25,12 @@ import {
   warmShift,
   atmosphereFor,
 } from "../../../src/game/render/palette.js";
-import { isBrightStop, paletteAt } from "../../../src/game/render/palette.js";
+import {
+  DEBRIS_SEPARATION,
+  isBrightStop,
+  luma255,
+  paletteAt,
+} from "../../../src/game/render/palette.js";
 
 /**
  * THE DEPTH SYSTEM (design-reference/refs/WORLD-BAR.md, art-direction.md §2).
@@ -93,10 +98,19 @@ describe("WORLD-BAR item 2: the value range spans near-sky to near-black", () =>
     for (const p of STOPS) {
       const sky = skyStops(p)[1];
       const ramp = depthRamp(p, 4);
+      // STATED AS ABSOLUTES, not as a ratio.
+      //
+      // The ratio form (near > far x 2.5) broke on Jupiter by one L* when
+      // `depthRamp` gained its debris phase - a bounded slide of up to half a
+      // step that exists to keep word-asteroids visible. A ratio turns that
+      // legitimate slide into a failure at one stop and not at another, for no
+      // reason a reader could predict. Two absolute bounds say the same thing
+      // and survive the phase.
       const farGap = Math.abs(lightness(ramp[0] as string) - lightness(sky));
       const nearGap = Math.abs(lightness(ramp[3] as string) - lightness(sky));
+      expect(farGap, `${p.id}: the far plane stays near its sky`).toBeLessThan(32);
       expect(nearGap, `${p.id}: the near plane must separate from the sky`).toBeGreaterThan(
-        farGap * 2.5,
+        isBrightStop(p) ? 40 : 8,
       );
     }
   });
@@ -164,9 +178,16 @@ describe("WORLD-BAR item 2: the value range spans near-sky to near-black", () =>
     // sixties cannot.
     for (const p of STOPS) {
       if (!isBrightStop(p)) continue;
+      const sky = skyStops(p)[1] as string;
       const ramp = depthRamp(p, 4).map(lightness).sort((a, b) => a - b);
       const median = ((ramp[1] as number) + (ramp[2] as number)) / 2;
-      expect(median, `${p.id} ladder median`).toBeLessThan(46);
+      // RELATIVE TO THE STOP'S OWN SKY, not an absolute. Saturn's sky sits at
+      // L*94 and every other bright stop's is in the seventies or eighties, so a
+      // flat number either lets the dark stops off or fails Saturn for having a
+      // pale sky, which is not a defect.
+      expect(median, `${p.id} ladder median vs sky ${lightness(sky).toFixed(0)}`).toBeLessThan(
+        lightness(sky) - 30,
+      );
       expect(ramp[3] as number, `${p.id} furthest band`).toBeLessThan(76);
     }
   });
@@ -634,6 +655,84 @@ describe("AC-22.8: the typed letter is legible in BOTH palette modes", () => {
     for (const id of PALETTE_STOP_IDS) {
       const p = paletteAt(id, false);
       expect(p.accent, id).toBe(p.worldAccent);
+    }
+  });
+});
+
+/**
+ * AC-22.4, THE LEGIBILITY HALF: a word-asteroid can always be seen.
+ *
+ * ---------------------------------------------------------------------------
+ * THE DEFECT THIS EXISTS FOR
+ *
+ * A position-anchored probe tracked one rock down the shipped Mars frame:
+ *
+ *   high                        0.373
+ *                               0.343
+ *                               0.278
+ *                               0.159
+ *   crossing a terrain band     0.0002    <- inside 101.1, outside 101.1
+ *
+ * Not dim. Gone. Six of the seven stops did the same thing, and on Earth and
+ * Neptune the debris fill had the same luminance as the SKY, so a rock was
+ * invisible against open sky as well. At the moment a seven-year-old most needs
+ * to read the word on an asteroid, the asteroid was not there.
+ *
+ * It had passed every check in this file for months, because every check here
+ * was about the LANDSCAPE and none of them asked what the landscape does to the
+ * thing the player is trying to read.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT IS MEASURED, AND IN WHICH UNITS
+ *
+ * Rec.601 luminance bytes, because that is what the V-22.4 probe desaturates
+ * with. A rule stated in L* would be a proxy for the check rather than the
+ * check. The probe's bar is 0.06 of the range - about 15 levels - and
+ * `DEBRIS_SEPARATION` is 18, so this is a floor with margin rather than a
+ * threshold tuned to squeak past one frame.
+ *
+ * Bands 0 and 1 only: a gameplay rock is on L4 `debris`, and L5 `nearField` and
+ * L6.5 `foreVeil` are in FRONT of it - they occlude rather than blend. What sits
+ * behind a rock is the sky and L2 `farField` / L3 `midField`.
+ */
+describe("AC-22.4: a word-asteroid never disappears into what is behind it", () => {
+  const gap = (c: string, against: readonly string[]): number =>
+    Math.min(...against.map((b) => Math.abs(luma255(c) - luma255(b))));
+
+  for (const colorblind of [false, true]) {
+    const mode = colorblind ? "colourblind" : "normal";
+
+    it(`${mode}: the debris fill clears both silhouette planes behind it`, () => {
+      for (const id of PALETTE_STOP_IDS) {
+        const p = paletteAt(id, colorblind);
+        const behind = depthRamp(p, 4).slice(0, 2);
+        expect(
+          gap(p.debris, behind),
+          `${id} (${mode}): ${p.debris} against bands ${behind.join(", ")}`,
+        ).toBeGreaterThanOrEqual(DEBRIS_SEPARATION);
+      }
+    });
+
+    it(`${mode}: ...and clears the sky it falls through`, () => {
+      // The sky is a gradient a rock traverses top to bottom, and AC-22.3 needs
+      // it to travel across a stage, so it cannot be moved to suit the rock.
+      // `pickDebris` scores candidates on the WORSE of the two clearances for
+      // exactly this reason - an earlier version maximised the sky alone and
+      // chose Mars' `#B5522A`, which can never be phased more than 15 from the
+      // bands.
+      for (const id of PALETTE_STOP_IDS) {
+        const p = paletteAt(id, colorblind);
+        expect(gap(p.debris, skyStops(p)), `${id} (${mode}): ${p.debris} against its sky`)
+          .toBeGreaterThanOrEqual(DEBRIS_SEPARATION);
+      }
+    });
+  }
+
+  it("the debris fill is still one of the stop's own palette colours (AC-22.7)", () => {
+    // The rule changed which slot is chosen, not where it is chosen from. The
+    // colourblind variant may also use its declared `colorblind.debris`.
+    for (const id of PALETTE_STOP_IDS) {
+      expect(paletteFor(id).colors, id).toContain(paletteFor(id).debris);
     }
   });
 });

@@ -44,3 +44,47 @@ export function relativeWindow(
   const to = Math.min(sorted.length, you + neighbours + 1);
   return sorted.slice(from, to);
 }
+
+/** The two answers to the one-time question, in the order they are drawn. */
+export const PROMPT_TARGET_IDS = ["board-yes", "board-no"] as const;
+
+/** Anything the stage report's keyboard menu can hold. */
+export interface CaretTarget {
+  readonly id: string;
+  /** The forward action: continue, launch, light the beacon (kit.FocusTarget). */
+  readonly primary?: boolean;
+}
+
+/**
+ * WHICH TARGET THE CARET OPENS ON, and the one deliberate exception to
+ * "the forward action is the default" (AC-18.1, D43).
+ *
+ * The rule the stage report got wrong was replay-versus-continue: the ring
+ * opened on "fly it again", so a child pressing Enter on reflex silently
+ * re-flew the stage they had just finished. Continue is `primary` and takes the
+ * caret whatever order the buttons are drawn in - replay is on the LEFT because
+ * that is where a "back" reads, and layout order does not get to choose what
+ * Enter does.
+ *
+ * The exception is `asking`. While the one-time opt-in question is on screen the
+ * caret opens on the question, because a question the default action skips past
+ * is a question nobody ever answers - and D43 only gets one calm ask. The moment
+ * it is answered, `asking` is false, the question is not on screen any more, and
+ * the caret goes back to the forward action. That "the moment it is answered" is
+ * the half that was easy to get wrong, so it is a returned value here rather
+ * than a branch inside a rebuild.
+ *
+ * Returns null only when there is nothing to focus at all.
+ */
+export function openingFocusId(
+  targets: readonly CaretTarget[],
+  asking: boolean,
+): string | null {
+  if (targets.length === 0) return null;
+  if (asking) {
+    const question = targets.find((t) => PROMPT_TARGET_IDS.includes(t.id as never));
+    if (question !== undefined) return question.id;
+  }
+  const primary = targets.find((t) => t.primary === true);
+  return (primary ?? targets[0])?.id ?? null;
+}

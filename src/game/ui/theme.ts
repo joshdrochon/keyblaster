@@ -104,6 +104,29 @@ export const INK = {
 } as const;
 
 /**
+ * THE PLATE EVERY PIECE OF SKY-BORNE TEXT SITS ON (AC-22.8).
+ *
+ * The word plate has always had one and measures 17.4:1. Headlines did not, and
+ * five screens shipped at 1.19:1 - 1.72:1 because the rubric only ever looked at
+ * the word plate. One token, used by `skyText()` in the scene kit, so the number
+ * the rubric reads and the number the screen draws cannot drift apart.
+ *
+ * ALPHA IS 0.97, NOT 1. The plate is meant to read as a sheet of glass over the
+ * world rather than a hole punched in it, and 3% of sky is enough to feel the
+ * stop's colour through it. It is also cheap to be honest about: the contrast
+ * module composites this over WHITE, so the ratio it reports is the worst case
+ * any sky can produce, not the one a capture happened to catch.
+ */
+export const SKY_PLATE = {
+  fill: INK.panel,
+  alpha: 0.97,
+  stroke: INK.line,
+  padX: 22,
+  padY: 12,
+  radius: SPACE.radius,
+} as const;
+
+/**
  * The only easing curves allowed anywhere (AC-22.5, art-direction s8).
  * Named here so no scene has to remember the list, and so a grep for `Linear`
  * across src/game/ui returns nothing.

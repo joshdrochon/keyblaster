@@ -1658,3 +1658,385 @@ e2e tests in `shadow-voice.spec.ts` depend on the same distinction.
 So `transportId` still means the SPEECH path only, and the rendered-file capability
 got its own surface: `graph.voiceClipIds` and `WiringSnapshot.voiceClipsUsed`.
 `A-21.5` stays green unmodified and the evidence is strictly richer than before.
+
+---
+
+## AC-6e.5 — the playtest targets were never chosen, so the criterion cannot be tested
+
+- **Escalated:** 2026-09-16 (trace-strict remediation lane)
+- **Source:** PRD FR-6e / AC-6e.5, D85
+- **Attempts:** n/a — this is a decision, not a fix-and-retry item. No amount of engineering produces a number nobody has picked.
+- **Evidence:** `docs/prd.md:79`; `node scripts/trace-check.mjs --strict`.
+
+### What the criterion says, verbatim
+
+> AC-6e.5 Playtest targets (to set): median session ≥ N min, replay rate ≥ M%. → M.
+
+`N` and `M` are still letters. This is the only one of the eleven unlinked ACs
+that is unlinked because **there is nothing to link to**: the other ten describe
+behaviour that exists and was simply never asserted.
+
+### Why no test was written
+
+A test needs a threshold. Writing `expect(medianSessionMin).toBeGreaterThanOrEqual(8)`
+would not be testing AC-6e.5; it would be **authoring** AC-6e.5 and then passing
+it, which is the fix-by-redefinition this lane exists to prevent. The number
+would also be indistinguishable from a real requirement to every later reader —
+a fabricated acceptance criterion is worse than a missing one, because a missing
+one is visible.
+
+It is also an `M` (manual/measured) criterion. Even with N and M set, closing it
+needs sessions with real children, not a vitest run: the deliverable would be a
+measurement report plus a rubric item that reads it, in the shape
+`gauntlet/evidence/*.json` already uses.
+
+### Options
+
+| | Option | Cost | Effect |
+|---|---|---|---|
+| A | User sets N and M. Then: instrument session length and replay, run the playtest, add a rubric item that reads the artifact. | One decision now; a real playtest later. | The criterion becomes closable and means something. |
+| B | Replace AC-6e.5 with a process commitment ("a playtest is run and its median session and replay rate are RECORDED", no threshold). | A PRD edit + a Cxx collision note. | Honest and testable-ish; loses the bar. A number nobody has to hit is not a target. |
+| C | Delete AC-6e.5 and note it in the decision log. | PRD edit. | Cleanest board. Loses the only criterion in the PRD about whether a child wants to play again, which is the thing the game is for. |
+| D | Pick plausible numbers now (industry-ish: 8–12 min median, 30–40% replay). | Free. | **Rejected.** Fabrication. These numbers have no source, and nothing in this repo has measured a child. |
+| E | Add AC-6e.5 to `TEST_EXEMPT`. | Free. | **Rejected.** AC-12b.3 is exempt because it is a research closure with no runtime behaviour. AC-6e.5 has runtime behaviour nobody specified — exempting it makes the check green on an unwritten requirement. |
+
+**Lean: A, with B as the fallback if no playtest is going to happen before
+submission.** A is the only option that keeps a bar. B is honest about what the
+project can actually do and is far better than D or E. Do not take D.
+
+Until then AC-6e.5 stays **uncovered**, and `--strict` stays red by (at least)
+this one item. The write-up must not say the playtest targets were met.
+
+---
+
+## U-ships — four ships and four skins exist, and not one of them can ever be unlocked
+
+- **Escalated:** 2026-09-16 (trace-strict remediation lane)
+- **Source:** PRD AC-6d.1 / AC-6d.1b, D79
+- **Attempts:** n/a — found while writing the missing AC-6d.1/AC-6d.1b tests. The fix is product work in a lane that was not mine.
+- **Evidence:** `grep -rn "unlockedShips\|unlockedSkins" src/` — every hit is a READ, a type, or `blankProfile`'s initial `[shipId]` / `[]`. `tests/unit/catalog/unlocks.test.ts` carries the half that does hold.
+
+### What is wrong
+
+`src/game/ui/catalog.ts` defines four ships with `unlockBeacons: 1, 3, 5, 7` and
+four skins with mastery milestones, and `ProfileCreateScene` faithfully draws
+each one locked or unlocked according to `profile.unlockedShips` /
+`profile.unlockedSkins`.
+
+**Nothing in `src/` ever writes to either list.** There is no `if (beacons >= 3)`
+anywhere, in the scenes or in the engine. A pilot places all seven beacons, hits
+a 50 chain, three-stars Saturn — and still owns exactly the one ship
+`blankProfile` gave them. The other three tiles say "unlocks after 3 beacons"
+forever.
+
+This is, to the line, the defect `src/engine/awards/index.ts` was written to fix
+for trophies:
+
+> Twelve trophies were defined in `src/game/ui/catalog.ts`, the Beacon Log
+> rendered all twelve [...] and NOT ONE COULD EVER BE EARNED, because nothing
+> anywhere in `src/` ever wrote to `profile.trophies`.
+
+The trophy half was fixed (`awardTrophies`, called from `ResultsScene`). The ship
+and skin half was not, and no test noticed because AC-6d.1 and AC-6d.1b had no
+test at all — they read as covered on the strength of titles saying `AC-6d.1c`.
+
+### What AC-6d.1b actually claims
+
+> 4 ships (unlock at 1/3/5/7 beacons), 1 skin each (unlock: first 3★ stop,
+> 25-combo, 50-combo, 100% retention set).
+
+The table half holds and is now asserted. The **unlock** half does not hold and
+is deliberately not asserted: a test that checked only the table and then
+declared AC-6d.1b met would be the false pass, not the fix.
+
+AC-6d.1 ("skins unlock only from mastery milestones; no time/purchase path
+exists") is in the odd position of holding *vacuously* — nothing unlocks skins at
+all, so certainly nothing sells them. Its tests assert the real, useful content
+of the claim (mastery-only milestones in config, no price field, no purchase or
+play-time machinery anywhere in `src/`), which stays true whichever way this
+escalation goes.
+
+### Options
+
+| | Option | Cost | Effect |
+|---|---|---|---|
+| A | Mirror `awards/`: an `engine/unlocks/` module, pure, `unlockedFor(profile, stageAward)`, called from `ResultsScene` next to `persistTrophies()`. | ~half a day. Same shape as a module that already exists and is already under the 95% gate. | AC-6d.1b holds end to end. |
+| B | Grant on the map instead (beacons are the ship trigger, and the map is where a beacon lands). | Similar, but splits the rule across two scenes — skins still need the stage award. | Works; worse seam. |
+| C | Cut ships and skins to one hull and drop AC-6d.1/AC-6d.1b. | PRD edit + a Cxx. | Honest, and D74's reading of Deci/Koestner/Ryan (1999) is an argument that unlockables are the wrong lever for this audience anyway. Cheapest defensible answer. |
+| D | Ship as is. | Free. | **Rejected.** Three permanently-locked tiles that promise a reward for something the game will never grant is worse than not having them. |
+
+**Lean: A**, because the pattern, the persistence, the migration and the tests
+all already exist for trophies and the second one is mostly copying. **C is the
+serious alternative** and is the one to take if the schedule is tight — it is
+better to remove the promise than to leave it unkeepable. Not D.
+
+---
+
+## Case convention across the whole UI (critic P2: "typography is inconsistent")
+
+*Raised by the contrast/map lane, 2026-09-16. Decided under D94 and applied; reverse it here if you disagree.*
+
+The critic caught `stage report` / `fly it again` lowercase sitting beside
+`Continue` capitalised **in the same button row**, plus `MARS BEACON` shouting in
+caps and `Route to Pluto` in title case. Three conventions, one screen apart.
+
+D41 already says lowercase is the default for chrome — "labels, headings, button
+text... never a pilot name or a ship name". It had been applied to the copy in
+`src/game/scenes/support/copy.ts` and not to the table in
+`src/engine/i18n/strings.ts`, which is the whole of the inconsistency.
+
+### Options
+
+| | Option | Cost | Effect |
+|---|---|---|---|
+| A | **Labels lowercase, sentences sentence-case.** A button/heading/hint is lowercase; anything with a full stop or question mark keeps its capital. Proper nouns (planet names, pilot name, ship name, KEYBLASTER) always keep theirs. | One pass over the three string tables and the seven content files. | One rule, stated in one sentence, and it is the rule D41 already set. |
+| B | Sentence-case everything. | Same. | Contradicts D41; also re-capitalises the copy another lane deliberately lowercased. |
+| C | Lowercase everything including sentences and proper nouns. | Same. | Reads as a style tic, and "route to pluto" demotes the destination the whole game is about. |
+| D | Leave it. | Free. | **Rejected.** Two cases in one button row is the thing the critic saw first. |
+
+**Lean and what I did: A.** Applied to `src/engine/i18n/strings.ts` (en/es; Hindi
+has no case), and to `beaconHeadline` / `beaconState` in
+`src/content/{en,es}/*.json` — so "MARS BEACON / PLACED" is now "Mars beacon /
+placed" and "Route to Pluto" is "route to Pluto".
+
+`tests/unit/i18n/translate.test.ts` named `"Jugar"` as the Spanish for
+`title.play`; it now names `"jugar"`. That is a copy value moving with the
+convention, not an assertion being weakened — the test still asserts that
+Spanish resolves to Spanish, and the i18n fit test still bounds the label width.
+
+### What is NOT covered
+
+`src/content/hi/*.json` has no case to change. The Spanish `beaconHeadline`
+became "faro Marte" (label lowercase, planet capitalised) rather than "Faro
+Marte" — if a Spanish reader thinks that reads wrong, that is the one line to
+revisit.
+
+---
+
+## The bar for sky-borne text: 4.5:1, not WCAG's 3:1 for large text
+
+*Raised by the contrast/rubric lane, 2026-09-16. Decided under D94 and applied.*
+
+V-22.8 was widened from "the word plate" to "every piece of text drawn over the
+world". That needed a threshold, and WCAG 2.1 gives two: 4.5:1 for body text and
+3:1 for large text (>= 24px, which most of the failing headlines are).
+
+| | Option | Effect |
+|---|---|---|
+| A | **4.5:1 for everything**, headline included. | One number, no size argument at the call site. Costs nothing: the shared plate puts `INK.text` at ~16:1 and `INK.textDim` at ~8:1 against the worst sky there is. |
+| B | 3:1 for text >= 24px, 4.5:1 below. | WCAG-exact. Adds a size field to every evidence row and an argument about where "large" starts in a Devanagari face whose ink box is 1.23x Latin's. |
+| C | 7:1 (WCAG AAA). | Would rule out `INK.textDim` on the plate and flatten the hierarchy to one ink. |
+
+**Lean and what I did: A.** The audience is 7-to-11 year olds, WCAG's large-text
+relaxation is written for adult readers, and the plate makes 4.5:1 free. B is the
+defensible alternative if a designer later wants a lighter plate under the big
+type; it is a threshold change in one place (`TEXT_MIN_CONTRAST` in
+`src/engine/contrast/index.ts`) plus a size field on `TextSample`.
+
+**What the check deliberately does NOT do:** it does not sample pixels. It reads
+the ink and the plate the scene registered and composites the plate over WHITE,
+so the number is the worst case any stop sky can produce. A pixel sample would
+measure whichever sky the capture happened to catch, which is how a bright stop
+could pass in evidence and fail on a child's screen.
+
+---
+
+## Ending lane (screen 12) — the closing line is no longer held behind a timer
+
+**What the empty black panel was.** Not a missing copy key. `EndingScene`
+drew Shadow's closing plate opaque in `create()` and held the LINE itself at
+alpha 0 behind `time.delayedCall(~3010 ms)`. `scripts/capture-screens.mjs`
+gives the ending 2600 ms of WALL time, and the scene clock in a headless
+Chromium page runs far behind wall time — the same capture shows all seven
+lamps still unlit, and those start at 990 ms of scene time. So every capture of
+this screen was taken during the gap and showed a plate with nothing in it.
+
+**The decision: what happens to the "and then Shadow speaks" beat.**
+
+| Option | Cost | Note |
+|---|---|---|
+| A. Closing line on screen from frame one; the lamp sweep is the only motion | Loses the third story beat | Every still of the payoff screen is a composed screen. Nothing legible is ever gated on a clock the capture cannot reach. |
+| B. Fade plate AND text in together, still after the lamps | Free | Fixes "empty plate" but the capture still shows the payoff screen with no closing line and a hole where it goes. |
+| C. Fade plate and text in together, starting at t=0 over 260 ms | Free | Same failure as B whenever the clock is slower than ~260 ms/2.6 s, which is exactly the case that produced the defect. |
+| D. Shorten the whole card to fit 2600 ms wall | Rushes the sweep to ~40 ms/stop | Tunes the game to the screenshot tool. Wrong direction. |
+
+**Lean and what I did: A.** A payoff screen that reads as unfinished in every
+still is a worse outcome than losing one beat, and the beat is still carried by
+the lamps sweeping Earth-to-Pluto and by Shadow's salute. The same reasoning
+made the lamp BEADS lit from frame one, with the sweeping halo as the animation
+— the child has just placed all seven beacons, so seven dead sockets on a wire
+is not a truer picture of that moment, it is a worse one. `litOrder` /
+`litCount` still track the sweep, so `tests/e2e/beacon.spec.ts` is unchanged.
+
+**Also decided without asking:** the forward action moved from bottom-left to
+centred under the closing panel (it is the only control on the card), and the
+stop names are `INK.text` rather than seven stop accents — seven accents on a
+dark plate is seven different contrast ratios, so the colour is carried by the
+lamps and the names stay one legible ink.
+
+## Menu-scene family lane (Beacon Log + Pause) — layout decisions
+
+Three calls I made rather than blocking (D94). All three are implemented with
+the lean; say the word and any of them flips in a few lines.
+
+### 1. Where the empty-state Shadow + line live on the Beacon Log
+
+| option | cost |
+| --- | --- |
+| **Header band, right of the heading (CHOSEN)** | The empty state is not adjacent to the beacon column it comments on. |
+| Below the beacon column | Does not exist: 7 rows x ~96 px from y=240 ends at ~970, and the keyboard hint is at 1004. There is no band. |
+| A middle gutter column between beacons and trophies | Costs ~300 px of width, and the trophy grid is the block that runs out of width first (12 wrapped criteria, 3 columns). At 230 px tiles the Hindi criteria wrap to 4 lines and the grid cannot fit 1080 at any glyph size. |
+
+Evidence: with the old fixed 190 px pitch the grid needed 1234 px of height in
+English alone; the trophy tile had to get wider (230 -> 340) AND put its mark
+beside the words instead of above them before four rows fit in every language.
+That width has to come from somewhere, and the beacon column is the only place
+with slack. Lean: header band. It is the one region no column reaches, in all
+three languages, and the line reads as a caption on the title it sits beside.
+
+### 2. Locked text is now `INK.textDim`, the same ink as unfocused body text
+
+`INK.locked` (#3A4656) is 1.6:1 on the row plate — "pluto / not lit yet" and all
+twelve trophy criteria were effectively invisible. Moving them to `textDim`
+(9.2:1) means LOCKED and UNLOCKED-UNFOCUSED are no longer separated by ink.
+They are still separated by the plate (sunken, 0.55 alpha vs. 0.92), by the
+glyph tint, by the copy itself, and by `data-locked` in the mirror. The
+alternative — inventing a new mid ink between #3A4656 and #A8B6C8 — means
+editing `theme.ts`, which this lane does not own. Lean: ship `textDim`; add a
+`INK.dimmer` token later if the distinction reads as lost on the next capture.
+
+### 3. Known gap I did not fix: the AC-18.4 notice line
+
+`MenuScene.renderNotice` puts the storage-failure notice at `GAME_HEIGHT - 132`
+(y=948, bottom-left). The Beacon Log's beacon column now ends at ~970, so IF
+that notice ever appears on this screen it overlaps the last beacon row. Fixing
+it properly means either a per-scene notice position (a new `MenuScene` hook) or
+squeezing the beacon rows to a 4 px gap so the column clears y=948. Both are
+worse than the bug: the notice is conditional on localStorage being unavailable,
+and the rows would be visibly cramped for every child on every visit. Lean:
+leave it, revisit if the notice is ever captured.
+
+---
+
+## E-world-5b — The horizon decision is now the ONLY thing between us and the visual bar. Two passes proved it.
+
+This supersedes nothing in E-world-5; it adds the measurements that turn a
+judgement call into an arithmetic one. **Read this one first.**
+
+### Two bounded attempts, both built, measured, and backed out
+
+| pass | what it did | result |
+|---|---|---|
+| coverage | grew near-band + foreVeil silhouette count and size | right edge differed from centre on **56 of 64 rows** (0.88 vs a 0.45 threshold). That is the bars returning under another name. Reverted. |
+| dark plane | `ramp[3]` silhouettes on the debris layer, full width, centre included, no lane guard | upper frame below L\*40 went **5.8% → 5.7%**. One tenth of one point. And the Title left edge went 0.39 → **0.59**, tripping the seamless guard. Reverted. |
+
+Neither was wasted — each produced a written-down bounded result, and the first
+surfaced two real defects (a lane guard measured to shape centre that put 67px
+of rock over a word plate, and a test guarding a configuration the game does not
+ship). But **two consecutive passes reached the same wall, and it is the same
+wall.**
+
+### Why no plane can fix it
+
+The upper half of our frame is mostly **sky by area**, and **81.4% of that sky
+sits in the L\*60–80 box**. `alto-03`'s upper half is **30.9%** there — because
+its sky is about a third of the picture and land fills the rest.
+
+**No geometry can move a number that is dominated by the gradient behind it.**
+Every remaining item on the value-range list — upper-frame darkness, the
+L\*37.8–52.9 stack, the empty lower-left quadrant, the flat bases hanging in
+sky — resolves to the same thing: there is no ground.
+
+### And a second, independent arithmetic wall
+
+Band 2 could never have carried dark geometry regardless. Four bands span ~90
+luminance with ~30 between neighbours; a rock needs 18 clearance on **both**
+sides, so it needs a 36-wide window. With every band behind it, the only windows
+left on Mars are below 48 and above 144 — and Mars' sky sweeps 207→38 straight
+through both. Recorded as `BANDS_BEHIND_DEBRIS = [0, 1, 3]` in `palette.ts` with
+the working.
+
+### What HAS been achieved without the decision
+
+| | start of night | now | alto-03 |
+|---|---|---|---|
+| below L\*40 | 13.1% | **32.8%** | 48.2% |
+| L\*60–80 box | 66.7% | **43.0%** | 17.3% |
+| brightest pixel | L\*89 (a 3px sparkle) | **L\*99.4** (a sun disc) | L\*97.2 |
+| Title edge bands | ~1.0 (bars) | **0.39 / 0.34** | — |
+| debris clearance | 6 of 7 stops failing, 2 invisible against open sky | **0.085–0.700**, bar 0.06, held through three passes | — |
+
+### The decision, unchanged from E-world-5 but now priced
+
+| | option | what it costs | holds at all 7 stops? |
+|---|---|---|---|
+| A | give each stop a horizon: ground plane at the bottom of L2/L3, masses sit on it and run off frame bottom | cheapest | **No** — impossible for Saturn's rings and the Kuiper belt |
+| B | drop terrain grammar, commit to space grammar: ring planes edge-on, planet limb, nebula bands, dust fields | medium, and removes a false note | **Yes** |
+| C | re-baseline palettes for genuine hue range | medium, independent of A/B | Yes |
+
+**Lean: B.** A vertically-scrolling space game carrying floating Martian mesas
+is a false note that better mesas amplify, and B is the only option that holds
+at every stop. C is worth doing whenever, but note E-world-6: hue is NOT the
+gap — measured, Alto's own desert is as monohue as ours. So C is polish, not
+the fix.
+
+**Status: proceeding without it.** The art lane is not blocked on anything else;
+it is blocked on this. I am not asking it for a third pass to prove the same
+wall a third way.
+
+---
+
+## E-results-title-1 — RESULTS + TITLE lane (stage report, wordmark)
+
+Three decisions the blind-critic pass forced. All three are implemented at my
+lean; none of them blocked (D94).
+
+### 1. The two empty panels: fill them, or size them?
+
+The critic measured 980x700 and 580x700 slabs with content only in their top
+~165 px. The brief offered "fill them" or "size them to content".
+
+| | option | what it costs | honest? |
+|---|---|---|---|
+| A | invent content to fill 700 px | every candidate is a number D31/D74 forbid showing: typos, a rank, a grade, a "0 wpm best" on a first run | **No** |
+| B | size the panels to measured content | a first run gets a smaller panel; needs a real layout module and a min height | Yes |
+| C | B, plus the ONE thing already computed and never drawn | `results.shipIntact` has been in the string table in three languages since it was written, and `tally.hullHits === 0` is a fact about the flight, not a verdict on the child | Yes |
+
+**Lean, implemented: C.** Everything `computeStageResults` produces was already
+on screen; the only thing being thrown away was the clean-run line. `REPORT_MIN_H`
+(430) and `BOARD_MIN_H` (380) keep a report a child just earned from collapsing
+into a caption strip, and the slack at the floor is split above and below the
+stack rather than left at the bottom.
+
+**What I did NOT do:** surface typos, time-on-stage, or a hull count. All three
+would fill the panel and all three are scoreboard.
+
+### 2. The moon inside the KEYBLASTER wordmark: move which one?
+
+The pale disc in the mark is `sunDisc()` on the parallax lane's celestial layer,
+at `lightPositionOf(pal)` — Earth (497, 330) r48, Mars (641, 315) r86. Not mine,
+so the wordmark moves. It can only move vertically: the mark is ~877 px wide and
+the disc's x sits inside it at five of the seven stops.
+
+| | option | result | cost |
+|---|---|---|---|
+| A | lockup UP, clear of the disc's top | impossible — a 218 px lockup needs `y <= -7` on Mars | — |
+| B | lockup DOWN, clear of the disc's bottom | works at every stop; disc reads as a moon in the sky above the logo | ~140 px of sky above the mark; the menu column follows down |
+| C | shrink the wordmark until it ends before the disc | a tiny logo | unacceptable |
+
+**Lean, implemented: B**, computed per stop from the disc rather than nailed to
+a constant — so Neptune and Pluto, whose suns are to the RIGHT of the mark, keep
+the composition the screen was designed with and move nothing at all.
+
+### 3. Known gap I could not close from this lane: Uranus' sun in the gutter
+
+At Uranus the sun is at (1123, 306) r86, spanning x 1037–1209. The stage report's
+two panels run 160–1140 and 1180–1760, so the disc straddles the 40 px gutter
+BETWEEN them and will show as a vertical slit of sun. Raising the panel tops
+cannot fix a vertical leak, and the only fixes I can see are (a) one wide panel
+with an inner divider, which is a redesign of the screen, or (b) the parallax
+lane nudging the light position — another lane's file. Every other stop's sun is
+wholly behind a panel and is covered.
+
+**Proceeding.** Six of seven stops are correct and the captured screen (Mars) is
+one of them.

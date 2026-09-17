@@ -17,7 +17,7 @@
   "preflightLine": "Casco, listo. Blaster, listo. Piloto... ese eres tú.",
   "activationWord": "despegue",
   "warpSentence": null,
-  "beaconHeadline": "FARO TIERRA",
-  "beaconState": "EN LÍNEA",
+  "beaconHeadline": "faro Tierra",
+  "beaconState": "en línea",
   "beaconFlavor": "Todo mapa empieza en casa."
 }

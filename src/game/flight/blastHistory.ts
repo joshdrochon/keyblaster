@@ -1,4 +1,5 @@
 import { normalizeWord } from "@engine/allowlist/index.js";
+import type { ObservedTimings } from "@engine/calibration/index.js";
 import { DEFAULT_CALIBRATION, type Calibration } from "@engine/types.js";
 
 /**
@@ -185,6 +186,35 @@ export interface StageOutcome {
   readonly missed: readonly string[];
   readonly slow: readonly string[];
   readonly hitRate: number;
+}
+
+/**
+ * The keystroke timings this run measured, in the shape `@engine/calibration`
+ * folds into a profile (`refineCalibration`).
+ *
+ * WHY THIS EXISTS. D51 says a returning player is "calibrated by history", and
+ * `calibrationFromHistory` reads that history off `profile.words`. Nothing in
+ * `src/` ever writes `profile.words`, so for every profile that did not run the
+ * pre-flight ritual that history is empty and `calibration.ikiMs` stays at
+ * FR-8's 350 ms default for ever - which sets fall time for a child who types
+ * at 600 ms as if they typed at 350. This is the other end of the same seam:
+ * the run itself already measured every interval, and this hands them over.
+ *
+ * WHAT IS AND IS NOT INCLUDED. Blasts only. A missed word contributes no
+ * intervals because the lock machine emits none for it - there is nothing to
+ * measure on a word the child never started - and a word they abandoned
+ * half-way would report the pause, not their hands. Bounding and the median are
+ * `@engine/calibration`'s job, not this module's, so nothing is filtered here:
+ * this is a faithful transcript, and the engine decides what is usable.
+ */
+export function observedTimings(history: BlastHistory): ObservedTimings {
+  const ikiMs: number[] = [];
+  const fkLatencyMs: number[] = [];
+  for (const blast of history.blasts) {
+    ikiMs.push(...blast.ikiMs);
+    if (Number.isFinite(blast.fkLatencyMs)) fkLatencyMs.push(blast.fkLatencyMs);
+  }
+  return { ikiMs, fkLatencyMs };
 }
 
 export function stageOutcome(

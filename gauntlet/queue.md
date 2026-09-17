@@ -104,6 +104,122 @@ Invoke with the Agent tool, `subagent_type: "game-mechanics"`.
 | 2.6 | `L-6e.3` (`deadtime.json` quantised to its own 120ms tick, control asserts `<=2000` where it needed `>0`) and `L-6e.4` (`retention.json` trend is arithmetic from `0.72 ** hits`). | unassigned | Both measure the engine, not the harness. |
 | 2.7 | Systemic: `evidence.has()` is `existsSync`; 14 items pass on a JSON file of any age or provenance. | unassigned | Freshness + provenance gate, like `scripts/tickets.mjs` already does. |
 
+## P0a — THE BELT IS STILL UNSURVIVABLE. The game never learns how fast the child types. (dispatched)
+
+An independent playthrough refuted last round's hull fix with measurements. A
+faithful grade-2 model — `ikiMs 600`, `coldRecognitionMs 2400`, the exact
+`GRADE2` constants from `tests/unit/simulation/belt.test.ts:68` — **stalled at
+spawn 18 of 58 on Jupiter, hull 0, 2 words cleared.** Clean 100%-accuracy
+repeat: hull 1 at spawn 20, hit rate 35% against a required 84.5%.
+
+Every cold word breaches; every warm word clears. Perfect correlation, no
+exceptions. `fit` falls in 3207ms and needs 3600. `jupiter` falls in 5595 and
+needs 6000.
+
+**Root cause: `calibration.ikiMs` is ALWAYS 350, the default.**
+
+1. `PreflightScene.ts:142` plans the calibration ritual only when
+   `story.newProfile` is true. **Nothing in `src/` ever sets it true** —
+   ProfileCreate, ProfilePicker and Title all pass `false`. `computeCalibration`
+   never runs.
+2. Even if it ran, the result goes to Flight as scene data and is **never
+   written to the profile**. No `updateProfile` call touches `calibration`.
+3. `calibrationFromHistory`, `applyCalibration`, `needsCalibration` have **zero
+   callers outside the engine**.
+
+**Same shape as the trophies bug:** a complete, tested, coverage-gated engine
+module with no live caller. That is now the THIRD instance — trophies,
+progression (`StopProgress.cleared`), and calibration. Worth treating as a
+class of defect rather than three incidents: the 95% engine gate makes a module
+look finished while nothing calls it, and no check in the repo asks "does
+anything in `src/game` import this?".
+
+**The simulation measures a game we do not ship.**
+`tests/unit/simulation/flight.ts:222` computes fall time with
+`calibration: { ...DEFAULT_CALIBRATION, ikiMs: player.ikiMs }` — it hands the
+grade-2 player a game that already knows they type at 600ms. So
+`belt-survivability.json` and `grade2-stall-rate.json` are both green about a
+different program. Fixing the simulation to use the shipped path is part of the
+job, or the next fix is validated by the same illusion.
+
+At median speed the belt is comfortable (Pluto 58/58, hull 9/9). It is fine for
+the player it was tuned for, and only for them.
+
+## P0a2 — scenes leak and swallow input (dispatched)
+
+After Results → "fly it again": `["Briefing","Flight","Hud"]` — Briefing still
+active under the belt. Settings from the pause menu: `["Preflight","Flight",
+"Settings","Hud"]`, HUD drawn over the Settings panel, and **Settings totally
+unresponsive to Left/Right/Tab because the leaked Flight ate the keystrokes.**
+From a clean Title → Settings every control works, so it is the leak.
+
+## P0a3 — shield canisters erase the hull record (dispatched)
+
+Stars come from `starsForHullHits(maxHull - hull, ...)` on the FINAL hull. A run
+where the hull hit 0 twice, collected 20 canisters and finished 9/9 awarded
+**3 of 3 stars at 63% accuracy** plus the `beltRunner` trophy, whose shipped
+copy reads "cross the main belt without a scratch". Track hits TAKEN.
+
+Also: Earth shows 0 stars on a 7/7 map. Trophies are awarded **silently** —
+nine earned across a full route, Results never mentions one.
+
+## P0b — FUNCTIONAL BUGS found by the 17-screen critic (dispatched)
+
+Not style. These break the game.
+
+| # | Bug | Evidence |
+|---|---|---|
+| 0b.1 | **A child who finishes the game is told it is locked.** `map-all-seven` header says "7 of 7 beacons lit" and every label still reads "Locked", every disc still grey. `map-mid-run` says "4 of 7" with Mars/Jupiter/Saturn still "Locked" under lit lamps. Label/disc state is not following progress — suspect the label reads a different source than the header | `map-*.png` |
+| 0b.2 | **Beacon Log prints text on top of other text.** "scratch" inside the "chain 50" card, "the same" inside "steady hull", "back" inside "last light"; caption over the pluto row; sleeping Shadow over the neptune row; bottom card row clipped. Twelve trophy icons are all the same ~10%-alpha glyph | `beacon-log.png` |
+| 0b.3 | **The payoff screen is empty.** 838×105 black panel dead centre of `ending` (x267–1105, y455–560, all 21 colours within 2 units of #12151a). Title at **1.19:1** straddling a silhouette edge. Timeline labels grey-on-grey, illegible | `ending.png` |
+| 0b.4 | **A rock covers its own word plate** — "beacon" renders as "eacon" at x=230–310. The depth-4.5 fix did not cover this case | `flight.png` |
+| 0b.5 | **No active-target indicator.** Two word plates on screen and nothing says which one is being typed | `flight.png` |
+| 0b.6 | **Pause cuts to a void** — flat #060d18, the game is not visible behind the card at all. Pausing should dim the flight | `pause.png` |
+
+## P0c — ACCESSIBILITY. Measured contrast failures on the target age (dispatched)
+
+Sky-borne headlines are drawn with no plate. The word plates (17.4:1) and HUD
+(18.4:1) are excellent — **the failure is entirely in text the rubric never
+checked**, because `V-22.8` only ever measured the word plate. That is how five
+screens of 1.2–1.7:1 text shipped green.
+
+| text | measured | screen |
+|---|---|---|
+| "Belt cleared. Type this…" | **1.35:1** | warp |
+| "MARS BEACON" / "PLACED" | 1.61–1.72:1 | beacon |
+| Results headers | 1.59–1.72:1 | results |
+| "the map is drawn" | **1.19:1** | ending |
+| "Locked" stop labels | **≈1.4:1** | all maps |
+
+Widening the contrast rubric to cover sky-borne text is part of the fix, with a
+negative control proving it fails on today's values.
+
+## P1b — the depth claim was 0.7% real where it matters (art lane, dispatched)
+
+The 13.1% → 33.4% move below L*40 is real and almost entirely **below y=370**:
+rows 500–720 are 92.6% below L*40; rows 0–370 are 5.9%, and **0.7% excluding
+the HUD boxes**. The gain came from a bottom gradient wash that returns
+identical values at x=150 and x=1000 — a vertical ramp, not a scene. I reported
+it as progress without asking where in the frame it landed.
+
+Worse, item 1 is **inverted**: far band `#835638` L*40.8, mid `#a4744e` L*52.9,
+near `#7a4f33` L*37.8. The farthest band is 12 points darker than the middle.
+Whole stack spans 15 L* against the bar's ~62. Hues 23°/26°/23°.
+
+No horizon at all: columns x=150 (no landform) and x=1000 (landform) return
+identical values from y=368 to y=719. The quadrant x=0–650, y=370–720 is empty
+— a quarter of the frame.
+
+**Two 1px edge remnants survive on flight, and only on flight** — the one screen
+the "seamless" complaint was about. Left `#08111f` (the EARTH palette's ground
+colour, on a Mars screen) for 592/720 rows; top `#393637` neutral grey for
+1233/1280 columns.
+
+Prescription: four continuous full-width bands, profiled bottom edges, values
+~L*68/52/34/14 back-to-front, hue separated, a drawn foreground silhouette
+replacing the wash, streak alpha ×3. Closes WORLD-BAR 1, 2, 3, 6, 8 plus the
+edge regression plus the flat bases — one routine.
+
 ## P2b — the ticket board's own defects (from its critic). FIXED so far: D-1, D-2, D-3, D-10, D-11, D-18, D-21.
 
 The board was reviewed by a critic that did not build it. Its verdict was **no,

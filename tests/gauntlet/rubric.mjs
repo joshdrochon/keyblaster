@@ -516,7 +516,7 @@ const visual = [
   {
     id: "V-22.8",
     source: "D60#8 / AC-22.8",
-    title: "Word plate text contrast >= 4.5:1",
+    title: "Every piece of text a child reads is >= 4.5:1 - plate AND sky",
     kind: "unit",
     needsBrowser: true,
     run: async ({ evidence }) => {
@@ -570,9 +570,121 @@ const visual = [
         );
       }
       const worst = rows.reduce((a, b) => (b.ratio < a.ratio ? b : a));
+
+      // ----------------------------------------------------------------------
+      // HALF TWO: SKY-BORNE TEXT.
+      //
+      // WHY THIS HALF EXISTS. Everything above measures the WORD PLATE, and the
+      // word plate is fine - 17.4:1, and it has been fine for months. Meanwhile
+      // five screens drew the headline that names the screen straight onto the
+      // sky, in the stop's accent, with no plate at all:
+      //
+      //   "Belt cleared. Type this to charge the warp drive."   1.35:1  warp
+      //   "Warp break"                                          1.60:1  warp
+      //   "MARS BEACON" / "PLACED"                          1.61-1.72:1  beacon
+      //   stage-report headers                              1.59-1.72:1  results
+      //   "the map is drawn"                                    1.19:1  ending
+      //   "Locked", under a LIT beacon                          ~1.4:1  map
+      //
+      // Every one of those shipped green, because this item's SCOPE was one
+      // pair of colours. The defect was never in the threshold. So the scope is
+      // the whole inventory now: each scene registers the colour pair behind
+      // every piece of text it draws over the world (`skyText` in the scene
+      // kit), `scripts/capture-screens.mjs` reads them back off the same frame
+      // it screenshots, and this reads that file.
+      //
+      // The maths is `src/engine/contrast`, under the 95% coverage gate, and
+      // `tests/unit/contrast/contrast.test.ts` is its NEGATIVE CONTROL: it
+      // feeds the check the colours the scenes actually shipped, built from
+      // `paletteAt()` and `skyStops()`, and asserts it goes red. A widened check
+      // nobody has watched fail is not evidence of anything.
+      const SKY = "contrast-sky.json";
+      if (!evidence.has(SKY)) {
+        return bad(
+          `word-plate contrast is fine (worst ${worst.ratio}:1) but there is no ${SKY}; run scripts/capture-screens.mjs. The plate was never the failing half`,
+          evidence.path("contrast.json"),
+        );
+      }
+      const sky = evidence.read(SKY);
+      const skyRows = Array.isArray(sky.rows) ? sky.rows : [];
+
+      // Anti-vacuity, twice over. An empty file passing every row is how the
+      // original defect would come straight back.
+      const REQUIRED_SCREENS = ["beacon", "ending", "map", "results", "warp"];
+      const seen = new Set(skyRows.map((r) => r.screen));
+      const missing = REQUIRED_SCREENS.filter((s) => !seen.has(s));
+      if (missing.length) {
+        return bad(
+          `${SKY} has no sky-borne text for: ${missing.join(", ")}. Those are the screens that shipped at 1.2-1.7:1; a check that does not cover them is the old check`,
+          evidence.path(SKY),
+        );
+      }
+      if (skyRows.length < 16) {
+        return bad(
+          `${SKY} carries only ${skyRows.length} sample(s) across ${seen.size} screen(s); the five named screens draw more text than that, so something stopped registering`,
+          evidence.path(SKY),
+        );
+      }
+
+      // The same WCAG maths the engine module uses, restated here so a bug in
+      // the game cannot also be the bug in its own check. A semi-transparent
+      // plate is composited over WHITE: the reported ratio is then the worst
+      // any sky can produce, not the one this capture happened to catch.
+      const lum = (hex) => {
+        const h = String(hex).replace("#", "");
+        const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+        const ch = [0, 2, 4].map((i) => Number.parseInt(full.slice(i, i + 2), 16) / 255);
+        const lin = ch.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+      };
+      const over = (fg, alpha, bg) => {
+        const f = String(fg).replace("#", "");
+        const b = String(bg).replace("#", "");
+        const px = (h, i) => Number.parseInt(h.slice(i, i + 2), 16);
+        const mix = [0, 2, 4]
+          .map((i) => Math.round(px(f, i) * alpha + px(b, i) * (1 - alpha)))
+          .map((v) => v.toString(16).padStart(2, "0"))
+          .join("");
+        return `#${mix}`;
+      };
+      const ratio = (a, b) => {
+        const la = lum(a);
+        const lb = lum(b);
+        return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+      };
+
+      const measured = [];
+      for (const r of skyRows) {
+        const behind = r.behind ?? "#FFFFFF";
+        const backdrop =
+          r.plateFill === null || r.plateFill === undefined
+            ? behind
+            : over(r.plateFill, Number(r.plateAlpha ?? 1), behind);
+        measured.push({
+          screen: r.screen,
+          id: r.id,
+          color: r.color,
+          backdrop,
+          ratio: Math.round(ratio(r.color, backdrop) * 100) / 100,
+        });
+      }
+      const skyFailing = measured.filter((m) => !(m.ratio >= 4.5));
+      if (skyFailing.length) {
+        return bad(
+          `sky-borne text below 4.5:1 - ${skyFailing
+            .slice(0, 10)
+            .map((m) => `${m.screen}/${m.id} ${m.color} on ${m.backdrop} = ${m.ratio}:1`)
+            .join("; ")}${skyFailing.length > 10 ? ` (+${skyFailing.length - 10} more)` : ""}`,
+          evidence.path(SKY),
+        );
+      }
+      const skyWorst = measured.reduce((a, b) => (b.ratio < a.ratio ? b : a));
+
       return ok(
-        `worst contrast ${worst.ratio}:1 (${worst.stop}, ${worst.mode}, ${worst.role}) across ${rows.length} samples read back from paletteAt()`,
-        evidence.path("contrast.json"),
+        `word plate worst ${worst.ratio}:1 (${worst.stop}, ${worst.mode}, ${worst.role}) across ${rows.length} samples from paletteAt(); ` +
+          `sky-borne text worst ${skyWorst.ratio}:1 (${skyWorst.screen}/${skyWorst.id}) across ${measured.length} samples on ${seen.size} screens, ` +
+          `each composited over white so the figure is the worst case any sky can produce`,
+        evidence.path(SKY),
       );
     },
   },

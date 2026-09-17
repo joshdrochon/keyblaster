@@ -1,9 +1,17 @@
 import { clearStopOnProfile, type ClearInput } from "@engine/progress/index.js";
 import type { Profile } from "@engine/types";
 import type { ProfileStore } from "@engine/persistence/index.js";
+import {
+  applyCalibration,
+  calibrationFromHistory,
+  isDefaultCalibration,
+  needsCalibration,
+  refineCalibration,
+  type ObservedTimings,
+} from "@engine/calibration/index.js";
 import { services } from "@game/boot";
 import Phaser from "phaser";
-import { DEFAULT_SCENE_CONTEXT, type SceneContext } from "@game/sceneKeys";
+import { DEFAULT_SCENE_CONTEXT, SCENE_KEYS, type SceneContext } from "@game/sceneKeys";
 import {
   DEFAULT_CALIBRATION,
   type Calibration,
@@ -191,6 +199,216 @@ export function persistStopCleared(
   return updated?.progress ?? null;
 }
 
+// ---------------------------------------------------------------------------
+// Calibration: the seam between `@engine/calibration` and the profile (D51)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE DEFECT THIS SECTION EXISTS FOR.
+ *
+ * `@engine/calibration` is complete, tested and under the 95% gate, and NOTHING
+ * IN `src/` CALLED IT. `PreflightScene` planned the ritual only when
+ * `story.newProfile` was true, and nothing anywhere ever set that flag - Title,
+ * ProfilePicker and ProfileCreate all pass `false`. So `computeCalibration`
+ * never ran; and even when it did (a harness mount), its result was handed to
+ * Flight as scene data and never written to the profile. `calibrationFromHistory`
+ * and `applyCalibration` had no callers outside the engine at all.
+ *
+ * WHAT THAT COST A CHILD. `calibration.ikiMs` was permanently 350 ms, FR-8's
+ * default, for every player. Fall time is `len * 1.5 * ikiMs + 1200 * ease`, so
+ * a grade-2 typist at 600 ms between keys was given 3207 ms to read and type
+ * "fit" when they need 3600, and 5595 ms for "jupiter" when they need 6000.
+ * Every cold word breached; a real playthrough stalled on Jupiter at spawn 18 of
+ * 58 with two words cleared. The belt was not too hard - the game had never
+ * found out who was flying it.
+ *
+ * THE SHAPE OF THE FIX. Newness is asked of the PROFILE (`needsCalibration`),
+ * never of a payload flag that nothing sets; the ritual's result is written
+ * through the store; and a profile that has history but never ran the ritual is
+ * calibrated from that history, which is D51's own second clause.
+ */
+
+/** The live profile, or null in a standalone harness mount. */
+export function activeProfile(scene: Phaser.Scene): Profile | null {
+  return storeOf(scene)?.activeProfile() ?? null;
+}
+
+/**
+ * AC-11.2, asked of the profile rather than of a payload flag.
+ *
+ * `needsCalibration` is true only for a profile with no typing history AND the
+ * untouched FR-8 default baseline - i.e. one that has never been measured by
+ * either route. That is the same predicate the engine already documents; the
+ * only change is that something finally calls it.
+ *
+ * WHY `needsCalibration` IS NOT ENOUGH ON ITS OWN. Its first clause is
+ * `!hasTypingHistory`, and `hasTypingHistory` counts a CLEARED STOP as history.
+ * Earth is cleared by typing one word (AC-12.1, D57) and it is cleared BEFORE
+ * the first pre-flight the game ever shows, so by the time a brand-new pilot
+ * reaches this screen the predicate already says "returning" - and the ritual
+ * would still never run for anybody. Earth's single word is also not stored
+ * anywhere, so it calibrates nothing; it only makes the profile look measured.
+ *
+ * The question that actually decides this is "does the game have any way of
+ * knowing how fast this child types?", and it has exactly two: a stored
+ * baseline that is no longer the shipped default, or per-word samples that
+ * `calibrationFromHistory` can rebuild one from. When neither exists, measuring
+ * is the only honest option, and D51's ritual is what measuring is. Once either
+ * exists this is false for ever after, so the ~20 s is still a once-per-profile
+ * event.
+ *
+ * Standalone mounts have no store, so they fall back to "no": a scene booted
+ * directly by the e2e must not silently start a twenty-second ritual.
+ */
+export function profileNeedsCalibration(scene: Phaser.Scene): boolean {
+  const profile = activeProfile(scene);
+  if (profile === null) return false;
+  // Kept so the engine's own predicate still decides the case it was written
+  // for; the second clause only widens it to the pilot Earth disguised.
+  if (needsCalibration(profile)) return true;
+  return (
+    isDefaultCalibration(profile.calibration) &&
+    isDefaultCalibration(calibrationFromHistory(profile))
+  );
+}
+
+/**
+ * The baseline this profile should actually fly with (D51).
+ *
+ * Three cases, in order:
+ *   - a measured baseline is used as it stands;
+ *   - an untouched default with stored per-word history is REBUILT from that
+ *     history (`calibrationFromHistory`), which is D51's returning-player
+ *     clause and was dead code until now;
+ *   - an untouched default with no history stays the default, and the ritual
+ *     (which `profileNeedsCalibration` has just agreed to) is what replaces it.
+ *
+ * Returns null only when there is no profile at all.
+ */
+export function storedCalibration(scene: Phaser.Scene): Calibration | null {
+  const profile = activeProfile(scene);
+  if (profile === null) return null;
+  if (!isDefaultCalibration(profile.calibration)) return profile.calibration;
+  return calibrationFromHistory(profile);
+}
+
+/**
+ * Write a baseline through to the stored profile (AC-11.1 "stored on the
+ * profile").
+ *
+ * `flush` rather than the 250 ms debounce, for the same reason ProfileCreate
+ * flushes: the very next thing that happens after calibration is a belt, and a
+ * child who closes the tab during it must not come back to a game that has
+ * forgotten how fast they type.
+ */
+export function persistCalibration(
+  scene: Phaser.Scene,
+  calibration: Calibration,
+): Calibration | null {
+  const store = storeOf(scene);
+  const profile = store?.activeProfile() ?? null;
+  if (store === null || profile === null) return null;
+  const updated = store.updateProfile(profile.id, (p: Profile) =>
+    applyCalibration(p, calibration),
+  );
+  store.flush();
+  return updated?.calibration ?? null;
+}
+
+/**
+ * Fold a stage's observed timings into the stored baseline and hand back the
+ * new one (D51's `refineCalibration`, at its documented per-stage alpha).
+ *
+ * This is the half that keeps working as the child changes. The ritual is a
+ * once-per-profile event by design (AC-11.2); without this, a baseline measured
+ * in October is still setting fall time in March, and a profile that predates
+ * the ritual ever running is never measured at all.
+ *
+ * Returns null with no store, and leaves the baseline untouched when the stage
+ * offered no usable sample (`refineCalibration`'s own rule).
+ */
+export function refineStoredCalibration(
+  scene: Phaser.Scene,
+  observed: ObservedTimings,
+): Calibration | null {
+  const store = storeOf(scene);
+  const profile = store?.activeProfile() ?? null;
+  if (store === null || profile === null) return null;
+  const next = refineCalibration(profile.calibration, observed);
+  return persistCalibration(scene, next);
+}
+
+// ---------------------------------------------------------------------------
+// Scene lifetime: one place at a time
+// ---------------------------------------------------------------------------
+
+/**
+ * The scenes that are a PLACE. Exactly one of these may be live at a time.
+ *
+ * Everything else in SCENE_KEYS is an overlay that sits ON a place: the HUD and
+ * the stall card sit on Flight, the warp break is drawn over the belt it just
+ * finished (D30), and the pause menu can sit on anything.
+ */
+const PLACE_SCENES: readonly string[] = [
+  SCENE_KEYS.title,
+  SCENE_KEYS.profilePicker,
+  SCENE_KEYS.profileCreate,
+  SCENE_KEYS.earthActivation,
+  SCENE_KEYS.map,
+  SCENE_KEYS.briefing,
+  SCENE_KEYS.preflight,
+  SCENE_KEYS.flight,
+  SCENE_KEYS.beacon,
+  SCENE_KEYS.results,
+  SCENE_KEYS.beaconLog,
+  SCENE_KEYS.ending,
+];
+
+/** Overlays that exist only for the duration of a belt. */
+const FLIGHT_OVERLAYS: readonly string[] = [
+  SCENE_KEYS.hud,
+  SCENE_KEYS.stall,
+  SCENE_KEYS.warp,
+];
+
+/**
+ * Stop every scene that has no business being alive once `target` is the place.
+ *
+ * WHY THIS IS NEEDED AT ALL. `ScenePlugin.start` stops only the scene that
+ * called it, so a screen that is left by any other route - an overlay that
+ * stops itself and then routes on, a scene whose transition fired from a tween
+ * after something else had already moved - simply stays running, invisible
+ * under whatever is drawn next. A real playthrough found two of them:
+ * `["Briefing","Flight","Hud"]` after Results -> "fly it again", and
+ * `["Preflight","Flight","Settings","Hud"]` on opening Settings from the pause
+ * menu, where the leaked scenes were still holding the keyboard and Settings
+ * answered nothing.
+ *
+ * Rather than patch each exit - there are a dozen, and the next one added is a
+ * new leak - the invariant is enforced where every transition already passes.
+ * A leak becomes a frame of double-drawing at worst instead of a dead keyboard.
+ */
+export function stopStaleScenes(scene: Phaser.Scene, target: string): void {
+  const manager = scene.scene.manager;
+  const alive = (key: string): boolean => {
+    if (manager.keys[key] === undefined) return false;
+    return (
+      scene.scene.isActive(key) ||
+      scene.scene.isPaused(key) ||
+      scene.scene.isSleeping(key)
+    );
+  };
+  for (const key of PLACE_SCENES) {
+    if (key === target || key === scene.scene.key) continue;
+    if (alive(key)) scene.scene.stop(key);
+  }
+  if (target === SCENE_KEYS.flight) return;
+  for (const key of FLIGHT_OVERLAYS) {
+    if (key === scene.scene.key) continue;
+    if (alive(key)) scene.scene.stop(key);
+  }
+}
+
 /**
  * Start another scene if the registry has it, otherwise announce the
  * transition and stay put.
@@ -208,6 +426,9 @@ export function goTo(
   scene.events.emit("story-transition", key, data);
   scene.game.events.emit("story-transition", key, data);
   if (scene.scene.manager.keys[key] === undefined) return false;
+  // Before the new place is built, not after: a stale scene that is still
+  // holding the keyboard must not get another frame of it.
+  stopStaleScenes(scene, key);
   scene.scene.start(key, data);
   return true;
 }

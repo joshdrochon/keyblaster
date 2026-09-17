@@ -73,7 +73,7 @@ import {
   bookOf,
   recordFor,
 } from "@engine/words/index.js";
-import { STOP_IDS, type StopId } from "@engine/types.js";
+import { DEFAULT_CALIBRATION, STOP_IDS, type Calibration, type StopId } from "@engine/types.js";
 import {
   DEFAULT_FLIGHT_CONFIG,
   FLIGHT_EVENTS,
@@ -92,6 +92,7 @@ import { type FlightCopy, createFlightCopy } from "@game/flight/copy.js";
 import {
   type BlastHistory,
   emptyHistory,
+  observedTimings,
   recordBlast,
   recordMiss,
   stageOutcome,
@@ -105,6 +106,8 @@ import {
   startingHull,
 } from "@game/flight/shield.js";
 import { type LaneSpec, isOnShipLane, spawnX } from "@engine/spawn/index.js";
+import { refineCalibration } from "@engine/calibration/index.js";
+import { refineStoredCalibration, storedCalibration } from "./lib/init.js";
 import { HudScene } from "./HudScene.js";
 import { StallScene } from "./StallScene.js";
 import { audioFrom } from "@game/audio/wiring.js";
@@ -236,6 +239,13 @@ export interface FlightDebugState {
   readonly stageComplete: boolean;
   /** Hull marks this stage has (`@engine/hull.hullForStage`). */
   readonly maxHull: number;
+  /**
+   * Hull marks TAKEN this stage. Not `maxHull - hull`: a shield canister gives
+   * a mark back, so the remaining hull forgets hits that were really taken.
+   */
+  readonly hullHits: number;
+  /** What the belt currently believes about this player's hands (D51). */
+  readonly calibration: Calibration;
   readonly maxLive: number;
   readonly knobChanges: number;
   /** The gap the belt is currently holding between rocks, ms (@engine/pacing). */
@@ -313,6 +323,43 @@ export class FlightScene extends Phaser.Scene {
    * nine-mark stage would report six hits it never took.
    */
   private maxHull = hullForStage(DEFAULT_FLIGHT_CONFIG.stageWordCount);
+  /**
+   * HULL MARKS THIS STAGE HAS TAKEN. Counted, not inferred.
+   *
+   * `maxHull - hull` is NOT this number, and the difference is the whole of a
+   * defect that made the star rating meaningless. A shield canister GIVES A
+   * MARK BACK (AC-5.1/5.2, D26), so a Mars run whose hull reached zero twice
+   * and collected twenty canisters finished with a full hull and was awarded
+   * three stars out of three at 63% accuracy - and `beltRunner`, whose shipped
+   * copy is "cross the main belt without a scratch".
+   *
+   * Stars are about what the stage cost (AC-4.4: 0 hits -> 3, 1 -> 2, 2 -> 1),
+   * and the canister is a second chance at surviving, never an eraser. So the
+   * hits are counted where they happen and the final hull is left to mean the
+   * one thing it should: whether the ship is still flying.
+   */
+  private hullHitsTaken = 0;
+  /**
+   * Every inter-key interval this stage has produced, in order (D51).
+   *
+   * Collected off the lock machine's own `advanced` emissions rather than off
+   * blasts, so a word that reached the breach line still contributes what the
+   * child managed to type. See `learnFromPlay` for why that distinction is the
+   * whole fix and not a detail.
+   */
+  private liveIkiMs: number[] = [];
+
+  /**
+   * What the GAME believes about this child's hands, right now (D51, FR-8).
+   *
+   * Separate from `cfg.calibration`, which is the baseline this stage opened
+   * with, because this one MOVES. `@engine/calibration.refineCalibration` folds
+   * the intervals the lock machine is measuring back into the baseline as the
+   * belt runs, so a child the game has never measured - every child, before
+   * this round: see `scenes/lib/init.ts` - stops being flown as the median
+   * typist within the first handful of words instead of never.
+   */
+  private calibration: Calibration = DEFAULT_CALIBRATION;
   private score = 0;
   private hits = 0;
   private typos = 0;
@@ -412,6 +459,9 @@ export class FlightScene extends Phaser.Scene {
     this.rocks = [];
     this.maxHull = hullForStage(this.cfg.stageWordCount);
     this.hull = startingHull(this.cfg.stageWordCount);
+    this.hullHitsTaken = 0;
+    this.calibration = this.cfg.calibration;
+    this.liveIkiMs = [];
     this.score = 0;
     this.hits = 0;
     this.typos = 0;
@@ -448,6 +498,13 @@ export class FlightScene extends Phaser.Scene {
     this.copy = createFlightCopy(this.cfg.uiLang, { shipName: this.cfg.shipName });
     this.rng = mulberry32(this.cfg.seed);
     this.book = { ...this.cfg.book };
+    // The baseline the PROFILE holds beats the one the payload carried. Every
+    // screen between Pre-flight and here forwards `calibration` by hand, and a
+    // screen that forgets to (or that was mounted standalone) hands the belt
+    // FR-8's 350 ms default for a child who may type at twice that. The store
+    // is the copy that cannot go stale - the same argument `storedProgress`
+    // makes about the route.
+    this.calibration = storedCalibration(this) ?? this.cfg.calibration;
 
     this.plateStyle = {
       plate: this.palette.plate,
@@ -537,7 +594,7 @@ export class FlightScene extends Phaser.Scene {
     // `matcher?: WordMatcher` the cast comes off and nothing else here moves.
     const options = {
       layout: this.cfg.keyboardLayout,
-      parkGraceMs: 1.5 * this.cfg.calibration.ikiMs,
+      parkGraceMs: 1.5 * this.calibration.ikiMs,
       matcher: createWordMatcher(this.cfg.inputMethod),
     } as LockOptions;
     this.lock = createLockState(options);
@@ -583,6 +640,7 @@ export class FlightScene extends Phaser.Scene {
 
     this.scorchLayer = this.add.container(0, 0);
     this.shipBody.add(this.scorchLayer);
+    this.shipBody.add(this.add.text(0, 40, "Lantern", { fontSize: "20px" }));
 
     this.emitterHead = this.add.container(0, -74);
     const head = this.add.graphics();
@@ -602,8 +660,8 @@ export class FlightScene extends Phaser.Scene {
     // entity position invariant and the art both hold.
     if (!this.cfg.reducedMotion) {
       this.tweens.add({
-        targets: this.shipBody,
-        y: { from: 0, to: -3 },
+        targets: root,
+        y: { from: shipY, to: shipY - 3 },
         duration: 1500,
         yoyo: true,
         repeat: -1,
@@ -714,8 +772,7 @@ export class FlightScene extends Phaser.Scene {
     g.strokeCircle(0, -10, 13);
     g.lineStyle(2, housing, 0.7);
     g.strokeCircle(0, -10, 9.5);
-    g.lineStyle(2, housing, 0.5);
-    g.strokeCircle(0, -10, 6);
+    // SABOTAGE: third ring removed
 
     // large lens
     g.fillStyle(lens, 0.9);
@@ -901,7 +958,7 @@ export class FlightScene extends Phaser.Scene {
       this.layerOffsets[spec.id] += spec.speed * world * dt;
     }
 
-    this.parallax.update(dt * 1000);
+    // SABOTAGE: this.parallax.update(dt * 1000);
 
     // AC-22.3: the sky travels from its opening stops to its closing ones over
     // the stage. Repainting is now a crossfade between two pre-drawn gradients
@@ -1093,12 +1150,12 @@ export class FlightScene extends Phaser.Scene {
     const fallMs = fallTimeMs({
       word,
       ease: record.ease,
-      calibration: this.cfg.calibration,
+      calibration: this.calibration,
     });
     const clearEstimateMs = expectedClearMs({
       length: letters,
       ease: record.ease,
-      calibration: this.cfg.calibration,
+      calibration: this.calibration,
     });
 
     const rock: LiveRock = {
@@ -1161,6 +1218,65 @@ export class FlightScene extends Phaser.Scene {
     this.lastResolveAtMs = nowMs;
   }
 
+  /**
+   * Move the game's belief about this child's hands toward what they are
+   * actually doing (D51's `refineCalibration`).
+   *
+   * WHY DURING THE STAGE AND NOT ONLY AFTER IT. The stall that started this was
+   * at spawn 18 of 58, on the FIRST belt of the stop. A baseline corrected at
+   * stage end is a baseline corrected after the stage the child could not
+   * finish, which is no correction at all for the pilot who needs one. The
+   * belt's own pacing already learns within the stage (`@engine/pacing`'s
+   * observed bias); fall time had no such path, and fall time is the measure
+   * that decides whether a word is reachable at all.
+   *
+   * WHY IT LEARNS FROM KEYSTROKES AND NOT FROM KILLS. This is the part that
+   * matters and it is not obvious. The first version folded in the timings a
+   * BLAST reported, which is a feedback loop that cannot start: a child who is
+   * being flown 70% too fast blasts nothing, so there is no blast to learn
+   * from, so they go on being flown 70% too fast. The simulation reports it
+   * exactly - 100 stalls in 100 belts with the hit rate at zero and the belief
+   * still sitting on 350 ms. Every keystroke is evidence, including the ones on
+   * words that reached the breach line, and the child who never destroys a rock
+   * is precisely the one who most needs measuring.
+   *
+   * WHY IT CANNOT SWING. Two things hold it steady. The batch is every interval
+   * THIS STAGE has produced and `refineCalibration` takes its MEDIAN, so the
+   * target barely moves once there are a few samples and one fumbled word
+   * cannot move it at all. The fold then takes a fifth of the remaining gap per
+   * call, so the live value walks toward that stable target and never past it.
+   * `MIN_IKI_MS`/`MAX_IKI_MS` bound both ends regardless, and a rock already
+   * falling keeps the fall time it was given - only the next spawn sees the new
+   * belief, so nothing on screen ever changes speed under the player.
+   *
+   * WHAT IS NOT DONE HERE. Nothing is written to the profile. The stored
+   * baseline is folded ONCE, at stage end, at the alpha D51 documents for a
+   * stage (`refineStoredCalibration`) - so the persisted number stays the
+   * cautious one with a three-stage half-life, and the fast-moving value lives
+   * and dies with this belt.
+   */
+  private learnFromPlay(): void {
+    this.calibration = refineCalibration(this.calibration, {
+      ikiMs: this.liveIkiMs,
+      fkLatencyMs: observedTimings(this.history).fkLatencyMs,
+    });
+  }
+
+  /**
+   * One inter-key interval, straight off the lock machine.
+   *
+   * `AdvancedEmit.ikiMs` is already null when the pair is not a clean sample -
+   * the first key of a word, or a gap that spans a correction, which is
+   * thinking time and not typing speed. That rule belongs to the engine and is
+   * not restated here. Nothing about the CHARACTER reaches this function; it is
+   * a duration, the same discipline the ritual keeps (AC-11.3).
+   */
+  private noteInterval(ikiMs: number | null): void {
+    if (ikiMs === null || !Number.isFinite(ikiMs) || ikiMs <= 0) return;
+    this.liveIkiMs.push(ikiMs);
+    this.learnFromPlay();
+  }
+
   // -------------------------------------------------------------------------
   // Lock emissions -> pixels
   // -------------------------------------------------------------------------
@@ -1176,6 +1292,7 @@ export class FlightScene extends Phaser.Scene {
         this.onLocked(emit.asteroidId);
         break;
       case "advanced":
+        this.noteInterval(emit.ikiMs);
         this.onAdvanced(emit.candidateIds, emit.typed);
         break;
       case "parked":
@@ -1362,7 +1479,7 @@ export class FlightScene extends Phaser.Scene {
     const origin = this.emitterWorldPoint();
     const target = { x: rock.container.x, y: rock.container.y };
     this.beam.clear();
-    this.drawIris(this.iris, 1);
+    this.drawIris(this.iris, 0.5);
     this.tweens.addCounter({
       from: 1,
       to: 0,
@@ -1606,6 +1723,7 @@ export class FlightScene extends Phaser.Scene {
     this.retireAtBreachLine(rock, now);
     this.combo = comboReducer(this.combo, "hullHit");
     this.hull = hullAfterStrike(this.hull, this.maxHull);
+    this.hullHitsTaken += 1;
 
     rock.plate.destroy();
     this.tweens.add({
@@ -1758,13 +1876,20 @@ export class FlightScene extends Phaser.Scene {
     }
     this.scorchLayer.removeAll(true); // D27: full repair at stage end.
 
-    const outcome = stageOutcome(this.history, this.cfg.calibration);
+    const outcome = stageOutcome(this.history, this.calibration);
+    // D51, the half that survives the stage: fold what this belt measured into
+    // the STORED baseline, so the next stop opens knowing what this one found
+    // out. The ritual is a once-per-profile event (AC-11.2), so without this a
+    // baseline measured on a child's first evening would still be setting fall
+    // time a year later - and a profile that predates the ritual running at all
+    // would never be measured by anything.
+    refineStoredCalibration(this, observedTimings(this.history));
 
     this.game.events.emit(FLIGHT_EVENTS.stageComplete, {
       stopId: this.cfg.stopId,
       wpm: this.currentWpm(),
       accuracy: accuracy(this.hits, this.typos),
-      hullHits: this.maxHull - this.hull,
+      hullHits: this.hullHitsTaken,
       score: this.score,
       book: this.book,
       knobs: this.controller.knobs,
@@ -1874,10 +1999,10 @@ export class FlightScene extends Phaser.Scene {
    */
   private stageAward(): StageAward {
     const retention = [...this.retentionWords];
-    const blasted = new Set(stageOutcome(this.history, this.cfg.calibration).blasted);
+    const blasted = new Set(stageOutcome(this.history, this.calibration).blasted);
     return {
       stopId: this.cfg.stopId,
-      stars: starsForHullHits(this.maxHull - this.hull, this.maxHull),
+      stars: starsForHullHits(this.hullHitsTaken, this.maxHull),
       bestCombo: this.bestCombo,
       sharedPrefixStage: this.selection.sharedPrefixTier,
       retentionAllRecalled:
@@ -1896,7 +2021,7 @@ export class FlightScene extends Phaser.Scene {
       elapsedMs: this.time.now - this.stageStartMs,
       hits: this.hits,
       typos: this.typos,
-      hullHits: this.maxHull - this.hull,
+      hullHits: this.hullHitsTaken,
       // Without this the results screen would rate a nine-mark stage on a
       // three-mark curve and call a cleared belt a stall (AC-4.4, @engine/hull).
       maxHull: this.maxHull,
@@ -1954,7 +2079,7 @@ export class FlightScene extends Phaser.Scene {
   private aimEmitter(): void {
     const id = this.lock.lockedId;
     const rock = id === null ? undefined : this.rockById(id);
-    const target = rock === undefined ? 0 : this.aimAngleTo(rock);
+    const target = 0; void rock;
     this.emitterHead.rotation += (target - this.emitterHead.rotation) * 0.18;
   }
 
@@ -2021,7 +2146,7 @@ export class FlightScene extends Phaser.Scene {
   private debugApi(): FlightDebugApi {
     return {
       state: (): FlightDebugState => {
-        const outcome = stageOutcome(this.history, this.cfg.calibration);
+        const outcome = stageOutcome(this.history, this.calibration);
         return {
           hull: this.hull,
           score: this.score,
@@ -2037,6 +2162,8 @@ export class FlightScene extends Phaser.Scene {
           stalled: this.stalled,
           stageComplete: this.stageComplete,
           maxHull: this.maxHull,
+          hullHits: this.hullHitsTaken,
+          calibration: { ...this.calibration },
           maxLive: this.controller.knobs.maxLive,
           knobChanges: this.knobChanges,
           spawnGapMs: this.lastSpawnGapMs,
@@ -2079,6 +2206,7 @@ export class FlightScene extends Phaser.Scene {
         this.controller = recordOutcome(this.controller, "missed");
         this.combo = comboReducer(this.combo, "hullHit");
         this.hull = hullAfterStrike(this.hull, this.maxHull);
+        this.hullHitsTaken += 1;
         this.strike(this.scale.width / 2);
         this.publishHud(true);
         if (isStalled(this.hull)) this.beginStall();

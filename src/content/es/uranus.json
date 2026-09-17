@@ -44,7 +44,7 @@
   "preflightLine": "Aquí todo está torcido. No pienses en dónde queda arriba. Solo lee.",
   "activationWord": null,
   "warpSentence": "Urano es un planeta que gira de lado.",
-  "beaconHeadline": "FARO URANO",
-  "beaconState": "COLOCADO",
+  "beaconHeadline": "faro Urano",
+  "beaconState": "colocado",
   "beaconFlavor": "De lado también es una dirección."
 }

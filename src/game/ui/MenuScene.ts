@@ -3,6 +3,7 @@ import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
 import { layer } from "@game/render/layers";
 import type { ShadowFigure } from "@game/render/shadow";
 import type { StopId } from "@engine/types";
+import { stopStaleScenes } from "@game/scenes/lib/init";
 import { type App, appFor } from "./app.js";
 import { Backdrop, FocusRing } from "./chrome.js";
 import { type Control, type ControlStyle } from "./controls.js";
@@ -148,11 +149,18 @@ export abstract class MenuScene extends Phaser.Scene {
     this.heading = text;
   }
 
-  /** The one-line keyboard hint every screen carries, bottom-left. */
+  /**
+   * The one-line keyboard hint every screen carries, bottom-left.
+   *
+   * IT IS THE INSTRUCTIONS, so it is not drawn in the faintest ink there is.
+   * `INK.textFaint` measures ~3.4:1 on the panel and worse on the dark half of
+   * the backdrop gradient: the one line telling a child which keys move them
+   * around this screen was the least readable text on it (AC-22.8).
+   */
   protected addHint(key: MenuKey = "ui.common.hintKeys"): Phaser.GameObjects.Text {
     return uiText(this, SPACE.gutter, GAME_HEIGHT - 76, this.t.t(key), {
       size: TYPE.caption,
-      color: INK.textFaint,
+      color: INK.textDim,
       lang: this.uiStyle.lang,
       uppercase: this.uiStyle.uppercase,
       increasedLetterSpacing: this.uiStyle.increasedLetterSpacing,
@@ -317,6 +325,11 @@ export abstract class MenuScene extends Phaser.Scene {
       console.warn(`[kb] scene "${key}" is not registered yet; staying put`);
       return false;
     }
+    // The same invariant the story lane's `goTo` enforces: one place at a time.
+    // This path matters most on the pause menu's "quit to map", which stopped
+    // the belt but left the HUD running - so the readouts were still drawn over
+    // the Director map, and over the Settings panel after that.
+    stopStaleScenes(this, key);
     this.scene.start(key, data);
     return true;
   }

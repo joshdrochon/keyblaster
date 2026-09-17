@@ -16,6 +16,23 @@
  * learner's recognition improve (AC-6e.4). It resolves every live rock
  * independently, as if the player could answer them all at once.
  *
+ * WHAT THE GAME KNOWS IS AN INPUT, NOT A GIFT.
+ *
+ * Both simulations used to compute fall time with
+ * `{ ...DEFAULT_CALIBRATION, ikiMs: player.ikiMs }` - they handed the grade-2
+ * player a game that already knew they type at 600 ms. The shipped game learned
+ * that from nowhere: `PreflightScene` gated the calibration ritual on a flag
+ * nothing ever set, so `calibration.ikiMs` was 350 for every child who ever
+ * played. So the harness was measuring a game we do not ship, and reported zero
+ * stalls for a belt that a real playthrough could not survive past spawn 18.
+ *
+ * The belief is therefore a CONFIG FIELD now (`BeltConfig.calibration`), it
+ * defaults to the shipped `DEFAULT_CALIBRATION`, and the harness models the two
+ * ways the real game can change it: the pre-flight ritual (pass
+ * `calibrationOf(player)`, which is what the ritual measures) and the in-stage
+ * fold (`FlightScene.learnFromPlay`, modelled when `adaptiveCalibration` is on).
+ * A test that wants the old behaviour has to ask for it by name.
+ *
  * That assumption is exactly why this harness could not see the belt stall. A
  * player is ONE server: AC-2.1 gives every live word a distinct first letter so
  * the lock is unambiguous, and the child types one word at a time. A rock that
@@ -52,6 +69,7 @@ import {
 } from "@engine/controller/index.js";
 import type { Knobs } from "@engine/controller/knobs.js";
 import { expectedClearMs, observedBiasMs, spawnGapMs } from "@engine/pacing/index.js";
+import { refineCalibration } from "@engine/calibration/index.js";
 import {
   hullAfterShield,
   hullAfterStrike,
@@ -152,6 +170,12 @@ function typingMs(player: SimPlayer, word: string, rng: () => number): number {
 
 export interface StageConfig {
   stopIndex: number;
+  /**
+   * What the GAME believes about this player's hands. Defaults to the shipped
+   * FR-8 baseline; pass `calibrationOf(player)` to model a profile that ran the
+   * pre-flight ritual. It is deliberately not derived from the player.
+   */
+  calibration?: Calibration;
   stagePool: readonly string[];
   retentionPool: readonly string[];
   spawnCount: number;
@@ -219,7 +243,7 @@ export function simulateStage(
         const fall = fallTimeMs({
           word,
           ease: record.ease,
-          calibration: { ...DEFAULT_CALIBRATION, ikiMs: player.ikiMs },
+          calibration: cfg.calibration ?? DEFAULT_CALIBRATION,
         });
         const fk = recognitionMs(player, record);
         const type = typingMs(player, word, rng);
@@ -250,7 +274,14 @@ export function simulateStage(
 // The belt: one serial typist, a real hull, and the real spawn pacing
 // ---------------------------------------------------------------------------
 
-/** What the game believes about this player's hands (D51, FR-11). */
+/**
+ * What the PRE-FLIGHT RITUAL would measure for this player (D51, FR-11).
+ *
+ * Not "what the game believes" - the game believes whatever is on the profile,
+ * and until the ritual actually runs that is `DEFAULT_CALIBRATION`. This is the
+ * value a belt is handed when the ritual DID run, and it is passed in by the
+ * tests that model that pilot.
+ */
 export function calibrationOf(player: SimPlayer): Calibration {
   return {
     ikiMs: player.ikiMs,
@@ -260,6 +291,26 @@ export function calibrationOf(player: SimPlayer): Calibration {
 
 export interface BeltConfig {
   stopIndex: number;
+  /**
+   * What the GAME believes about this player's hands when the belt opens.
+   *
+   * THE SHIPPED DEFAULT, on purpose. A profile that has not been measured flies
+   * on FR-8's 350 ms whoever is holding the keyboard, and until this round that
+   * was every profile. Pass `calibrationOf(player)` to model a pilot who ran
+   * the pre-flight ritual - which is what `PreflightScene` now actually does.
+   */
+  calibration?: Calibration;
+  /**
+   * Model `FlightScene.learnFromPlay`: fold the intervals this belt measures
+   * back into the belief, once per blast, through the real
+   * `@engine/calibration.refineCalibration`.
+   *
+   * ON by default, because it is what ships. Turning it OFF is the negative
+   * control - it reproduces the game the real playthrough stalled on, and
+   * without that control "no stalls" would be a claim about a harness rather
+   * than a measurement of a fix.
+   */
+  adaptiveCalibration?: boolean;
   stagePool: readonly string[];
   retentionPool: readonly string[];
   /** Words the stage spawns before it ends (FR-6). */
@@ -361,6 +412,8 @@ export interface BeltResult {
   maxDeadMs: number;
   /** Blasted / spawned over the whole belt. */
   hitRate: number;
+  /** What the game believed about the player's hands when the belt ended. */
+  calibration: Calibration;
   /** Every gap the pacing module handed back, in order. */
   gaps: number[];
   /** Most rocks live at once - the board's real depth, not the knob's cap. */
@@ -413,7 +466,35 @@ export function simulateBelt(
   book: WordBook,
   rng: () => number,
 ): BeltResult {
-  const calibration = calibrationOf(player);
+  /**
+   * What the game believes, which is not what is true about the player. It
+   * starts wherever the profile left it and moves only the way the scene moves
+   * it: `observedIki` / `observedFk` are this belt's own samples, exactly the
+   * transcript `flight/blastHistory.observedTimings` hands over, and the fold
+   * is the engine's.
+   */
+  let calibration = cfg.calibration ?? DEFAULT_CALIBRATION;
+  const adaptive = cfg.adaptiveCalibration ?? true;
+  const observedIki: number[] = [];
+  const observedFk: number[] = [];
+  /**
+   * The scene folds on every KEYSTROKE, not on every kill, and modelling that
+   * distinction is the difference between a harness that can see this defect
+   * and one that cannot. A belt flown 70% too fast produces no blasts at all,
+   * so a blast-fed loop never gets a first sample and the belief never moves -
+   * which is what the first version of this measured, and reported as 100
+   * stalls in 100 with the belief still on 350 ms. Words that reach the breach
+   * line contributed the keys the player did manage.
+   */
+  const learn = (intervals: number, fkMs: number | null): void => {
+    if (!adaptive || intervals <= 0) return;
+    for (let i = 0; i < intervals; i += 1) observedIki.push(player.ikiMs);
+    if (fkMs !== null) observedFk.push(fkMs);
+    calibration = refineCalibration(calibration, {
+      ikiMs: observedIki,
+      fkLatencyMs: observedFk,
+    });
+  };
   let selection: SelectionState = createSelectionState({
     stage: cfg.stopIndex,
     stagePool: cfg.stagePool,
@@ -480,6 +561,7 @@ export function simulateBelt(
           stage: cfg.stopIndex,
         }),
       };
+      learn([...rock.word].length - 1, busy.fkMs);
       controller = recordOutcome(controller, "blasted");
       if (rock.isCanister) {
         hull = hullAfterShield(hull, maxHull);
@@ -519,6 +601,15 @@ export function simulateBelt(
       // costs nothing. It is still a miss for the word book and for the
       // controller above - the child did not type it - which is what keeps this
       // a change of trajectory rather than a discount.
+      // A word that breached mid-answer still produced keystrokes, and those
+      // are exactly the samples the belt most needs from the child who is
+      // struggling. Count the keys they got through before the deadline.
+      if (busy !== null && busy.rock === due) {
+        const typedMs = nowMs - (due.startedAtMs ?? nowMs) - busy.fkMs;
+        const perKey = Math.max(1, player.ikiMs);
+        const typed = Math.floor(typedMs / perKey);
+        learn(Math.max(0, Math.min([...due.word].length - 1, typed)), busy.fkMs);
+      }
       const passes = (cfg.practiceRocksPassBy ?? true) && due.isPractice;
       if (passes) passedBy += 1;
       else hull = hullAfterStrike(hull, maxHull);
@@ -653,6 +744,7 @@ export function simulateBelt(
     durationMs: nowMs,
     maxDeadMs,
     hitRate: spawns.length === 0 ? 1 : blasted / spawns.length,
+    calibration,
     gaps,
     peakLive,
     book: nextBook,

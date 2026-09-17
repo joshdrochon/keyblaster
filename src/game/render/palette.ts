@@ -114,9 +114,141 @@ function byLuminance(colors: readonly string[], rank: number): string {
   return sorted[Math.min(rank, sorted.length - 1)] ?? "#808080";
 }
 
+/**
+ * Rec.601 luminance byte, 0..255.
+ *
+ * The same formula the V-22.4 probe desaturates with, on purpose: the rule below
+ * has to be stated in the units the check measures, or it is a proxy for the
+ * thing it claims to guarantee rather than the thing itself.
+ */
+export function luma255(hex: string): number {
+  const { r, g, b } = rgbOf(hex);
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+/**
+ * How far a gameplay rock's fill must sit, in Rec.601 luminance, from the
+ * planes it is seen against. The probe's bar is 0.06 of the range - about 15
+ * levels - so 18 leaves a real margin rather than squeaking past.
+ */
+export const DEBRIS_SEPARATION = 18;
+
+/**
+ * Which ramp bands a gameplay rock is actually seen AGAINST, by index.
+ *
+ * A rock is on L4 `debris` and word plates draw at 4.5, so anything on L5
+ * `nearField` or L6.5 `foreVeil` is in front of it and occludes rather than
+ * blends. That used to make the answer bands 0 and 1 - `farField` and
+ * `midField` - and nothing else.
+ *
+ * BAND 3 IS NOW IN THE LIST because it has geometry for the first time. The
+ * dark half of the ladder was rendering nowhere: `ramp[3]` was only ever used by
+ * `canyonTile`, which was deleted when the edge bars came out, so the stack
+ * measured L*37.8-52.9 on a ladder that computes 53/41/28/16. Its silhouettes go
+ * on the debris layer, BEHIND the plates, which is the one place dark mass can
+ * live without being edge-anchored - see `parallax.ts`.
+ *
+ * BAND 2 IS DELIBERATELY NOT IN THE LIST, and the arithmetic says why. Four
+ * bands span about 90 luminance with ~30 between neighbours. A rock needs 18 of
+ * clearance on BOTH sides, so it needs a 36-wide gap, and if every band sits
+ * behind it there is no such gap at any stop - on Mars the only surviving
+ * windows are below 48 and above 144, and its sky sweeps 207 -> 38 straight
+ * through both. Adding band 2's geometry as well would make the legibility
+ * guarantee unsatisfiable rather than merely tight. Band 3 is the one that both
+ * clears at every stop and does the most for the value range, being the darkest.
+ */
+export const BANDS_BEHIND_DEBRIS: readonly number[] = [0, 1, 3];
+
+/**
+ * The fill a rock takes, chosen so it cannot disappear into the landscape.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THE OLD RULE WAS A LEGIBILITY BUG, NOT A LOOK
+ *
+ * This used to be `byLuminance(colors, 2)` - the third-darkest palette colour -
+ * with a comment about it "landing on rust for Mars, deep blue for Earth".
+ * Position-anchored measurement of the shipped frame, tracking one rock down the
+ * screen:
+ *
+ *   high                        0.373
+ *                               0.343
+ *                               0.278
+ *                               0.159
+ *   crossing the terrain band   0.0002     <- inside 101.1, outside 101.1
+ *
+ * The rock does not go dim there. It goes to NOTHING. Six of the seven stops
+ * failed the same way, and on Earth and Neptune the third-darkest colour has the
+ * same luminance as the SKY, so a rock was invisible against open sky too.
+ *
+ * AC-22.4 is "rocket and asteroids identifiable by silhouette", and at the
+ * moment a seven-year-old most needs to read a word-asteroid, it vanished.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT A ROCK IS ACTUALLY SEEN AGAINST
+ *
+ * The gameplay rock is on L4 `debris`. L5 `nearField` and L6.5 `foreVeil` are in
+ * FRONT of it - they occlude, they never blend - so what sits behind a rock is
+ * the sky and the two silhouette planes L2 `farField` and L3 `midField`, which
+ * are ramp bands 0 and 1. Those two are the hard requirement, because terrain is
+ * opaque and a rock crossing it has nothing else to read against. The sky is
+ * scored as a tie-break: a rock traverses the whole gradient, so it cannot clear
+ * every part of it, and forcing that makes the rule unsatisfiable on a six
+ * colour palette.
+ *
+ * The pick is still a palette colour, so AC-22.7's dominant-colour check is
+ * untouched - this changes which slot is chosen, exactly as the rule it
+ * replaces did, and for a measured reason rather than a positional one.
+ */
+/** The best band clearance the ladder can be phased to give this candidate. */
+function ladderClearance(p: StopPalette, candidate: string): number {
+  const all = rampWith(p, 4, candidate);
+  const seen = BANDS_BEHIND_DEBRIS.filter((i) => i < all.length).map((i) => all[i] as string);
+  return Math.min(...seen.map((c) => Math.abs(luma255(c) - luma255(candidate))));
+}
+
+function pickDebris(p: StopPalette, candidates: readonly string[], sky: readonly string[]): string {
+  // SCORED ON THE WORSE OF THE TWO, not on the sky alone.
+  //
+  // Sky-only picked Mars' `#B5522A`, which clears the sky by 65 and could only
+  // ever be phased to 15 from the bands - right on the probe's 0.06 bar. The
+  // rule is "a rock must be visible against everything behind it", so the score
+  // is the minimum of the two clearances, and the band half asks how far the
+  // ladder CAN be phased rather than where it happens to sit.
+  const clearance = (c: string): number =>
+    Math.min(
+      Math.min(...sky.map((b) => Math.abs(luma255(c) - luma255(b)))),
+      ladderClearance(p, c),
+    );
+  // SKY ONLY, because the sky is the one thing behind a rock that cannot be
+  // moved. It is a gradient the rock traverses top to bottom and AC-22.3 needs
+  // it to travel across a stage, so it is fixed; the silhouette bands are ours
+  // and `depthRamp` phases them around whatever is chosen here.
+  //
+  // Two earlier versions of this got the order wrong and both are worth keeping
+  // written down. Maximising TERRAIN clearance picked the brightest colour at
+  // every stop - on Mars that is `#F1C79A`, the sky's own top stop, so the rock
+  // was guaranteed to clear the terrain and guaranteed to vanish against open
+  // sky. Thresholding on terrain and then maximising sky did the same thing at
+  // Jupiter, where no palette colour clears both: the fallback handed back a
+  // sky-coloured rock. Neither is an improvement; they are the same defect moved.
+  return [...candidates].sort((a, b) => clearance(b) - clearance(a))[0] ?? "#808080";
+}
+
 function build(id: StopId, colorblind: boolean): StopPalette {
   const raw = PARSED[id];
   if (raw === undefined) throw new Error(`palettes.json has no stop "${id}"`);
+  const forSky = { ...raw, id, debris: "#808080", worldAccent: raw.accent, colorblindMode: false } as StopPalette;
+  const sky = skyStops(forSky);
+  const computed = pickDebris(forSky, raw.colors, sky);
+  // D41's declared colourblind fill is KEPT unless it is worse against the sky
+  // than the computed pick, so the field in `palettes.json` still means
+  // something - the `plateAccent` defect was exactly a field nothing read.
+  const declared = raw.colorblind.debris;
+  const skyGap = (c: string): number =>
+    Math.min(
+      Math.min(...sky.map((b) => Math.abs(luma255(c) - luma255(b)))),
+      ladderClearance(forSky, c),
+    );
   return Object.freeze({
     id,
     name: raw.name,
@@ -132,18 +264,38 @@ function build(id: StopId, colorblind: boolean): StopPalette {
     worldAccent: colorblind ? raw.colorblind.accent : raw.accent,
     plate: raw.plate,
     plateText: raw.plateText,
-    // Debris takes the third-darkest palette colour. Picked by LUMINANCE, not
-    // by index: the JSON's colour order is a reading order, not a value ramp,
-    // and taking a slot by position gives Earth white rocks on a night sky.
-    // Third-darkest lands on rust for Mars, deep blue for Earth, ring shadow
-    // for Saturn - a rock that reads as a rock at every stop.
-    debris: colorblind ? raw.colorblind.debris : byLuminance(raw.colors, 2),
+    // See `pickDebris`. A rock that cannot be seen is not a rock.
+    debris: colorblind
+      ? skyGap(declared) >= DEBRIS_SEPARATION
+        ? declared
+        : computed
+      : computed,
     colorblindMode: colorblind,
   });
 }
 
-const NORMAL = new Map<StopId, StopPalette>(STOP_IDS.map((id) => [id, build(id, false)]));
-const COLORBLIND = new Map<StopId, StopPalette>(STOP_IDS.map((id) => [id, build(id, true)]));
+/**
+ * BUILT LAZILY, and it has to be.
+ *
+ * `build` now calls `depthRamp` - the debris fill is chosen against the bands it
+ * will be seen over - and `depthRamp` reads a dozen module constants declared
+ * further down this file. Building the palettes eagerly at module scope ran
+ * `build` before those initialisers, and the module threw
+ * "Cannot access 'at' before initialization" on import. Memoising on first use
+ * costs one map lookup and removes the ordering hazard entirely.
+ */
+const NORMAL = new Map<StopId, StopPalette>();
+const COLORBLIND = new Map<StopId, StopPalette>();
+
+function cached(id: StopId, colorblind: boolean): StopPalette {
+  const map = colorblind ? COLORBLIND : NORMAL;
+  let p = map.get(id);
+  if (p === undefined) {
+    p = build(id, colorblind);
+    map.set(id, p);
+  }
+  return p;
+}
 
 /** Every stop that has a palette, in route order (Earth -> Pluto). */
 export const PALETTE_STOP_IDS: readonly StopId[] = STOP_IDS;
@@ -151,17 +303,13 @@ export const PALETTE_STOP_IDS: readonly StopId[] = STOP_IDS;
 /** The stop's palette exactly as `palettes.json` declares it. */
 export function paletteFor(stopId: string): StopPalette {
   if (!isStopId(stopId)) throw new Error(`unknown stop id: ${stopId}`);
-  const p = NORMAL.get(stopId);
-  if (p === undefined) throw new Error(`no palette built for ${stopId}`);
-  return p;
+  return cached(stopId, false);
 }
 
 /** The D41 colourblind-safe variant: accent and debris fill separated by luminance. */
 export function colorblindVariant(stopId: string): StopPalette {
   if (!isStopId(stopId)) throw new Error(`unknown stop id: ${stopId}`);
-  const p = COLORBLIND.get(stopId);
-  if (p === undefined) throw new Error(`no colourblind palette built for ${stopId}`);
-  return p;
+  return cached(stopId, true);
 }
 
 /** One call for scenes that already hold the SceneContext flag. */
@@ -689,6 +837,17 @@ export const FAR_BAND_DROP_SHARE = 0.3;
  * every step has to move the same way (monotone, so the eye can order them).
  */
 export function depthRamp(p: StopPalette, count: number): string[] {
+  return rampWith(p, count, p.debris);
+}
+
+/**
+ * The ladder, for a GIVEN debris fill.
+ *
+ * Parameterised because `build` has to ask "how well could the bands clear this
+ * candidate?" for each palette colour before choosing one. `depthRamp` is the
+ * same function with the palette's own answer already filled in.
+ */
+function rampWith(p: StopPalette, count: number, debrisHex: string): string[] {
   const sky = skyStops(p)[1];
   const ink = foregroundInk(p);
   const bright = isBrightStop(p);
@@ -711,6 +870,65 @@ export function depthRamp(p: StopPalette, count: number): string[] {
   const farL = bright
     ? skyL - Math.max(FAR_BAND_DROP_L, (skyL - nearL) * FAR_BAND_DROP_SHARE)
     : skyL + (inkL - skyL) * 0.25;
+
+  /**
+   * THE LADDER IS PHASED AROUND THE DEBRIS VALUE.
+   *
+   * A position-anchored probe tracked one rock down the shipped frame and
+   * measured its silhouette separation at 0.373, 0.343, 0.278, 0.159 and then
+   * 0.0002 as it crossed a terrain band: inside luminance 101.1, outside 101.1.
+   * The rock did not go dim, it went to NOTHING, and six of the seven stops did
+   * the same thing. AC-22.4 is "rocket and asteroids identifiable by
+   * silhouette", so at the moment a seven-year-old most needs to read a
+   * word-asteroid, it disappeared.
+   *
+   * Only bands 0 and 1 matter here. A gameplay rock is on L4 `debris`; L5
+   * `nearField` and L6.5 `foreVeil` are in FRONT of it and occlude rather than
+   * blend, so what a rock is seen against is the sky and L2/L3 - the two
+   * lightest bands.
+   *
+   * The whole ladder slides by up to half a step and the ends are clamped, so
+   * this never costs the value distribution the anchors exist to produce: it
+   * moves the bands off one forbidden value and changes nothing else.
+   */
+  const debrisLuma = luma255(debrisHex);
+  const bandsAt = (shift: number): string[] => {
+    const acc: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const t = count === 1 ? 1 : i / (count - 1);
+      const family = mixHex(sky, ink, t ** 0.85);
+      const hued = warmShift(family, t ** 1.4);
+      acc.push(withLightness(hued, farL + (nearL - farL) * t + shift));
+    }
+    return acc;
+  };
+  const clearanceAt = (shift: number): number => {
+    const all = bandsAt(shift);
+    // Filtered, because `depthRamp(p, 1)` is a legal call and index 3 is not a
+    // band there.
+    const seen = BANDS_BEHIND_DEBRIS.filter((i) => i < all.length).map((i) => all[i] as string);
+    return Math.min(...seen.map((c) => Math.abs(luma255(c) - debrisLuma)));
+  };
+  // A grid rather than a closed form: the L* -> luminance map is not linear, so
+  // "half a step away in L*" is not "half a step away in the units the probe
+  // measures". Thirty-three evaluations, once per palette, memoised by `cached`.
+  const step = Math.abs(nearL - farL) / Math.max(1, count - 1);
+  const limit = Math.min(step / 2, 9);
+  let bestShift = 0;
+  let bestClearance = clearanceAt(0);
+  for (let k = -16; k <= 16; k++) {
+    const shift = (k / 16) * limit;
+    // Clamps: the furthest band may not creep back toward the sky past its
+    // minimum drop, and the nearest may not go under the foreground objects it
+    // has to be read against.
+    if (bright && farL + shift > skyL - FAR_BAND_DROP_L) continue;
+    if (bright && nearL + shift < lightness(foregroundObjectInk(p))) continue;
+    const c = clearanceAt(shift);
+    if (c > bestClearance) {
+      bestClearance = c;
+      bestShift = shift;
+    }
+  }
 
   const out: string[] = [];
   for (let i = 0; i < count; i++) {
@@ -738,7 +956,7 @@ export function depthRamp(p: StopPalette, count: number): string[] {
     // is merely the sky darkened reads as a shadow rather than as rock.
     const hued = warmShift(family, t ** 1.4);
     // 2. Value, set outright on an even ladder between the anchors.
-    out.push(withLightness(hued, farL + (nearL - farL) * t));
+    out.push(withLightness(hued, farL + (nearL - farL) * t + bestShift));
   }
   return out;
 }

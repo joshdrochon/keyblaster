@@ -23,14 +23,78 @@ import Phaser from "phaser";
 import { SCENE_KEYS } from "../sceneKeys.js";
 import { furthestBeacon, services } from "../boot.js";
 import { EASE, buildParallax, type Parallax } from "../render/parallax.js";
-import { hexToNum, mixHex, paletteAt } from "../render/palette.js";
+import {
+  hexToNum,
+  isBrightStop,
+  lightPositionOf,
+  mixHex,
+  paletteAt,
+  type StopPalette,
+} from "../render/palette.js";
 import { TEX, ensureTextures } from "../render/textures.js";
 import { LANTERN_DESIGN_HEIGHT, drawLantern, type LanternRig } from "../render/lantern.js";
 import { LANGS, type Lang } from "../../engine/types.js";
 import { SHIPPED_LANGS } from "../../engine/i18n/index.js";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
+import { INK, TYPE, chromeCase } from "@game/ui/theme";
+import { skyText, skyTextSamples, type SceneSnapshot } from "./lib/kit.js";
 
+/**
+ * The wordmark's own face. Everything ELSE on this screen is now dressed from
+ * the theme, because a title that uses one type stack for its chrome and the
+ * rest of the game another is two designs; a logo is allowed its own face.
+ */
 const FONT = '"Avenir Next","Nunito","Trebuchet MS",system-ui,sans-serif';
+
+/** Where the lockup sits when nothing is in the way of it. */
+const WORDMARK_X = 200;
+const WORDMARK_Y = 250;
+/** Mark, accent rule and tagline, top to bottom. */
+const LOCKUP_H = 218;
+
+/**
+ * THE MOON IN THE MIDDLE OF THE WORDMARK.
+ *
+ * The capture showed a hard-edged pale disc sitting inside the mark, eating the
+ * tail of "KEY" and the bowl of the "B". It is not drawn here: it is the stop's
+ * light source, from `render/parallax.ts`, which places it at
+ * `lightPositionOf()` and sizes it 86 px on a bright stop and 48 on a dark one.
+ * That is another lane's object, so the WORDMARK moves instead - down, because
+ * the disc's centre is around y=300 to 330 at every stop and there is not enough
+ * room above it for a 218 px lockup.
+ *
+ * The radii below mirror a constant `parallax.ts` does not export. They are only
+ * ever used to move our own type out of the way, so if the sun is resized the
+ * worst case is the wordmark sitting a few pixels closer to it than intended -
+ * never type drawn on top of it, because the dodge is recomputed from the disc's
+ * position every time the screen is built.
+ */
+const SUN_R_BRIGHT = 86;
+const SUN_R_DIM = 48;
+const SUN_GAP = 18;
+
+/**
+ * Ink for a label sitting on a filled accent surface. The same near-black the
+ * stage report puts on its primary button, so "the filled one is the one you
+ * meant" is one treatment across the game rather than two near-misses.
+ */
+const BUTTON_INK = INK.panelSunken;
+
+/**
+ * The lowest the primary action is allowed to be pushed by that dodge.
+ *
+ * A guard, not a working number: the furthest the lockup ever moves is Mars'
+ * sun at y=419, which puts the button at 729. It exists so that a future change
+ * to either the sun or the lockup cannot walk the menu off the bottom of the
+ * frame without anyone noticing.
+ */
+const PRIMARY_Y_MAX = 740;
+/** Gaps down the menu column, preserved from the layout this screen shipped. */
+const PRIMARY_GAP = 92;
+const SETTINGS_GAP = 166;
+const LANG_GAP = 174;
+/** The language row is the last thing down the column and must stay on screen. */
+const LANG_Y_MAX = 1000;
 
 /**
  * Endonyms for the language switch (D45). These are language TAGS, not UI copy:
@@ -95,7 +159,8 @@ export class TitleScene extends Phaser.Scene {
 
     // --- wordmark ---------------------------------------------------------
     const hud = this.parallax.layerOf("hud").container;
-    hud.add(this.buildWordmark(t.t("title.tagline")));
+    const mark = this.buildWordmark(t.t("title.tagline"), pal);
+    hud.add(mark.root);
 
     // --- menu -------------------------------------------------------------
     this.focusRing = this.add.graphics();
@@ -107,14 +172,22 @@ export class TitleScene extends Phaser.Scene {
       ? t.t("beacon.placed", { stop: paletteAt(furthest, false).name })
       : null;
 
-    const primary = this.buildPrimary(primaryLabel, primarySub, 200, 560);
-    const settings = this.buildQuiet(t.t("title.settings"), 200, 726);
+    // The column follows the lockup down when the sun has pushed it, so the
+    // relationship between the mark and the first action is the same picture
+    // wherever the light happens to be for this pilot's furthest beacon.
+    const primaryY = Math.min(mark.bottom + PRIMARY_GAP, PRIMARY_Y_MAX);
+    const settingsY = primaryY + SETTINGS_GAP;
+    const primary = this.buildPrimary(primaryLabel, primarySub, WORDMARK_X, primaryY);
+    const settings = this.buildQuiet(t.t("title.settings"), WORDMARK_X, settingsY);
     // D95: the language row only exists when there is a choice to make. With a
     // single shipped language it is a one-option selector, which is noise on
     // the first screen a child sees - and it was still offering ES and हिं
     // after the content cut, which is worse than noise: it offers a language
     // the game will not switch to.
-    const lang = SHIPPED_LANGS.length > 1 ? this.buildLangRow(200, 900) : null;
+    const lang =
+      SHIPPED_LANGS.length > 1
+        ? this.buildLangRow(WORDMARK_X, Math.min(settingsY + LANG_GAP, LANG_Y_MAX))
+        : null;
     hud.add([primary.root, settings.root, ...(lang ? [lang.root] : [])]);
     this.items = lang ? [primary, settings, lang] : [primary, settings];
 
@@ -153,8 +226,27 @@ export class TitleScene extends Phaser.Scene {
   // Pieces
   // -------------------------------------------------------------------------
 
-  private buildWordmark(tagline: string): Phaser.GameObjects.Container {
-    const c = this.add.container(200, 250);
+  /**
+   * Where the lockup has to sit so the stop's sun is not inside the letters.
+   *
+   * `width` is the measured width of the mark, so a sun off to the side of it -
+   * Neptune's and Pluto's both are - moves nothing at all and the screen keeps
+   * the composition it was designed with.
+   */
+  private wordmarkY(pal: StopPalette, width: number): number {
+    const at = lightPositionOf(pal);
+    const cx = at.x * this.scale.width;
+    const cy = at.y * this.scale.height;
+    const r = isBrightStop(pal) ? SUN_R_BRIGHT : SUN_R_DIM;
+    if (cx + r < WORDMARK_X || cx - r > WORDMARK_X + width) return WORDMARK_Y;
+    return Math.max(WORDMARK_Y, cy + r + SUN_GAP);
+  }
+
+  private buildWordmark(
+    tagline: string,
+    pal: StopPalette,
+  ): { root: Phaser.GameObjects.Container; bottom: number } {
+    const c = this.add.container(WORDMARK_X, WORDMARK_Y);
     const cream = "#F7F2E6";
 
     const glow = this.add
@@ -165,6 +257,9 @@ export class TitleScene extends Phaser.Scene {
       .setBlendMode(Phaser.BlendModes.ADD);
     c.add(glow);
 
+    // THE ONE STRING ON THIS SCREEN THAT KEEPS ITS CAPITALS. D41 lowercases
+    // chrome; a wordmark is a logo, not chrome, and it is drawn rather than
+    // translated - it is the same six letters in every locale.
     const style = { fontFamily: FONT, fontSize: "128px", fontStyle: "900" };
     const key = this.add.text(0, 0, "KEY", { ...style, color: this.accent }).setLetterSpacing(2);
     const blaster = this.add
@@ -174,6 +269,8 @@ export class TitleScene extends Phaser.Scene {
     blaster.setShadow(0, 6, "#00000066", 12, false, true);
     c.add([key, blaster]);
 
+    const markW = key.width + blaster.width + 6;
+
     // A drawn accent rule under the mark: the beacon beam, laid flat.
     const rule = this.add.graphics();
     rule.fillStyle(hexToNum(this.accent), 1);
@@ -181,21 +278,33 @@ export class TitleScene extends Phaser.Scene {
     c.add(rule);
     this.tweens.add({
       targets: rule,
-      scaleX: { from: 1, to: (key.width + blaster.width + 6) / 10 },
+      scaleX: { from: 1, to: markW / 10 },
       duration: 700,
       delay: 140,
       ease: EASE.blast,
     });
 
-    const sub = this.add
-      .text(2, 178, tagline, {
-        fontFamily: FONT,
-        fontSize: "34px",
-        color: mixHex(cream, "#000000", 0.14),
-      })
-      .setLetterSpacing(1);
-    c.add(sub);
-    return c;
+    // The tagline is chrome, so it is lowercase (D41) and on a plate: on a
+    // bright stop's sky - Saturn's is near ivory - cream type on open sky is
+    // unreadable, and the Title wears the palette of the furthest beacon.
+    const sub = skyText(this, 2, 178, chromeCase(tagline, false), {
+      screen: "title",
+      id: "title.tagline",
+      size: TYPE.body,
+      color: INK.textDim,
+      lang: this.langOf(),
+      depth: 1,
+      padY: 8,
+    });
+    if (sub.plate !== null) c.add(sub.plate);
+    c.add(sub.text);
+
+    c.setY(this.wordmarkY(pal, markW));
+    return { root: c, bottom: c.y + LOCKUP_H };
+  }
+
+  private langOf(): Lang {
+    return services(this).t.lang;
   }
 
   private buildPrimary(
@@ -215,25 +324,39 @@ export class TitleScene extends Phaser.Scene {
     plate.fillRoundedRect(4, 4, width - 8, height * 0.42, 22);
     root.add(plate);
 
+    // The label is already ON a surface this screen drew, so it takes no plate
+    // of its own - but it is still REGISTERED, with the accent it actually sits
+    // on, because "it's on a panel, trust me" is how unreadable text ships.
     root.add(
-      this.add
-        .text(width / 2, height / 2, label, {
-          fontFamily: FONT,
-          fontSize: "44px",
-          fontStyle: "700",
-          color: "#14161B",
-        })
-        .setOrigin(0.5),
+      skyText(this, width / 2, height / 2, chromeCase(label, false), {
+        screen: "title",
+        id: "title.primary",
+        size: TYPE.heading,
+        color: BUTTON_INK,
+        align: "center",
+        lang: this.langOf(),
+        plated: true,
+        plateFill: this.accent,
+        depth: 1,
+        originX: 0.5,
+        originY: 0.5,
+      }).text,
     );
 
     if (subline !== null) {
-      root.add(
-        this.add.text(4, height + 18, subline, {
-          fontFamily: FONT,
-          fontSize: "27px",
-          color: "#EFE7D6",
-        }),
-      );
+      // NOT lowercased: the subline names the planet the beacon is on, and a
+      // planet name is a proper noun that keeps its capital (D41).
+      const sub = skyText(this, 4, height + 18, subline, {
+        screen: "title",
+        id: "title.primarySub",
+        size: TYPE.label,
+        color: INK.textDim,
+        lang: this.langOf(),
+        depth: 1,
+        padY: 8,
+      });
+      if (sub.plate !== null) root.add(sub.plate);
+      root.add(sub.text);
     }
 
     return { id: "primary", root, width, height, activate: () => this.startGame() };
@@ -241,17 +364,22 @@ export class TitleScene extends Phaser.Scene {
 
   private buildQuiet(label: string, x: number, y: number): MenuItem {
     const root = this.add.container(x, y);
-    const text = this.add.text(4, 0, label, {
-      fontFamily: FONT,
-      fontSize: "32px",
-      color: "#D9D2C4",
+    const item = skyText(this, 4, 0, chromeCase(label, false), {
+      screen: "title",
+      id: "title.settings",
+      size: TYPE.body,
+      color: INK.text,
+      lang: this.langOf(),
+      depth: 1,
+      padY: 8,
     });
-    root.add(text);
+    if (item.plate !== null) root.add(item.plate);
+    root.add(item.text);
     return {
       id: "settings",
       root,
-      width: text.width + 8,
-      height: text.height,
+      width: item.text.width + 8,
+      height: item.text.height,
       activate: () => this.goto(SCENE_KEYS.settings),
     };
   }
@@ -263,15 +391,20 @@ export class TitleScene extends Phaser.Scene {
     this.langIndex = Math.max(0, SHIPPED_LANGS.indexOf(t.lang));
     let cursor = 4;
     SHIPPED_LANGS.forEach((lang, i) => {
-      const label = this.add
-        .text(cursor, 0, LANG_LABEL[lang], {
-          fontFamily: FONT,
-          fontSize: "26px",
-          color: i === this.langIndex ? this.accent : "#9A968C",
-        })
-        .setName(`lang-${lang}`);
-      root.add(label);
-      cursor += label.width + 26;
+      const on = i === this.langIndex;
+      const item = skyText(this, cursor, 0, LANG_LABEL[lang], {
+        screen: "title",
+        id: on ? "title.lang.on" : "title.lang.off",
+        size: TYPE.label,
+        color: on ? this.accent : INK.textDim,
+        lang: t.lang,
+        depth: 1,
+        padY: 6,
+      });
+      item.text.setName(`lang-${lang}`);
+      if (item.plate !== null) root.add(item.plate);
+      root.add(item.text);
+      cursor += item.text.width + 26;
     });
     return {
       id: "lang",
@@ -440,6 +573,25 @@ export class TitleScene extends Phaser.Scene {
   // -------------------------------------------------------------------------
   // Debug surface for the e2e suite (AC-22.1 overlay, AC-22.2, AC-18.1).
   // -------------------------------------------------------------------------
+
+  /**
+   * What `scripts/capture-screens.mjs` reads off this screen.
+   *
+   * It exists for its `skyText` field: AC-22.8's rubric measures the colour
+   * pairs a scene REGISTERS, and a screen that registers nothing is a screen
+   * nobody has measured. The Title is not in the rubric's required list, so
+   * every row here is one more pair that cannot quietly go unreadable on a
+   * bright stop - which this screen can be, because it wears the palette of the
+   * pilot's furthest beacon.
+   */
+  snapshot(): SceneSnapshot {
+    return {
+      scene: SCENE_KEYS.title,
+      focusIndex: this.focusIndex,
+      items: this.items.map((i) => i.id),
+      skyText: skyTextSamples(this),
+    };
+  }
 
   private publishDebug(): void {
     const { context, store, t } = services(this);

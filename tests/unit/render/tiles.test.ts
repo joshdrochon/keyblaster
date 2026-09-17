@@ -431,12 +431,17 @@ describe("decorative debris is not in the ship's lane (AC-22.8, FR-8/D19)", () =
     // Word plates fall down the middle and legibility is the game. Anything on a
     // plane in front of them that strays into the centre column is a defect, not
     // atmosphere - so the guard is asserted, not trusted.
-    const guard = 0.26;
+    // THE SHIPPED NUMBERS, not a small sample. This assertion was running
+    // against 70-132 px rocks at a 0.26 guard while `parallax.ts` shipped
+    // 220-460 px at 0.20, so the one test guarding AC-22.8 on this plane was
+    // guarding a configuration the game does not use - and the overhang defect
+    // it exists to catch shipped underneath it.
+    const guard = 0.2;
     const ops = driftTile(W, H, {
       materials: MATERIALS,
       count: 40,
-      minPx: 70,
-      maxPx: 132,
+      minPx: 220,
+      maxPx: 460,
       light: -2,
       laneGuard: guard,
       rand: rng(SEED),

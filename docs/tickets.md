@@ -4,35 +4,36 @@
      computed from evidence on each run, and a hand-typed status is the
      exact failure this board exists to prevent. -->
 
-Generated: 2026-09-17T01:30:03.369Z
-Tickets: **328**
+Generated: 2026-09-17T02:17:35.242Z
+Tickets: **336**
 
 | DONE | OPEN | UNVERIFIED | FALSE-PASS | BLOCKED | EXEMPT |
 |---|---|---|---|---|---|
-| 173 | 23 | 43 | 10 | 39 | 40 |
+| 146 | 14 | 67 | 10 | 59 | 40 |
 
 **DONE** means an assertion names it and the evidence is fresher than the
 code. **UNVERIFIED** means something claims it but the binding is weak or
 the evidence is stale. **FALSE-PASS** means a check is green and does not
 measure its claim — read those first.
 
-## ac (106) — 75 DONE · 10 OPEN · 18 UNVERIFIED · 3 FALSE-PASS
+## ac (106) — 74 DONE · 4 OPEN · 18 UNVERIFIED · 3 FALSE-PASS · 7 BLOCKED
 
 | state | id | title | why | source |
 |---|---|---|---|---|
 | FALSE-PASS | `KB-AC-22.4` | Desaturated flight screenshot: rocket and asteroids identifiable by silhouette (checked by contour count with… | the rubric item covering it (V-22.4) does not measure its claim | docs/prd.md |
 | FALSE-PASS | `KB-AC-6e.3` | During flight, no interval > 2 s with zero live asteroids and no pending spawn. | the rubric item covering it (L-6e.3) does not measure its claim | docs/prd.md |
 | FALSE-PASS | `KB-AC-6e.4` | Retention line trends upward across a full Earth | the rubric item covering it (L-6e.4) does not measure its claim | docs/prd.md |
-| OPEN | `KB-AC-1.1` | Ship x/y do not change during a stage except for shake offsets. | no test names this AC | docs/prd.md |
-| OPEN | `KB-AC-1.2` | Background layers advance every frame at their configured speeds. | no test names this AC | docs/prd.md |
+| BLOCKED | `KB-AC-10.2` | Given a simulated player with fixed true accuracy p, long-run measured hit rate converges to [0.80, 0.90] for… | escalated: AC-10.2 — controller cannot reach the 85% band for weak typists | docs/prd.md |
+| BLOCKED | `KB-AC-20.1` | Shows WPM and accuracy for this stage and delta vs previous stage of the same profile. | escalated: AC-20.1 / FR-15 — `accuracy` mixes words and keystrokes | docs/prd.md |
+| BLOCKED | `KB-AC-22.9` | 60 fps: p95 frame time ≤ 16.7 ms over a 60 s scripted flight in headless Chromium. | escalated: AC-22.9 — the PRD names an instrument that cannot measure the claim | docs/prd.md |
+| BLOCKED | `KB-AC-3.3` | No switching: keystrokes matching other asteroids are ignored while locked. | escalated: C10 — AC-3.3 "ignored" vs typo (collision, user decision) | docs/prd.md |
+| BLOCKED | `KB-AC-4.2` | An asteroid crossing the breach line decrements hull by exactly 1 and plays strike (shake + spark, no explosi… | escalated: E-practice-trajectory · A repeat rock now misses the ship, which bends AC-4.2 | docs/prd.md |
+| BLOCKED | `KB-AC-6e.5` | Playtest targets (to set): median session ≥ N min, replay rate ≥ M%. | escalated: AC-6e.5 — the playtest targets were never chosen, so the criterion cannot be tested | docs/prd.md |
+| BLOCKED | `KB-AC-9.2` | At least one guaranteed-catch word (mastered or ≤4 letters with ease ≤ 1.0) in every 6 consecutive spawns. | escalated: AC-9.2 — no guaranteed-catch word can exist on a fresh profile | docs/prd.md |
 | OPEN | `KB-AC-12b.3` | Sources verified (above). | no test names this AC | docs/prd.md |
-| OPEN | `KB-AC-13.3` | AI outputs (§3.4) pass the same filter before use. | no test names this AC | docs/prd.md |
 | OPEN | `KB-AC-17.3` | Beacon persists to profile and blinks on the Director map thereafter. | no test names this AC | docs/prd.md |
 | OPEN | `KB-AC-21.2` | Music has ≥ 3 intensity layers; intensity index is a function of live asteroid count and combo. | rubric item A-21.2 is failing | docs/prd.md |
-| OPEN | `KB-AC-23.1` | No raster file is referenced from anywhere in `src/`; reference images in `design-reference/refs/` are looked… | no test names this AC | docs/prd.md |
-| OPEN | `KB-AC-24.1` | The beam emitter renders as engineered tech: large lens, iris aperture that opens on fire, three concentric f… | no test names this AC | docs/prd.md |
-| OPEN | `KB-AC-24.3` | The four colorways in that reference are the four base ships (D79); no text is drawn on the hull and `{shipNa… | no test names this AC | docs/prd.md |
-| OPEN | `KB-AC-6e.5` | Playtest targets (to set): median session ≥ N min, replay rate ≥ M%. | no test names this AC | docs/prd.md |
+| OPEN | `KB-AC-24.2` | The rendered vector Lantern matches `design-reference/refs/lantern-topdown.png` in silhouette, orientation, p… | rubric item R-lantern is failing | docs/prd.md |
 | UNVERIFIED | `KB-AC-18.2` | Profiles: name + avatar; no email field exists anywhere. | the rubric item covering it (G-pii) is itself unverified | docs/prd.md |
 | UNVERIFIED | `KB-AC-19.1` | Each setting persists and takes effect without reload: music vol, SFX vol, keyboard layout (qwerty/azerty/qwe… | the rubric item covering it (A-21.8) is itself unverified | docs/prd.md |
 | UNVERIFIED | `KB-AC-21.1` | Per-planet ambient bed file exists and plays on that stop; crossfades on transition. | the rubric item covering it (A-21.1) is itself unverified | docs/prd.md |
@@ -47,16 +48,17 @@ measure its claim — read those first.
 | UNVERIFIED | `KB-AC-22.6` | Blast, hit, warp emit distinct particle configs. | the rubric item covering it (V-22.6) is itself unverified | docs/prd.md |
 | UNVERIFIED | `KB-AC-22.7` | Each stage palette ≤ 7 colors + 1 accent in config; screenshot dominant colors ⊆ palette ± tolerance. | the rubric item covering it (V-22.7) is itself unverified | docs/prd.md |
 | UNVERIFIED | `KB-AC-22.8` | Word label contrast ratio ≥ 4.5:1 against its plate. | the rubric item covering it (V-22.8) is itself unverified | docs/prd.md |
+| UNVERIFIED | `KB-AC-22b.1` | No red failure state, lives counter, or "wrong" label/sound exists anywhere in `src/game`. | the rubric item covering it (G-nored) is itself unverified | docs/prd.md |
+| UNVERIFIED | `KB-AC-23.1` | No raster file is referenced from anywhere in `src/`; reference images in `design-reference/refs/` are looked… | the rubric item covering it (G-raster) is itself unverified | docs/prd.md |
 | UNVERIFIED | `KB-AC-25.1` | The rendered vector Shadow matches `design-reference/refs/shadow-sheet.png`: charcoal body, cream face rim, g… | mentioned in 1 test file(s) but never in a test title — the citation may be a comment outliving its assertion | docs/prd.md |
-| UNVERIFIED | `KB-AC-6d.1` | Skins unlock only from mastery milestones defined in config; no time/purchase path exists. | mentioned in 1 test file(s) but never in a test title — the citation may be a comment outliving its assertion | docs/prd.md |
-| UNVERIFIED | `KB-AC-6d.1b` | Ships/skins per D79: 4 ships (unlock at 1/3/5/7 beacons), 1 skin each (unlock: first 3★ stop, 25-combo, 50-co… | mentioned in 1 test file(s) but never in a test title — the citation may be a comment outliving its assertion | docs/prd.md |
 | UNVERIFIED | `KB-AC-6e.2` | Every keystroke event emits ≥ 1 visual and ≥ 1 audio response. | the rubric item covering it (A-21.8) is itself unverified | docs/prd.md |
+| DONE | `KB-AC-1.1` | Ship x/y do not change during a stage except for shake offsets. | named by an assertion in 1 test file(s) | docs/prd.md |
+| DONE | `KB-AC-1.2` | Background layers advance every frame at their configured speeds. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-10.1` | Never two knob changes in one stage. | named by an assertion in 2 test file(s) | docs/prd.md |
-| DONE | `KB-AC-10.2` | Given a simulated player with fixed true accuracy p, long-run measured hit rate converges to [0.80, 0.90] for… | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-10.3` | Difficulty never increases while hit rate < 0.85 (D18). | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-10.4` | Scroll speed of the world is constant per stage and not a knob. | named by an assertion in 2 test file(s) | docs/prd.md |
-| DONE | `KB-AC-11.1` | Produces median inter-key interval and first-key latency; stored on profile. | named by an assertion in 2 test file(s) | docs/prd.md |
-| DONE | `KB-AC-11.2` | Not shown on returning profiles. | named by an assertion in 2 test file(s) | docs/prd.md |
+| DONE | `KB-AC-11.1` | Produces median inter-key interval and first-key latency; stored on profile. | named by an assertion in 3 test file(s) | docs/prd.md |
+| DONE | `KB-AC-11.2` | Not shown on returning profiles. | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-11.3` | Feels like narrative, not a test: no score, no accuracy shown during it. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-12.1` | Earth has no belt; typing `launch` activates its beacon and advances to the Director map. | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-12.2` | Each of the six belt stops has: briefing, asteroid pool, pre-flight line, warp sentence, beacon text, in all … | named by an assertion in 2 test file(s) | docs/prd.md |
@@ -65,6 +67,7 @@ measure its claim — read those first.
 | DONE | `KB-AC-12b.2` | Each debris type has its own sprite set (≥ 3 shape variants) and palette entry. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-13.1` | Any word reaching the screen (asteroid or sentence) is in the allowlist; violations throw in dev and are drop… | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-13.2` | The blocklist (profanity, alcohol, drugs, weapons-as-violence) rejects, and the allowlist alone would already… | named by an assertion in 3 test file(s) | docs/prd.md |
+| DONE | `KB-AC-13.3` | AI outputs (§3.4) pass the same filter before use. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-14.1` | Content language options are filtered by input method: Devanagari content is offered only if input is `inscri… | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-14.2` | Romanized transliteration matches Devanagari targets per a deterministic mapping table; ambiguous romanizatio… | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-14.3` | All UI strings come from i18n files; no hard-coded English in scenes. | named by an assertion in 2 test file(s) | docs/prd.md |
@@ -89,24 +92,20 @@ measure its claim — read those first.
 | DONE | `KB-AC-2.1` | No two live asteroids share a first letter unless the shared-prefix tier is unlocked (D25). | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-2.2` | When the tier is unlocked, live asteroids may share a prefix; the lock resolves on the first keystroke that m… | named by an assertion in 4 test file(s) | docs/prd.md |
 | DONE | `KB-AC-2.3` | Asteroid sprite size is a monotonic function of word length (D19). | named by an assertion in 2 test file(s) | docs/prd.md |
-| DONE | `KB-AC-20.1` | Shows WPM and accuracy for this stage and delta vs previous stage of the same profile. | named by an assertion in 4 test file(s) | docs/prd.md |
 | DONE | `KB-AC-20.2` | Per-word markers: "faster" if median first-key latency improved ≥ 15% vs prior exposure. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-20.3` | Retention line: for retention words in this stage, % hit and mean latency delta vs first exposure. | named by an assertion in 4 test file(s) | docs/prd.md |
 | DONE | `KB-AC-20.4` | Stars per §3.1 AC-4.4. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-21.7` | The voice path is complete against the system-voice stand-in (D88): voice bus, ducking (AC-21.4) and spoken c… | named by an assertion in 2 test file(s) | docs/prd.md |
-| DONE | `KB-AC-22.9` | 60 fps: p95 frame time ≤ 16.7 ms over a 60 s scripted flight in headless Chromium. | named by an assertion in 1 test file(s) | docs/prd.md |
-| DONE | `KB-AC-22b.1` | No red failure state, lives counter, or "wrong" label/sound exists anywhere in `src/game`. | named by an assertion in 7 test file(s) | docs/prd.md |
 | DONE | `KB-AC-22b.2` | A hull strike renders as shake + spark with no full-screen red flash (restates AC-4.2 as a rendering invarian… | named by an assertion in 1 test file(s) | docs/prd.md |
-| DONE | `KB-AC-24.2` | The rendered vector Lantern matches `design-reference/refs/lantern-topdown.png` in silhouette, orientation, p… | named by an assertion in 1 test file(s) | docs/prd.md |
+| DONE | `KB-AC-24.1` | The beam emitter renders as engineered tech: large lens, iris aperture that opens on fire, three concentric f… | named by an assertion in 1 test file(s) | docs/prd.md |
+| DONE | `KB-AC-24.3` | The four colorways in that reference are the four base ships (D79); no text is drawn on the hull and `{shipNa… | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-25.2` | Six poses exist (idle, pointing, cheering, shy/worried, asleep, saluting) and the sheet's bottom-row colorway… | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-25.3` | No Shadow line, scripted or generated, ever contains the word "wrong" (D31, story note 6). | named by an assertion in 6 test file(s) | docs/prd.md |
 | DONE | `KB-AC-3.1` | First keystroke matching a live word's first letter locks that asteroid. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-3.2` | A wrong keystroke while locked triggers shake, increments typo count, does not drop the lock. | named by an assertion in 2 test file(s) | docs/prd.md |
-| DONE | `KB-AC-3.3` | No switching: keystrokes matching other asteroids are ignored while locked. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-3.4` | Completing the word fires the blast, marks asteroid dead, increments hits, advances combo. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-3.5` | Keystrokes are handled via `keydown`, ignoring modifier combos; IME composition events are handled for Devana… | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-4.1` | hull == 3 at every stage start. | named by an assertion in 2 test file(s) | docs/prd.md |
-| DONE | `KB-AC-4.2` | An asteroid crossing the breach line decrements hull by exactly 1 and plays strike (shake + spark, no explosi… | named by an assertion in 4 test file(s) | docs/prd.md |
 | DONE | `KB-AC-4.3` | hull == 0 | named by an assertion in 4 test file(s) | docs/prd.md |
 | DONE | `KB-AC-4.4` | Hits feed the stage star rating: 0 hits = 3★, 1 = 2★, 2 = 1★ (D27). | named by an assertion in 4 test file(s) | docs/prd.md |
 | DONE | `KB-AC-5.1` | Spawns only when hull < 3; at most one live at a time; its word is from the stage pool. | named by an assertion in 1 test file(s) | docs/prd.md |
@@ -114,6 +113,8 @@ measure its claim — read those first.
 | DONE | `KB-AC-6b.1` | Ship name is stored on profile and substituted into story text via `{shipName}`, default "Lantern" (C07 resol… | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-6c.1` | Score multiplier = min(combo, 10); combo resets on typo or hull hit; HUD shows "×N". | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-6c.2` | Keystroke tone steps up a fixed scale (e.g., pentatonic) per successful keystroke, resets on typo; pitch inde… | named by an assertion in 1 test file(s) | docs/prd.md |
+| DONE | `KB-AC-6d.1` | Skins unlock only from mastery milestones defined in config; no time/purchase path exists. | named by an assertion in 1 test file(s) | docs/prd.md |
+| DONE | `KB-AC-6d.1b` | Ships/skins per D79: 4 ships (unlock at 1/3/5/7 beacons), 1 skin each (unlock: first 3★ stop, 25-combo, 50-co… | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-6d.1c` | Trophies per D80: First Light (Earth lit), Pathfinder (first beacon), Belt Runner (main-belt stage 0 hits), R… | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-6d.2` | Trophy definitions are config; each is awarded exactly once per profile; Beacon Log renders them. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-6e.1` | Input-to-visual latency ≤ 16.7 ms measured keydown | named by an assertion in 1 test file(s) | docs/prd.md |
@@ -123,7 +124,6 @@ measure its claim — read those first.
 | DONE | `KB-AC-8.2` | A known long word can fall faster than an unknown short word. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-8.3` | Fall time is never displayed as a rule; no UI element maps size to speed. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-9.1` | Weighted sampling without replacement within a stage; no repeats until pool exhausted. | named by an assertion in 3 test file(s) | docs/prd.md |
-| DONE | `KB-AC-9.2` | At least one guaranteed-catch word (mastered or ≤4 letters with ease ≤ 1.0) in every 6 consecutive spawns. | named by an assertion in 4 test file(s) | docs/prd.md |
 | DONE | `KB-AC-9.3` | From stage 2 on, 20% (±1) of spawns are retention words from earlier stops, spaced by the SRS rule: eligible … | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-9.4` | A missed word's next eligibility is set to "next stage" (D23). | named by an assertion in 3 test file(s) | docs/prd.md |
 
@@ -146,10 +146,33 @@ measure its claim — read those first.
 | DONE | `KB-C08` | Skins vs D08 | resolved in the log | docs/decision-log.md:166 |
 | DONE | `KB-C09` | Voice source | resolved in the log | docs/decision-log.md:163 |
 
-## decision (89) — 54 DONE · 35 EXEMPT
+## decision (89) — 31 DONE · 23 UNVERIFIED · 35 EXEMPT
 
 | state | id | title | why | source |
 |---|---|---|---|---|
+| UNVERIFIED | `KB-D02` | It is a typing game. | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:27 |
+| UNVERIFIED | `KB-D03` | Whole-word typing fluency only. | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:28 |
+| UNVERIFIED | `KB-D04` | Rocket, fixed on screen, world scrolls top-to-bottom (vertical scroller). | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:31 |
+| UNVERIFIED | `KB-D09` | Asteroid words come from the current stage's story text. | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:36 |
+| UNVERIFIED | `KB-D11` | Mission: charting the solar system for the first time. | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:42 |
+| UNVERIFIED | `KB-D13` | Overview map is a Destiny-style Director; charted planets show a blinking beacon. | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:49 |
+| UNVERIFIED | `KB-D15` | Beacon outputs both real heliocentric ecliptic coordinates (J2000, computed for the play date) and a pulsar-n… | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:51 |
+| UNVERIFIED | `KB-D17` | Difficulty targets ~85% success (Wilson et al. | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:83 |
+| UNVERIFIED | `KB-D30` | End-of-stage sentence is typed in a calm break (belt cleared, asteroids stopped). | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:96 |
+| UNVERIFIED | `KB-D33` | AI runs in two places: (a) authoring time, all seven stops pre-generated to shipped JSON; (c) one small call … | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:101 |
+| UNVERIFIED | `KB-D39` | Full menu system; must feel like a complete, shipped experience. | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:139 |
+| UNVERIFIED | `KB-D40` | Flow: Title → Profile pick → Director map → Briefing → Play → Warp break → Results → back to map. | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:140 |
+| UNVERIFIED | `KB-D41` | Settings: music volume, SFX volume, keyboard layout (QWERTY/AZERTY/QWERTZ/Dvorak), UI language, letter case (… | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:141 |
+| UNVERIFIED | `KB-D43` | Profiles, not accounts: name + avatar, no email, no PII, local storage. | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:145 |
+| UNVERIFIED | `KB-D50` | Results screen shows: WPM and accuracy this stage vs last; per-word faster-than-before markers; and a retenti… | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:132 |
+| UNVERIFIED | `KB-D52` | Demo video: user plays and narrates. | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:134 |
+| UNVERIFIED | `KB-D56` | Route is Earth outward to Pluto: Earth, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto (Pluto included deliber… | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:44 |
+| UNVERIFIED | `KB-D57` | Earth is the launchpad. | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:45 |
+| UNVERIFIED | `KB-D60` | The visual bar is enforced as an evidence-based rubric, not a judgment. | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:48 |
+| UNVERIFIED | `KB-D62` | Audio bar: Disneyland-level immersion. | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:106 |
+| UNVERIFIED | `KB-D63` | Audio sourcing. | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:125 |
+| UNVERIFIED | `KB-D71` | Debris is per-stop and scientifically correct: Earth→Mars rusty rocky regolith; Mars→Jupiter = the real main … | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:59 |
+| UNVERIFIED | `KB-D72` | At the start (Profile screen): choose pilot name/avatar, choose a ship, name the ship. | mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation | docs/decision-log.md:61 |
 | EXEMPT | `KB-D01` | Learner is grades 2–5. | audience definition (grades 2-5); shapes content, not a testable behaviour | docs/decision-log.md:26 |
 | EXEMPT | `KB-D07` | Planet-based blaster (Missile Command frame) rejected: it is a Type Storm reskin and loses forward motion. | records a rejected alternative (planet-based blaster); nothing to build | docs/decision-log.md:34 |
 | EXEMPT | `KB-D08` | One story world, done well. | scope statement (one story world); constrains what is NOT built | docs/decision-log.md:35 |
@@ -185,74 +208,53 @@ measure its claim — read those first.
 | EXEMPT | `KB-D92` | Coach model: Claude Haiku 4.5 (`claude-haiku-4-5-20251001`), chosen for latency inside the 1500 ms budget. | model choice for the coach call; AC-15.1/15.4 carry the behaviour | docs/decision-log.md:113 |
 | EXEMPT | `KB-D93` | The build runs as a **gauntlet loop with builder/critic fan-out**, per the user's `gauntlet-loop` method. | build method (builder/critic fan-out); process, not product | docs/decision-log.md:114 |
 | EXEMPT | `KB-D94` | The unattended loop never blocks on a human. | unattended-run process rule; enforced by .claude/settings.json, not by product behaviour | docs/decision-log.md:115 |
-| DONE | `KB-D02` | It is a typing game. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:27 |
-| DONE | `KB-D03` | Whole-word typing fluency only. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:28 |
-| DONE | `KB-D04` | Rocket, fixed on screen, world scrolls top-to-bottom (vertical scroller). | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:31 |
-| DONE | `KB-D09` | Asteroid words come from the current stage's story text. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:36 |
-| DONE | `KB-D11` | Mission: charting the solar system for the first time. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:42 |
-| DONE | `KB-D13` | Overview map is a Destiny-style Director; charted planets show a blinking beacon. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:49 |
-| DONE | `KB-D15` | Beacon outputs both real heliocentric ecliptic coordinates (J2000, computed for the play date) and a pulsar-n… | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:51 |
-| DONE | `KB-D17` | Difficulty targets ~85% success (Wilson et al. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:83 |
-| DONE | `KB-D18` | Difficulty increases only as the player gets better. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:84 |
-| DONE | `KB-D19` | Size/fall-time split. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:85 |
-| DONE | `KB-D21` | Speed tracks fluency; frequency tracks mastery. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:87 |
-| DONE | `KB-D22` | Every wave contains at least one guaranteed-catch word. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:88 |
-| DONE | `KB-D23` | Misses never cost story progress; a missed word comes back sooner. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:89 |
-| DONE | `KB-D24` | Auto-lock on first keystroke, no Enter. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:90 |
-| DONE | `KB-D25` | Shared-first-letter asteroids are a mastery-gated difficulty tier (skinned as "dual cannons"). | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:91 |
-| DONE | `KB-D26` | Shield canister ships. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:92 |
-| DONE | `KB-D27` | Hull: three hits per stage, full repair at stage end. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:93 |
-| DONE | `KB-D28` | A missed asteroid visibly strikes the rocket: shake and spark, no explosion, no red flash. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:94 |
-| DONE | `KB-D29` | Empty hull = engine stalls out, mission fail. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:95 |
-| DONE | `KB-D30` | End-of-stage sentence is typed in a calm break (belt cleared, asteroids stopped). | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:96 |
-| DONE | `KB-D31` | The player should always feel like the best typer in the world; measured success ~85%, felt success near 100%. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:97 |
-| DONE | `KB-D33` | AI runs in two places: (a) authoring time, all seven stops pre-generated to shipped JSON; (c) one small call … | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:101 |
-| DONE | `KB-D34` | Guardrails in three layers; the graded word allowlist (Fry/Dolch-style plus authored story vocab) does the re… | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:102 |
-| DONE | `KB-D39` | Full menu system; must feel like a complete, shipped experience. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:139 |
-| DONE | `KB-D40` | Flow: Title → Profile pick → Director map → Briefing → Play → Warp break → Results → back to map. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:140 |
-| DONE | `KB-D41` | Settings: music volume, SFX volume, keyboard layout (QWERTY/AZERTY/QWERTZ/Dvorak), UI language, letter case (… | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:141 |
-| DONE | `KB-D43` | Profiles, not accounts: name + avatar, no email, no PII, local storage. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:145 |
-| DONE | `KB-D44` | Per-word history and map progress persist locally so the learning engine has memory across sessions. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:146 |
-| DONE | `KB-D45` | All three languages (English, Spanish, Hindi) for all three markets (US, LatAm, India), for both UI and typed… | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:143 |
-| DONE | `KB-D46` | Hindi typed content uses romanized transliteration by default (type `ghar` to match घर; matches how most Indi… | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:144 |
-| DONE | `KB-D50` | Results screen shows: WPM and accuracy this stage vs last; per-word faster-than-before markers; and a retenti… | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:132 |
-| DONE | `KB-D51` | Calibration: ~20 s pre-flight checks on a new profile only, framed as the ship's narrative startup sequence, … | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:133 |
-| DONE | `KB-D52` | Demo video: user plays and narrates. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:134 |
-| DONE | `KB-D53` | Controller mapping: HIT RATE (asteroids blasted ÷ spawned) drives simultaneous asteroid count and spawn densi… | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:135 |
-| DONE | `KB-D56` | Route is Earth outward to Pluto: Earth, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto (Pluto included deliber… | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:44 |
-| DONE | `KB-D57` | Earth is the launchpad. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:45 |
-| DONE | `KB-D60` | The visual bar is enforced as an evidence-based rubric, not a judgment. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:48 |
-| DONE | `KB-D62` | Audio bar: Disneyland-level immersion. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:106 |
-| DONE | `KB-D63` | Audio sourcing. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:125 |
-| DONE | `KB-D71` | Debris is per-stop and scientifically correct: Earth→Mars rusty rocky regolith; Mars→Jupiter = the real main … | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:59 |
-| DONE | `KB-D72` | At the start (Profile screen): choose pilot name/avatar, choose a ship, name the ship. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:61 |
-| DONE | `KB-D73` | Ship skins: cosmetic variants unlocked by mastery milestones only (never time-played, never purchase). | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:62 |
-| DONE | `KB-D74` | Trophies: mastery-based, informational (e.g., first beacon, all seven, 50-word combo, 3★ stop). | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:63 |
-| DONE | `KB-D75` | Combo multiplier on score + a keystroke tone that steps up a musical scale on each successful keystroke and r… | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:64 |
-| DONE | `KB-D77` | Core loop must be addictive, responsive, rewarding, engaging, and learning-centric. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:80 |
-| DONE | `KB-D79` | Four ships, each with a base look plus one unlockable skin (8 total). | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:77 |
-| DONE | `KB-D80` | Twelve trophies: First Light, Pathfinder, Belt Runner, Ring Weaver, Chain 25, Chain 50, Sharp Eye, Steady Hul… | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:78 |
-| DONE | `KB-D81` | Beacon coordinate display: "λ 214.6° β −1.2° r 1.52 AU" plus one pulsar-fix flavor line. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:79 |
-| DONE | `KB-D83` | Everything is vector drawn in code: world, debris, the Lantern, Shadow, briefing illustrations, UI. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:68 |
-| DONE | `KB-D88` | ElevenLabs is PLANNED, not optional. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:73 |
-| DONE | `KB-D89` | The Lantern's beam emitter is engineered tech, not a headlight: large lens, iris aperture that opens on fire,… | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:74 |
-| DONE | `KB-D90` | Lantern reference approved: top-down symmetrical rocket, nose up, emitter at nose, exhaust down, three fins, … | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:75 |
-| DONE | `KB-D91` | Shadow reference approved: `design-reference/refs/shadow-sheet.png`. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:76 |
-| DONE | `KB-D95` | Spanish and Hindi content is **withheld from the shipped menu** for the hackathon build. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:116 |
+| DONE | `KB-D18` | Difficulty increases only as the player gets better. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:84 |
+| DONE | `KB-D19` | Size/fall-time split. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:85 |
+| DONE | `KB-D21` | Speed tracks fluency; frequency tracks mastery. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:87 |
+| DONE | `KB-D22` | Every wave contains at least one guaranteed-catch word. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:88 |
+| DONE | `KB-D23` | Misses never cost story progress; a missed word comes back sooner. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:89 |
+| DONE | `KB-D24` | Auto-lock on first keystroke, no Enter. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:90 |
+| DONE | `KB-D25` | Shared-first-letter asteroids are a mastery-gated difficulty tier (skinned as "dual cannons"). | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:91 |
+| DONE | `KB-D26` | Shield canister ships. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:92 |
+| DONE | `KB-D27` | Hull: three hits per stage, full repair at stage end. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:93 |
+| DONE | `KB-D28` | A missed asteroid visibly strikes the rocket: shake and spark, no explosion, no red flash. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:94 |
+| DONE | `KB-D29` | Empty hull = engine stalls out, mission fail. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:95 |
+| DONE | `KB-D31` | The player should always feel like the best typer in the world; measured success ~85%, felt success near 100%. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:97 |
+| DONE | `KB-D34` | Guardrails in three layers; the graded word allowlist (Fry/Dolch-style plus authored story vocab) does the re… | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:102 |
+| DONE | `KB-D44` | Per-word history and map progress persist locally so the learning engine has memory across sessions. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:146 |
+| DONE | `KB-D45` | All three languages (English, Spanish, Hindi) for all three markets (US, LatAm, India), for both UI and typed… | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:143 |
+| DONE | `KB-D46` | Hindi typed content uses romanized transliteration by default (type `ghar` to match घर; matches how most Indi… | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:144 |
+| DONE | `KB-D51` | Calibration: ~20 s pre-flight checks on a new profile only, framed as the ship's narrative startup sequence, … | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:133 |
+| DONE | `KB-D53` | Controller mapping: HIT RATE (asteroids blasted ÷ spawned) drives simultaneous asteroid count and spawn densi… | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:135 |
+| DONE | `KB-D73` | Ship skins: cosmetic variants unlocked by mastery milestones only (never time-played, never purchase). | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:62 |
+| DONE | `KB-D74` | Trophies: mastery-based, informational (e.g., first beacon, all seven, 50-word combo, 3★ stop). | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:63 |
+| DONE | `KB-D75` | Combo multiplier on score + a keystroke tone that steps up a musical scale on each successful keystroke and r… | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:64 |
+| DONE | `KB-D77` | Core loop must be addictive, responsive, rewarding, engaging, and learning-centric. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:80 |
+| DONE | `KB-D79` | Four ships, each with a base look plus one unlockable skin (8 total). | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:77 |
+| DONE | `KB-D80` | Twelve trophies: First Light, Pathfinder, Belt Runner, Ring Weaver, Chain 25, Chain 50, Sharp Eye, Steady Hul… | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:78 |
+| DONE | `KB-D81` | Beacon coordinate display: "λ 214.6° β −1.2° r 1.52 AU" plus one pulsar-fix flavor line. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:79 |
+| DONE | `KB-D83` | Everything is vector drawn in code: world, debris, the Lantern, Shadow, briefing illustrations, UI. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:68 |
+| DONE | `KB-D88` | ElevenLabs is PLANNED, not optional. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:73 |
+| DONE | `KB-D89` | The Lantern's beam emitter is engineered tech, not a headlight: large lens, iris aperture that opens on fire,… | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:74 |
+| DONE | `KB-D90` | Lantern reference approved: top-down symmetrical rocket, nose up, emitter at nose, exhaust down, three fins, … | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:75 |
+| DONE | `KB-D91` | Shadow reference approved: `design-reference/refs/shadow-sheet.png`. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:76 |
+| DONE | `KB-D95` | Spanish and Hindi content is **withheld from the shipped menu** for the hackathon build. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:116 |
 
-## escalation (34) — 2 DONE · 32 BLOCKED
+## escalation (42) — 2 DONE · 40 BLOCKED
 
 | state | id | title | why | source |
 |---|---|---|---|---|
 | BLOCKED | `KB-ESC-ac-10-2-controller-cannot-reach-the-85-band-` | AC-10.2 — controller cannot reach the 85% band for weak typists | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:4 |
 | BLOCKED | `KB-ESC-ac-20-1-fr-15-accuracy-mixes-words-and-keyst` | AC-20.1 / FR-15 — `accuracy` mixes words and keystrokes | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:63 |
 | BLOCKED | `KB-ESC-ac-22-9-the-prd-names-an-instrument-that-can` | AC-22.9 — the PRD names an instrument that cannot measure the claim | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:435 |
+| BLOCKED | `KB-ESC-ac-6e-5-the-playtest-targets-were-never-chos` | AC-6e.5 — the playtest targets were never chosen, so the criterion cannot be tested | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1664 |
 | BLOCKED | `KB-ESC-ac-9-2-no-guaranteed-catch-word-can-exist-on` | AC-9.2 — no guaranteed-catch word can exist on a fresh profile | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:161 |
 | BLOCKED | `KB-ESC-audio-wiring-four-sound-design-calls-made-wi` | Audio wiring — four sound-design calls made without you (audit.md 1.2) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:728 |
 | BLOCKED | `KB-ESC-c10-ac-3-3-ignored-vs-typo-collision-user-de` | C10 — AC-3.3 "ignored" vs typo (collision, user decision) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:130 |
 | BLOCKED | `KB-ESC-c11-d92-s-coach-model-id-is-probably-wrong-o` | C11 — D92's coach model id is probably wrong (one-line fix) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:208 |
 | BLOCKED | `KB-ESC-c12-ambient-beds-are-procedural-not-pre-rend` | C12 — ambient beds are procedural, not pre-rendered (collision vs D63) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:291 |
 | BLOCKED | `KB-ESC-c13-planet-names-in-the-asteroid-pool-collis` | C13 — planet names in the asteroid pool (collision, user decision) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:402 |
+| BLOCKED | `KB-ESC-case-convention-across-the-whole-ui-critic-p` | Case convention across the whole UI (critic P2: "typography is inconsistent") | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1775 |
 | BLOCKED | `KB-ESC-d09-fix-three-decisions-taken-with-the-docum` | D09 fix — three decisions taken with the documented behaviour, per D94 | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:613 |
 | BLOCKED | `KB-ESC-d25-s-parked-word-tier-is-unreachable-at-thr` | D25's parked-word tier is unreachable at three of six belts | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:672 |
 | BLOCKED | `KB-ESC-d27-vs-d17-hull-3-and-the-80-90-band-cannot-` | D27 vs D17 — hull 3 and the 80-90% band cannot both hold at 58 words | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:925 |
@@ -261,59 +263,65 @@ measure its claim — read those first.
 | BLOCKED | `KB-ESC-e-fail-state-does-a-hard-fail-state-d29-belo` | E-fail-state · Does a hard fail state (D29) belong in this game at all? | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1073 |
 | BLOCKED | `KB-ESC-e-playable-path-four-decisions-taken-on-the-` | E-playable-path · Four decisions taken on the `fix/playable-path` lane | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:856 |
 | BLOCKED | `KB-ESC-e-practice-trajectory-a-repeat-rock-now-miss` | E-practice-trajectory · A repeat rock now misses the ship, which bends AC-4.2 | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1203 |
+| BLOCKED | `KB-ESC-e-results-title-1-results-title-lane-stage-r` | E-results-title-1 — RESULTS + TITLE lane (stage report, wordmark) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1989 |
 | BLOCKED | `KB-ESC-e-voice-2-six-rendered-files-are-still-unrea` | E-voice-2 — Six rendered files are still unreachable, and the fix is a design call | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1614 |
 | BLOCKED | `KB-ESC-e-voice-3-two-guardrails-that-did-not-need-c` | E-voice-3 — Two guardrails that did NOT need changing (recorded so nobody changes them) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1638 |
 | BLOCKED | `KB-ESC-e-world-3-the-near-plane-on-a-night-stop-can` | E-world-3 · The near plane on a night stop cannot have the reference's value range | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:996 |
 | BLOCKED | `KB-ESC-e-world-4-v-22-8-measures-plate-contrast-in-` | E-world-4 · V-22.8 measures plate contrast in colour space, and a veil now sits over the plate | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1052 |
 | BLOCKED | `KB-ESC-e-world-5-two-independent-critics-say-shape-` | E-world-5 — Two independent critics say shape vocabulary is not the gap. | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1267 |
+| BLOCKED | `KB-ESC-e-world-5b-the-horizon-decision-is-now-the-o` | E-world-5b — The horizon decision is now the ONLY thing between us and the visual bar. | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1921 |
 | BLOCKED | `KB-ESC-e-world-6-two-critics-disagree-about-hue-the` | E-world-6 — Two critics disagree about hue. | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1360 |
+| BLOCKED | `KB-ESC-ending-lane-screen-12-the-closing-line-is-no` | Ending lane (screen 12) — the closing line is no longer held behind a timer | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1844 |
 | BLOCKED | `KB-ESC-foundation-lane-boot-render-title-decisions-` | FOUNDATION lane (boot / render / Title) — decisions taken, review requested | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:321 |
 | BLOCKED | `KB-ESC-g-trace-turning-on-strict-makes-the-board-re` | G-trace — turning on `--strict` makes the board red: 11 ACs have no test that asserts them | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1401 |
 | BLOCKED | `KB-ESC-gauntlet-known-false-passes-json-five-entrie` | gauntlet/known-false-passes.json — five entries are discharged but cannot be deleted yet | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1540 |
 | BLOCKED | `KB-ESC-l-6e-1-input-to-visual-latency-16-7-ms-one-f` | L-6e.1 — Input-to-visual latency <= 16.7 ms (one frame) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:601 |
+| BLOCKED | `KB-ESC-menu-scene-family-lane-beacon-log-pause-layo` | Menu-scene family lane (Beacon Log + Pause) — layout decisions | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1877 |
 | BLOCKED | `KB-ESC-p-22-9-60-fps-p95-frame-time-16-7-ms-over-a-` | P-22.9 — 60 fps: p95 frame time <= 16.7 ms over a 60 s scripted flight | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:547 |
+| BLOCKED | `KB-ESC-the-bar-for-sky-borne-text-4-5-1-not-wcag-s-` | The bar for sky-borne text: 4.5:1, not WCAG's 3:1 for large text | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1816 |
 | BLOCKED | `KB-ESC-the-e2e-suite-s-verdict-is-load-dependent-at` | The e2e suite's verdict is load-dependent at three workers | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:795 |
 | BLOCKED | `KB-ESC-two-shadows-the-reference-compare-pass-did-n` | Two Shadows — the reference-compare pass did not cover what menus draw | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:559 |
+| BLOCKED | `KB-ESC-u-ships-four-ships-and-four-skins-exist-and-` | U-ships — four ships and four skins exist, and not one of them can ever be unlocked | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1712 |
 | BLOCKED | `KB-ESC-v-22-4-the-check-now-measures-what-it-names-` | V-22.4 — the check now measures what it names, and the art fails it: a rock reads 0.0002 in the near-terrain band | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1479 |
 | BLOCKED | `KB-ESC-warp-beacon-results-ending-lane-four-decisio` | Warp / Beacon / Results / Ending lane — four decisions and one measurement | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:331 |
 | DONE | `KB-ESC-e-voice-1-six-lines-the-game-speaks-still-ha` | E-voice-1 — Six lines the game speaks still have no render, and I cannot make one | marked resolved in gauntlet/escalations.md | gauntlet/escalations.md:1564 |
 | DONE | `KB-ESC-process-the-loop-asked-the-user-a-blocking-q` | PROCESS — the loop asked the user a blocking question (fixed) | marked resolved in gauntlet/escalations.md | gauntlet/escalations.md:108 |
 
-## fr (31) — 17 DONE · 8 OPEN · 4 UNVERIFIED · 2 FALSE-PASS
+## fr (31) — 14 DONE · 5 OPEN · 5 UNVERIFIED · 2 FALSE-PASS · 5 BLOCKED
 
 | state | id | title | why | source |
 |---|---|---|---|---|
 | FALSE-PASS | `KB-FR-6e` | Core loop qualities (D77) | rolled up from 5 AC(s); worst is FALSE-PASS | docs/prd.md:74 |
 | FALSE-PASS | `KB-SEC-3.10` | Visual rubric (D60) — all V unless noted | rolled up from 9 AC(s); worst is FALSE-PASS | docs/prd.md:201 |
-| OPEN | `KB-FR-1` | Scroll and ship | rolled up from 2 AC(s); worst is OPEN | docs/prd.md:31 |
+| BLOCKED | `KB-FR-10` | Controller (D53) | rolled up from 4 AC(s); worst is BLOCKED | docs/prd.md:101 |
+| BLOCKED | `KB-FR-3` | Input and lock | rolled up from 5 AC(s); worst is BLOCKED | docs/prd.md:40 |
+| BLOCKED | `KB-FR-4` | Hull | rolled up from 4 AC(s); worst is BLOCKED | docs/prd.md:47 |
+| BLOCKED | `KB-FR-9` | Word selection (D21, D22) | rolled up from 4 AC(s); worst is BLOCKED | docs/prd.md:95 |
+| BLOCKED | `KB-SEC-3.8` | Results and learning evidence (D50) | rolled up from 4 AC(s); worst is BLOCKED | docs/prd.md:184 |
 | OPEN | `KB-FR-12b` | Per-stop debris | rolled up from 3 AC(s); worst is OPEN | docs/prd.md:115 |
-| OPEN | `KB-FR-13` | Allowlist (D34) | rolled up from 3 AC(s); worst is OPEN | docs/prd.md:136 |
 | OPEN | `KB-FR-17` | Beacon | rolled up from 4 AC(s); worst is OPEN | docs/prd.md:163 |
-| OPEN | `KB-FR-23` | All art is vector drawn in code (D83, D84) | rolled up from 1 AC(s); worst is OPEN | docs/prd.md:222 |
 | OPEN | `KB-FR-24` | The Lantern (D89, D90) | rolled up from 3 AC(s); worst is OPEN | docs/prd.md:225 |
 | OPEN | `KB-FR-6` | Stage end | no AC beneath this FR | docs/prd.md:57 |
 | OPEN | `KB-SEC-3.9` | Audio (D62, D63, D88) | rolled up from 7 AC(s); worst is OPEN | docs/prd.md:191 |
 | UNVERIFIED | `KB-FR-18` | Flow | rolled up from 4 AC(s); worst is UNVERIFIED | docs/prd.md:171 |
+| UNVERIFIED | `KB-FR-22` | Nothing reads as punishment (D31, D28) | rolled up from 2 AC(s); worst is UNVERIFIED | docs/prd.md:218 |
+| UNVERIFIED | `KB-FR-23` | All art is vector drawn in code (D83, D84) | rolled up from 1 AC(s); worst is UNVERIFIED | docs/prd.md:222 |
 | UNVERIFIED | `KB-FR-25` | Shadow (D91, D66) | rolled up from 3 AC(s); worst is UNVERIFIED | docs/prd.md:230 |
-| UNVERIFIED | `KB-FR-6d` | Skins and trophies (D73, D74) | rolled up from 4 AC(s); worst is UNVERIFIED | docs/prd.md:68 |
 | UNVERIFIED | `KB-SEC-3.7` | Settings (D41) | rolled up from 4 AC(s); worst is UNVERIFIED | docs/prd.md:177 |
-| DONE | `KB-FR-10` | Controller (D53) | rolled up from 4 AC(s); worst is DONE | docs/prd.md:101 |
+| DONE | `KB-FR-1` | Scroll and ship | rolled up from 2 AC(s); worst is DONE | docs/prd.md:31 |
 | DONE | `KB-FR-11` | Calibration (D51) | rolled up from 3 AC(s); worst is DONE | docs/prd.md:108 |
 | DONE | `KB-FR-12` | Stops | rolled up from 3 AC(s); worst is DONE | docs/prd.md:131 |
+| DONE | `KB-FR-13` | Allowlist (D34) | rolled up from 3 AC(s); worst is DONE | docs/prd.md:136 |
 | DONE | `KB-FR-14` | Languages (D45, D46, D95, C14) | rolled up from 4 AC(s); worst is DONE | docs/prd.md:141 |
 | DONE | `KB-FR-15` | One call per warp break | rolled up from 5 AC(s); worst is DONE | docs/prd.md:149 |
 | DONE | `KB-FR-16` | Warp sentence | rolled up from 3 AC(s); worst is DONE | docs/prd.md:158 |
 | DONE | `KB-FR-2` | Asteroids | rolled up from 3 AC(s); worst is DONE | docs/prd.md:35 |
-| DONE | `KB-FR-22` | Nothing reads as punishment (D31, D28) | rolled up from 2 AC(s); worst is DONE | docs/prd.md:218 |
-| DONE | `KB-FR-3` | Input and lock | rolled up from 5 AC(s); worst is DONE | docs/prd.md:40 |
-| DONE | `KB-FR-4` | Hull | rolled up from 4 AC(s); worst is DONE | docs/prd.md:47 |
 | DONE | `KB-FR-5` | Shield canister | rolled up from 2 AC(s); worst is DONE | docs/prd.md:53 |
 | DONE | `KB-FR-6b` | Ship and pilot | rolled up from 1 AC(s); worst is DONE | docs/prd.md:61 |
 | DONE | `KB-FR-6c` | Combo, multiplier, tone (D75) | rolled up from 2 AC(s); worst is DONE | docs/prd.md:64 |
+| DONE | `KB-FR-6d` | Skins and trophies (D73, D74) | rolled up from 4 AC(s); worst is DONE | docs/prd.md:68 |
 | DONE | `KB-FR-7` | Per-player word model | rolled up from 2 AC(s); worst is DONE | docs/prd.md:83 |
 | DONE | `KB-FR-8` | Fall time (D19) | rolled up from 3 AC(s); worst is DONE | docs/prd.md:87 |
-| DONE | `KB-FR-9` | Word selection (D21, D22) | rolled up from 4 AC(s); worst is DONE | docs/prd.md:95 |
-| DONE | `KB-SEC-3.8` | Results and learning evidence (D50) | rolled up from 4 AC(s); worst is DONE | docs/prd.md:184 |
 
 ## rubric (33) — 5 OPEN · 21 UNVERIFIED · 5 FALSE-PASS · 2 BLOCKED
 
@@ -331,27 +339,27 @@ measure its claim — read those first.
 | OPEN | `KB-R-lantern` | Vector Lantern matches design-reference/refs/lantern-topdown.png | judge verdict is stale: approved a 167607-byte render, current is 175974 (5.0% drift). | tests/gauntlet/rubric.mjs (D90 / art-direction.md section 5) |
 | OPEN | `KB-R-shadow` | Vector Shadow matches design-reference/refs/shadow-sheet.png | judge verdict is stale: approved a 115640-byte render, current is 140179 (21.2% drift). | tests/gauntlet/rubric.mjs (D91 / art-direction.md section 6) |
 | OPEN | `KB-R-world` | The flight screen has a named visual reference to be judged against | flight frame and reference both exist but no judge verdict recorded - a reference compare is never auto-passed (D85) | tests/gauntlet/rubric.mjs (D59 / D60 / art-direction.md section 0) |
-| UNVERIFIED | `KB-A-21.1` | Per-planet ambient bed exists, crossfades, and follows the running game | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D62 / AC-21.1) |
-| UNVERIFIED | `KB-A-21.3` | All ten events have >= 3 SFX variants, rotate, and are reached by game code | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D62 / AC-21.3) |
-| UNVERIFIED | `KB-A-21.4` | Music ducks by >= 6 dB while Shadow speaks, on the live graph | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D62 / AC-21.4) |
-| UNVERIFIED | `KB-A-21.5` | Shadow speaks via Web Speech system voice; zero network TTS at runtime | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D88 / AC-21.5) |
-| UNVERIFIED | `KB-A-21.6` | Coach notes are spoken after the text renders, display identical either way | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D88 / AC-21.6) |
-| UNVERIFIED | `KB-A-21.8` | The game is audible: cues reach the bus, sliders move it, silence never crashes | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (audit.md 1.2 / AC-19.1 / AC-6e.2) |
-| UNVERIFIED | `KB-G-coverage` | Engine coverage >= 95% lines/branches/functions/statements | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D55 / CLAUDE.md) |
-| UNVERIFIED | `KB-G-engine-purity` | src/engine imports neither Phaser nor the DOM | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (CLAUDE.md HARD RULES / architecture section 2) |
-| UNVERIFIED | `KB-G-nored` | No red failure state, lives counter, or 'wrong' sound | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D28 / D31 / design brief 'Do not') |
-| UNVERIFIED | `KB-G-one-shadow` | Exactly one drawShadow and one drawLantern implementation | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D91 / AC-25.1 / D83) |
-| UNVERIFIED | `KB-G-pii` | No PII field and no analytics SDK anywhere in src/ | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D43 / AC-18.2 / NFR-3) |
-| UNVERIFIED | `KB-G-raster` | No raster asset referenced from src/ (all art is vector in code) | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D83 / D84 / CLAUDE.md) |
-| UNVERIFIED | `KB-G-secrets` | No API-key-shaped string in the client bundle | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (NFR-4 / CLAUDE.md) |
-| UNVERIFIED | `KB-V-22.1a` | At least 5 parallax layers at distinct scroll speeds | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (config half)) |
-| UNVERIFIED | `KB-V-22.1b` | Layer-debug overlay shows the five speeds actually moving | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (visual half)) |
-| UNVERIFIED | `KB-V-22.2` | Idle frame is never still (two Title shots 1s apart differ > 2%) | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D60#2 / AC-22.2) |
-| UNVERIFIED | `KB-V-22.3` | Sky gradient shifts across a stage (deltaE > 10) | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D60#3 / AC-22.3) |
-| UNVERIFIED | `KB-V-22.5` | Zero Linear easing anywhere in tween configs | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D60#5 / AC-22.5) |
-| UNVERIFIED | `KB-V-22.6` | Blast, hit and warp have distinct particle signatures | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D60#6 / AC-22.6) |
-| UNVERIFIED | `KB-V-22.7` | Each stage palette is 5-7 colours plus exactly one accent | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D60#7 / AC-22.7) |
-| UNVERIFIED | `KB-V-22.8` | Word plate text contrast >= 4.5:1 | reported PASS, but report.md predates the newest file in src/ by 1.8h | tests/gauntlet/rubric.mjs (D60#8 / AC-22.8) |
+| UNVERIFIED | `KB-A-21.1` | Per-planet ambient bed exists, crossfades, and follows the running game | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D62 / AC-21.1) |
+| UNVERIFIED | `KB-A-21.3` | All ten events have >= 3 SFX variants, rotate, and are reached by game code | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D62 / AC-21.3) |
+| UNVERIFIED | `KB-A-21.4` | Music ducks by >= 6 dB while Shadow speaks, on the live graph | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D62 / AC-21.4) |
+| UNVERIFIED | `KB-A-21.5` | Shadow speaks via Web Speech system voice; zero network TTS at runtime | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D88 / AC-21.5) |
+| UNVERIFIED | `KB-A-21.6` | Coach notes are spoken after the text renders, display identical either way | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D88 / AC-21.6) |
+| UNVERIFIED | `KB-A-21.8` | The game is audible: cues reach the bus, sliders move it, silence never crashes | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (audit.md 1.2 / AC-19.1 / AC-6e.2) |
+| UNVERIFIED | `KB-G-coverage` | Engine coverage >= 95% lines/branches/functions/statements | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D55 / CLAUDE.md) |
+| UNVERIFIED | `KB-G-engine-purity` | src/engine imports neither Phaser nor the DOM | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (CLAUDE.md HARD RULES / architecture section 2) |
+| UNVERIFIED | `KB-G-nored` | No red failure state, lives counter, or 'wrong' sound | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D28 / D31 / design brief 'Do not') |
+| UNVERIFIED | `KB-G-one-shadow` | Exactly one drawShadow and one drawLantern implementation | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D91 / AC-25.1 / D83) |
+| UNVERIFIED | `KB-G-pii` | No PII field and no analytics SDK anywhere in src/ | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D43 / AC-18.2 / NFR-3) |
+| UNVERIFIED | `KB-G-raster` | No raster asset referenced from src/ (all art is vector in code) | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D83 / D84 / CLAUDE.md) |
+| UNVERIFIED | `KB-G-secrets` | No API-key-shaped string in the client bundle | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (NFR-4 / CLAUDE.md) |
+| UNVERIFIED | `KB-V-22.1a` | At least 5 parallax layers at distinct scroll speeds | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (config half)) |
+| UNVERIFIED | `KB-V-22.1b` | Layer-debug overlay shows the five speeds actually moving | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (visual half)) |
+| UNVERIFIED | `KB-V-22.2` | Idle frame is never still (two Title shots 1s apart differ > 2%) | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D60#2 / AC-22.2) |
+| UNVERIFIED | `KB-V-22.3` | Sky gradient shifts across a stage (deltaE > 10) | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D60#3 / AC-22.3) |
+| UNVERIFIED | `KB-V-22.5` | Zero Linear easing anywhere in tween configs | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D60#5 / AC-22.5) |
+| UNVERIFIED | `KB-V-22.6` | Blast, hit and warp have distinct particle signatures | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D60#6 / AC-22.6) |
+| UNVERIFIED | `KB-V-22.7` | Each stage palette is 5-7 colours plus exactly one accent | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D60#7 / AC-22.7) |
+| UNVERIFIED | `KB-V-22.8` | Every piece of text a child reads is >= 4.5:1 - plate AND sky | reported PASS, but report.md predates the newest file in src/ by 2.5h | tests/gauntlet/rubric.mjs (D60#8 / AC-22.8) |
 
 ## screen (21) — 16 DONE · 5 EXEMPT
 
@@ -362,20 +370,20 @@ measure its claim — read those first.
 | EXEMPT | `KB-SCREEN-reset-confirm` | Reset confirm | declared a non-scene row in sceneKeys.ts | docs/design-brief-v2.md (screen inventory) |
 | EXEMPT | `KB-SCREEN-toasts` | Toasts | declared a non-scene row in sceneKeys.ts | docs/design-brief-v2.md (screen inventory) |
 | EXEMPT | `KB-SCREEN-transitions` | Transitions | declared a non-scene row in sceneKeys.ts | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-beacon-log` | Beacon Log | src/game/scenes/BeaconLogScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-beacon-placement` | Beacon placement | src/game/scenes/BeaconScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-briefing` | Briefing | src/game/scenes/BriefingScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-director-map` | Director map | src/game/scenes/DirectorMapScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-earth-activation` | Earth activation | src/game/scenes/EarthActivationScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-ending-card` | Ending card | src/game/scenes/EndingScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-flight` | Flight | src/game/scenes/FlightScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-pause` | Pause | src/game/scenes/PauseScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-pre-flight` | Pre-flight | src/game/scenes/PreflightScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-profile-create` | Profile create | src/game/scenes/ProfileCreateScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-profile-picker` | Profile picker | src/game/scenes/ProfilePickerScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-results` | Results | src/game/scenes/ResultsScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-settings` | Settings | src/game/scenes/SettingsScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-stall-card` | Stall card | src/game/scenes/StallScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-title` | Title | src/game/scenes/TitleScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
-| DONE | `KB-SCREEN-warp-break` | Warp break | src/game/scenes/WarpScene.ts exists and is mapped to this row | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-beacon-log` | Beacon Log | driven by 2 e2e spec(s): tests/e2e/beaconlog.spec.ts, tests/e2e/pause.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-beacon-placement` | Beacon placement | driven by 8 e2e spec(s): tests/e2e/audio-wiring.spec.ts, tests/e2e/beacon.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-briefing` | Briefing | driven by 6 e2e spec(s): tests/e2e/briefing.spec.ts, tests/e2e/default-focus.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-director-map` | Director map | driven by 6 e2e spec(s): tests/e2e/beaconlog.spec.ts, tests/e2e/briefing.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-earth-activation` | Earth activation | driven by 3 e2e spec(s): tests/e2e/default-focus.spec.ts, tests/e2e/earth-activation.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-ending-card` | Ending card | driven by 1 e2e spec(s): tests/e2e/beacon.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-flight` | Flight | driven by 10 e2e spec(s): tests/e2e/audio-wiring.spec.ts, tests/e2e/blast-history.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-pause` | Pause | driven by 2 e2e spec(s): tests/e2e/pause.spec.ts, tests/e2e/scene-lifecycle.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-pre-flight` | Pre-flight | driven by 5 e2e spec(s): tests/e2e/audio-wiring.spec.ts, tests/e2e/briefing.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-profile-create` | Profile create | driven by 2 e2e spec(s): tests/e2e/playthrough.spec.ts, tests/e2e/profile.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-profile-picker` | Profile picker | driven by 2 e2e spec(s): tests/e2e/playthrough.spec.ts, tests/e2e/profile.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-results` | Results | driven by 6 e2e spec(s): tests/e2e/beacon.spec.ts, tests/e2e/default-focus.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-settings` | Settings | driven by 6 e2e spec(s): tests/e2e/audio-wiring.spec.ts, tests/e2e/map.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-stall-card` | Stall card | driven by 4 e2e spec(s): tests/e2e/blast-history.spec.ts, tests/e2e/default-focus.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-title` | Title | driven by 9 e2e spec(s): tests/e2e/aspect.spec.ts, tests/e2e/audio-wiring.spec.ts | docs/design-brief-v2.md (screen inventory) |
+| DONE | `KB-SCREEN-warp-break` | Warp break | driven by 5 e2e spec(s): tests/e2e/audio-wiring.spec.ts, tests/e2e/blast-history.spec.ts | docs/design-brief-v2.md (screen inventory) |
 

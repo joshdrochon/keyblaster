@@ -122,7 +122,10 @@ describe("interpolate (C07)", () => {
 describe("createTranslator", () => {
   it("resolves in the selected language", () => {
     const t = createTranslator({ lang: "es", mode: "prod" });
-    expect(t.t("title.play")).toBe("Jugar");
+    // D41 lowercase chrome: the button reads "jugar", not "Jugar". The
+    // assertion is unchanged in kind - Spanish resolves to Spanish - only the
+    // copy it names moved with the case convention.
+    expect(t.t("title.play")).toBe("jugar");
     expect(t.lang).toBe("es");
     expect(t.mode).toBe("prod");
   });

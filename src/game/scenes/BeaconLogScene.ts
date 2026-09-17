@@ -1,4 +1,4 @@
-import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
+import { GAME_HEIGHT, SCENE_KEYS } from "@game/sceneKeys";
 import { beaconReadout } from "@engine/ephemeris";
 import { STOP_IDS, type StopId } from "@engine/types";
 import { MenuScene } from "@game/ui/MenuScene";
@@ -8,6 +8,14 @@ import { SHADOW_HEIGHT, drawShadow } from "@game/render/shadow";
 import { TROPHIES } from "@game/ui/catalog";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { uiText } from "@game/ui/text";
+import {
+  BEACON_LOG,
+  type FitOptions,
+  bottomOf,
+  fitPlan,
+  flowColumn,
+  flowGrid,
+} from "@game/ui/layout";
 import type { MenuKey } from "@game/ui/i18n";
 
 /**
@@ -29,6 +37,27 @@ import type { MenuKey } from "@game/ui/i18n";
  * six to come." Shadow sleeps in the empty log per art-direction section 6, and
  * the six dark beacons are drawn as beacons - not as blanks - so the screen
  * reads as a route waiting to be flown.
+ *
+ * ================== NOTHING OVERLAPS ANYTHING ==================
+ * The first version of this screen positioned by arithmetic and hoped:
+ *
+ *   - trophy tiles went at `250 + row * 190`, a FIXED pitch, while each tile
+ *     measured its own height from wrapped text. A three-line criterion is
+ *     237 px tall, so "scratch" printed inside the "chain 50" card, "the same"
+ *     inside "steady hull", "back" inside "last light", and the bottom row ran
+ *     off the frame entirely;
+ *   - the empty-state line went at `GAME_HEIGHT - 116`, centred, straight
+ *     across the pluto row;
+ *   - the sleeping Shadow went at `GAME_HEIGHT - 210`, centred, on top of the
+ *     neptune row;
+ *   - the keyboard hint ran through the pluto label.
+ *
+ * Four separate versions of the same mistake: a position chosen without asking
+ * what is already there. So every block on this screen is MEASURED and then
+ * FLOWED by `ui/layout.ts`, the empty state has its own band in the header
+ * rather than borrowing space from the beacon column, and the arrangement is
+ * checked against the 1920x1080 frame in all three UI languages by
+ * tests/unit/ui/layout.test.ts rather than by looking at a screenshot.
  */
 export class BeaconLogScene extends MenuScene {
   static readonly KEY = SCENE_KEYS.beaconLog;
@@ -36,6 +65,9 @@ export class BeaconLogScene extends MenuScene {
   private litCount = 0;
   private earnedCount = 0;
   private emptyLine: string | null = null;
+  /** Measured bottoms, published for the layout e2e. */
+  private beaconBottom = 0;
+  private trophyBottom = 0;
 
   constructor() {
     super({ key: SCENE_KEYS.beaconLog });
@@ -74,14 +106,67 @@ export class BeaconLogScene extends MenuScene {
     this.setControls(controls);
   }
 
+  /**
+   * Build, MEASURE, and only then place.
+   *
+   * A control's height is not known until its text has wrapped in the language
+   * that is actually selected, so it is built at the origin, measured, and
+   * moved. When the measured block would leave the frame, `fitPlan` says what
+   * to give up - white space first, the glyph second, the type never - and the
+   * block is rebuilt once at the smaller glyph and measured again. Two passes,
+   * bounded, with the second pass's numbers being the ones that are used.
+   */
+  private flowBlock<T extends Control>(
+    make: (glyph: number) => T[],
+    cfg: FitOptions & { left: number; width: number; colGap: number },
+  ): { controls: T[]; bottom: number } {
+    let glyph = cfg.glyph;
+    let controls = make(glyph);
+    let plan = fitPlan(
+      controls.map((c) => c.ringBounds().h),
+      { ...cfg, glyph },
+    );
+    if (plan.glyph !== glyph) {
+      for (const c of controls) c.destroy();
+      glyph = plan.glyph;
+      controls = make(glyph);
+      plan = fitPlan(
+        controls.map((c) => c.ringBounds().h),
+        { ...cfg, glyph },
+      );
+    }
+
+    const heights = controls.map((c) => c.ringBounds().h);
+    const rects =
+      cfg.columns === 1
+        ? flowColumn(heights, {
+            left: cfg.left,
+            top: cfg.top,
+            width: cfg.width,
+            rowGap: plan.rowGap,
+          })
+        : flowGrid(heights, {
+            left: cfg.left,
+            top: cfg.top,
+            columns: cfg.columns,
+            colWidth: cfg.width,
+            colGap: cfg.colGap,
+            rowGap: plan.rowGap,
+          });
+    controls.forEach((control, i) => {
+      const rect = rects[i];
+      if (rect) control.node.setPosition(rect.x, rect.y);
+    });
+    return { controls, bottom: bottomOf(rects) };
+  }
+
   private buildBeacons(placed: Map<StopId, number>): Control[] {
-    const colW = Math.min(980, GAME_WIDTH * 0.52);
-    const controls: Control[] = [];
+    const cfg = BEACON_LOG.beacons;
 
     uiText(
       this,
-      SPACE.gutter,
-      196,
+      cfg.x,
+      BEACON_LOG.captionY,
       `${this.t.t("ui.log.beacons")} · ${this.t.t("ui.log.lit", {
         n: this.litCount,
         total: STOP_IDS.length,
@@ -95,63 +180,65 @@ export class BeaconLogScene extends MenuScene {
       },
     ).setDepth(this.depth);
 
-    let y = 250;
-    for (const stopId of STOP_IDS) {
-      const at = placed.get(stopId);
-      const lit = at !== undefined;
-      // Real heliocentric ecliptic coordinates for the day the beacon was
-      // placed (D15, AC-17.0/17.1), formatted by the engine so the log and the
-      // beacon screen cannot drift apart. `ok: false` is the calibrating path -
-      // a broken device clock must not print "NaN" at a child.
-      const readout = lit ? beaconReadout(stopId, new Date(at)) : null;
-      const hasCoords = readout !== null && readout.ok;
-      const detail = hasCoords
-        ? readout.coordsLine
-        : this.t.t("ui.log.notLit");
+    const make = (glyph: number): ListRow[] =>
+      STOP_IDS.map((stopId) => {
+        const at = placed.get(stopId);
+        const lit = at !== undefined;
+        // Real heliocentric ecliptic coordinates for the day the beacon was
+        // placed (D15, AC-17.0/17.1), formatted by the engine so the log and
+        // the beacon screen cannot drift apart. `ok: false` is the calibrating
+        // path - a broken device clock must not print "NaN" at a child.
+        const readout = lit ? beaconReadout(stopId, new Date(at)) : null;
+        const hasCoords = readout !== null && readout.ok;
+        const detail = hasCoords ? readout.coordsLine : this.t.t("ui.log.notLit");
 
-      const row = new ListRow(
-        this,
-        this.uiStyle,
-        `log.beacon.${stopId}`,
-        SPACE.gutter,
-        y,
-        this.depth,
-        {
-          label: this.t.t(`ui.stop.${stopId}` as MenuKey),
-          detail,
-          width: colW,
-          role: "listitem",
-          detailChrome: !hasCoords,
-          locked: !lit,
-          glyphSize: 78,
-          glyph: (scene, gx, gy) =>
-            drawBeacon(
-              scene,
-              gx,
-              gy,
-              74,
-              this.app.palette(stopId).accent,
-              lit,
-              this.reducedMotion,
-            ),
-        },
-      );
-      controls.push(row);
-      y += row.ringBounds().h + 12;
-    }
-    return controls;
+        return new ListRow(
+          this,
+          this.uiStyle,
+          `log.beacon.${stopId}`,
+          cfg.x,
+          cfg.top,
+          this.depth,
+          {
+            label: this.t.t(`ui.stop.${stopId}` as MenuKey),
+            detail,
+            width: cfg.w,
+            role: "listitem",
+            detailChrome: !hasCoords,
+            locked: !lit,
+            glyphSize: glyph,
+            glyph: (scene, gx, gy) =>
+              drawBeacon(
+                scene,
+                gx,
+                gy,
+                glyph * 0.95,
+                this.app.palette(stopId).accent,
+                lit,
+                this.reducedMotion,
+              ),
+          },
+        );
+      });
+
+    const flowed = this.flowBlock(make, {
+      ...cfg,
+      left: cfg.x,
+      width: cfg.w,
+      colGap: 0,
+    });
+    this.beaconBottom = flowed.bottom;
+    return flowed.controls;
   }
 
   /** All twelve of D80, always, in AC-6d.1c's order. */
   private buildTrophies(earned: Set<string>): Control[] {
-    const left = SPACE.gutter + Math.min(980, GAME_WIDTH * 0.52) + SPACE.gutter;
-    const tileW = 230;
-    const controls: Control[] = [];
+    const cfg = BEACON_LOG.trophies;
 
     uiText(
       this,
-      left,
-      196,
+      cfg.left,
+      BEACON_LOG.captionY,
       `${this.t.t("ui.log.trophies")} · ${this.t.t("ui.log.trophyCount", {
         n: this.earnedCount,
         total: TROPHIES.length,
@@ -165,60 +252,88 @@ export class BeaconLogScene extends MenuScene {
       },
     ).setDepth(this.depth);
 
-    TROPHIES.forEach((trophy, i) => {
-      const has = earned.has(trophy.id);
-      const col = i % 3;
-      const row = Math.floor(i / 3);
-      const tile = new Tile(
-        this,
-        this.uiStyle,
-        `log.trophy.${trophy.id}`,
-        left + col * (tileW + SPACE.gap),
-        250 + row * 190,
-        this.depth,
-        {
-          label: this.t.t(trophy.nameKey),
-          // The criterion shows whether or not it is earned. An unearned
-          // trophy is an invitation, which only works if you can read it.
-          detail: has ? this.t.t("ui.log.earned") : this.t.t(trophy.howKey),
-          width: tileW,
-          glyphHeight: 74,
-          locked: !has,
-          glyph: (scene, x, y) =>
-            drawTrophy(scene, x, y, 68, this.uiStyle.accent, has),
-        },
-      );
-      controls.push(tile);
+    const make = (glyph: number): Tile[] =>
+      TROPHIES.map((trophy) => {
+        const has = earned.has(trophy.id);
+        return new Tile(
+          this,
+          this.uiStyle,
+          `log.trophy.${trophy.id}`,
+          cfg.left,
+          cfg.top,
+          this.depth,
+          {
+            label: this.t.t(trophy.nameKey),
+            // The criterion shows whether or not it is earned. An unearned
+            // trophy is an invitation, which only works if you can read it.
+            detail: has ? this.t.t("ui.log.earned") : this.t.t(trophy.howKey),
+            width: cfg.tileW,
+            glyphHeight: glyph,
+            // The mark beside the words, not above them: the criterion is what
+            // a child is reading here, and a record card is a third shorter
+            // than a gallery tile - which is what lets twelve of them fit.
+            glyphSide: "left",
+            locked: !has,
+            glyph: (scene, x, y) =>
+              drawTrophy(
+                scene,
+                x,
+                y,
+                glyph * 0.94,
+                this.uiStyle.accent,
+                has,
+                trophy.glyph,
+              ),
+          },
+        );
+      });
+
+    const flowed = this.flowBlock(make, {
+      ...cfg,
+      left: cfg.left,
+      width: cfg.tileW,
+      colGap: cfg.colGap,
     });
-    return controls;
+    this.trophyBottom = flowed.bottom;
+    return flowed.controls;
   }
 
+  /**
+   * Shadow asleep, and his one line, IN THEIR OWN BAND.
+   *
+   * They used to be drawn low and centred, which put the line across the pluto
+   * row and Shadow on top of neptune. The header band is the one region of this
+   * screen no column reaches: the heading is left-aligned and never runs past
+   * halfway, and both columns start below the section captions. So the empty
+   * state sits up beside the title it is commenting on, and crosses nothing.
+   */
   private buildEmptyState(): void {
+    const a = BEACON_LOG.aside;
+    const midY = a.top + a.h / 2;
     this.shadows.push(
       // art-direction section 6 assigns the sleeping pose to the empty log.
-      drawShadow(this, GAME_WIDTH * 0.5, GAME_HEIGHT - 210, "asleep", {
-        scale: 170 / SHADOW_HEIGHT,
+      drawShadow(this, a.right - a.shadow * 0.52, midY, "asleep", {
+        scale: a.shadow / SHADOW_HEIGHT,
         reducedMotion: this.reducedMotion,
-        depth: this.depth - 2,
+        depth: this.depth,
+        facing: -1,
       }),
     );
     this.emptyLine = this.t.t("ui.log.emptyShadow");
-    const line = uiText(
-      this,
-      0,
-      GAME_HEIGHT - 116,
-      this.emptyLine,
-      {
-        size: TYPE.body,
-        color: INK.textDim,
-        align: "center",
-        lang: this.uiStyle.lang,
-        uppercase: this.uiStyle.uppercase,
-        increasedLetterSpacing: this.uiStyle.increasedLetterSpacing,
-        wrapWidth: GAME_WIDTH * 0.6,
-      },
-    ).setDepth(this.depth);
-    line.setX(Math.round((GAME_WIDTH - line.width) / 2));
+    const textRight = a.right - a.shadow - SPACE.gap;
+    const line = uiText(this, 0, 0, this.emptyLine, {
+      size: TYPE.body,
+      color: INK.textDim,
+      align: "right",
+      lang: this.uiStyle.lang,
+      uppercase: this.uiStyle.uppercase,
+      increasedLetterSpacing: this.uiStyle.increasedLetterSpacing,
+      wrapWidth: a.w - a.shadow - SPACE.gap,
+    }).setDepth(this.depth);
+    line.setPosition(
+      Math.round(textRight - line.width),
+      Math.round(midY - line.height / 2),
+    );
   }
 
   /** The log is opened from the Director map (design brief screen 3). */
@@ -234,6 +349,12 @@ export class BeaconLogScene extends MenuScene {
       trophiesEarned: this.earnedCount,
       empty: this.litCount <= 1,
       emptyLine: this.emptyLine,
+      // The layout facts an e2e can assert instead of a human squinting at a
+      // PNG: both blocks are inside the frame, and neither reaches the hint.
+      beaconBottom: Math.round(this.beaconBottom),
+      trophyBottom: Math.round(this.trophyBottom),
+      frameHeight: GAME_HEIGHT,
+      hintTop: BEACON_LOG.hintTop,
     };
   }
 }

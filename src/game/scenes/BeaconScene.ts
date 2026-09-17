@@ -15,7 +15,10 @@ import {
   createKeyboardMenu,
   label,
   plate,
+  skyText,
+  skyTextSamples,
   visibleText,
+  type PlatedText,
   type FocusRing,
   type FocusTarget,
   type KeyboardMenu,
@@ -227,35 +230,63 @@ export class BeaconScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * THE HEADER SITS ON A PLATE (AC-22.8).
+   *
+   * "MARS BEACON" was `palette.accent` on Mars' ochre sky - 1.61:1 - and the
+   * two lines under it were `plateText` at alpha 0.75 and 0.6, which is dimmer
+   * still. This is the screen the child reaches by finishing a belt, and its
+   * three lines were the least readable text in the build. `skyText` gives each
+   * of them the plate the word plate has always had, and registers the colour
+   * pair so the rubric measures it.
+   *
+   * The alphas are gone rather than reduced: a plate under text you then fade
+   * to 60% is a plate doing 60% of its job. Hierarchy is size, not opacity.
+   */
   private buildHeader(): Phaser.GameObjects.GameObject[] {
-    const pal = this.lane.palette;
     const { headline, state } = this.headline();
     const made: Phaser.GameObjects.GameObject[] = [];
+    // `objects` is plate-then-text: these go into a Container, which renders in
+    // list order and ignores depth.
+    const push = (p: PlatedText) => made.push(...p.objects);
 
-    // The headline and state are content proper nouns from the stage bundle
-    // ("MARS BEACON", "PLACED"), not UI copy: they are the beacon's own words.
-    made.push(
-      label(this, 160, 96, headline, {
+    push(
+      skyText(this, 160, 96, headline, {
+        screen: "beacon",
+        id: "beacon.headline",
         size: TYPE.heading,
-        color: pal.accent,
+        color: INK.text,
         lang: this.lane.lang,
+        depth: 10,
+        padY: 14,
       }),
     );
-    made.push(
-      label(this, 160, 156, state, {
+    push(
+      skyText(this, 160, 166, state, {
+        screen: "beacon",
+        id: "beacon.state",
         size: TYPE.body,
-        color: pal.plateText,
-        alpha: 0.75,
+        color: INK.accent,
         lang: this.lane.lang,
+        depth: 10,
+        padY: 10,
       }),
     );
-    made.push(
-      label(
+    push(
+      skyText(
         this,
         160,
-        206,
+        226,
         this.lane.copy.text("beacon.placed", { stop: this.lane.copy.stopName(this.stopId) }),
-        { size: TYPE.label, color: pal.plateText, alpha: 0.6, lang: this.lane.lang },
+        {
+          screen: "beacon",
+          id: "beacon.placed",
+          size: TYPE.label,
+          color: INK.textDim,
+          lang: this.lane.lang,
+          depth: 10,
+          padY: 8,
+        },
       ),
     );
     return made;
@@ -402,15 +433,25 @@ export class BeaconScene extends Phaser.Scene {
     );
     text.setOrigin(0.5);
     made.push(text);
-    made.push(
-      label(
-        this,
-        BUTTON.x + BUTTON.w + 28,
-        BUTTON.y + BUTTON.h / 2 - 12,
-        this.lane.copy.text("beacon.hint"),
-        { size: TYPE.caption, color: INK.textDim, alpha: 0.7, lang: this.lane.lang },
-      ),
+    // The hint is on open sky beside the button, so it is plated like the rest.
+    // `alpha: 0.7` on `textDim` is 3.0:1 - a keyboard hint a child cannot read
+    // is a keyboard hint that does not exist.
+    const hint = skyText(
+      this,
+      BUTTON.x + BUTTON.w + 28,
+      BUTTON.y + BUTTON.h / 2 - 16,
+      this.lane.copy.text("beacon.hint"),
+      {
+        screen: "beacon",
+        id: "beacon.hint",
+        size: TYPE.caption,
+        color: INK.textDim,
+        lang: this.lane.lang,
+        depth: 10,
+        padY: 8,
+      },
     );
+    made.push(...hint.objects);
     return made;
   }
 
@@ -465,6 +506,8 @@ export class BeaconScene extends Phaser.Scene {
     return {
       scene: SCENE_KEYS.beacon,
       stopId: this.stopId,
+      /** Every colour pair this screen draws over the sky (V-22.8). */
+      skyText: skyTextSamples(this),
       accent: this.lane.palette.accent,
       ok: this.readout.ok,
       reason: this.readout.ok ? null : this.readout.reason,

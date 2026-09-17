@@ -1,12 +1,14 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  calibrationOf,
   mulberry32,
   simulateBelt,
   type BeltConfig,
   type BeltResult,
   type SimPlayer,
 } from "./flight.js";
+import { DEFAULT_CALIBRATION } from "@engine/types.js";
 import { DEFAULT_FLIGHT_CONFIG, stagePoolFor } from "@game/flight/stage.js";
 import { MAX_LIVE_MAX, MAX_LIVE_MIN } from "@engine/controller/knobs.js";
 import { HULL_BASE_MARKS, hullForStage, survivableHitRate } from "@engine/hull/index.js";
@@ -28,6 +30,12 @@ import type { WordBook } from "@engine/words/index.js";
  * board has rocks - so the arrival rate never had to be compared with anything.
  * `simulateBelt` is the same harness with a single serial typist and a real
  * hull, which is the only shape in which the question can be asked at all.
+ *
+ * WHAT THE GAME KNOWS IS NOW AN INPUT. Every belt below is flown with the
+ * calibration the PROFILE would actually hold, never with the player's real
+ * `ikiMs` handed to the game for free. `flight.ts`'s header has the full note;
+ * the short version is that injecting it is how this file previously reported
+ * zero stalls for a belt a real playthrough could not survive.
  *
  * WHAT IS ASSERTED, AND WHAT IS ONLY MEASURED. Survivability is asserted, for
  * three player speeds, across seeds, at both ends of the `maxLive` knob, and
@@ -137,6 +145,10 @@ describe("AC-4.3 / FR-6: a Mars belt is completable without the hull reaching ze
           stageWordCount: WORDS,
           seeds: SEEDS,
           canisters: false,
+          // The shipped path: the profile's own baseline, which starts at
+          // FR-8's default and is refined from play (D51). NOT the player's
+          // real ikiMs injected into the game.
+          calibration: "shipped (DEFAULT_CALIBRATION + in-stage refinement)",
           players: evidence,
           source: "tests/unit/simulation/belt.test.ts",
         },
@@ -282,6 +294,19 @@ describe("D31: the belt slows down for the player who is struggling", () => {
  * the work and a single lumped figure would hide which.
  */
 describe("D17 / D27 / AC-4.3: the grade-2 child, before and after", () => {
+  /**
+   * THE CONFIGURATION THE HULL DECISION WAS MEASURED IN, pinned.
+   *
+   * This describe is a before-and-after about the HULL, and a before-and-after
+   * is only a measurement if one thing moved. The calibration model has since
+   * changed underneath it - the game no longer gets the player's `ikiMs` for
+   * free, and it now learns during the stage - so both are pinned here to what
+   * they were when the 58-in-100 figure was recorded: the player's own
+   * baseline, as the pre-flight ritual would measure it, and no in-stage fold.
+   * Unpinned, `before` reads 46 rather than 58 and the hull comparison would be
+   * quietly measuring two changes at once and crediting whichever is mentioned
+   * first. The calibration defect gets its own before-and-after below.
+   */
   const stallRate = (over: Partial<BeltConfig>): {
     stalls: number;
     meanHitRate: number;
@@ -290,7 +315,18 @@ describe("D17 / D27 / AC-4.3: the grade-2 child, before and after", () => {
   } => {
     const runs: BeltResult[] = [];
     for (let seed = 1; seed <= STALL_SEEDS; seed += 1) {
-      runs.push(simulateBelt(belt(over), GRADE2, {}, mulberry32(seed)));
+      runs.push(
+        simulateBelt(
+          belt({
+            calibration: calibrationOf(GRADE2),
+            adaptiveCalibration: false,
+            ...over,
+          }),
+          GRADE2,
+          {},
+          mulberry32(seed),
+        ),
+      );
     }
     return {
       stalls: runs.filter((r) => r.stalled).length,
@@ -388,5 +424,128 @@ describe("FR-6: how long a belt takes is the player's hands, not the spawner", (
     const slow = flyMany(SLOW).meanDurationS;
     expect(fast).toBeLessThan(median);
     expect(median).toBeLessThan(slow);
+  });
+});
+
+/**
+ * D51 / AC-11.1 / AC-11.2 / AC-4.3: THE BELT THE GAME ACTUALLY FLIES.
+ *
+ * The defect, in one sentence: `calibration.ikiMs` was 350 ms for every child
+ * who ever played, because `PreflightScene` gated the calibration ritual on
+ * `story.newProfile` and nothing in `src/` ever set that flag. Fall time is
+ * `len * 1.5 * ikiMs + 1200 * ease`, so a grade-2 typist at 600 ms between keys
+ * was given 3207 ms for "fit" when they need 3600 and 5595 ms for "jupiter"
+ * when they need 6000. A real playthrough stalled on Jupiter at spawn 18 of 58,
+ * hull 0, two words cleared; a clean 100%-accuracy repeat reached hull 1 by
+ * spawn 20 at a 35% hit rate against the 84.5% the stage demands.
+ *
+ * This suite could not see any of it, because both simulations computed fall
+ * time from the PLAYER's `ikiMs` rather than from the profile's. They measured
+ * a game that already knew the answer. Every figure below comes from the
+ * shipped path instead, and the first one reproduces the stall.
+ */
+describe("D51 / AC-11.2: the game has to find out how fast the child types", () => {
+  const fly100 = (over: Partial<BeltConfig>): {
+    stalls: number;
+    meanHitRate: number;
+    worstHull: number;
+    meanDurationS: number;
+    endIkiMs: number;
+  } => {
+    const runs: BeltResult[] = [];
+    for (let seed = 1; seed <= STALL_SEEDS; seed += 1) {
+      runs.push(simulateBelt(belt(over), GRADE2, {}, mulberry32(seed)));
+    }
+    return {
+      stalls: runs.filter((r) => r.stalled).length,
+      meanHitRate: mean(runs.map((r) => r.hitRate)),
+      worstHull: Math.min(...runs.map((r) => r.hull)),
+      meanDurationS: mean(runs.map((r) => r.durationMs / 1000)),
+      endIkiMs: Math.round(mean(runs.map((r) => r.calibration.ikiMs))),
+    };
+  };
+
+  it("AC-4.3: an unmeasured grade-2 pilot cannot fly a single belt", () => {
+    // THE SHIPPED GAME, BEFORE. The default baseline, and no way to correct it
+    // - which is exactly what the child in the playthrough was handed.
+    const unmeasured = fly100({
+      calibration: DEFAULT_CALIBRATION,
+      adaptiveCalibration: false,
+    });
+    expect(unmeasured.stalls).toBe(STALL_SEEDS);
+    // Not "a low hit rate". NOTHING is cleared: every word is unreachable, so
+    // the belt is not hard, it is impossible.
+    expect(unmeasured.meanHitRate).toBe(0);
+    expect(unmeasured.endIkiMs).toBe(DEFAULT_CALIBRATION.ikiMs);
+  });
+
+  it("AC-11.1: the pre-flight ritual is what makes the belt flyable", () => {
+    // The (a) half: `PreflightScene` runs the ritual for a profile the game has
+    // no measurement of, and writes the answer to the profile.
+    const measured = fly100({ calibration: calibrationOf(GRADE2) });
+    expect(measured.stalls).toBe(0);
+    expect(measured.worstHull).toBeGreaterThan(0);
+    expect(measured.meanHitRate).toBeGreaterThanOrEqual(survivableHitRate(WORDS));
+  });
+
+  it("D51: a belt flown on the default baseline corrects itself from play", () => {
+    // The (b) half, and the reason it is not optional: the ritual is a
+    // once-per-profile event, so every profile created before it ever ran - and
+    // every child whose speed changes - depends on this path instead.
+    //
+    // It only works because the fold is fed by KEYSTROKES. Fed by blasts, the
+    // loop cannot start: this same player at the default baseline blasts
+    // nothing, so there is nothing to learn from, which is the run asserted
+    // above at hit rate 0. The first version of the fix measured exactly that.
+    const adapting = fly100({ calibration: DEFAULT_CALIBRATION });
+    expect(adapting.stalls).toBe(0);
+    expect(adapting.worstHull).toBeGreaterThan(0);
+    // The belief has to actually arrive somewhere near the truth, or "no
+    // stalls" is being carried by something else.
+    expect(adapting.endIkiMs).toBeGreaterThan(550);
+    expect(adapting.endIkiMs).toBeLessThanOrEqual(GRADE2.ikiMs);
+  });
+
+  it("D51: measuring the child does not make the belt harder for anyone else", () => {
+    // The median player IS the default baseline, so nothing may move for them;
+    // the fast and slow players must not be pushed outside the band either.
+    for (const [name, player] of PLAYERS) {
+      const runs: BeltResult[] = [];
+      for (let seed = 1; seed <= SEEDS; seed += 1) {
+        runs.push(simulateBelt(belt({}), player, {}, mulberry32(seed)));
+      }
+      expect(runs.filter((r) => r.stalled).length, name).toBe(0);
+      expect(
+        mean(runs.map((r) => r.hitRate)),
+        name,
+      ).toBeGreaterThanOrEqual(survivableHitRate(WORDS));
+    }
+  });
+
+  it("records the evidence", () => {
+    const evidence = {
+      player: GRADE2,
+      stageWordCount: WORDS,
+      seeds: STALL_SEEDS,
+      hull: hullForStage(WORDS),
+      survivableHitRate: survivableHitRate(WORDS),
+      runs: {
+        unmeasured: fly100({
+          calibration: DEFAULT_CALIBRATION,
+          adaptiveCalibration: false,
+        }),
+        refinedFromPlay: fly100({ calibration: DEFAULT_CALIBRATION }),
+        ritualRan: fly100({ calibration: calibrationOf(GRADE2) }),
+      },
+      source: "tests/unit/simulation/belt.test.ts",
+    };
+    mkdirSync("gauntlet/evidence", { recursive: true });
+    writeFileSync(
+      "gauntlet/evidence/calibration-reaches-the-belt.json",
+      JSON.stringify(evidence, null, 2) + "\n",
+    );
+    expect(evidence.runs.unmeasured.stalls).toBe(STALL_SEEDS);
+    expect(evidence.runs.refinedFromPlay.stalls).toBe(0);
+    expect(evidence.runs.ritualRan.stalls).toBe(0);
   });
 });
