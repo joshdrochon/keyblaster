@@ -59,6 +59,23 @@ test.describe("UR-33: the world holds, the player does not", () => {
       // Long falls, so the two rocks this needs are both still on the board
       // when the sequence runs, and neither breaches mid-measurement.
       calibration: { ikiMs: 4000, fkLatencyMs: 2000 },
+      /**
+       * LONG ENOUGH TO STILL BE HOLDING WHEN THE KEYS ARRIVE.
+       *
+       * The shipped hold is 33 ms. Everything below runs in one `page.evaluate`
+       * with no awaits, but `__kbFlight.state()` builds a whole snapshot and at
+       * 3 workers that call alone outlasts 33 ms - the full suite caught this
+       * honestly, "the keys were dispatched at 3599.7 and the hold ran to
+       * 3556", which is the precondition refusing to let the test claim it
+       * typed during a hold it had already missed.
+       *
+       * Lengthening the window does not change what is being tested: the
+       * question is whether a keystroke that lands DURING a hold reaches the
+       * lock, and that is the same question at 33 ms and at 900 ms. The shipped
+       * 33 ms is pinned by `tests/unit/flight/hitStop.test.ts` so this cannot
+       * become the value players get.
+       */
+      hitStopMs: 900,
       seed: 0x3301,
     });
 
@@ -89,7 +106,8 @@ test.describe("UR-33: the world holds, the player does not", () => {
 
       const state = api.state();
       const heldUntil = state.hitStopUntilMs;
-      const atDispatch = (window.__kbGame as unknown as { loop: { time: number } }).loop.time;
+      // Same clock the deadline is anchored to (`FlightScene`: performance.now()).
+      const atDispatch = performance.now();
       const offsetsAtHold = { ...state.layerOffsets };
       const rockYAtHold = state.rocks.find((r) => r.word === second)?.y ?? null;
 
@@ -197,8 +215,7 @@ test.describe("UR-33: the world holds, the player does not", () => {
       // 250 ms against a 900 ms hold and reported that the world never
       // restarted, which was true and was a fact about the sleep.
       const heldUntil = api.state().hitStopUntilMs;
-      const loop = (window.__kbGame as unknown as { loop: { time: number } }).loop;
-      for (let i = 0; i < 300 && loop.time <= heldUntil; i += 1) await frame();
+      for (let i = 0; i < 300 && performance.now() <= heldUntil; i += 1) await frame();
       await frame();
       const c = sample();
       await frame();

@@ -1178,10 +1178,22 @@ export const SKY_SWEEP_CLEARANCE = 24;
  *
  * Without it every debris type at a stop collapses onto one value and Jupiter's
  * four FR-12b materials - carbonaceous, silicate, metallic, Trojan - become one
- * rock in four shapes. 16 levels is enough to order them and small enough that
- * the lightest of them still clears the sky.
+ * rock in four shapes.
+ *
+ * WIDENED FROM 16, on a critique that was right. At 16 Jupiter's four landed at
+ * 36.7 / 42.3 / 47.2 / 52.7 - about five levels apart, which preserves their
+ * ORDER and not their IDENTITY, and "order preserved" is exactly what a test
+ * that checks monotonicity cannot tell from "identity preserved". At 26 they sit
+ * about nine levels apart and the floor still holds: the darkest lands on
+ * `MIN_ROCK_LUMA` rather than under it.
+ *
+ * Value is not the main carrier of identity any more in any case - the lit face
+ * in `asteroid.drawDebris` shows each material at its own full colour - but a
+ * body that is nine levels from its neighbour reads as a different rock in the
+ * shadow half too, and costs nothing: the sky clearance is measured from the
+ * LIGHTEST of a stop's materials, and that end of the window has not moved.
  */
-export const DEBRIS_VALUE_SPREAD = 16;
+export const DEBRIS_VALUE_SPREAD = 26;
 
 /**
  * Absolute bounds, so no stop can push a rock to pure black or blown white.
@@ -1250,12 +1262,24 @@ export function skyLumaSweep(p: StopPalette): { readonly min: number; readonly m
  */
 export function rockLumaWindow(p: StopPalette): { readonly lo: number; readonly hi: number } {
   const sweep = skyLumaSweep(p);
+  /**
+   * THE CLEARANCE EDGE IS FIXED AND THE SPREAD GIVES WAY, not the other way
+   * round. An earlier version wrote the sky-facing edge as
+   *
+   *     Math.max(MIN_ROCK_LUMA + DEBRIS_VALUE_SPREAD, sweep.min - SKY_SWEEP_CLEARANCE)
+   *
+   * so that a cramped stop kept its full spread. That is backwards, and widening
+   * the spread from 16 to 26 made it show: Pluto's window opened to [24, 50]
+   * against a sweep starting at 64, and its lightest material came out 13.7 from
+   * the sky - UNDER the probe's 15.3 bar. A stop with no room has to lose
+   * material separation, never legibility.
+   */
   if (isBrightStop(p)) {
-    const hi = Math.max(MIN_ROCK_LUMA + DEBRIS_VALUE_SPREAD, sweep.min - SKY_SWEEP_CLEARANCE);
-    return { lo: Math.max(MIN_ROCK_LUMA, hi - DEBRIS_VALUE_SPREAD), hi };
+    const hi = sweep.min - SKY_SWEEP_CLEARANCE;
+    return { lo: Math.min(hi, Math.max(MIN_ROCK_LUMA, hi - DEBRIS_VALUE_SPREAD)), hi };
   }
-  const lo = Math.min(MAX_ROCK_LUMA - DEBRIS_VALUE_SPREAD, sweep.max + SKY_SWEEP_CLEARANCE);
-  return { lo, hi: Math.min(MAX_ROCK_LUMA, lo + DEBRIS_VALUE_SPREAD) };
+  const lo = sweep.max + SKY_SWEEP_CLEARANCE;
+  return { lo, hi: Math.max(lo, Math.min(MAX_ROCK_LUMA, lo + DEBRIS_VALUE_SPREAD)) };
 }
 
 /**

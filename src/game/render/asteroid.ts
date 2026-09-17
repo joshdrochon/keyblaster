@@ -9,6 +9,7 @@ import type { StopId } from "@engine/types.js";
 import {
   hexToNum,
   luma255,
+  mixHex,
   paletteFor,
   rockLumaFor,
   withLuma255,
@@ -519,10 +520,91 @@ export const FACET_VALUE_STEP = 20;
  * Alpha of the lit-side rim.
  *
  * Raised from 0.50. On a rock drawn at its material value the rim was a grace
- * note; on a rock drawn as its own shadow side it is the only place the material
- * colour appears, and at 0.5 over a near-black body it was not appearing.
+ * note; on a rock drawn as its own shadow side it is part of how the material
+ * is read, and at 0.5 over a dark body it was not appearing.
  */
-export const RIM_ALPHA = 0.65;
+export const RIM_ALPHA = 0.85;
+
+/** Rim width as a fraction of `sizePx`. Was 0.022 - about 1.4 px on a 64 px rock. */
+export const RIM_WIDTH_FRACTION = 0.05;
+
+/**
+ * THE LIT FACE, and why it is the answer to "the metric passed and the picture
+ * failed".
+ *
+ * A blind critic measured this file's first pass and reported both halves
+ * honestly: every rock cleared the AC-22.4 bar at every stop and height, and
+ * Saturn read as brown pebbles on a beige sky with no ice anywhere in the frame.
+ * Both were true. `wordRockFill` moves the BODY value out of the sky's sweep,
+ * and at Saturn and Pluto - the two stops whose material is white - that took
+ * the whole rock with it.
+ *
+ * THE OBVIOUS FIX DOES NOT WORK, AND IT IS WORTH WRITING DOWN WHY. The sweep has
+ * two sides, so a white rock at a bright stop ought to clear it upward instead.
+ * Measured on the shipped frames, it cannot:
+ *
+ *   saturn   brightest row-median background 238; ice chunk `#F6EEDC` is 238.3,
+ *            which is the SAME HEX as the sky's own middle gradient stop
+ *   pluto    brightest row-median background 231, sky top stop 243.9;
+ *            frost-white ice `#E7EAF2` is 234.0
+ *
+ * Clearing upward by the probe's 0.06 bar needs a core mean of 253 at Saturn and
+ * 247 at Pluto - blown white, with no room left for a facet, a crater or any
+ * shading at all, because every one of those pulls the mean back down into the
+ * sky. At these two stops the upward side does not exist.
+ *
+ * WHAT DOES WORK IS GEOMETRY. The AC-22.4 probe reads a CORE DISC of 0.45r, and
+ * the radius profiles in this file never go below 0.72r, so the annulus from
+ * 0.68x the outline outward is strictly outside anything the measure looks at -
+ * the inner edge lands at 0.49r at its closest. That annulus on the lit side is
+ * where a real lit object keeps its colour. Drawing the material there at full
+ * value gives back the white ice, the warm silicate, the cool metal and the
+ * reddish Trojan, on a body that still clears the sky, and it is not a trick
+ * played on the measure: a near object lit from one side, bright face toward the
+ * light and its own shadow away from it, is what art-direction section 2's one
+ * light direction actually implies, and it is how the reference frames read.
+ *
+ * It does change what "the rock's value" means, so the whole-rock mean is now
+ * reported alongside the core mean in the e2e sweep rather than left implied.
+ */
+export const LIT_FACE_INNER = 0.74;
+
+/**
+ * The terminator pass: wider round the rock, half way to the body in value, and
+ * reaching closer in. `TERMINATOR_INNER` x the smallest radius in any profile
+ * (0.72) is 0.462, so it still starts outside `MEASURED_CORE` (0.45).
+ */
+export const TERMINATOR_INNER = 0.64;
+/** Angular extent of each pass, as cos(angle from the light). */
+export const LIT_FACE_COS = 0.3;
+export const TERMINATOR_COS = -0.42;
+
+/**
+ * How far above the body the lit face must sit, in Rec.601 luminance.
+ *
+ * The material is normally brighter than the cleared body already - that is what
+ * "the body moved out of the sky, away from the light" means at a bright stop.
+ * At a DARK stop it is the other way round: Neptune's body is lifted to 151 to
+ * clear a sky that tops out at 114, and its material `#274A9B` is 73, so drawing
+ * the raw material on the lit side would paint a shadow where the light is. The
+ * face is lifted to keep the material's hue and put its value on the correct
+ * side of the terminator.
+ */
+export const LIT_FACE_MIN_STEP = 18;
+
+/** The material as it appears on the lit side of a rock drawn at `bodyFill`. */
+export function wordRockLitFace(
+  type: DebrisType,
+  bodyFill: string,
+  fillOverride?: string | null,
+): string {
+  const material = fillOverride ?? type.fill;
+  const target = Math.max(luma255(material), luma255(bodyFill) + LIT_FACE_MIN_STEP);
+  return withLuma255(material, target);
+}
+
+/** Where the measure stops looking: `tests/gauntlet/silhouette.mjs` CORE. */
+export const MEASURED_CORE = 0.45;
 
 /** Cache: the derivation bisects twice and a stage spawns dozens of rocks. */
 const FILL_CACHE = new Map<string, string>();
@@ -613,6 +695,66 @@ export function variantFor(type: DebrisType, index: number): ShapeVariant {
  * No drop shadow is drawn anywhere - depth comes from value steps between
  * layers, not from painted shadows.
  */
+/**
+ * The annulus polygon for one lit pass: out along the outline, back along the
+ * same outline scaled in by `inner`.
+ *
+ * `inner` is a fraction OF THE OUTLINE, not of the nominal radius, so the inner
+ * edge lands at `inner * profile(theta) * r`. Every profile in `PROFILE` is at
+ * or above 0.72, so an `inner` of 0.625 or more keeps the whole band outside
+ * `MEASURED_CORE`. That is the invariant the e2e sweep depends on and
+ * `tests/unit/render/wordRockSeparation.test.ts` asserts it directly rather
+ * than trusting these two constants to stay in step.
+ */
+function litFacePoints(
+  points: readonly Phaser.Types.Math.Vector2Like[],
+  indices: readonly number[],
+  inner: number,
+): Phaser.Types.Math.Vector2Like[] {
+  const out: Phaser.Types.Math.Vector2Like[] = [];
+  for (const i of indices) {
+    const p = points[i] as Phaser.Types.Math.Vector2Like;
+    out.push({ x: p.x as number, y: p.y as number });
+  }
+  for (let k = indices.length - 1; k >= 0; k -= 1) {
+    const p = points[indices[k] as number] as Phaser.Types.Math.Vector2Like;
+    out.push({ x: (p.x as number) * inner, y: (p.y as number) * inner });
+  }
+  return out;
+}
+
+/**
+ * Indices of the outline points on the lit side, AS A CONTIGUOUS ARC.
+ *
+ * The rim used to take these with `points.filter`, which returns them in array
+ * order. The lit set is contiguous in ANGLE but the array starts at -90 degrees,
+ * so whenever the arc straddles that seam - which it does at five of the seven
+ * stops, because `lightAngleOf` sweeps -125 to -55 degrees - the filtered list
+ * came back as two pieces with the far side of the rock between them. Stroked,
+ * that drew a chord across the rock; filled, as the lit face now is, it would
+ * draw a bow tie. Rotating to the first lit index after a dark one puts the arc
+ * back in one piece.
+ */
+function litArc(count: number, lightAngle: number, cosFloor = 0): number[] {
+  const isLit = (i: number): boolean =>
+    Math.cos(-Math.PI / 2 + (i / count) * Math.PI * 2 - lightAngle) > cosFloor;
+  let start = -1;
+  for (let i = 0; i < count; i += 1) {
+    if (isLit(i) && !isLit((i - 1 + count) % count)) {
+      start = i;
+      break;
+    }
+  }
+  if (start < 0) return [];
+  const out: number[] = [];
+  for (let k = 0; k < count; k += 1) {
+    const i = (start + k) % count;
+    if (!isLit(i)) break;
+    out.push(i);
+  }
+  return out;
+}
+
 export function drawDebris(
   g: Phaser.GameObjects.Graphics,
   options: DebrisDrawOptions,
@@ -630,20 +772,41 @@ export function drawDebris(
   g.fillStyle(hexToInt(body), 1);
   g.fillPoints(points as Phaser.Types.Math.Vector2Like[], true, true);
 
+  // THE LIT FACE: the material at its own value, on the annulus the measure does
+  // not look at. See `LIT_FACE_INNER`. This is where Saturn's ice, Jupiter's
+  // four silicates and Pluto's frosts live now.
+  //
+  // TWO PASSES, NOT ONE, and the second is what stops it reading as a hood. A
+  // single crescent of `#F6EEDC` on a body of `#393833` is a 182-level step in
+  // one edge: the first render of it looked like a white cap sitting ON a dark
+  // pebble rather than the lit side OF an ice chunk. The wider, half-mixed pass
+  // underneath is the terminator - it reaches further round the rock and is
+  // half way between the two values, so the eye reads one object turning away
+  // from the light. Both annuli start outside `MEASURED_CORE`; see
+  // `litFacePoints` for the arithmetic that guarantees it.
+  const face = wordRockLitFace(type, body, options.fillOverride);
+  const terminator = litArc(points.length, lightAngle, TERMINATOR_COS);
+  if (terminator.length >= 2) {
+    g.fillStyle(hexToInt(mixHex(body, face, 0.5)), 1);
+    g.fillPoints(litFacePoints(points, terminator, TERMINATOR_INNER), true, true);
+  }
+  const litIndices = litArc(points.length, lightAngle, LIT_FACE_COS);
+  if (litIndices.length >= 2) {
+    g.fillStyle(hexToInt(face), 1);
+    g.fillPoints(litFacePoints(points, litIndices, LIT_FACE_INNER), true, true);
+  }
+
   g.fillStyle(hexToInt(wordRockFacet(type, body)), 0.55);
   for (const facet of shape.facets) {
     g.fillCircle(facet.x * radius, facet.y * radius, facet.r * radius);
   }
 
-  // Rim: a second offset outline on the lit side only, 10-15% lighter.
+  // Rim: a second offset outline on the lit side only.
   const offset = radius * 0.06;
-  g.lineStyle(Math.max(1, sizePx * 0.022), hexToInt(type.rim), RIM_ALPHA);
+  g.lineStyle(Math.max(1, sizePx * RIM_WIDTH_FRACTION), hexToInt(type.rim), RIM_ALPHA);
   g.beginPath();
-  const lit = points.filter((_p, i) => {
-    const angle = -Math.PI / 2 + (i / points.length) * Math.PI * 2;
-    return Math.cos(angle - lightAngle) > 0;
-  });
-  lit.forEach((p, i) => {
+  litIndices.forEach((idx, i) => {
+    const p = points[idx] as Phaser.Types.Math.Vector2Like;
     const x = (p.x as number) + Math.cos(lightAngle) * offset;
     const y = (p.y as number) + Math.sin(lightAngle) * offset;
     if (i === 0) g.moveTo(x, y);

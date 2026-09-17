@@ -58,7 +58,28 @@ export interface BootOptions {
  * THE SAME GAME. One boot per page; the stub is what keeps it to one.
  */
 export async function muteHmr(page: Page): Promise<void> {
-  await page.route("**/src/main.ts", (route) =>
+  /**
+   * THE TRAILING `*` IS LOAD-BEARING (instance 17).
+   *
+   * This was `**\/src/main.ts`, and it matched nothing the moment anybody saved
+   * a file. Vite invalidates the module graph on a save and then serves the
+   * entry as `/src/main.ts?t=<timestamp>`; Playwright's glob does not match a
+   * query string, so the stub fell through and the REAL entry booted.
+   *
+   * Measured, not inferred. Cold boot: 1 game, 2 canvases. After one `utimes`
+   * on a file in the graph, the same boot requests
+   * `/src/main.ts?t=1789643211779` and the page ends up with FOUR canvases -
+   * two viewport backdrops and two 1920-wide games, one at y=0 and one at
+   * y=720. That is the parallel-boot defect UR-36 deleted from `src/`,
+   * re-created at RUNTIME, where `tests/unit/arch/oneBootPath.test.ts` greps
+   * source and cannot possibly see it.
+   *
+   * The condition is "a file was saved while the dev server was up", which is
+   * the normal state of an overnight build with lanes working - so the e2e
+   * evidence has been trustworthy when nobody was working and unreliable
+   * exactly when everybody was.
+   */
+  await page.route("**/src/main.ts*", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/javascript",
@@ -96,6 +117,39 @@ export async function bootFlight(page: Page, options: BootOptions = {}): Promise
     null,
     { timeout: 30_000 },
   );
+
+  /**
+   * ONE GAME ON THE PAGE, CHECKED AT RUNTIME.
+   *
+   * `oneBootPath.test.ts` asserts there is one `new Phaser.Game` in `src/`, and
+   * that is true and was not enough: a second game can arrive because the entry
+   * point booted alongside this one, which is a fact about the network rather
+   * than about the source. Two games share a canvas stack, a keyboard and a
+   * frame budget, and `__kbGame` then points at whichever won - measured as a
+   * coin flip, the game canvas landing at y=0 in half the runs and y=720 in the
+   * other half. A capture taken then is of whichever game is on top, which is
+   * how a spec asking for a Saturn belt got back the Title screen.
+   *
+   * Checked here because every flight spec goes through this function, and
+   * checked LOUDLY because the failure it catches is invisible in every other
+   * way: the scene boots, the state reads, the assertions run, and the pixels
+   * belong to a different program.
+   */
+  const canvases = await page.evaluate(() =>
+    [...document.querySelectorAll("canvas")]
+      .filter((c) => (c as HTMLElement).dataset["testid"] !== "viewport-backdrop")
+      .map((c) => ({
+        width: (c as HTMLCanvasElement).width,
+        y: Math.round(c.getBoundingClientRect().y),
+      })),
+  );
+  if (canvases.length !== 1) {
+    throw new Error(
+      `${canvases.length} game canvases on the page, expected 1: ${JSON.stringify(canvases)}. ` +
+        "The app entry booted alongside this one - see muteHmr. Every pixel measured " +
+        "from here would belong to whichever game won the race.",
+    );
+  }
 }
 
 export const flightState = (page: Page): Promise<FlightState> =>

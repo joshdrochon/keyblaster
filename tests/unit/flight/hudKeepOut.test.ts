@@ -9,6 +9,10 @@ import {
 import { SPAWN_MARGIN_PX } from "../../../src/game/flight/stage.js";
 import { STOP_IDS } from "../../../src/engine/types.js";
 import { stagePoolFor } from "../../../src/game/flight/stage.js";
+// THE RENDERER'S OWN FUNCTIONS, imported rather than restated. See the note on
+// `plateWidth` below for what was here before and why it was not a binding.
+import { asteroidSizePx } from "../../../src/game/render/asteroid.js";
+
 
 /**
  * UR-21 MUST NOT BECOME UR-23.
@@ -30,25 +34,54 @@ import { stagePoolFor } from "../../../src/game/flight/stage.js";
  * asserting it, and the negative control re-derives it under the OLD rule and
  * watches the HUD intrude.
  *
- * The plate's geometry is recomputed here from `wordPlate`'s own exported
- * constants rather than imported from it, because that module pulls in Phaser
- * and this suite runs in node. The numbers are asserted against the ones the
- * renderer uses in the test below, so the copy cannot drift silently.
+ * ================== HOW MUCH OF THIS IS ACTUALLY BOUND ==================
+ * An earlier version of this comment claimed the hand-written numbers were
+ * "asserted against the ones the renderer uses". THEY WERE NOT. No such
+ * assertion existed, and a guard that re-derives the numbers it is checking is
+ * testing its own arithmetic. Stated plainly rather than quietly improved:
+ *
+ *   ROCK SIZE is now the renderer's own `asteroidSizePx`, imported. `asteroid.ts`
+ *   loads in node because the functions this file calls never touch Phaser.
+ *
+ *   PLATE WIDTH is still restated here, and cannot be imported today:
+ *   `wordPlate.ts` declares `class WordPlate extends Phaser.GameObjects.Container`,
+ *   so importing anything from it executes Phaser and dies on `window is not
+ *   defined` under vitest's node environment.
+ *
+ * THE FIX IS A MODULE SPLIT, not a wider tolerance: `plateSize`, `cellWidthPx`,
+ * `plateOffsetY` and the `PLATE_*` constants are pure arithmetic sharing a file
+ * with a Phaser subclass for no reason. Moving them to a Phaser-free
+ * `wordPlateGeometry.ts` that `wordPlate.ts` re-exports would make this a real
+ * binding. Not done tonight; raised in gauntlet/escalations.md so the gap has a
+ * ticket rather than a comment.
  */
 
-/** `FlightScene.plateStyle`, the two fields plate width depends on. */
-const FONT_SIZE_PX = 30;
-/** D41's increased-spacing setting, i.e. the WIDEST plate a child can ask for. */
-const LETTER_SPACING_PX = 5;
-/** `wordPlate.PLATE_PAD_X_PX`. */
-const PAD_X_PX = 14;
-/** `wordPlate.cellWidthPx`. */
-const cellWidth = (): number => FONT_SIZE_PX * 0.62 + LETTER_SPACING_PX;
-const plateWidth = (letters: number): number => letters * cellWidth() + PAD_X_PX * 2;
+/**
+ * `FlightScene.plateStyle` at D41's increased letter spacing - the WIDEST plate
+ * a child can ask for, and therefore the case the keep-out has to survive.
+ */
+const WIDEST_STYLE = {
+  plate: "#0E1116",
+  plateText: "#F7FAFF",
+  accent: "#FFC857",
+  fontFamily: "'Atkinson Hyperlegible', 'Noto Sans', 'Segoe UI', system-ui, sans-serif",
+  fontSizePx: 30,
+  letterSpacingPx: 5,
+  uppercase: false,
+  reducedMotion: false,
+} as const;
 
-/** `asteroid.ts`: BASE_SIZE_PX, SIZE_PER_LETTER_PX, MIN_SIZED_WORD_LENGTH, MAX_SIZE_PX. */
-const rockSizePx = (letters: number): number =>
-  Math.min(140, 56 + (Math.max(3, letters) - 3) * 8);
+/**
+ * RESTATED from `wordPlate.cellWidthPx` / `plateSize`, because that module
+ * cannot be loaded here (see the header). Keep these three lines identical to
+ * it; the module split described above is what would remove the duplication.
+ */
+const PLATE_PAD_X_PX = 14;
+const cellWidthPx = (): number => WIDEST_STYLE.fontSizePx * 0.62 + WIDEST_STYLE.letterSpacingPx;
+const plateWidth = (letters: number): number => letters * cellWidthPx() + PLATE_PAD_X_PX * 2;
+
+/** The renderer's own answer. */
+const rockSizePx = (letters: number): number => asteroidSizePx(letters);
 
 const longestWord = (): number => {
   let longest = 1;

@@ -1106,7 +1106,9 @@ export class FlightScene extends Phaser.Scene {
      * swallowed input in a typing game is a defect that no assertion about
      * "does it freeze" would ever catch.
      */
-    const holding = time < this.hitStopUntilMs;
+    // `performance.now()`, matching where the deadline was set: `time` is the
+    // frame's own timestamp and comparing the two mixes clocks by a frame.
+    const holding = performance.now() < this.hitStopUntilMs;
 
     if (!holding) {
       this.advanceLayers(dt, elapsed);
@@ -1739,8 +1741,21 @@ export class FlightScene extends Phaser.Scene {
       // the explosion and this is the beat BEFORE it lands - and because the
       // only caller that should ever hold the world is a rock the player
       // destroyed. `breach` deliberately does not call it: see `hitStopMs`.
-      this.hitStopUntilMs =
-        this.time.now + hitStopMs(this.cfg.reducedMotion, this.cfg.hitStopMs);
+      /**
+       * ANCHORED TO `performance.now()`, NOT `this.time.now`, AND ZERO IS ZERO.
+       *
+       * Two defects in one line. This runs inside the `window` keydown handler,
+       * and `this.time.now` is the timestamp of the LAST FRAME - so the deadline
+       * was short by however long ago that frame was, which at 60 fps is a whole
+       * frame period every time. A two-frame hold was reliably one.
+       *
+       * And with reduced motion on, `hitStopMs` returns 0, so this set the
+       * deadline to the current clock rather than to 0 - a positive number that
+       * a check for "did a hold fire" would read as yes. Reduced motion means
+       * NO hold, and the state has to say so.
+       */
+      const hold = hitStopMs(this.cfg.reducedMotion, this.cfg.hitStopMs);
+      this.hitStopUntilMs = hold <= 0 ? 0 : performance.now() + hold;
     }
     this.cue("blast");
     this.publishHud(true);
@@ -2048,14 +2063,53 @@ export class FlightScene extends Phaser.Scene {
   }
 
   /** One scorch mark per hit (art-direction section 5), cleared at stage end. */
+  /**
+   * ONE SCORCH PER HIT, AND IT HAS TO BE SEEN (UR-22, second pass).
+   *
+   * ================== WHY THE FIRST FIX WAS NOT ENOUGH ==================
+   * The hull lamp is real and measurable and a player does not see it. A blind
+   * critic ran a no-strike control against the shipped fixture and split it by
+   * reduced motion:
+   *
+   *     mars,    reducedMotion OFF (THE DEFAULT):  control 5.407  hit 5.409
+   *     neptune, reducedMotion OFF:                control 5.713  hit 5.537
+   *
+   * In the configuration a child actually plays in, one hull hit changes the
+   * ship no more than doing nothing changes it - and at Neptune slightly less.
+   * The arithmetic agrees: `hullLampStep(9)` is 0.0867 of a container alpha
+   * whose peak composite is 0.26, so one hit moves about 5.3/255 AT THE EXACT
+   * CENTRE of a 132 px glow falling off as (1-t)^2. That is under the JND
+   * everywhere and far under it at the edge.
+   *
+   * ================== WHAT AN EYE ACTUALLY CATCHES ==================
+   * Local contrast, not integrated luminance. The fuselage is the brightest
+   * object on the screen - cream #F3E7D3, about 230 - so a dark mark ON it is
+   * the highest-contrast edge the frame can produce, and it costs nothing to
+   * make it big enough to read at 1280. The old mark was a 16x9 design-pixel
+   * ellipse, roughly 10.7x6.0 on screen, against a fuselage 42 px wide; this
+   * one is 34x20, a third of the hull's width, and darker.
+   *
+   * It is still not a counter and still not a bar (AC-22b.1, D31). Nobody
+   * counts scorch marks at a glance - they read as "this ship has been through
+   * something", which is the state the player said was missing, and they are
+   * the SHIP's damage rather than the player's score. `removeScorch` takes one
+   * back when a canister repairs, and a stage start clears them all (D27).
+   */
   private addScorch(): void {
     const g = this.add.graphics();
-    const x = (this.rng() - 0.5) * 26;
-    const y = -30 + this.rng() * 50;
-    g.fillStyle(hexToInt("#2A2F3A"), 0.55);
-    g.fillEllipse(x, y, 16, 9);
-    g.fillStyle(hexToInt("#1A1D24"), 0.4);
-    g.fillEllipse(x + 3, y + 2, 9, 5);
+    // Kept inside the fuselage: it spans x -21..21, and a 34-wide mark centred
+    // past +/-10 would hang off the hull into the sky, where it reads as a
+    // floating smudge rather than as damage.
+    const x = (this.rng() - 0.5) * 20;
+    const y = -34 + this.rng() * 58;
+    g.fillStyle(hexToInt("#2A2F3A"), 0.72);
+    g.fillEllipse(x, y, 34, 20);
+    g.fillStyle(hexToInt("#15181E"), 0.66);
+    g.fillEllipse(x + 3, y + 2, 21, 12);
+    // A hard char at the centre, so the mark has an EDGE. A soft blob on a
+    // bright hull is a shadow; an edge is a scar.
+    g.fillStyle(hexToInt("#0B0D11"), 0.55);
+    g.fillEllipse(x + 1, y + 1, 11, 7);
     g.setAlpha(0);
     this.scorchLayer.add(g);
     this.tweens.add({ targets: g, alpha: 1, duration: 200, ease: "Cubic.Out" });

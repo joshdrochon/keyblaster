@@ -1,13 +1,13 @@
-# The check and the thing: fourteen ways this codebase lied to itself
+# The check and the thing: seventeen ways this codebase lied to itself
 
-Written 2026-09-17, after a night in which fourteen separate defects
+Written 2026-09-17, after a night in which seventeen separate defects
 turned out to be the same defect.
 
 Nine had a green test, two had a red one, and one was a picture a person judged. None of the tests
 were wrong about what they asserted. They were wrong about **what they were
 asserting it against.**
 
-This document exists because the fifteenth instance is cheaper to prevent
+This document exists because the eighteenth instance is cheaper to prevent
 than to find, and because "we have 2891 passing tests" stopped being reassuring at
 about the third one.
 
@@ -29,7 +29,7 @@ that binding.
 
 ---
 
-## The fourteen
+## The seventeen
 
 | # | What was green | What shipped | Found by |
 |---|---|---|---|
@@ -56,6 +56,25 @@ Instance 14 is the one to remember when someone says a test is flaky. It was
 not flaky. It was sampling a moving world through two round trips and reporting
 whatever it happened to land on, in both directions — false green and false red
 from the same bug.
+
+| 15 | `tests/unit/flight/shardTint.test.ts`, cited in the source as the check binding shard tint to rock colour | Its headline assertion is `expect(wordRockFill(type)).toBe(wordRockFill(type))` — **f(x) === f(x)** — followed by `void declared;`. Nothing in the file touches `fractureRock` or `setParticleTint`. Revert the fix it guards and all three tests still pass. **Produced by the very fix that diagnosed instance 5** | The blind critic on asteroid visibility, reverting the line to see if anything noticed |
+
+Instance 15 is the sharpest warning in this document, because of who wrote it
+and when. It was written by a lane that had spent the night finding this exact
+defect class, in the same change where it fixed another instance of it, hours
+after the diagnostic "an assertion whose failure mode is unreachable" had been
+articulated and recorded. Knowing about the trap does not stop you falling in.
+Only reverting the code and watching the test fail does.
+
+| 16 | `hull-feedback.spec.ts:361`, green, proving a child sees hull damage | The assertion is **area-weighted**: it compares `hitShip * 300 * 300` against `hitPips * 76 * 24 * 10`. The ship rect is **49x larger**, so a sub-JND change smeared over it beats a 200-level change on a pip, and its absolute floor of 0.002 linearised luminance is about half an sRGB level. Measured with a no-strike control in the DEFAULT configuration: one hull hit changes the ship **1.00x** at Mars and **0.97x** at Neptune — *no more than doing nothing does*. The test is green and the change is real. It is not evidence anyone can see it | The blind critic on the flight work, running a no-strike control |
+| 17 | `UR-36` deleted the parallel `Phaser.Game`, and `tests/unit/arch/oneBootPath.test.ts` guards it | **The e2e harness re-creates it at runtime.** `flightBoot.ts:63` routes `**/src/main.ts`, but after any file in the graph is saved Vite serves `/src/main.ts?t=<timestamp>`, and Playwright's glob does not match a query string. Measured across 8 consecutive boots: `mainRouteHits = 0` every time, **four canvases on the page, two `Phaser.Game`s**, and which one `__kbGame` points at is a RACE — canvas at y=0 in four runs, y=720 in the other four. The guard greps source for `new Phaser.Game`; it cannot see a second game created at runtime | The same critic — whose own "Saturn flight screen" capture came back as **the Title screen**, reproducing instance 11 live, against itself |
+
+Instance 17 is the one to be frightened of. It fires only when a file is saved
+mid-run, which is the normal condition of a parallel overnight build — so the
+evidence is trustworthy when nobody is working and unreliable exactly when
+everybody is. A static guard could never catch it. The fix is one character
+(`**/src/main.ts*`) plus a boot-time assertion that exactly one non-backdrop
+canvas exists: the runtime half of a guard the repo only enforced statically.
 
 Instance 11 is the worst thing in this document. The other ten are checks that
 measured the wrong thing; this one is a **human** looking at the wrong thing,
@@ -139,6 +158,6 @@ All of that machinery verifies **internal consistency**. None of it verifies
 that the thing being checked is the thing being shipped. That binding is
 maintained by attention, and attention is exactly what a green suite spends.
 
-Every one of the fourteen was ultimately found the same way: by someone looking at
+Every one of the seventeen was ultimately found the same way: by someone looking at
 the actual artifact — a screen, a waveform, a route, a rendered page — rather
 than at a result. That is the cheapest available guard and the easiest to skip.

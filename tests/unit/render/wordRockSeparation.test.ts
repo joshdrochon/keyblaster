@@ -13,8 +13,13 @@ import {
 } from "@game/render/palette.js";
 import {
   DEBRIS_BY_STOP,
+  LIT_FACE_INNER,
+  MEASURED_CORE,
+  TERMINATOR_INNER,
   drawDebris,
   wordDebrisTypesFor,
+  wordRockFill,
+  wordRockLitFace,
   type DebrisType,
 } from "@game/render/asteroid.js";
 
@@ -67,7 +72,41 @@ import {
  *
  * Five of the six stops with a belt were under the bar somewhere down the fall,
  * and the three worst failed HIGH in the frame, where the sky is brightest.
- * Worst reading anywhere: 0.0062 -> 0.1476, over a denser 9-height sweep.
+ *
+ * The shipped gate for this AC - `tests/e2e/flight.spec.ts` V-22.4 - now sweeps
+ * all six stops in pixels and places rocks at the bottom of the fall rather than
+ * waiting for one to be there. Its own negative control, the same one-line
+ * revert as below, run through that sweep:
+ *
+ *   stop      V-22.4 with the defect back    with the fix
+ *   mars      0.0047                          0.2403
+ *   jupiter   0.0077                          0.2176
+ *   pluto     0.0090                          0.2366
+ *   neptune   0.0215                          0.2664
+ *   saturn    0.0228                          0.2457
+ *   uranus    0.1400                          0.2075
+ *
+ * Uranus is the one stop that survives the defect, because its material was
+ * already dark - which is exactly why a Mars-only gate was worth nothing and why
+ * "it passed on Mars" was never evidence about the other five.
+ *
+ * EVERY ASSERTION IN THIS FILE HAS BEEN WATCHED FAIL, with the code reverted
+ * rather than the test edited. The reds, verbatim:
+ *
+ *   `wordRockFill` returns `base` unchanged
+ *     -> mars mars-regolith (normal): drawn #B5522A comes within 0.1 of the sky
+ *        at height 0.69 of the fall: expected 0.05499999999999261 >= 20
+ *     -> mars mars-regolith (colourblind): within 8.0 at height 0.80
+ *     -> mars mars-regolith: 107.0 sits inside the sky sweep [74, 206]
+ *   `TERMINATOR_INNER` 0.64 -> 0.55
+ *     -> the terminator band reaches 0.435r, inside the 0.45r core the probe
+ *        averages: expected 0.43450000000000005 to be greater than 0.45
+ *   `DEBRIS_VALUE_SPREAD` 26 -> 16
+ *     -> jupiter-trojan is only 5.6 from c-type - ordered, but not
+ *        distinguishable: expected 5.627 to be >= 7
+ *   `wordRockLitFace` drops its `LIT_FACE_MIN_STEP` floor
+ *     -> neptune neptune-icy-body: lit face #274A9B against body #6C98FF:
+ *        expected -77.817 to be greater than or equal to 16
  */
 
 /** The V-22.4 bar, 0.06 of the 8-bit range, in the units used below. */
@@ -222,7 +261,61 @@ describe("UR-47 / AC-22.4: a word-asteroid never matches the sky it falls throug
     }
   });
 
-  it("a stop's materials keep their order, so four Jupiter rocks are still four materials", () => {
+  /**
+   * THE LIT FACE MUST NEVER REACH THE MEASURED CORE.
+   *
+   * `drawDebris` puts each material's own colour back on an annulus outside the
+   * disc the AC-22.4 probe averages, which is the whole reason Saturn can be
+   * visible AND still look like ice. That claim rests on one inequality between
+   * three constants and the shape table, and if it ever stops holding, the
+   * measured core starts including bright material and the separation numbers
+   * quietly become about a different thing.
+   *
+   * So it is asserted against the REAL radius profiles rather than against the
+   * 0.72 lower bound the comments quote, because the profiles are data and the
+   * bound is a claim about them.
+   */
+  it("the lit face and the terminator both start outside the disc the probe averages", () => {
+    const allRadii = Object.values(DEBRIS_BY_STOP)
+      .flatMap((types) => types.flatMap((t) => t.variants.flatMap((v) => [...v.radii])));
+    expect(allRadii.length).toBeGreaterThan(50);
+    const minProfile = Math.min(...allRadii);
+    expect(minProfile, "shallowest point of any rock outline").toBeGreaterThan(0.7);
+    expect(
+      TERMINATOR_INNER * minProfile,
+      `the terminator band reaches ${(TERMINATOR_INNER * minProfile).toFixed(3)}r, inside the ${MEASURED_CORE}r core the probe averages`,
+    ).toBeGreaterThan(MEASURED_CORE);
+    expect(LIT_FACE_INNER * minProfile).toBeGreaterThan(MEASURED_CORE);
+  });
+
+  it("the lit face is lighter than the body it sits on, at every stop and material", () => {
+    // Not automatic. At a DARK stop the body is lifted ABOVE the sky, so the raw
+    // material is darker than the body and drawing it unchanged would paint a
+    // shadow on the lit side. Neptune is the case: body 151, material 73.
+    for (const id of STOPS_WITH_A_BELT) {
+      for (const type of wordDebrisTypesFor(id)) {
+        const body = wordRockFill(type);
+        const face = wordRockLitFace(type, body);
+        expect(
+          luma255(face) - luma255(body),
+          `${id} ${type.id}: lit face ${face} against body ${body}`,
+        ).toBeGreaterThanOrEqual(16);
+      }
+    }
+  });
+
+  /**
+   * IDENTITY, NOT JUST ORDER - and the difference is what a blind critic caught.
+   *
+   * An earlier version of the check below asserted only that a stop's materials
+   * stayed monotonic in value. They did, at about five luminance levels apart,
+   * which is "order preserved" and not "identity preserved": Jupiter's four
+   * FR-12b materials were four shapes in one colour and a monotonicity test
+   * cannot tell that from four materials. Both halves are asserted now - the
+   * bodies are spaced, and the lit faces, which is where the material's own
+   * colour actually appears, are far apart in value.
+   */
+  it("Jupiter's four materials are four materials, not four shapes in one colour", () => {
     // The fix moves the whole set of a stop's materials to one side of the sky.
     // It must not flatten them onto one value: FR-12b's C-type is the dark one
     // and its M-type the light one, and that has to survive the move or the
@@ -236,8 +329,22 @@ describe("UR-47 / AC-22.4: a word-asteroid never matches the sky it falls throug
         drawn[i] as number,
         `${byMaterial[i]?.id} should stay lighter than ${byMaterial[i - 1]?.id}`,
       ).toBeGreaterThan(drawn[i - 1] as number);
+      // ORDER IS NOT ENOUGH. At `DEBRIS_VALUE_SPREAD` 16 these sat about five
+      // levels apart, which no eye separates; the spread is 26 and they sit
+      // about nine apart.
+      expect(
+        (drawn[i] as number) - (drawn[i - 1] as number),
+        `${byMaterial[i]?.id} is only ${((drawn[i] as number) - (drawn[i - 1] as number)).toFixed(1)} from ${byMaterial[i - 1]?.id} - ordered, but not distinguishable`,
+      ).toBeGreaterThanOrEqual(7);
     }
-    expect((drawn[drawn.length - 1] as number) - (drawn[0] as number)).toBeGreaterThanOrEqual(12);
+    expect((drawn[drawn.length - 1] as number) - (drawn[0] as number)).toBeGreaterThanOrEqual(20);
+    // And the lit faces, which is where the material's own colour is actually
+    // seen: C-type charcoal against M-type metal is a 90-level difference.
+    const faces = byMaterial.map((t) => luma255(wordRockLitFace(t, bodyFillDrawnFor(t, null))));
+    expect(
+      Math.max(...faces) - Math.min(...faces),
+      `lit faces span only ${(Math.max(...faces) - Math.min(...faces)).toFixed(1)} levels`,
+    ).toBeGreaterThanOrEqual(60);
   });
 
   /**

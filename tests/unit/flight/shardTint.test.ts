@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   wordDebrisTypesFor,
@@ -6,6 +9,8 @@ import {
 import { luma255 } from "../../../src/game/render/palette.js";
 import { paletteFor } from "../../../src/game/flight/stage.js";
 import { STOP_IDS } from "../../../src/engine/types.js";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * THE SHARDS ARE THE COLOUR OF THE ROCK THAT BROKE.
@@ -32,19 +37,99 @@ describe("UR-47: blast shards match the rock that broke", () => {
     expect(stops.length).toBeGreaterThanOrEqual(6);
   });
 
-  it("the shard tint is the drawn body colour, at every stop and material", () => {
+  /**
+   * ============ THIS FILE WAS VACUOUS AND IT IS INSTANCE 15 ============
+   *
+   * Its headline assertion was
+   *
+   *     expect(wordRockFill(type)).toBe(wordRockFill(type));
+   *
+   * followed by `void declared;`. f(x) === f(x) is true for every f, and nothing
+   * in the file touched `fractureRock` or `setParticleTint`. A critic reverted
+   * `FlightScene.ts` to `rock.debris.fill` - the exact defect this file is named
+   * after - and all three tests still passed.
+   *
+   * It was written by a lane that had spent the night cataloguing this precise
+   * defect class, in the same change where it fixed another instance of it.
+   * Knowing about the trap does not keep you out of it. The only thing that does
+   * is reverting the code and watching the test go red, which is now done for
+   * every assertion here and recorded below.
+   *
+   * ============ WHY A SOURCE CHECK ============
+   *
+   * `fractureRock` is a private method on a Phaser Scene. Reaching it needs a
+   * browser, and an e2e that blasts a rock and samples shard pixels is a real
+   * check but a slow and flaky one for a binding that is a single expression.
+   * The binding itself IS visible in the source, and `tests/unit/arch/` already
+   * uses that shape for the same reason (`oneBootPath.test.ts`): some bindings
+   * cannot be asserted from inside the running program, only about it.
+   *
+   * So this file now checks two separable things:
+   *   1. the VALUES differ, so binding to the right one matters at all;
+   *   2. the CALL SITE uses `wordRockFill` and not `debris.fill`.
+   * Neither alone would have caught the revert. Together they do.
+   *
+   * WATCHED FAIL, both ways, before this was believed:
+   *
+   *   revert `FlightScene.fractureRock` to `rock.debris.fill`
+   *     -> "fractureRock does not derive its shard tint from
+   *         asteroid.wordRockFill ...": expected 'private fractureRock(rock:
+   *         LiveRock, ...' to contain 'wordRockFill('
+   *   make `wordRockFill` return its `base` argument unchanged
+   *     -> "mars/mars-regolith: the drawn body colour equals the declared
+   *         material, so this file proves nothing"
+   */
+  const FLIGHT_SCENE = readFileSync(
+    path.resolve(HERE, "../../../src/game/scenes/FlightScene.ts"),
+    "utf8",
+  );
+
+  /**
+   * The body of `fractureRock`, from its signature to the next method, WITH THE
+   * COMMENTS REMOVED.
+   *
+   * Stripping them is not tidiness. The first version of the check below tested
+   * the raw text and failed, because the comment above the line explains at
+   * length that the tint "is not `debris.fill`" - so a doc-comment describing
+   * the fix read as the defect. A check that a comment can fail is a check about
+   * prose.
+   */
+  function fractureRockBody(): string {
+    const start = FLIGHT_SCENE.indexOf("private fractureRock(");
+    expect(start, "fractureRock was renamed or removed").toBeGreaterThan(-1);
+    const rest = FLIGHT_SCENE.slice(start);
+    const end = rest.indexOf("\n  private ", 1);
+    const body = end > 0 ? rest.slice(0, end) : rest;
+    return body.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+  }
+
+  it("the tint passed to setParticleTint comes from wordRockFill", () => {
+    const body = fractureRockBody();
+    expect(body, "fractureRock no longer tints the shards").toContain("setParticleTint");
+    expect(
+      body,
+      "fractureRock does not derive its shard tint from asteroid.wordRockFill - the shards are painted in a colour the rock is not drawn in, which is the defect this file is named after",
+    ).toContain("wordRockFill(");
+    // And not the raw material, which is what it used to read. Reverting that
+    // one expression is the negative control; see the block comment above.
+    expect(
+      /\bdebris\.fill\b/.test(body),
+      "fractureRock reads `debris.fill` - the material's declared colour, not the colour the rock is drawn in",
+    ).toBe(false);
+  });
+
+  it("the two colours really are different, so the binding matters", () => {
     for (const stop of STOP_IDS) {
       for (const type of wordDebrisTypesFor(stop)) {
-        // What `drawDebris` fills the body with, and what `fractureRock` now
-        // tints the shards with. One function, so they cannot drift.
-        expect(wordRockFill(type), `${stop}/${type.id}`).toBe(wordRockFill(type));
-        // ...and it is NOT the raw declared colour, or this test would pass on
-        // the code that shipped the defect.
         const drawn = wordRockFill(type);
-        const declared = type.fill;
-        expect(typeof drawn).toBe("string");
-        expect(drawn).toMatch(/^#[0-9a-fA-F]{6}$/);
-        void declared;
+        expect(drawn, `${stop}/${type.id}`).toMatch(/^#[0-9a-fA-F]{6}$/);
+        // The assertion this file was supposed to make all along. If these were
+        // ever equal, binding to either would be the same thing and the whole
+        // file would be asserting nothing - which is how it read before.
+        expect(
+          drawn.toLowerCase(),
+          `${stop}/${type.id}: the drawn body colour equals the declared material, so this file proves nothing`,
+        ).not.toBe(type.fill.toLowerCase());
       }
     }
   });

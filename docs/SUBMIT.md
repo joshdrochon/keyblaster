@@ -1,7 +1,7 @@
 # What is left, in order
 
-Deadline: **Fri 2026-09-18 23:59 CDT**. Rewritten 2026-09-17 ~01:15, after a
-full night of lane work and three blind critiques.
+Deadline: **Fri 2026-09-18 23:59 CDT**. Rewritten 2026-09-17 ~03:30, after a
+full night of lane work and five blind critiques.
 
 This is the only document you need to read first. Everything else is backlog.
 
@@ -37,18 +37,21 @@ Name one and the 44 lines re-render in minutes for pennies. The current
 shipped voice is ElevenLabs' stock "Liam", chosen from written descriptions by
 someone who could not hear it — which is exactly the mistake you caught.
 
-**b. Listen to `gauntlet/evidence/critic-audio/shipping-belt.wav` against
-`intended-belt.wav`.** Listen for: *does the typing note stop changing about
-three words in?* A blind critic found `keystrokeTone.reset()` is called once
-per STAGE rather than per word, so ~95% of a 58-word belt is the same
-2217.5 Hz note — and the better you type, the more monotonous it gets. The
-lane is fixing it; your ear settles whether the fix worked.
+**b. Listen to `gauntlet/evidence/audio/ur30-full-belt.wav`** — 75 seconds of
+real play at typing cadence. Listen for: *does the typing note keep changing,
+or does it settle on one pitch a few words in?* A blind critic found
+`keystrokeTone.reset()` ran once per STAGE rather than per word, so ~95% of a
+290-key belt was the same 2217.5 Hz note — and the better you typed, the worse
+it got. Fixed and driven off the cue stream now, with a control that
+reproduces the old defect. Your ear settles whether the fix landed.
 
-**c. Listen to `gauntlet/evidence/critic-audio/bed-mars.wav` for 30 seconds.**
-Listen for: *a texture you recognise coming back every 4 seconds.* Not a click
-— the click is gone. The wind loop is 4.000s, identical on all seven planets,
-15–22 repetitions per belt. No measurement can decide whether that is
-invisible or maddening. Only an ear can.
+**c. Listen to `gauntlet/evidence/audio/ur43-wind-100s.wav`** — 100 seconds,
+deliberately longer than one cycle. Listen for: *a gust you recognise coming
+back.* The old ambient bed repeated an identical 4.000s wind texture 15–22
+times per belt, on every planet. It is now two coprime layers (11s and 13s)
+that do not recur for 143 seconds, with a different start offset per planet.
+No measurement can decide whether a loop is invisible or maddening. Only an
+ear can.
 
 **d. Headed 60fps capture for `P-22.9` and `L-6e.1`.** Headless Chromium is
 software-rendered, so every frame-time number in this repo describes
@@ -57,10 +60,41 @@ one constant with a test already in place.
 
 ---
 
-## 3. One decision I could not make for you
+## 3. Where the art stands, and one decision for you
 
-**Only one word-asteroid is ever on screen.** You asked whether more arrive at
-harder levels. They do not, and my first answer was wrong — I recommended
+**a. Saturn and Pluto are broken, and my earlier advice here was wrong.**
+I previously wrote "ship as built". A blind critic then looked at the pictures
+and I withdraw that.
+
+Making the asteroids visible works — a child can now see them at every stop
+and every height, verified independently at 108 measurement points. But at the
+two stops whose material is WHITE, the fix satisfied the contrast metric by
+turning the rock into a black blob:
+
+| stop | art direction says | what ships |
+|---|---|---|
+| Saturn | ice chunks, **white** with ice-blue facets (L238) | **L61** — brown pebbles on a beige sky. No ice in the picture at all |
+| Pluto | **frost-white** ice, lilac facets (L234/214/157) | L40 / L33 / **L25** — three black blobs |
+
+Pluto's facet tones land below the minimum rock luminance, so its two-tone
+fill is black on black. Materials across every stop are also squeezed into a
+16-luma box, so Jupiter's four rock types sit ~5 levels apart and are told
+apart only by a 1.4px rim.
+
+This is the failure I asked the critic to watch for: *a rock that passes a
+contrast bar by being a black blob has satisfied the metric and ruined the
+game.* It is back with the art lane. Mars, Jupiter and Neptune survive
+unharmed — Neptune is the best frame in the set.
+
+**Nothing to decide here unless the lane cannot solve it.** Visible-AND-white
+is achievable; the sky at those stops is bright, so a white rock needs a dark
+rim and a darker facet rather than a dark body. If it comes back unsolved you
+will have to choose between a white rock and a visible one, and I would take
+visible — but we are not there yet.
+
+**b. One word-asteroid at a time**
+
+You asked whether more asteroids arrive at harder levels. They do not, and my first answer was wrong — I recommended
 raising `maxLive` and filling to it. A lane refuted both with measurement:
 `peakLive` is 2 at `maxLive` 7 exactly as at 2, and filling to the cap
 re-creates the stall defect. The real constraint is FR-8: a second rock is
@@ -101,10 +135,12 @@ Not the tests — the game. Earth to Pluto, as a child would.
 
 The board will say ~46 user tickets and thousands of green assertions. Do not
 trust that over your own eyes. **Read `docs/verification-gaps.md` first**: it
-records nine instances, found in one night, of a check that exercises something
-adjacent to the shipped thing, passes, and is believed. The worst is that the
-image a human judges for the visual rubric was being rendered by a *parallel*
-`Phaser.Game` in which the edge bars you reported six times are still alive.
+records FOURTEEN instances, found in one night, of a check that exercises
+something adjacent to the shipped thing, passes, and is believed. The worst:
+the image a human judged all world art against was a screenshot of the TITLE
+SCREEN, which voids every prior visual-rubric judgement. A close second: the
+asteroid-visibility probe reported PASSING numbers from three frames that
+contained no asteroid at all.
 
 Everything that mattered tonight was found by someone looking at the artifact.
 
@@ -120,6 +156,14 @@ Everything that mattered tonight was found by someone looking at the artifact.
 - **`.claude/settings.json` now has `defaultMode: bypassPermissions`** so
   nothing can stall overnight. That persists beyond this session; delete the
   line to restore prompts. All 23 deny rules still override it.
+- **The 63 open escalations are not a queue you have to work.** I checked:
+  **none of them is blocking.** Every one records a decision already taken
+  under D94 — options, evidence, a lean, and the behaviour that shipped — so
+  the game is in a defensible state whether or not you ever read them. They
+  are there so you can *disagree*, not so you can unblock anything. The
+  decisions that genuinely need you are in section 2 and section 3 of this
+  document, and there are five of them, not sixty-three.
+
 - **Electron**: asked about, advised against before the deadline. Trackpad
   haptics need a native addon plus notarization, and it risks the deployed URL
   eligibility depends on. Filed as `UR-29`, EXEMPT.

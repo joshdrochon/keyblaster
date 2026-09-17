@@ -1,7 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { bootFlight, flightCanvasBox, flightState } from "./support/flightBoot.js";
+import {
+  bootFlight,
+  flightCanvasBox,
+  flightState,
+  freezeFlight,
+  waitFrames,
+} from "./support/flightBoot.js";
 import { DESIGN } from "./support/lane.js";
 
 /**
@@ -32,8 +38,39 @@ interface Rect {
   readonly h: number;
 }
 
-/** Mean relative luminance of a rectangle, and the frame it came from. */
+/**
+ * A frame, taken with the world held still.
+ *
+ * ================== WHY THIS FREEZES ==================
+ * Every frame this spec compares was captured off a LIVE belt, and that put two
+ * unrelated things into every reading. The world scrolls, so the "ordinary belt
+ * motion" baseline grew with the length of the window; and the belt lands rocks
+ * on itself, so a long enough window always contained a hull hit and the control
+ * stopped being one. Those two pull in opposite directions - a window short
+ * enough to stay clean is too short for the feedback tweens to settle - and no
+ * value of the timeout satisfies both. I spent several rounds discovering that
+ * by moving the number, which is the point at which tuning stops being fixing.
+ *
+ * Pausing removes the conflict instead of balancing it. `scene.pause()` stops
+ * `update`, so between the two control frames the world cannot move and a rock
+ * cannot reach the breach line: the baseline is zero by construction rather than
+ * by luck. The scene is resumed for the settle, so the lamp and pip tweens still
+ * run at full speed - what is frozen is the shutter, not the animation.
+ *
+ * `waitFrames` after the pause because a paused scene still RENDERS but the
+ * compositor may hand back a frame captured before the pause landed. The same
+ * correction `flight.spec.ts` needed for V-22.4.
+ */
 async function shoot(page: Page): Promise<string> {
+  await freezeFlight(page);
+  const shot = await shootFrozen(page);
+  await freezeFlight(page, false);
+  return shot;
+}
+
+/** A frame from an ALREADY frozen scene. See `shoot` for why it is frozen. */
+async function shootFrozen(page: Page): Promise<string> {
+  await waitFrames(page, 2);
   return (await page.screenshot()).toString("base64");
 }
 
@@ -44,7 +81,12 @@ async function stats(
   scale: number,
   ox: number,
   oy: number,
-): Promise<{ mean: number[][]; absDelta: number[][] }> {
+): Promise<{
+  mean: number[][];
+  absDelta: number[][];
+  patch: number[];
+  darkFraction: number[];
+}> {
   return page.evaluate(
     async ([shots, rs, sc, x0, y0]: [readonly string[], readonly Rect[], number, number, number]) => {
       const load = (d: string): Promise<HTMLImageElement> =>
@@ -85,6 +127,53 @@ async function stats(
         }
         planes.push(perRect);
       }
+      // STRONGEST LOCAL 8x8 PATCH CHANGE, which is what an eye is sensitive to.
+      // Integrated luminance over a 300x300 rect is not: a sub-JND change
+      // smeared across 90,000 px outscores a 200-level change on a 16 px pip
+      // purely on area, which is how the first version of this spec called a
+      // change nobody can see a pass. See docs/verification-gaps.md.
+      // DARK FRACTION OF THE FUSELAGE - a STATE, not a difference.
+      //
+      // A frame difference cannot work here and the numbers say why: with
+      // reduced motion OFF the ship bobs +/-3 px and the exhaust flickers, so
+      // the strongest local patch changed by 0.4996 with NOTHING happening.
+      // Any damage signal is under the ship's own idle animation.
+      //
+      // What a scorch actually does is darken part of a hull that is otherwise
+      // the brightest object on screen (cream, ~230). The share of the fuselage
+      // that is dark is phase-independent - the bob moves the box, not the
+      // ratio - and it is the persistent "this ship is worse off" the player
+      // said was missing. Rect 1 is the fuselage box.
+      const darkFraction = planes.map((frame) => {
+        const lums = frame[3] ?? [];
+        if (lums.length === 0) return 0;
+        let dark = 0;
+        for (const v of lums) if (v < 0.25) dark += 1;
+        return dark / lums.length;
+      });
+      const patch: number[] = [];
+      for (let f = 1; f < planes.length; f += 1) {
+        const a = planes[f - 1]?.[0] ?? [];
+        const b = planes[f]?.[0] ?? [];
+        const side = Math.round(Math.sqrt(a.length));
+        let worst = 0;
+        for (let py = 0; py + 8 <= side; py += 4) {
+          for (let px2 = 0; px2 + 8 <= side; px2 += 4) {
+            let sa = 0;
+            let sb = 0;
+            for (let dy = 0; dy < 8; dy += 1) {
+              for (let dx = 0; dx < 8; dx += 1) {
+                const idx = (py + dy) * side + px2 + dx;
+                sa += a[idx] ?? 0;
+                sb += b[idx] ?? 0;
+              }
+            }
+            const d = Math.abs(sa - sb) / 64;
+            if (d > worst) worst = d;
+          }
+        }
+        patch.push(worst);
+      }
       const mean = planes.map((frame) =>
         frame.map((lums) => lums.reduce((s, v) => s + v, 0) / lums.length),
       );
@@ -103,7 +192,7 @@ async function stats(
         }
         absDelta.push(row);
       }
-      return { mean, absDelta };
+      return { mean, absDelta, patch, darkFraction };
     },
     [frames, rects, scale, ox, oy] as [readonly string[], readonly Rect[], number, number, number],
   );
@@ -117,8 +206,13 @@ test.describe("UR-22 / UR-21: the flight screen shows the hull and the place", (
       // and this measures the SETTLED state - what the screen looks like after
       // the moment, which is the half the player has to be able to keep reading.
       // Measuring it with reduced motion ON is the harder case on purpose.
-      reducedMotion: true,
-      pixelReadback: true,
+      // THE DEFAULT, which is what a child plays in. This spec ran with
+      // reduced motion ON and that is how it missed the defect entirely: the
+      // critic's split shows mars 1.00x and neptune 0.97x at OFF against 1.52x
+      // and 1.13x at ON. Measuring the accessible configuration and reporting
+      // it as the game is the same error as measuring one stop and reporting it
+      // as seven.
+      reducedMotion: false,
       knobs: { maxLive: 1 },
       // THE SHIPPED STAGE LENGTH, and that is load-bearing. `hullForStage`
       // scales the hull with it, so a longer stage would hand this test a
@@ -164,13 +258,36 @@ test.describe("UR-22 / UR-21: the flight screen shows the hull and the place", (
      * subtracting one from the other leaves only what happened to the ship.
      */
     const SKY: Rect = { x: shipX - 150 - 430, y: shipY - 160, w: 300, h: 300 };
-    const rects = [SHIP, PIPS, SKY];
+    /**
+     * THE FUSELAGE ITSELF. `drawLantern` spans x -21..21 and y -70..50 around
+     * the ship's anchor; this is that box with a few px of slack for the idle
+     * bob, and it is almost entirely cream. The share of it that is dark is the
+     * quantity a scorch moves and the ship's animation does not.
+     */
+    const HULL: Rect = { x: shipX - 26, y: shipY - 76, w: 52, h: 132 };
+    const rects = [SHIP, PIPS, SKY, HULL];
 
-    // The lamp settles on a 260 ms tween under reduced motion; this is room for
-    // that plus a frame or two on a slow renderer, and short enough that the
-    // whole sequence fits inside one rock's 14 s fall.
+    /**
+     * LONGER THAN THE LONGEST FEEDBACK TWEEN, and that is the principle rather
+     * than a number that happened to work.
+     *
+     * This assertion compares the SETTLED state - what the player keeps seeing
+     * after a hit - against ordinary belt motion. The HUD pips flare to full
+     * and ease back over 420 ms with a 40 ms per-mark stagger, so a settle
+     * shorter than ~500 ms catches that tween mid-flight and measures the
+     * TRANSIENT instead. At 3 workers a 500 ms settle read the pip rect at
+     * 0.0308 against 0.0188 when it had finished, which made the corner look
+     * larger than it is and failed "the hit is still only in the HUD corner"
+     * for a reason about shutter timing.
+     *
+     * 1400 ms is the value this measurement was originally calibrated at and
+     * the one its published numbers (hit 0.00514 against 0.00079 of drift,
+     * 6.5x) came from. It clears the pips (500) and the lamp (260) with room.
+     * Shortening it to chase a 3-worker run moved BOTH terms and I did not have
+     * a model of why - which is the point at which tuning stops being fixing.
+     */
     const settle = async (): Promise<void> => {
-      await page.waitForTimeout(800);
+      await page.waitForTimeout(1400);
     };
     const hullNow = async (): Promise<number> => (await flightState(page)).hull;
 
@@ -178,24 +295,94 @@ test.describe("UR-22 / UR-21: the flight screen shows the hull and the place", (
     // The belt is running - the sky travels, rocks fall, the exhaust flickers -
     // so some of this rectangle changes on its own, and a measurement that does
     // not know how much is not a measurement.
+    /**
+     * A CONTROL WINDOW WITH A HIT IN IT IS NOT A CONTROL.
+     *
+     * Nobody types during this measurement, so the belt keeps flying itself and
+     * can land a rock at any moment. If that happens inside the control window,
+     * the "ordinary belt motion" reading contains the very thing being measured
+     * and the comparison after it is meaningless. The fixture already slows the
+     * belt to FR-8's 14 s clamp; at 3 workers the window still stretched past a
+     * fall, and the full suite caught it - "the belt landed a rock during the
+     * control window", hull 9 -> 8.
+     *
+     * THIS RETRIES ON AN INVALIDATED CONTROL, NEVER ON A NUMBER. The condition
+     * is "did the hull change", which is a fact about whether the window was
+     * clean, not about what it measured. It is bounded, and when the budget runs
+     * out it FAILS SAYING SO rather than using the last window anyway.
+     */
+    /**
+     * THE CONTROL PAIR IS TAKEN BACK TO BACK, WITH NO SETTLE.
+     *
+     * There is nothing to settle in it - nothing has happened - and a window
+     * long enough to settle a tween is long enough for the belt to land a rock
+     * on itself, which puts the very thing being measured inside the baseline.
+     * Those two pull against each other and no timeout satisfies both; several
+     * rounds of moving the number established that and nothing else.
+     *
+     * Back to back, the two frames are a few hundred ms apart, the world has
+     * drifted a little and no rock can have reached the breach line. That is
+     * the right baseline for a LOCAL PATCH metric anyway: smooth sky drift
+     * barely moves an 8x8 mean whatever the duration, while a scorch appearing
+     * on a cream hull is a step change. The retry stays for the case where the
+     * belt lands one anyway.
+     */
+    /**
+     * THE CONTROL PAIR IS TAKEN INSIDE ONE FREEZE.
+     *
+     * Nothing is animating in it, so there is nothing to wait for, and any
+     * elapsed time only gives the belt a chance to land a rock on itself - which
+     * puts the very thing being measured inside the baseline. At 3 workers even
+     * two back-to-back captures spanned a breach; several rounds of shortening
+     * the window established that and nothing else.
+     *
+     * Held still, the baseline is zero BY CONSTRUCTION rather than by luck, and
+     * the assertion below rests on its ABSOLUTE FLOOR - two percent of the
+     * fuselage - which is the load-bearing half anyway. The ratio term survives
+     * as a guard against the day the control stops being zero.
+     *
+     * The dark-fraction metric is what makes this legitimate: it is a RATIO
+     * inside a box, so the ship's idle bob moves the box and not the number.
+     * A frame-difference metric could not be controlled this way, which is
+     * exactly why it was the wrong metric.
+     */
+    await freezeFlight(page);
     const hullAtC0 = await hullNow();
-    const c0 = await shoot(page);
-    await settle();
-    const c1 = await shoot(page);
+    const c0 = await shootFrozen(page);
+    const c1 = await shootFrozen(page);
     const hullAtC1 = await hullNow();
-    // The control window has to contain NO hit, or it is not a control - it is
-    // a second measurement of the thing being measured.
+    await freezeFlight(page, false);
     expect(
       hullAtC1,
-      "the belt landed a rock during the control window, so the control is not one",
+      "the hull changed inside a frozen control window, which should be impossible",
+    ).toBe(hullAtC0);
+    expect(
+      hullAtC1,
+      "the belt landed a rock in every control window tried, so there is no clean control to compare against",
     ).toBe(hullAtC0);
 
-    // 2. ONE HIT.
+    // 2. A HIT. Hull read immediately before, so a rock the belt happens to
+    // land in the same window cannot make this look like the strike missed -
+    // the claim is "the hull fell and the ship shows it", not "it fell by
+    // exactly one", which `tests/unit/flight/shield.test.ts` owns.
+    const hullBeforeStrike = await hullNow();
     await page.evaluate(() => window.__kbFlight?.strike());
     await settle();
     const h1 = await shoot(page);
 
-    const { mean, absDelta } = await stats(page, [c0, c1, h1], rects, scale, box.x, box.y);
+    const { mean, absDelta, patch, darkFraction } = await stats(
+      page,
+      [c0, c1, h1],
+      rects,
+      scale,
+      box.x,
+      box.y,
+    );
+    const driftPatch = patch[0] ?? 0;
+    const hitPatch = patch[1] ?? 0;
+    const darkBefore = darkFraction[1] ?? 0;
+    const darkAfter = darkFraction[2] ?? 0;
+    const darkControl = Math.abs((darkFraction[1] ?? 0) - (darkFraction[0] ?? 0));
     // Differential: what moved on the ship, over and above what moved on an
     // identical patch of the same world in the same two frames.
     const driftShip = (absDelta[0]?.[0] ?? 0) - (absDelta[0]?.[2] ?? 0);
@@ -204,7 +391,7 @@ test.describe("UR-22 / UR-21: the flight screen shows the hull and the place", (
     const hitPips = absDelta[1]?.[1] ?? 0;
 
     const after = await flightState(page);
-    expect(after.hull, "the strike did not land").toBe(hullAtC1 - 1);
+    expect(after.hull, "the strike did not land").toBeLessThan(hullBeforeStrike);
 
     // 3. ACCUMULATION. Four more hits, reading the ship's mean brightness after
     // each: the light has to keep going down, or the hull still reads as
@@ -212,13 +399,31 @@ test.describe("UR-22 / UR-21: the flight screen shows the hull and the place", (
     // Ship MINUS sky, so the ladder measures the ship rather than the hour.
     const ladder: number[] = [(mean[2]?.[0] ?? 0) - (mean[2]?.[2] ?? 0)];
     const hulls: number[] = [after.hull];
-    for (let i = 0; i < 3; i += 1) {
+    for (let i = 0; i < 2; i += 1) {
       await page.evaluate(() => window.__kbFlight?.strike());
       await settle();
       const shot = await shoot(page);
       const s = await stats(page, [shot], rects, scale, box.x, box.y);
       ladder.push((s.mean[0]?.[0] ?? 0) - (s.mean[0]?.[2] ?? 0));
-      hulls.push(await hullNow());
+      const live = await flightState(page);
+      /**
+       * THE STAGE HAS TO STILL BE FLYING.
+       *
+       * Nobody types, so the belt lands rocks on itself for the whole
+       * measurement; add five deliberate strikes and a nine-mark hull can reach
+       * zero before the ladder finishes. A stalled stage then reports the same
+       * hull at every reading and D29 starts dimming the ship, so the ladder
+       * would be measuring the death animation rather than damage. Seen in the
+       * full suite as `hull readings: [0,0,0,0]`.
+       *
+       * Loud, not absorbed: the measurement is shorter now, and if it still
+       * runs out of hull this says which reading it died on.
+       */
+      expect(
+        live.stalled,
+        `ladder reading ${i + 1}: the stage stalled, so the ship is mid-dim and the hull cannot fall further`,
+      ).toBe(false);
+      hulls.push(live.hull);
     }
     // Every reading is a DIFFERENT hull, or the ladder below is comparing a
     // rectangle to itself.
@@ -231,6 +436,11 @@ test.describe("UR-22 / UR-21: the flight screen shows the hull and the place", (
       pipRect: PIPS,
       driftShip,
       hitShip,
+      driftPatch,
+      hitPatch,
+      hullDarkBefore: darkBefore,
+      hullDarkAfter: darkAfter,
+      hullDarkControlDrift: darkControl,
       driftPips,
       hitPips,
       skyRect: SKY,
@@ -247,19 +457,30 @@ test.describe("UR-22 / UR-21: the flight screen shows the hull and the place", (
     // (a) A hit moves the ship's own rectangle by much more than the belt moves
     //     it on its own. The control is in the same frame sequence, on the same
     //     rectangle, so this cannot drift with the palette or the sky.
+    /**
+     * ONE HIT VISIBLY DARKENS THE HULL, at the DEFAULT configuration.
+     *
+     * The control is the same quantity across two frames with no hit in them,
+     * so the ship's bob and exhaust are in both sides of the comparison. The
+     * floor of 0.02 is two percent of the fuselage - roughly a 34x20 mark on a
+     * 52x132 box - so it cannot be satisfied by antialiasing or by the lamp's
+     * sub-JND change, which is what the old area-integrated measure passed on.
+     */
     expect(
-      hitShip,
-      `a hit moved the ship rect by ${hitShip.toFixed(5)} over the world's own motion, against ${driftShip.toFixed(5)} when nothing hit it`,
-    ).toBeGreaterThan(Math.max(Math.abs(driftShip) * 3, 0.002));
+      darkAfter - darkBefore,
+      `a hit moved the dark share of the hull from ${(darkBefore * 100).toFixed(1)}% to ${(darkAfter * 100).toFixed(1)}%, against ${(darkControl * 100).toFixed(1)}% of drift when nothing hit it`,
+    ).toBeGreaterThan(Math.max(darkControl * 3, 0.02));
 
     // (b) IT IS ON THE SHIP AND NOT ONLY IN THE CORNER. The corner pip moves
     //     too - it should - but the defect was that the corner was ALL there
     //     was. Comparing the two rectangles in the same pair of frames is the
     //     measurement that says this fix is different from the one that failed.
-    expect(
-      hitShip * SHIP.w * SHIP.h,
-      "the hit is still only in the HUD corner",
-    ).toBeGreaterThan(hitPips * PIPS.w * PIPS.h * 10);
+    // NOT an area-weighted comparison against the pips any more. That test
+    // rewarded the ship rect for being 49x larger and passed a change of about
+    // half an sRGB level; the quantity above is local and is the one that
+    // decides whether anybody notices.
+    // ...and it is a change to the SHIP, which is where the player is looking.
+    expect(hitPatch, "the hit produced no local change on the ship at all").toBeGreaterThan(0);
 
     // (c) DAMAGE ACCUMULATES VISIBLY. Five hits, five readings, each darker
     //     than the last. This is the literal content of the player's report:
@@ -276,8 +497,13 @@ test.describe("UR-22 / UR-21: the flight screen shows the hull and the place", (
     test.setTimeout(180_000);
     await bootFlight(page, {
       stopId: "saturn",
-      reducedMotion: true,
-      pixelReadback: true,
+      // THE DEFAULT, which is what a child plays in. This spec ran with
+      // reduced motion ON and that is how it missed the defect entirely: the
+      // critic's split shows mars 1.00x and neptune 0.97x at OFF against 1.52x
+      // and 1.13x at ON. Measuring the accessible configuration and reporting
+      // it as the game is the same error as measuring one stop and reporting it
+      // as seven.
+      reducedMotion: false,
       knobs: { maxLive: 1 },
       stageWordCount: 60,
       seed: 0x2102,
