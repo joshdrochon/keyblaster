@@ -640,7 +640,6 @@ export class FlightScene extends Phaser.Scene {
 
     this.scorchLayer = this.add.container(0, 0);
     this.shipBody.add(this.scorchLayer);
-    this.shipBody.add(this.add.text(0, 40, "Lantern", { fontSize: "20px" }));
 
     this.emitterHead = this.add.container(0, -74);
     const head = this.add.graphics();
@@ -660,8 +659,8 @@ export class FlightScene extends Phaser.Scene {
     // entity position invariant and the art both hold.
     if (!this.cfg.reducedMotion) {
       this.tweens.add({
-        targets: root,
-        y: { from: shipY, to: shipY - 3 },
+        targets: this.shipBody,
+        y: { from: 0, to: -3 },
         duration: 1500,
         yoyo: true,
         repeat: -1,
@@ -772,7 +771,8 @@ export class FlightScene extends Phaser.Scene {
     g.strokeCircle(0, -10, 13);
     g.lineStyle(2, housing, 0.7);
     g.strokeCircle(0, -10, 9.5);
-    // SABOTAGE: third ring removed
+    g.lineStyle(2, housing, 0.5);
+    g.strokeCircle(0, -10, 6);
 
     // large lens
     g.fillStyle(lens, 0.9);
@@ -958,7 +958,7 @@ export class FlightScene extends Phaser.Scene {
       this.layerOffsets[spec.id] += spec.speed * world * dt;
     }
 
-    // SABOTAGE: this.parallax.update(dt * 1000);
+    this.parallax.update(dt * 1000);
 
     // AC-22.3: the sky travels from its opening stops to its closing ones over
     // the stage. Repainting is now a crossfade between two pre-drawn gradients
@@ -1479,7 +1479,7 @@ export class FlightScene extends Phaser.Scene {
     const origin = this.emitterWorldPoint();
     const target = { x: rock.container.x, y: rock.container.y };
     this.beam.clear();
-    this.drawIris(this.iris, 0.5);
+    this.drawIris(this.iris, 1);
     this.tweens.addCounter({
       from: 1,
       to: 0,
@@ -2079,7 +2079,7 @@ export class FlightScene extends Phaser.Scene {
   private aimEmitter(): void {
     const id = this.lock.lockedId;
     const rock = id === null ? undefined : this.rockById(id);
-    const target = 0; void rock;
+    const target = rock === undefined ? 0 : this.aimAngleTo(rock);
     this.emitterHead.rotation += (target - this.emitterHead.rotation) * 0.18;
   }
 

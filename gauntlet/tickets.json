@@ -893,19 +893,6 @@
     "refs": []
   },
   {
-    "id": "KB-AC-17.3",
-    "kind": "ac",
-    "title": "Beacon persists to profile and blinks on the Director map thereafter.",
-    "source": "docs/prd.md",
-    "state": "OPEN",
-    "why": "no test names this AC",
-    "testTypes": [
-      "E"
-    ],
-    "evidence": [],
-    "refs": []
-  },
-  {
     "id": "KB-AC-21.2",
     "kind": "ac",
     "title": "Music has ≥ 3 intensity layers; intensity index is a function of live asteroid count and combo.",
@@ -955,21 +942,6 @@
       "KB-AC-12b.1",
       "KB-AC-12b.2",
       "KB-AC-12b.3"
-    ]
-  },
-  {
-    "id": "KB-FR-17",
-    "kind": "fr",
-    "title": "Beacon",
-    "source": "docs/prd.md:163",
-    "state": "OPEN",
-    "why": "rolled up from 4 AC(s); worst is OPEN",
-    "evidence": [],
-    "refs": [
-      "KB-AC-17.0",
-      "KB-AC-17.1",
-      "KB-AC-17.2",
-      "KB-AC-17.3"
     ]
   },
   {
@@ -1748,7 +1720,7 @@
     "title": "Per-planet ambient bed exists, crossfades, and follows the running game",
     "source": "tests/gauntlet/rubric.mjs (D62 / AC-21.1)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1763,7 +1735,7 @@
     "title": "All ten events have >= 3 SFX variants, rotate, and are reached by game code",
     "source": "tests/gauntlet/rubric.mjs (D62 / AC-21.3)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1778,7 +1750,7 @@
     "title": "Music ducks by >= 6 dB while Shadow speaks, on the live graph",
     "source": "tests/gauntlet/rubric.mjs (D62 / AC-21.4)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1793,7 +1765,7 @@
     "title": "Shadow speaks via Web Speech system voice; zero network TTS at runtime",
     "source": "tests/gauntlet/rubric.mjs (D88 / AC-21.5)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1808,7 +1780,7 @@
     "title": "Coach notes are spoken after the text renders, display identical either way",
     "source": "tests/gauntlet/rubric.mjs (D88 / AC-21.6)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1823,7 +1795,7 @@
     "title": "The game is audible: cues reach the bus, sliders move it, silence never crashes",
     "source": "tests/gauntlet/rubric.mjs (audit.md 1.2 / AC-19.1 / AC-6e.2)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1838,7 +1810,7 @@
     "title": "Engine coverage >= 95% lines/branches/functions/statements",
     "source": "tests/gauntlet/rubric.mjs (D55 / CLAUDE.md)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1852,7 +1824,7 @@
     "title": "src/engine imports neither Phaser nor the DOM",
     "source": "tests/gauntlet/rubric.mjs (CLAUDE.md HARD RULES / architecture section 2)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1864,7 +1836,7 @@
     "title": "No red failure state, lives counter, or 'wrong' sound",
     "source": "tests/gauntlet/rubric.mjs (D28 / D31 / design brief 'Do not')",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1879,7 +1851,7 @@
     "title": "Exactly one drawShadow and one drawLantern implementation",
     "source": "tests/gauntlet/rubric.mjs (D91 / AC-25.1 / D83)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1895,7 +1867,7 @@
     "title": "No PII field and no analytics SDK anywhere in src/",
     "source": "tests/gauntlet/rubric.mjs (D43 / AC-18.2 / NFR-3)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1910,7 +1882,7 @@
     "title": "No raster asset referenced from src/ (all art is vector in code)",
     "source": "tests/gauntlet/rubric.mjs (D83 / D84 / CLAUDE.md)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1925,7 +1897,7 @@
     "title": "No API-key-shaped string in the client bundle",
     "source": "tests/gauntlet/rubric.mjs (NFR-4 / CLAUDE.md)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1937,7 +1909,7 @@
     "title": "At least 5 parallax layers at distinct scroll speeds",
     "source": "tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (config half))",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1952,7 +1924,7 @@
     "title": "Layer-debug overlay shows the five speeds actually moving",
     "source": "tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (visual half))",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1967,7 +1939,7 @@
     "title": "Idle frame is never still (two Title shots 1s apart differ > 2%)",
     "source": "tests/gauntlet/rubric.mjs (D60#2 / AC-22.2)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1982,7 +1954,7 @@
     "title": "Sky gradient shifts across a stage (deltaE > 10)",
     "source": "tests/gauntlet/rubric.mjs (D60#3 / AC-22.3)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1997,7 +1969,7 @@
     "title": "Zero Linear easing anywhere in tween configs",
     "source": "tests/gauntlet/rubric.mjs (D60#5 / AC-22.5)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -2012,7 +1984,7 @@
     "title": "Blast, hit and warp have distinct particle signatures",
     "source": "tests/gauntlet/rubric.mjs (D60#6 / AC-22.6)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -2027,7 +1999,7 @@
     "title": "Each stage palette is 5-7 colours plus exactly one accent",
     "source": "tests/gauntlet/rubric.mjs (D60#7 / AC-22.7)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -2042,7 +2014,7 @@
     "title": "Every piece of text a child reads is >= 4.5:1 - plate AND sky",
     "source": "tests/gauntlet/rubric.mjs (D60#8 / AC-22.8)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 2.5h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 2.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -2962,6 +2934,21 @@
     ],
     "evidence": [
       "tests/unit/ephemeris/ephemeris.test.ts"
+    ],
+    "refs": []
+  },
+  {
+    "id": "KB-AC-17.3",
+    "kind": "ac",
+    "title": "Beacon persists to profile and blinks on the Director map thereafter.",
+    "source": "docs/prd.md",
+    "state": "DONE",
+    "why": "named by an assertion in 1 test file(s)",
+    "testTypes": [
+      "E"
+    ],
+    "evidence": [
+      "tests/e2e/beacon-persist-blink.spec.ts"
     ],
     "refs": []
   },
@@ -4210,6 +4197,21 @@
     ]
   },
   {
+    "id": "KB-FR-17",
+    "kind": "fr",
+    "title": "Beacon",
+    "source": "docs/prd.md:163",
+    "state": "DONE",
+    "why": "rolled up from 4 AC(s); worst is DONE",
+    "evidence": [],
+    "refs": [
+      "KB-AC-17.0",
+      "KB-AC-17.1",
+      "KB-AC-17.2",
+      "KB-AC-17.3"
+    ]
+  },
+  {
     "id": "KB-FR-2",
     "kind": "fr",
     "title": "Asteroids",
@@ -4324,9 +4326,10 @@
     "title": "Beacon placement",
     "source": "docs/design-brief-v2.md (screen inventory)",
     "state": "DONE",
-    "why": "driven by 8 e2e spec(s): tests/e2e/audio-wiring.spec.ts, tests/e2e/beacon.spec.ts",
+    "why": "driven by 9 e2e spec(s): tests/e2e/audio-wiring.spec.ts, tests/e2e/beacon-persist-blink.spec.ts",
     "evidence": [
       "tests/e2e/audio-wiring.spec.ts",
+      "tests/e2e/beacon-persist-blink.spec.ts",
       "tests/e2e/beacon.spec.ts",
       "tests/e2e/beaconlog.spec.ts",
       "tests/e2e/default-focus.spec.ts",
@@ -4364,8 +4367,9 @@
     "title": "Director map",
     "source": "docs/design-brief-v2.md (screen inventory)",
     "state": "DONE",
-    "why": "driven by 6 e2e spec(s): tests/e2e/beaconlog.spec.ts, tests/e2e/briefing.spec.ts",
+    "why": "driven by 7 e2e spec(s): tests/e2e/beacon-persist-blink.spec.ts, tests/e2e/beaconlog.spec.ts",
     "evidence": [
+      "tests/e2e/beacon-persist-blink.spec.ts",
       "tests/e2e/beaconlog.spec.ts",
       "tests/e2e/briefing.spec.ts",
       "tests/e2e/earth-activation.spec.ts",

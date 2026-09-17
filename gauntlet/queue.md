@@ -220,6 +220,40 @@ Prescription: four continuous full-width bands, profiled bottom edges, values
 replacing the wash, streak alpha ×3. Closes WORLD-BAR 1, 2, 3, 6, 8 plus the
 edge regression plus the flat bases — one routine.
 
+## P2d — UNTESTED BY CONSTRUCTION: a class of defect, not an incident
+
+The letterbox bug painted Earth's sky and ground around a Mars picture, and
+nothing caught it because **every e2e in the repo runs at 1280×720, which is
+exactly 16:9 and therefore has no letterbox at all.** The feature could not
+fail a test because no test ever created the condition it lives in.
+
+That is the same shape as three other defects found tonight, and it is worth
+treating as a class:
+
+| defect | the condition no test created |
+|---|---|
+| letterbox painting the wrong planet | any aspect ratio that is not 16:9 |
+| trophies never earned | a profile that had actually played |
+| `StopProgress.cleared` never set | a stop that had been completed |
+| calibration never runs | a child who types slower than 350ms |
+
+In each case the module was complete, tested and coverage-gated, and the
+suite was green over a game that could not reach it.
+
+**Worth a sweep, and nobody is on it:** find the single-value assumptions the
+test suite bakes in, and ask what each one hides. Known so far — one viewport
+(1280×720), one typing speed (`DEFAULT_CALIBRATION.ikiMs` 350 everywhere except
+the simulation, which injects its own), one language (`content/en/` is the only
+glob), one aspect ratio, one palette per test. Each is a place where a real
+player differs from every test we run.
+
+Also outstanding from the letterbox fix: `currentStop`'s scene-data path still
+returns Earth for any URL-booted scene that does NOT call `buildParallax`. The
+registry answer shadows it for every world screen, so the picture is right —
+but a non-world scene opened by URL still reports Earth **to the audio bed**.
+Smaller version of the same bug; belongs with whoever owns story-lane
+resolution.
+
 ## P2b — the ticket board's own defects (from its critic). FIXED so far: D-1, D-2, D-3, D-10, D-11, D-18, D-21.
 
 The board was reviewed by a critic that did not build it. Its verdict was **no,
