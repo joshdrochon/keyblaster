@@ -155,11 +155,30 @@ const visual = [
     title: "Layer-debug overlay shows the five speeds actually moving",
     kind: "visual",
     needsBrowser: true,
-    run: async ({ evidence }) =>
-      evidence.has("parallax-overlay.json")
-        ? evidence.assertNumber("parallax-overlay.json", "movingLayers", (v) => v >= 5,
-            "layers observed moving at distinct rates in the debug overlay")
-        : todo("Flight scene not built; no parallax-overlay.json evidence"),
+    // READS THE FLIGHT CAPTURE BY NAME, and checks it says so.
+    //
+    // This used to read `parallax-overlay.json`, which BOTH `flight.spec.ts` and
+    // `title.spec.ts` wrote. The Title one measured "did the layer move at all",
+    // which is not this item's claim, and it is the one that survived the race -
+    // so "five speeds actually moving" was certified by a capture that never
+    // measured a speed. Two changes make that impossible: the artifact is
+    // scene-qualified, and the key asserted is `distinctRates`, which the weaker
+    // capture does not emit at all.
+    run: async ({ evidence }) => {
+      if (!evidence.has("parallax-overlay-flight.json")) {
+        return todo("Flight scene not built; no parallax-overlay-flight.json evidence");
+      }
+      const data = evidence.read("parallax-overlay-flight.json");
+      if (data.scene !== "Flight") {
+        return bad(
+          `parallax-overlay-flight.json was captured from "${data.scene}", not Flight`,
+          evidence.path("parallax-overlay-flight.json"),
+        );
+      }
+      return evidence.assertNumber(
+        "parallax-overlay-flight.json", "distinctRates", (v) => v >= 5,
+        "layers observed moving at DISTINCT rates in the Flight debug overlay");
+    },
   },
   {
     id: "V-22.2",
@@ -191,11 +210,36 @@ const visual = [
     title: "Silhouettes read when desaturated",
     kind: "visual",
     needsBrowser: true,
-    run: async ({ evidence }) =>
-      evidence.has("desaturated-contours.json")
-        ? evidence.assertNumber("desaturated-contours.json", "contours", (v) => v >= 3 && v <= 60,
-            "contour count in the desaturated flight frame")
-        : todo("Flight scene not built; no desaturated-contours.json evidence"),
+    // MEASURES THE OBJECTS, NOT THE FRAME.
+    //
+    // This used to assert that a desaturated frame contained between 3 and 60
+    // connected regions, on an evidence file whose entire content was
+    // `{"contours": 14}`. A region count cannot fail for the reason AC-22.4
+    // exists: it says nothing about whether any of those regions IS a rock, and
+    // a frame in which every asteroid had dissolved into the terrain would
+    // still score a dozen contours off the terrain alone.
+    //
+    // `desaturated-silhouettes.json` measures, per rock and for the ship, the
+    // luminance gap between the object and a ring just outside it. An object
+    // that has dissolved into its background scores zero there whatever the
+    // rest of the frame is doing.
+    run: async ({ evidence }) => {
+      if (!evidence.has("desaturated-silhouettes.json")) {
+        return todo("Flight scene not built; no desaturated-silhouettes.json evidence");
+      }
+      const data = evidence.read("desaturated-silhouettes.json");
+      // Anti-vacuity: a capture that measured one object is a capture of an
+      // empty sky, and its minimum is meaningless.
+      if (!(data.objectsMeasured >= 3)) {
+        return bad(
+          `only ${data.objectsMeasured} object(s) measured; the belt was empty`,
+          evidence.path("desaturated-silhouettes.json"),
+        );
+      }
+      return evidence.assertNumber(
+        "desaturated-silhouettes.json", "minSeparation", (v) => v > 0.06,
+        `weakest object/background luminance separation across ${data.objectsMeasured} objects, desaturated`);
+    },
   },
   {
     id: "V-22.5",
@@ -267,40 +311,62 @@ const visual = [
     source: "D60#8 / AC-22.8",
     title: "Word plate text contrast >= 4.5:1",
     kind: "unit",
-    run: async ({ repo, evidence }) => {
+    needsBrowser: true,
+    run: async ({ evidence }) => {
       // Two things are drawn on the plate: the untyped word in plateText, and
       // the letters ALREADY TYPED in the accent. This check only ever measured
       // the first pair, so it reported 18.08 while typed letters sat at 1.02:1
       // on two stops in colourblind mode - invisible, for the accessibility
       // setting. A contrast check that skips the colour the child is actually
       // reading is not a contrast check.
-      const pp = join(repo, "src/content/palettes.json");
-      if (!existsSync(pp)) return todo("src/content/palettes.json not compiled yet");
-      const palettes = JSON.parse(readFileSync(pp, "utf8"));
-
-      const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-      const lin = (c) => (c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-      const lum = (h) => { const [r, g, b] = hex(h); return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b); };
-      const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
-
-      const fails = [];
-      let worst = Infinity;
-      for (const [stop, pal] of Object.entries(palettes)) {
-        const checks = [
-          [`${stop} body`, pal.plateText, pal.plate],
-          [`${stop} typed`, pal.accent, pal.plate],
-          [`${stop} typed (colourblind)`, pal.colorblind?.plateAccent, pal.plate],
-        ];
-        for (const [what, fg, bg] of checks) {
-          if (typeof fg !== "string") { fails.push(`${what}: missing colour`); continue; }
-          const r = ratio(fg, bg);
-          worst = Math.min(worst, r);
-          if (r < 4.5) fails.push(`${what} ${r.toFixed(2)}:1`);
-        }
+      // MEASURED BY THE GAME, NOT BY THIS FILE.
+      //
+      // This used to read `src/content/palettes.json` and check
+      // `colorblind.plateAccent`. That field was read by NOTHING ELSE IN THE
+      // REPO: `palette.ts` drew `colorblind.accent`, which on Saturn and Pluto
+      // is a near-black (#111318) chosen to separate from an ivory sky. On the
+      // plate (#0E1116) it is 1.02:1. This check reported 6.71:1 the whole time,
+      // and it was not wrong - it was measuring a different colour from the one
+      // a child was looking at.
+      //
+      // `contrast.json` is now written by `flight.spec.ts` from `paletteAt()` -
+      // the function the scenes actually call - across both palette modes and
+      // both letter states. A palette field that no renderer consumes cannot
+      // satisfy it, because the number never passes through this file.
+      if (!evidence.has("contrast.json")) {
+        return todo("no contrast.json evidence; run the e2e suite");
       }
-      const ev = "src/content/palettes.json";
-      if (fails.length) return bad(`below 4.5:1 - ${fails.join(", ")}`, ev);
-      return ok(`worst contrast ${worst.toFixed(2)}:1 across 7 palettes x {body, typed, typed-colourblind}`, ev);
+      const data = evidence.read("contrast.json");
+      const rows = Array.isArray(data.rows) ? data.rows : [];
+      // Seven stops x {normal, colourblind} x {resting, typed}. Asserted rather
+      // than trusted: a capture that silently stopped covering colourblind mode
+      // is exactly how the original defect hid.
+      if (rows.length !== 28) {
+        return bad(
+          `contrast.json has ${rows.length} samples; expected 28 (7 stops x 2 modes x 2 letter states)`,
+          evidence.path("contrast.json"),
+        );
+      }
+      const modes = new Set(rows.map((r) => r.mode));
+      const roles = new Set(rows.map((r) => r.role));
+      if (!modes.has("colourblind") || !roles.has("typed")) {
+        return bad(
+          `contrast.json does not cover the typed letter in colourblind mode (modes: ${[...modes].join(", ")}; roles: ${[...roles].join(", ")})`,
+          evidence.path("contrast.json"),
+        );
+      }
+      const failing = rows.filter((r) => !(r.ratio >= 4.5));
+      if (failing.length) {
+        return bad(
+          `below 4.5:1 - ${failing.map((r) => `${r.stop} ${r.mode} ${r.role} ${r.ratio}:1`).join(", ")}`,
+          evidence.path("contrast.json"),
+        );
+      }
+      const worst = rows.reduce((a, b) => (b.ratio < a.ratio ? b : a));
+      return ok(
+        `worst contrast ${worst.ratio}:1 (${worst.stop}, ${worst.mode}, ${worst.role}) across ${rows.length} samples read back from paletteAt()`,
+        evidence.path("contrast.json"),
+      );
     },
   },
   {

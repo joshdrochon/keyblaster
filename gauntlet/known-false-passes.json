@@ -1,0 +1,50 @@
+[
+  {
+    "id": "V-22.4",
+    "why": "Contour count replaced with per-region background separation, but the art lane reports it still scores 0.239 on a known vignette regression where a position-aware probe scored 0.002 — Otsu is adaptive and re-splits a crushed frame. Kept open deliberately: the lane declined to tune the threshold to catch that one defect, which is how a check becomes green and meaningless.",
+    "cite": {
+      "file": "docs/coverage-audit.md",
+      "quote": "desaturated-contours.json` is the two-byte-value file"
+    }
+  },
+  {
+    "id": "G-scenes",
+    "why": "Reports 27 scenes where there are 17 (it walks lib/ and support/ helpers), asserts nothing itself, and defers to G-trace, which passes non-strict. It has no failing branch.",
+    "cite": {
+      "file": "docs/coverage-audit.md",
+      "quote": "G-scenes counts **27** scenes"
+    }
+  },
+  {
+    "id": "G-trace",
+    "why": "\"Every AC has a test\" is a substring scan over concatenated test sources, and the --strict flag that would enforce it is never passed by the gauntlet.",
+    "cite": {
+      "file": "docs/coverage-audit.md",
+      "quote": "### FALSE-PASS (systemic) — evidence has no freshness or provenance gate"
+    }
+  },
+  {
+    "id": "AC-6d.1c",
+    "why": "Twelve trophies are defined in src/game/ui/catalog.ts and nothing in src/ ever writes profile.trophies; ResultsScene.ts:237 hardcodes an empty list. Every trophy test seeds the trophy first.",
+    "cite": {
+      "file": "docs/audit.md",
+      "quote": "twelve trophies — defined in config and"
+    }
+  },
+  {
+    "id": "L-6e.3",
+    "why": "deadtime.json is quantised to the harness's own 120ms tick and reports exactly 120; the anti-vacuity control asserts <= 2000 where it needed > 0.",
+    "cite": {
+      "file": "docs/coverage-audit.md",
+      "quote": "### VACUOUS — `deadtime.json` is quantised to its own tick"
+    }
+  },
+  {
+    "id": "L-6e.4",
+    "why": "retention.json's \"trends upward\" follows arithmetically from 0.72 ** record.hits in the player model; the engine contributes nothing to the number.",
+    "cite": {
+      "file": "docs/coverage-audit.md",
+      "quote": "### VACUOUS — `retention.json`'s \"trends upward\" is arithmetic"
+    }
+  }
+]

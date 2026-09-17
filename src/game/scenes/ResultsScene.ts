@@ -6,6 +6,7 @@ import {
   type StageTally,
   type WordExposure,
 } from "@engine/scoring";
+import { awardTrophies, newTrophies, type StageAward } from "@engine/awards";
 import {
   DEFAULT_CALIBRATION,
   DEFAULT_SETTINGS,
@@ -87,6 +88,16 @@ export interface ResultsInit extends StoryInit {
    */
   readonly relativeBoard?: readonly RelativeRow[];
   readonly onRelativeBoardOptIn?: (optedIn: boolean) => void;
+  /**
+   * What the stage knows and the profile cannot (D80, AC-6d.1c): the peak
+   * chain, D25's tier, the stars, the retention set. Travels in Flight's opaque
+   * `payload` through Warp and Beacon.
+   *
+   * Optional, because a harness mounting this screen against a fixture has no
+   * stage behind it - and in that case no stage-only trophy is awarded, which
+   * is right: nothing was played.
+   */
+  readonly award?: StageAward;
 }
 
 const EMPTY_TALLY: StageTally = {
@@ -114,6 +125,8 @@ export class ResultsScene extends Phaser.Scene {
   /** False on the very first run at this stop: there is no best to report yet. */
   private hasPreviousRun = false;
   private optedIn = false;
+  /** Trophies THIS run earned, in award order (AC-6d.2: once per profile). */
+  private earnedTrophies: readonly string[] = [];
   private promptShown = false;
   /** True once the player has answered the one-time prompt, either way. */
   private promptAnswered = false;
@@ -126,6 +139,7 @@ export class ResultsScene extends Phaser.Scene {
 
   init(data: ResultsInit | undefined): void {
     this.initData = data;
+    this.earnedTrophies = [];
     this.boardParts = [];
     this.rendered = [];
     this.promptShown = false;
@@ -174,6 +188,14 @@ export class ResultsScene extends Phaser.Scene {
         wpm: this.results.wpm,
         accuracy: this.results.accuracy,
       });
+      // AND THE TROPHIES. Twelve were defined, the Beacon Log drew all twelve,
+      // and none could ever be earned: nothing in the whole of `src/` wrote to
+      // `profile.trophies`. This is that write, and it runs AFTER the clear
+      // above on purpose - Map Maker, Last Light and First Light are questions
+      // about beacons, and the beacon for this stop is only just recorded.
+      //
+      // `@engine/awards` owns which ones; this line owns when.
+      this.persistTrophies();
     }
 
     this.parallax = buildParallax(this, {
@@ -239,6 +261,28 @@ export class ResultsScene extends Phaser.Scene {
       unlockedSkins: [],
       words: {},
     };
+  }
+
+  /**
+   * Fold this run's trophies into the live profile (D80, AC-6d.1c, AC-6d.2).
+   *
+   * Nothing is drawn from it on this screen, and that is D74's own instruction
+   * rather than an omission: a trophy is informational, it lives in the Beacon
+   * Log where the player can go and look at it, and a results screen that
+   * announces an award is a results screen that has become a reward ceremony.
+   * The audit's reading of Deci/Koestner/Ryan (1999) - expected,
+   * performance-contingent rewards undermine intrinsic motivation, most of all
+   * in children - is the argument for keeping it quiet here.
+   */
+  private persistTrophies(): void {
+    const store = this.lane.services?.store;
+    const profile = store?.activeProfile();
+    if (!store || !profile) return;
+    const award = this.initData?.award ?? null;
+    this.earnedTrophies = newTrophies(profile, award);
+    if (this.earnedTrophies.length === 0) return;
+    store.updateProfile(profile.id, (p: Profile) => awardTrophies(p, award));
+    store.flush();
   }
 
   private mark(key: string): void {
@@ -740,7 +784,11 @@ export class ResultsScene extends Phaser.Scene {
       accuracyDelta: r.accuracyDelta,
       previousStopId: r.previousStopId,
       stars: r.stars,
-      starsRendered: isClearableHullHits(this.tally.hullHits),
+      // The stage's own hull, not D27's three: a nine-mark belt cleared with
+      // three marks gone is a CLEARED belt (@engine/hull, AC-4.4).
+      starsRendered: isClearableHullHits(this.tally.hullHits, this.tally.maxHull),
+      /** D80: trophies this run earned. The Beacon Log is where they are read. */
+      trophiesEarned: [...this.earnedTrophies],
       fasterWords: r.words.filter((w) => w.faster).map((w) => w.word),
       slowerWords: r.words
         .filter((w) => !w.faster && (w.improvement ?? 0) < 0)

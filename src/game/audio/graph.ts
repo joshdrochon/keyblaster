@@ -264,7 +264,13 @@ export function buildAudioGraph(ctx: AudioContextLike, options: AudioGraphOption
         sfx.play("uiNav", { gainScale: 0.9 });
       }),
   };
-  const voice = new VoiceBus({ transport: createVoiceTransport(voiceEnv), ducker });
+  // The bus serialises Shadow's lines and holds the AC-21.4 duck across the
+  // gap between two of them, so it needs the same clock the transport uses.
+  const voice = new VoiceBus({
+    transport: createVoiceTransport(voiceEnv),
+    ducker,
+    schedule: voiceEnv.schedule,
+  });
 
   return {
     ctx,

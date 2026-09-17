@@ -7,12 +7,9 @@ import {
   canyonTile,
   driftTile,
   dustTile,
-  massifPoints,
   massifTile,
   moteTile,
   planeMaterialColor,
-  ridgePoints,
-  spirePoints,
   starTile,
   translateOps,
   veilFor,
@@ -26,6 +23,14 @@ import {
   paletteFor,
   skyStops,
 } from "../../../src/game/render/palette.js";
+import {
+  MASS_PROFILES,
+  WALL_PROFILES,
+  heightOf,
+  place,
+  profileById,
+  profilesFor,
+} from "../../../src/game/render/profiles.js";
 
 /**
  * THE WRAP SEAM.
@@ -76,6 +81,40 @@ const MATERIALS = [
   },
 ];
 
+/** The far plane's massif options, as `parallax.ts` actually calls them. */
+const FAR_MASSIF = (rand: () => number) => ({
+  fill: "#A0846F",
+  rimColor: "#B49A88",
+  detailColor: "#B49A88",
+  light: -2,
+  rand,
+  depth: 0,
+  count: 2,
+  minH: 0.16,
+  maxH: 0.3,
+  rim: false,
+  dots: false,
+  fronds: false,
+  clearColumn: { x: 500, halfWidth: 190 },
+});
+
+/** The mid plane's, ditto. */
+const MID_MASSIF = (rand: () => number) => ({
+  fill: "#875F4E",
+  rimColor: "#A0796A",
+  detailColor: "#96705F",
+  light: -2,
+  rand,
+  depth: 0.5,
+  count: 2,
+  minH: 0.26,
+  maxH: 0.46,
+  rim: true,
+  dots: true,
+  fronds: true,
+  clearColumn: null,
+});
+
 /**
  * Every generator that produces WRAPPING content, with a fresh seed each time.
  * Adding a generator to `tiles.ts` without adding it here is the one gap left,
@@ -83,43 +122,23 @@ const MATERIALS = [
  */
 const GENERATORS: readonly { name: string; build: (rand: () => number) => TileOp[] }[] = [
   {
-    name: "massifTile (far: ridge, no rim, no dots)",
-    build: (rand) =>
-      massifTile(W, H, {
-        fill: "#A0846F",
-        rimColor: "#B49A88",
-        alpha: 0.95,
-        light: -2,
-        rand,
-        count: 2,
-        scale: 0.72,
-        rim: false,
-        dots: false,
-        ridgeAt: 0.62,
-        avoid: { x: 500, r: 190 },
-      }),
+    name: "massifTile (far: no rim, no detail)",
+    build: (rand) => massifTile(W, H, FAR_MASSIF(rand)),
   },
   {
-    name: "massifTile (mid: rim + dots + spires)",
-    build: (rand) =>
-      massifTile(W, H, {
-        fill: "#875F4E",
-        rimColor: "#A0796A",
-        alpha: 1,
-        light: -2,
-        rand,
-        count: 2,
-        scale: 0.95,
-        rim: true,
-        dots: true,
-        ridgeAt: 0.34,
-        avoid: null,
-      }),
+    name: "massifTile (mid: rim + dots + fronds)",
+    build: (rand) => massifTile(W, H, MID_MASSIF(rand)),
   },
   {
     name: "canyonTile",
     build: (rand) =>
-      canyonTile(W, H, { fill: "#39140B", rimColor: "#5A3126", light: -2, rand }),
+      canyonTile(W, H, {
+        fill: "#39140B",
+        rimColor: "#5A3126",
+        light: -2,
+        maxReach: W * 0.14,
+        rand,
+      }),
   },
   { name: "dustTile", build: (rand) => dustTile(W, H, "#C0A28C", rand) },
   { name: "starTile", build: (rand) => starTile(W, H, "#F7E6D0", 90, rand) },
@@ -133,7 +152,6 @@ const GENERATORS: readonly { name: string; build: (rand: () => number) => TileOp
         count: 7,
         minPx: 10,
         maxPx: 26,
-        alpha: 0.9,
         light: -2,
         laneGuard: 0,
         rand,
@@ -147,7 +165,6 @@ const GENERATORS: readonly { name: string; build: (rand: () => number) => TileOp
         count: 4,
         minPx: 70,
         maxPx: 132,
-        alpha: 1,
         light: -2,
         laneGuard: 0.26,
         rand,
@@ -226,20 +243,7 @@ describe("the wrap seam: the two copies of a tile are the SAME content", () => {
     // would differ - this asserts that such a difference is actually detectable
     // by the comparison above, rather than the comparison being vacuous.
     const rand = rng(SEED);
-    const build = (): TileOp[] =>
-      massifTile(W, H, {
-        fill: "#875F4E",
-        rimColor: "#A0796A",
-        alpha: 1,
-        light: -2,
-        rand,
-        count: 2,
-        scale: 0.95,
-        rim: true,
-        dots: true,
-        ridgeAt: 0.34,
-        avoid: null,
-      });
+    const build = (): TileOp[] => massifTile(W, H, MID_MASSIF(rand));
     const a = build();
     const b = translateOps(build(), 0, -H);
     expect(JSON.stringify(a)).not.toBe(JSON.stringify(translateOps(b, 0, H)));
@@ -251,7 +255,6 @@ describe("the wrap seam: the two copies of a tile are the SAME content", () => {
       count: 5,
       minPx: 20,
       maxPx: 40,
-      alpha: 1,
       light: -2,
       laneGuard: 0,
       rand: rng(SEED),
@@ -275,37 +278,309 @@ describe("the wrap seam: the two copies of a tile are the SAME content", () => {
   });
 });
 
-describe("silhouette character (WORLD-BAR item 5, judge note 4 and 5)", () => {
-  it("every silhouette plane carries a CONTINUOUS edge across the whole frame", () => {
-    // Judge note 4: "the masses read as slabs floating in soup, not landforms at
-    // distances." A plane whose widest shape is narrower than the stage is a
-    // collection of rectangles; one unbroken edge past both margins is terrain.
-    const ridge = ridgePoints(W, 600, 40, 120, 9, rng(SEED));
-    const xs = ridge.map((p) => p.x);
-    expect(Math.min(...xs)).toBeLessThan(0);
-    expect(Math.max(...xs)).toBeGreaterThan(W);
-    // ...and it is a STEPPED edge, not a straight line.
-    const ys = new Set(ridge.map((p) => Math.round(p.y)));
-    expect(ys.size).toBeGreaterThan(6);
-  });
+/**
+ * THE COMPOSITING RULE (brief defect 2: "white seams where shapes intersect").
+ *
+ * A player asked whether the pale lines where two masses crossed were on
+ * purpose. They were not: the planes were drawn at 0.9-0.95 alpha into one
+ * Graphics, so every overlap composited twice and came out lighter.
+ *
+ * The rule that fixes it is stated at the top of `tiles.ts` and asserted here,
+ * because it is exactly the kind of rule that a later "just drop this one to
+ * 90%" quietly undoes.
+ */
+describe("a plane composites to ONE opaque silhouette", () => {
+  /** The generators that draw silhouettes. Air (dust, motes, the veil) is not one. */
+  const SILHOUETTE = [
+    { name: "massifTile (far)", ops: massifTile(W, H, FAR_MASSIF(rng(SEED))) },
+    { name: "massifTile (mid)", ops: massifTile(W, H, MID_MASSIF(rng(SEED))) },
+    {
+      name: "canyonTile",
+      ops: canyonTile(W, H, {
+        fill: "#39140B",
+        rimColor: "#5A3126",
+        light: -2,
+        maxReach: W * 0.14,
+        rand: rng(SEED),
+      }),
+    },
+    {
+      name: "driftTile",
+      ops: driftTile(W, H, {
+        materials: MATERIALS,
+        count: 8,
+        minPx: 40,
+        maxPx: 120,
+        light: -2,
+        laneGuard: 0,
+        rand: rng(SEED),
+      }),
+    },
+    { name: "accentTile", ops: accentTile(W, H, "#FF8F74", rng(SEED)) },
+  ];
 
-  it("a massif is angular: no two consecutive edges are collinear", () => {
-    const pts = massifPoints(500, 500, 200, 300, rng(SEED));
-    expect(pts.length).toBeGreaterThanOrEqual(10);
-    const corners = pts.filter((p, i) => {
-      const a = pts[(i + pts.length - 1) % pts.length] as { x: number; y: number };
-      const b = pts[(i + 1) % pts.length] as { x: number; y: number };
-      const cross = (p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x);
-      return Math.abs(cross) > 1;
+  for (const gen of SILHOUETTE) {
+    it(`${gen.name}: every op is opaque, so two overlapping shapes cannot composite lighter`, () => {
+      expect(gen.ops.length).toBeGreaterThan(0);
+      for (const op of gen.ops) {
+        expect(op.alpha, `${gen.name} ${op.kind} at alpha ${op.alpha}`).toBe(1);
+      }
     });
-    expect(corners.length, "a rounded rectangle has four").toBeGreaterThan(6);
+  }
+
+  it("rims are emitted BEFORE fills, so no lit edge lands inside the silhouette", () => {
+    // The second half of the rule. With rims and fills interleaved, a mass in
+    // front of another draws its lighter rim over that mass's body and the plane
+    // grows an internal outline - the same pale join by a different route.
+    const ops = massifTile(W, H, MID_MASSIF(rng(SEED)));
+    const rimColor = MID_MASSIF(rng(SEED)).rimColor;
+    const fillColor = MID_MASSIF(rng(SEED)).fill;
+    const lastRim = ops.reduce((acc, op, i) => (op.color === rimColor ? i : acc), -1);
+    const firstFill = ops.findIndex((op) => op.color === fillColor);
+    expect(lastRim, "the mid plane draws rims").toBeGreaterThanOrEqual(0);
+    expect(firstFill, "the mid plane draws fills").toBeGreaterThanOrEqual(0);
+    expect(lastRim, "every rim precedes every fill").toBeLessThan(firstFill);
   });
 
-  it("a spire tapers to a point above its base", () => {
-    const s = spirePoints(100, 500, 20, 160);
-    const top = s.reduce((m, p) => (p.y < m.y ? p : m), s[0] as { x: number; y: number });
-    expect(top.y).toBe(500 - 160);
-    expect(Math.max(...s.map((p) => p.x)) - Math.min(...s.map((p) => p.x))).toBe(40);
+  it("the near frame carries no alpha either, at any reach", () => {
+    for (const reach of [0.02, 0.14, 0.3]) {
+      const ops = canyonTile(W, H, {
+        fill: "#39140B",
+        rimColor: "#5A3126",
+        light: -2,
+        maxReach: W * reach,
+        rand: rng(SEED + reach * 1000),
+      });
+      for (const op of ops) expect(op.alpha).toBe(1);
+    }
+  });
+});
+
+/**
+ * THE AUTHORED SILHOUETTES (brief: "we are generating shapes from parameters,
+ * they drew theirs").
+ *
+ * These assert the properties that make a shape DESIGNED rather than sampled,
+ * so the next person to reach for a random range has to argue with a test.
+ */
+describe("silhouette character comes from authored profiles, not from noise", () => {
+  it("every profile is a closed angular outline with real incident on it", () => {
+    for (const profile of MASS_PROFILES) {
+      expect(profile.points.length, `${profile.id} point count`).toBeGreaterThanOrEqual(8);
+      // A summit at y = 0 and a base at y = 1: the contract `place()` relies on.
+      expect(Math.min(...profile.points.map((p) => p.y)), `${profile.id} summit`).toBe(0);
+      expect(Math.max(...profile.points.map((p) => p.y)), `${profile.id} base`).toBe(1);
+      // It uses its full width, so `aspect` means what it says.
+      expect(Math.min(...profile.points.map((p) => p.x)), `${profile.id} left`).toBe(-1);
+      expect(Math.max(...profile.points.map((p) => p.x)), `${profile.id} right`).toBe(1);
+      // TERRACED. A chamfered box has four corners; a landform has many more.
+      const pts = profile.points;
+      const corners = pts.filter((p, i) => {
+        const a = pts[(i + pts.length - 1) % pts.length] as { x: number; y: number };
+        const b = pts[(i + 1) % pts.length] as { x: number; y: number };
+        const cross = (p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x);
+        return Math.abs(cross) > 1e-6;
+      });
+      expect(corners.length, `${profile.id}: a rounded rectangle has four`).toBeGreaterThan(6);
+    }
+  });
+
+  it("the catalogue spans EXTREME proportions, not an average one repeated", () => {
+    // What made the generated field read as one shape at three sizes: a random
+    // range clusters near its mean. The reference puts a 2.4:1 tower beside a
+    // 0.45:1 dune, and that contrast is the depth cue.
+    const aspects = MASS_PROFILES.map((p) => p.aspect);
+    expect(Math.max(...aspects) / Math.min(...aspects)).toBeGreaterThan(5);
+    expect(new Set(MASS_PROFILES.map((p) => p.kind)).size).toBeGreaterThanOrEqual(4);
+    expect(new Set(MASS_PROFILES.map((p) => p.id)).size).toBe(MASS_PROFILES.length);
+  });
+
+  it("a far plane draws from a different, quieter set than a near one", () => {
+    const far = profilesFor(0).map((p) => p.id);
+    const near = profilesFor(1).map((p) => p.id);
+    expect(far).not.toEqual(near);
+    // The loudest shape in the catalogue never goes to the back of the frame.
+    expect(far).not.toContain("monolith");
+    expect(near).toContain("monolith");
+  });
+
+  it("place() puts the BASE on baseY and grows the mass upward", () => {
+    const profile = profileById("monolith");
+    const pts = place(profile, 500, 900, 60, false);
+    expect(Math.max(...pts.map((p) => p.y))).toBeCloseTo(900, 6);
+    expect(Math.min(...pts.map((p) => p.y))).toBeCloseTo(900 - heightOf(profile, 60), 6);
+    // ...and mirroring is a reflection about the mass's own axis, nothing else.
+    const flipped = place(profile, 500, 900, 60, true);
+    const asc = (a: number, b: number): number => a - b;
+    const reflected = flipped.map((p) => 1000 - p.x).sort(asc);
+    const original = pts.map((p) => p.x).sort(asc);
+    expect(reflected).toHaveLength(original.length);
+    for (const [i, x] of original.entries()) expect(reflected[i]).toBeCloseTo(x, 6);
+  });
+
+  it("a massif plane places its masses on SHARED base lines, so it reads as ground", () => {
+    // Judge note 4 of round 1, "the masses read as slabs floating in soup". A
+    // landform group is 2-3 authored masses whose bases are the same y; a plane
+    // of independent floating shapes is what that note was describing.
+    const fill = MID_MASSIF(rng(SEED)).fill;
+    // Masses only: every authored profile has 8 or more points, while a frond
+    // blade has 3 and a lattice diamond has 4.
+    const ops = massifTile(W, H, MID_MASSIF(rng(SEED))).filter(
+      (op) => op.kind === "poly" && op.color === fill && op.points.length >= 8,
+    );
+    const bases = ops.map((op) =>
+      op.kind === "poly" ? Math.round(Math.max(...op.points.map((p) => p.y))) : 0,
+    );
+    const distinct = new Set(bases);
+    // Two groups, three or four masses in each, and exactly two base lines.
+    expect(ops.length, "the plane drew masses").toBeGreaterThan(5);
+    expect(distinct.size, `bases ${[...distinct].join(", ")}`).toBe(
+      MID_MASSIF(rng(SEED)).count,
+    );
+  });
+});
+
+/**
+ * THE NEAR FRAME (brief defect 3: "the canyonWalls read as UI chrome, not
+ * terrain. They frame the screen like a border").
+ */
+describe("the near frame is interrupted terrain, not a border", () => {
+  it("every wall profile starts and ends at zero reach, so segments join cleanly", () => {
+    // The seam contract. A segment that ends mid-rock meets the next segment's
+    // start as a horizontal step across the wall - one more straight line in a
+    // frame that already had too many, and at the tile boundary it is a jump.
+    for (const profile of WALL_PROFILES) {
+      const first = profile.edge[0];
+      const last = profile.edge[profile.edge.length - 1];
+      expect(first?.t, `${profile.id} starts at t=0`).toBe(0);
+      expect(first?.reach, `${profile.id} starts at the edge`).toBe(0);
+      expect(last?.t, `${profile.id} ends at t=1`).toBe(1);
+      expect(last?.reach, `${profile.id} ends at the edge`).toBe(0);
+      for (const e of profile.edge) {
+        expect(e.reach, `${profile.id} reach in range`).toBeGreaterThanOrEqual(0);
+        expect(e.reach, `${profile.id} reach in range`).toBeLessThanOrEqual(1);
+      }
+      // Monotone in t, or the polygon self-intersects.
+      const ts = profile.edge.map((e) => e.t);
+      expect(ts.every((t, i) => i === 0 || t >= (ts[i - 1] as number))).toBe(true);
+    }
+  });
+
+  it("the wall is genuinely INTERRUPTED: some profiles are absent for a real run", () => {
+    // Judge note 3. A band that is always present down both edges is a border,
+    // whatever is drawn inside it. At least half the catalogue has to vanish
+    // for a stretch, or the "interrupted" claim is decoration on a frame.
+    const withGaps = WALL_PROFILES.filter((profile) => {
+      const gap = profile.edge.reduce((best, e, i, arr) => {
+        if (e.reach > 0.02) return best;
+        const next = arr[i + 1];
+        if (next === undefined || next.reach > 0.02) return best;
+        return Math.max(best, next.t - e.t);
+      }, 0);
+      return gap > 0.1;
+    });
+    expect(
+      withGaps.length,
+      `only ${withGaps.length} of ${WALL_PROFILES.length} wall profiles ever stop`,
+    ).toBeGreaterThanOrEqual(Math.ceil(WALL_PROFILES.length / 2));
+  });
+
+  it("HALF of each edge is MISSING, so it is interrupted and not merely irregular", () => {
+    // The distinction the judge drew. Rock down both edges at every height is a
+    // border with a wobbly inside line, however much its width varies.
+    const ops = canyonTile(W, H, {
+      fill: "#39140B",
+      rimColor: "#5A3126",
+      light: -2,
+      maxReach: W * 0.17,
+      rand: rng(SEED),
+    });
+    const fills = ops.filter((op) => op.kind === "poly" && op.color === "#39140B");
+    // Three segments on the left and four on the right, with half of each
+    // dropped: two pieces a side, not seven.
+    expect(fills).toHaveLength(4);
+    // ...and the dropped runs are CONTIGUOUS, so what is left is a canyon wall
+    // you fly past rather than a dashed line down the edge.
+    const left = fills.filter((op) => op.kind === "poly" && (op.points[1] as { x: number }).x < W / 2);
+    expect(left).toHaveLength(2);
+  });
+
+  it("the two sides never share a rhythm, so the frame cannot read as symmetric", () => {
+    const ops = canyonTile(W, H, {
+      fill: "#39140B",
+      rimColor: "#5A3126",
+      light: -2,
+      maxReach: W * 0.14,
+      rand: rng(SEED),
+    });
+    const fills = ops.filter((op) => op.kind === "poly" && op.color === "#39140B");
+    const left = fills.filter(
+      (op) => op.kind === "poly" && op.points[1] !== undefined && (op.points[1] as { x: number }).x < W / 2,
+    );
+    const right = fills.filter(
+      (op) => op.kind === "poly" && op.points[1] !== undefined && (op.points[1] as { x: number }).x >= W / 2,
+    );
+    expect(left.length, "both edges carry rock").toBeGreaterThan(0);
+    expect(right.length, "both edges carry rock").toBeGreaterThan(0);
+    // The rhythms differ: the right edge is phase-shifted by half a segment and
+    // its segments are a different height, so no incident on one edge is level
+    // with an incident on the other.
+    const topsOf = (ops: TileOp[]): number[] =>
+      ops.map((op) => (op.kind === "poly" ? Math.round(Math.min(...op.points.map((pt) => pt.y))) : 0));
+    for (const a of topsOf(left)) {
+      for (const b of topsOf(right)) {
+        expect(Math.abs(a - b), `left segment at ${a} is level with right at ${b}`).toBeGreaterThan(
+          20,
+        );
+      }
+    }
+  });
+
+  it("the wall reaches INWARD from the edge, not outward off the screen", () => {
+    // The assertion that was missing, and the defect it would have caught: the
+    // reach sign was inverted, so `placeWall` drew the entire near frame outside
+    // the viewport. Every other test still passed - it wrapped correctly, it was
+    // opaque, it stayed out of the word lane (trivially, being at x = -200) -
+    // and the rendered frame simply had no near plane at all.
+    const maxReach = W * 0.17;
+    const ops = canyonTile(W, H, {
+      fill: "#39140B",
+      rimColor: "#5A3126",
+      light: -2,
+      maxReach,
+      rand: rng(SEED),
+    });
+    let deepestLeft = 0;
+    let deepestRight = 0;
+    for (const op of ops) {
+      if (op.kind !== "poly") continue;
+      for (const pt of op.points) {
+        if (pt.x < W / 2) deepestLeft = Math.max(deepestLeft, pt.x);
+        else deepestRight = Math.max(deepestRight, W - pt.x);
+      }
+    }
+    // Both edges have to put real rock ON the screen - over half the reach they
+    // were given, since the profiles peak near 1.0.
+    expect(deepestLeft, "left wall reaches into the frame").toBeGreaterThan(maxReach * 0.5);
+    expect(deepestRight, "right wall reaches into the frame").toBeGreaterThan(maxReach * 0.3);
+  });
+
+  it("the near frame never reaches into the word lane (AC-22.8)", () => {
+    const maxReach = W * 0.14;
+    const ops = canyonTile(W, H, {
+      fill: "#39140B",
+      rimColor: "#5A3126",
+      light: -2,
+      maxReach,
+      rand: rng(SEED),
+    });
+    for (const op of ops) {
+      if (op.kind !== "poly") continue;
+      for (const pt of op.points) {
+        const intrusion = Math.min(pt.x, W - pt.x);
+        expect(intrusion, `x=${pt.x.toFixed(0)}`).toBeLessThan(maxReach + 8);
+      }
+    }
   });
 });
 
@@ -320,7 +595,6 @@ describe("decorative debris is not in the ship's lane (AC-22.8, FR-8/D19)", () =
       count: 40,
       minPx: 70,
       maxPx: 132,
-      alpha: 1,
       light: -2,
       laneGuard: guard,
       rand: rng(SEED),

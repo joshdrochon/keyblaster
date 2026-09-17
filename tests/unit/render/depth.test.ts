@@ -23,7 +23,7 @@ import {
   warmShift,
   atmosphereFor,
 } from "../../../src/game/render/palette.js";
-import { isBrightStop } from "../../../src/game/render/palette.js";
+import { isBrightStop, paletteAt } from "../../../src/game/render/palette.js";
 
 /**
  * THE DEPTH SYSTEM (design-reference/refs/WORLD-BAR.md, art-direction.md §2).
@@ -126,6 +126,70 @@ describe("WORLD-BAR item 2: the value range spans near-sky to near-black", () =>
       // Judge note 1: "the darkest element is maybe 30% where the reference
       // foreground is near-black." Something in every frame is genuinely dark.
       expect(Math.min(...values), `${p.id} darkest element`).toBeLessThan(18);
+    }
+  });
+
+  /**
+   * BRIEF DEFECT 5: "Mid-tones are crowded. The big masses, the ridgelines and
+   * the planet all sit in a narrow mid band. Four planes should be four clearly
+   * distinct values."
+   *
+   * Two separate claims, and they needed two separate assertions, because the
+   * first one was ALREADY TRUE when the judge wrote that note. The four fills
+   * were ~17 L* apart on Mars. What was crowded was the relationship between the
+   * planes and everything else in the frame - which is the second assertion.
+   */
+  it("adjacent planes are separated, so no two of the four read as one", () => {
+    for (const p of STOPS) {
+      const ramp = depthRamp(p, 4).map(lightness);
+      for (let i = 1; i < ramp.length; i++) {
+        const gap = Math.abs((ramp[i] as number) - (ramp[i - 1] as number));
+        // A night stop's ladder is bounded at both ends by the pale-frame rule
+        // and by its own dark sky, so it gets the smaller floor. See the long
+        // note on the value-spread test above; this is the same trade-off.
+        expect(gap, `${p.id} plane ${i - 1}->${i} (${ramp.join(" -> ")})`).toBeGreaterThan(
+          isBrightStop(p) ? 12 : 3,
+        );
+      }
+    }
+  });
+
+  /**
+   * AND THE ONE THAT WAS ACTUALLY MISSING: the sky is a BAND, not a range.
+   *
+   * The sky's bottom stop used to be the palette's darkest colour, so on Mars
+   * the gradient swept L* 83 at the top to 18 at the bottom - wider than the
+   * entire terrain ladder that is drawn over it. Every plane fill therefore
+   * matched the sky exactly at SOME height of the frame, and a silhouette the
+   * same value as what is behind it is not a silhouette. Four well-separated
+   * fills read as one brown soup for that reason and no other.
+   *
+   * `world-bar.png` never does this: its sky is a narrow band and every dark in
+   * the frame is terrain.
+   */
+  it("on a bright stop the whole sky stays lighter than the mid plane", () => {
+    for (const p of STOPS) {
+      if (!isBrightStop(p)) continue;
+      const darkestSky = Math.min(...skyStops(p).map(lightness));
+      const mid = lightness(depthRamp(p, 4)[1] as string);
+      expect(
+        darkestSky - mid,
+        `${p.id}: sky floor ${darkestSky.toFixed(1)} vs mid plane ${mid.toFixed(1)}`,
+      ).toBeGreaterThan(6);
+    }
+  });
+
+  it("and the sky's own band is narrower than the terrain ladder it sits behind", () => {
+    // The same claim from the other side: if the sky spans more value than the
+    // terrain does, the sky is what the eye reads as depth and the planes are
+    // decoration on it.
+    for (const p of STOPS) {
+      if (!isBrightStop(p)) continue;
+      const sky = skyStops(p).map(lightness);
+      const ramp = depthRamp(p, 4).map(lightness);
+      const skyBand = Math.max(...sky) - Math.min(...sky);
+      const terrain = Math.max(...ramp) - Math.min(...ramp);
+      expect(skyBand, `${p.id} sky band ${skyBand.toFixed(1)}`).toBeLessThan(terrain);
     }
   });
 
@@ -389,5 +453,81 @@ describe("WORLD-BAR item 8: one atmosphere pass per stop", () => {
     expect(atmosphereFor("saturn")).toBe("glitter");
     expect(atmosphereFor("neptune")).toBe("streaks");
     expect(new Set(PALETTE_STOP_IDS.map(atmosphereFor)).size).toBeGreaterThanOrEqual(3);
+  });
+});
+
+/**
+ * AC-22.8 / rubric V-22.8: the typed letter is legible, IN COLOURBLIND MODE.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS TEST READS `paletteAt()` AND NOT `palettes.json`
+ *
+ * The rubric's own contrast check reads the JSON, and it reported 6.71:1 while
+ * the colour a colourblind child actually saw on Saturn and Pluto was 1.02:1.
+ * Both numbers were correct. They were measuring different fields.
+ *
+ * `palettes.json` had gained a `colorblind.plateAccent` per stop and NOTHING IN
+ * THE GAME READ IT - every renderer still took `colorblind.accent`, which on the
+ * two near-white stops is a near-black (`#111318`) chosen to separate from an
+ * ivory SKY. Drawn on the plate (`#0E1116`) it is invisible. The typed letter is
+ * the one piece of feedback the whole game exists to give, and for the players
+ * colourblind mode is for, it was not there.
+ *
+ * So this asserts the property against WHAT THE RENDERER RETURNS. A field that
+ * nothing consumes cannot satisfy it, which is the only way the same bug does
+ * not come back under a different field name. `wordPlate.ts` sets the typed
+ * letter to `style.accent`, which scenes fill from `paletteAt(stop, cb).accent`,
+ * which is exactly what is measured below.
+ */
+describe("AC-22.8: the typed letter is legible in BOTH palette modes", () => {
+  /** WCAG 2.x contrast ratio. The same formula `wordPlate.ts` measures with. */
+  const contrast = (a: string, b: string): number => {
+    const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort((m, n) => n - m);
+    return ((hi as number) + 0.05) / ((lo as number) + 0.05);
+  };
+
+  for (const colorblind of [false, true]) {
+    const mode = colorblind ? "colourblind" : "normal";
+    it(`${mode}: every stop's typed letter clears 4.5:1 on its own plate`, () => {
+      for (const id of PALETTE_STOP_IDS) {
+        const p = paletteAt(id, colorblind);
+        const r = contrast(p.accent, p.plate);
+        expect(r, `${id} (${mode}) typed letter ${p.accent} on ${p.plate}`).toBeGreaterThanOrEqual(
+          4.5,
+        );
+      }
+    });
+
+    it(`${mode}: and the resting letter does too`, () => {
+      for (const id of PALETTE_STOP_IDS) {
+        const p = paletteAt(id, colorblind);
+        const r = contrast(p.plateText, p.plate);
+        expect(r, `${id} (${mode}) body ${p.plateText} on ${p.plate}`).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+  }
+
+  it("colourblind mode still separates the WORLD accent by luminance (D41)", () => {
+    // The other half of the fix, and the reason this is two fields rather than
+    // one. Saturn's world accent has to be dark because Saturn's sky is ivory;
+    // if `worldAccent` quietly became the plate colour, the accent diamonds
+    // would be near-white on near-white and D41 would be broken the other way.
+    for (const id of PALETTE_STOP_IDS) {
+      const p = paletteAt(id, true);
+      const sky = skyStops(p)[1];
+      expect(
+        Math.abs(lightness(p.worldAccent) - lightness(sky)),
+        `${id} world accent ${p.worldAccent} vs sky ${sky}`,
+      ).toBeGreaterThan(20);
+    }
+  });
+
+  it("the two accents are the SAME colour outside colourblind mode", () => {
+    // So nothing that reads `pal.accent` today changes behaviour for a player
+    // who has not turned the setting on.
+    for (const id of PALETTE_STOP_IDS) {
+      const p = paletteAt(id, false);
+      expect(p.accent, id).toBe(p.worldAccent);
+    }
   });
 });

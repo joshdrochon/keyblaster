@@ -203,6 +203,12 @@ export interface WiringSnapshot {
   /** Voice lines the running game handed to the voice bus. */
   readonly spoken: readonly { readonly id: string; readonly kind: string }[];
   readonly voiceTransport: string;
+  /** Lines waiting behind the one in flight. Never negative, never concurrent. */
+  readonly voiceQueued: number;
+  /** True while a line is actually in flight. At most one, ever. */
+  readonly voiceSpeaking: boolean;
+  /** Screen hand-offs seen; each one eased Shadow out (`interruptFor`). */
+  readonly voiceInterrupts: number;
   /** The order `speakCoachNote` recorded the last time a note was shown. */
   readonly coachNoteOrder: readonly string[];
   /** Resting gain of each bus right now. Settings volumes land here. */
@@ -230,8 +236,26 @@ export interface AudioService {
   advance(dtMs: number): void;
   /** Settings volumes, straight onto the bus gains (AC-19.1). */
   setVolumes(volumes: { music?: number; sfx?: number }): void;
-  /** A scripted Shadow line (AC-21.4: the world ducks while he talks). */
+  /**
+   * A scripted Shadow line (AC-21.4: the world ducks while he talks).
+   *
+   * QUEUED, never overlapped: if Shadow is mid-sentence this line waits its
+   * turn. That is the right default because a scene emitting its next line is
+   * the game talking to itself, and the game can wait for itself.
+   */
   speak(line: VoiceLine): void;
+  /**
+   * THE PLAYER ADVANCED THE SCREEN, so Shadow gives way (see `VoiceBus.interrupt`).
+   *
+   * The line in flight eases out to silence - it finishes the word it is on,
+   * then stops, then a short quiet beat - and `line`, if given, begins after
+   * it. Anything queued behind is dropped, because it belonged to the screen
+   * the player just left.
+   *
+   * This is the ONLY sanctioned way to displace a line in flight. A scene that
+   * calls it on a timer rather than on a keypress has misunderstood it.
+   */
+  interruptFor(line?: VoiceLine): void;
   /** AC-21.6. Renders first, speaks second, and the display never differs. */
   speakNote(
     note: SpokenNote,
@@ -258,6 +282,18 @@ export interface InstallAudioOptions {
   readonly cueEvent?: string;
   /** `FLIGHT_EVENTS.hud`. */
   readonly hudEvent?: string;
+  /**
+   * The game-wide "a screen handed off" event - `scenes/lib/init.goTo` emits
+   * `"story-transition"` on `game.events` immediately before starting the next
+   * scene, and every screen advance in this game goes through it.
+   *
+   * Subscribing to it HERE is what makes the interrupt rule true everywhere
+   * without a single scene having to remember it: the player pressing Enter to
+   * leave a screen is the one event that may displace a line in flight, and it
+   * is exactly this event. Passed in as a string so the audio package still
+   * imports nothing from the scenes.
+   */
+  readonly transitionEvent?: string;
   readonly registryKey?: string;
   /** Opening volumes, from the active profile's settings. */
   readonly volumes?: { music?: number; sfx?: number };
@@ -319,6 +355,7 @@ export function installAudio(options: InstallAudioOptions): AudioService {
   let hudSamples = 0;
   let frames = 0;
   let advancedMs = 0;
+  let transitions = 0;
   let coachNoteOrder: readonly string[] = [];
   let volumes = {
     music: clamp(options.volumes?.music ?? graph.buses.music.gain.value, 0, 1),
@@ -435,6 +472,19 @@ export function installAudio(options: InstallAudioOptions): AudioService {
       graph.voice.speak(line);
     },
 
+    interruptFor(line): void {
+      const usable =
+        line !== undefined &&
+        typeof line.text === "string" &&
+        line.text.trim().length > 0;
+      // An empty line still EASES OUT whatever is speaking - "the player left
+      // the screen and Shadow had nothing else to say" is a real case, and
+      // dropping the call because the replacement was empty would leave the old
+      // line talking over the next screen.
+      if (usable) push(spoken, { id: line.id, kind: line.kind });
+      graph.voice.interrupt(usable ? line : undefined);
+    },
+
     speakNote(note, render, lineId): CoachNoteSpeechResult {
       const result = speakCoachNote(note, render, graph.voice, lineId);
       coachNoteOrder = result.order;
@@ -476,6 +526,9 @@ export function installAudio(options: InstallAudioOptions): AudioService {
         advancedMs,
         spoken: [...spoken],
         voiceTransport: graph.voice.transportId,
+        voiceQueued: graph.voice.queued,
+        voiceSpeaking: graph.voice.speaking,
+        voiceInterrupts: transitions,
         coachNoteOrder: [...coachNoteOrder],
         busGains,
         volumes: { ...volumes },
@@ -502,19 +555,34 @@ export function installAudio(options: InstallAudioOptions): AudioService {
     service.musicFromState(hud.liveCount ?? 0, hud.combo ?? 0);
   };
 
+  /**
+   * A screen handed off, which in this game only ever happens because the
+   * player did something. Shadow gives way GRACEFULLY: the word he is on
+   * finishes, the line stops, the world stays ducked for a beat, and the next
+   * screen's first line starts into quiet. Anything still queued belonged to
+   * the screen that just closed and goes with it.
+   */
+  const onTransition: ChannelHandler = () => {
+    transitions += 1;
+    graph.voice.interrupt();
+  };
+
   const channel = options.events;
   const cueEvent = options.cueEvent;
   const hudEvent = options.hudEvent;
+  const transitionEvent = options.transitionEvent;
 
   const detach = (): void => {
     if (!channel) return;
     if (cueEvent !== undefined) channel.off(cueEvent, onCue);
     if (hudEvent !== undefined) channel.off(hudEvent, onHud);
+    if (transitionEvent !== undefined) channel.off(transitionEvent, onTransition);
   };
 
   if (channel) {
     if (cueEvent !== undefined) channel.on(cueEvent, onCue);
     if (hudEvent !== undefined) channel.on(hudEvent, onHud);
+    if (transitionEvent !== undefined) channel.on(transitionEvent, onTransition);
   }
 
   // Opening volumes, so a profile that muted the music last session is muted

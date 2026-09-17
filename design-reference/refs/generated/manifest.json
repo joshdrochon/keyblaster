@@ -1,0 +1,55 @@
+{
+  "generatedAt": "2026-09-17T00:18:51.711Z",
+  "model": "gpt-image-1",
+  "size": "1024x1024",
+  "sheets": [
+    {
+      "id": "mars-massifs",
+      "file": "mars-massifs.png",
+      "prompt": "six different Martian rock formations and mesas, wind-carved, layered terraces, one tall spire. flat vector silhouette sheet, solid pure black shapes on a pure white background, no gradients, no texture, no shading, no outlines, no detail inside the shapes, side profile, orthographic, shapes arranged in a row with clear space between them, simple bold geometry, chunky and readable at small size, gently angular, the style of minimalist mobile game background art.",
+      "bytes": 1259908
+    },
+    {
+      "id": "mars-debris",
+      "file": "mars-debris.png",
+      "prompt": "eight small rounded rocky asteroid chunks of varying size, cratered, irregular but friendly. flat vector silhouette sheet, solid pure black shapes on a pure white background, no gradients, no texture, no shading, no outlines, no detail inside the shapes, side profile, orthographic, shapes arranged in a row with clear space between them, simple bold geometry, chunky and readable at small size, gently angular, the style of minimalist mobile game background art.",
+      "bytes": 1221373
+    },
+    {
+      "id": "belt-debris",
+      "file": "belt-debris.png",
+      "prompt": "eight asteroid silhouettes of three kinds: dark lumpy carbonaceous, angular silicate, compact metallic. flat vector silhouette sheet, solid pure black shapes on a pure white background, no gradients, no texture, no shading, no outlines, no detail inside the shapes, side profile, orthographic, shapes arranged in a row with clear space between them, simple bold geometry, chunky and readable at small size, gently angular, the style of minimalist mobile game background art.",
+      "bytes": 1107328
+    },
+    {
+      "id": "saturn-ice",
+      "file": "saturn-ice.png",
+      "prompt": "eight chunks of ring ice, faceted and crystalline, from tiny grains to a house-sized block. flat vector silhouette sheet, solid pure black shapes on a pure white background, no gradients, no texture, no shading, no outlines, no detail inside the shapes, side profile, orthographic, shapes arranged in a row with clear space between them, simple bold geometry, chunky and readable at small size, gently angular, the style of minimalist mobile game background art.",
+      "bytes": 1121867
+    },
+    {
+      "id": "uranus-shards",
+      "file": "uranus-shards.png",
+      "prompt": "seven narrow dark icy ring shards, thin and splintered. flat vector silhouette sheet, solid pure black shapes on a pure white background, no gradients, no texture, no shading, no outlines, no detail inside the shapes, side profile, orthographic, shapes arranged in a row with clear space between them, simple bold geometry, chunky and readable at small size, gently angular, the style of minimalist mobile game background art.",
+      "bytes": 1032160
+    },
+    {
+      "id": "neptune-bodies",
+      "file": "neptune-bodies.png",
+      "prompt": "seven icy bodies, rounded and pitted, with faint ring debris. flat vector silhouette sheet, solid pure black shapes on a pure white background, no gradients, no texture, no shading, no outlines, no detail inside the shapes, side profile, orthographic, shapes arranged in a row with clear space between them, simple bold geometry, chunky and readable at small size, gently angular, the style of minimalist mobile game background art.",
+      "bytes": 1166771
+    },
+    {
+      "id": "pluto-kuiper",
+      "file": "pluto-kuiper.png",
+      "prompt": "eight Kuiper belt ice chunks, angular frozen blocks, one with a heart-shaped plain. flat vector silhouette sheet, solid pure black shapes on a pure white background, no gradients, no texture, no shading, no outlines, no detail inside the shapes, side profile, orthographic, shapes arranged in a row with clear space between them, simple bold geometry, chunky and readable at small size, gently angular, the style of minimalist mobile game background art.",
+      "bytes": 1121755
+    },
+    {
+      "id": "foreground-frame",
+      "file": "foreground-frame.png",
+      "prompt": "four near-camera foreground rock masses for framing the bottom corners of a screen, large and simple. flat vector silhouette sheet, solid pure black shapes on a pure white background, no gradients, no texture, no shading, no outlines, no detail inside the shapes, side profile, orthographic, shapes arranged in a row with clear space between them, simple bold geometry, chunky and readable at small size, gently angular, the style of minimalist mobile game background art.",
+      "bytes": 1134703
+    }
+  ]
+}

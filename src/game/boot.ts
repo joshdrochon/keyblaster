@@ -417,6 +417,12 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
     // drift apart into a silent game that still passes its own tests.
     cueEvent: FLIGHT_EVENTS.cue,
     hudEvent: FLIGHT_EVENTS.hud,
+    // Every screen advance in this game goes through `scenes/lib/init.goTo`,
+    // which emits this on `game.events` before starting the next scene. It is
+    // the one event that is always the PLAYER acting, which is why it is the
+    // one event allowed to interrupt Shadow mid-line (AC-21.4, and the voice
+    // bus header for what "interrupt" is allowed to sound like).
+    transitionEvent: "story-transition",
     volumes: {
       music: openingSettings?.musicVolume ?? DEFAULT_SETTINGS.musicVolume,
       sfx: openingSettings?.sfxVolume ?? DEFAULT_SETTINGS.sfxVolume,

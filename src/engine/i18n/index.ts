@@ -48,7 +48,10 @@ export {
   DEVANAGARI_INPUT_METHODS,
   DEVANAGARI_LANGS,
   isDevanagariLang,
+  isShipped,
   resolveContentLang,
+  SHIPPED_LANGS,
+  typeableContentLangs,
 } from "./contentLang.js";
 
 export {

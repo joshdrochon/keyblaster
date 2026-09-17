@@ -53,9 +53,9 @@ import {
 import type { Knobs } from "@engine/controller/knobs.js";
 import { expectedClearMs, observedBiasMs, spawnGapMs } from "@engine/pacing/index.js";
 import {
-  MAX_HULL,
   hullAfterShield,
   hullAfterStrike,
+  hullForStage,
   isStalled,
   maySpawnCanister,
 } from "@game/flight/shield.js";
@@ -274,6 +274,21 @@ export interface BeltConfig {
    */
   canisters?: boolean;
   /**
+   * Hull marks for this belt. Defaults to `@engine/hull.hullForStage`, i.e. the
+   * real rule. A test overrides it ONLY to reproduce the old fixed 3, which is
+   * how the D27/D17 defect is shown to be fixed rather than asserted to be.
+   */
+  maxHull?: number;
+  /**
+   * Model the D21/D23 pass-by: a rock carrying a word that CAME BACK is spawned
+   * off the ship's lane and sails past instead of striking the hull
+   * (`FlightScene.resolveAtBreachLine`). On by default because it is the
+   * shipped rule; the flag exists so the hull change and the trajectory change
+   * can be attributed separately in the evidence rather than measured as one
+   * lump and credited to whichever is mentioned first.
+   */
+  practiceRocksPassBy?: boolean;
+  /**
    * A FIXED gap, in ms, instead of the derived one. Only a regression test uses
    * this: it is how the old 850 ms constant is reproduced, so the fix can be
    * shown to fix something rather than asserted to.
@@ -296,8 +311,12 @@ export interface BeltSpawn extends SpawnRecord {
 
 export interface BeltResult {
   spawns: BeltSpawn[];
-  /** Hull left when the belt ended, 0..3 (D27). */
+  /** Hull left when the belt ended, 0..maxHull (D27 as a rate, @engine/hull). */
   hull: number;
+  /** Rocks that reached the bottom without costing a mark (D21/D23 pass-by). */
+  passedBy: number;
+  /** Hull marks this belt was flown with. */
+  maxHull: number;
   /** AC-4.3: the hull emptied and the stage stalled before it finished. */
   stalled: boolean;
   breaches: number;
@@ -326,6 +345,8 @@ interface BeltRock {
   startedAtMs: number | null;
   /** AC-5.2: blasting this one gives a hull mark back. */
   isCanister: boolean;
+  /** D21/D23: came back, so it is not on a collision course with the ship. */
+  isPractice: boolean;
   /** What the belt estimated this rock would cost, at spawn. */
   clearEstimateMs: number;
 }
@@ -370,6 +391,7 @@ export function simulateBelt(
   let controller: ControllerState = createController({ knobs: cfg.knobs ?? {} });
   let nextBook: WordBook = { ...book };
 
+  const maxHull = cfg.maxHull ?? hullForStage(cfg.spawnCount);
   const spawns: BeltSpawn[] = [];
   const gaps: number[] = [];
   /** actual service minus the estimate, per cleared rock (@engine/pacing). */
@@ -381,9 +403,10 @@ export function simulateBelt(
   let busy: { rock: BeltRock; doneAtMs: number; fkMs: number } | null = null;
   let nowMs = 0;
   let spawned = 0;
-  let hull = MAX_HULL;
+  let hull = maxHull;
   let blasted = 0;
   let breaches = 0;
+  let passedBy = 0;
   let nextSpawnAtMs = 0;
   /** When the player last became free; a rock's service starts no earlier. */
   let freeSinceMs = 0;
@@ -427,7 +450,7 @@ export function simulateBelt(
       };
       controller = recordOutcome(controller, "blasted");
       if (rock.isCanister) {
-        hull = hullAfterShield(hull);
+        hull = hullAfterShield(hull, maxHull);
         canisterLive = false;
       }
       // The service sample the scene records: from the moment the player was
@@ -460,7 +483,13 @@ export function simulateBelt(
       const spawn = byWord.get(due.word + due.spawnedAtMs);
       if (spawn !== undefined) spawn.clearedAtMs = nowMs;
       breaches += 1;
-      hull = hullAfterStrike(hull);
+      // A practice rock was never pointed at the ship, so reaching the bottom
+      // costs nothing. It is still a miss for the word book and for the
+      // controller above - the child did not type it - which is what keeps this
+      // a change of trajectory rather than a discount.
+      const passes = (cfg.practiceRocksPassBy ?? true) && due.isPractice;
+      if (passes) passedBy += 1;
+      else hull = hullAfterStrike(hull, maxHull);
       if (busy !== null && busy.rock === due) {
         busy = null;
         freeSinceMs = nowMs;
@@ -495,7 +524,7 @@ export function simulateBelt(
       const record = nextBook[word] ?? blankRecord();
       const fall = fallTimeMs({ word, ease: record.ease, calibration });
       const isCanister =
-        (cfg.canisters ?? false) && maySpawnCanister(hull, canisterLive) && rng() < 0.5;
+        (cfg.canisters ?? false) && maySpawnCanister(hull, maxHull, canisterLive) && rng() < 0.5;
       if (isCanister) canisterLive = true;
       const rock: BeltRock = {
         word,
@@ -503,6 +532,7 @@ export function simulateBelt(
         deadlineMs: nowMs + fall,
         startedAtMs: null,
         isCanister,
+        isPractice: outcome.practice,
         clearEstimateMs: expectedClearMs({
           length: [...word].length,
           ease: record.ease,
@@ -581,6 +611,8 @@ export function simulateBelt(
   return {
     spawns,
     hull,
+    maxHull,
+    passedBy,
     stalled,
     breaches,
     blasted,

@@ -21,7 +21,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const STRICT = process.argv.includes("--strict");
@@ -37,7 +37,7 @@ const read = (p) => readFileSync(join(REPO, p), "utf8");
  * reason. This list is deliberately explicit: an unexplained exemption is how a
  * traceability check quietly stops meaning anything (D61).
  */
-const AC_EXEMPT = {
+export const AC_EXEMPT = {
   D01: "audience definition (grades 2-5); shapes content, not a testable behaviour",
   D07: "records a rejected alternative (planet-based blaster); nothing to build",
   D08: "scope statement (one story world); constrains what is NOT built",
@@ -76,7 +76,7 @@ const AC_EXEMPT = {
   D94: "unattended-run process rule; enforced by .claude/settings.json, not by product behaviour",
 };
 
-function parseDecisions() {
+export function parseDecisions() {
   const src = read("docs/decision-log.md");
   const out = new Map();
   for (const m of src.matchAll(/^- \*\*(D\d+)\s*·\s*([A-Z-]+)/gm)) {
@@ -91,7 +91,7 @@ function parseDecisions() {
 
 const T_TYPES = ["U", "E", "V", "P", "M"];
 
-function parsePrd() {
+export function parsePrd() {
   const src = read("docs/prd.md");
   const acs = new Map(); // id -> { line, testTypes[] }
   for (const line of src.split("\n")) {
@@ -116,7 +116,7 @@ function parsePrd() {
 // 3. Scenes vs the screen inventory
 // ---------------------------------------------------------------------------
 
-function parseInventory() {
+export function parseInventory() {
   const src = read("docs/design-brief-v2.md");
   const start = src.indexOf("## Screen inventory");
   if (start < 0) throw new Error("design-brief-v2.md has no '## Screen inventory' section");
@@ -137,7 +137,7 @@ function parseInventory() {
  * Parsed rather than imported because this script is .mjs and the map is .ts;
  * the shape is a literal object, so a narrow regex is honest here.
  */
-function sceneRowMap() {
+export function sceneRowMap() {
   const p = join(REPO, "src/game/sceneKeys.ts");
   if (!existsSync(p)) return { rows: new Map(), nonScene: new Set() };
   const src = read("src/game/sceneKeys.ts");
@@ -154,7 +154,7 @@ function sceneRowMap() {
   return { rows, nonScene };
 }
 
-function sceneNames() {
+export function sceneNames() {
   const dir = join(REPO, "src/game/scenes");
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
@@ -162,7 +162,7 @@ function sceneNames() {
     .map((f) => f.replace(/Scene\.ts$/, "").replace(/\.ts$/, ""));
 }
 
-function testSources() {
+export function testSources() {
   const out = [];
   const walk = (d) => {
     if (!existsSync(d)) return;
@@ -257,4 +257,4 @@ function main() {
   console.log(`\ntrace-check OK${STRICT ? " (strict)" : ""}`);
 }
 
-main();
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) main();

@@ -29,6 +29,12 @@ import rawPalettes from "../../content/palettes.json?raw";
 interface RawColorblind {
   readonly accent: string;
   readonly debris: string;
+  /**
+   * The typed-letter / UI accent in colourblind mode, which is NOT the same
+   * colour as the world accent. See `StopPalette.accent` for why they had to
+   * split.
+   */
+  readonly plateAccent?: string;
 }
 
 interface RawPalette {
@@ -53,8 +59,45 @@ export interface StopPalette {
   /** 5-7 colours, declared light -> deep (AC-22.7). */
   readonly colors: readonly string[];
   readonly colorRoles: Readonly<Record<string, string>>;
-  /** Exactly one accent (AC-22.7). */
+  /**
+   * Exactly one accent (AC-22.7) - the colour typed letters, focus rings and
+   * every accented label take, ON THE DARK PLATE.
+   *
+   * ---------------------------------------------------------------------------
+   * WHY THIS IS NOT `colorblind.accent`, AND WHY THAT WAS AN ACCESSIBILITY BUG
+   *
+   * The colourblind variant (D41) separates the world's accent by LUMINANCE, and
+   * on the two near-white stops the separated value is a near-black: Saturn and
+   * Pluto both get `#111318`. That is correct for a diamond drawn against
+   * Saturn's ivory sky and catastrophic for a letter drawn on the plate, which
+   * is `#0E1116`. #111318 on #0E1116 is 1.02:1. The typed letter - the single
+   * piece of feedback the whole game is built to give - was invisible for the
+   * players the colourblind mode exists to serve.
+   *
+   * It survived because `palettes.json` grew a `colorblind.plateAccent` per stop
+   * and NOTHING READ IT. The rubric's V-22.8 check measured that field and
+   * reported 6.71:1, while every renderer went on reading `colorblind.accent`.
+   * A contrast check that measures a value the game never uses is not a check.
+   *
+   * So the two jobs are two fields now:
+   *
+   *   `accent`      goes on the PLATE. Legible by construction, and asserted
+   *                 against what `paletteAt()` actually returns - see
+   *                 `tests/unit/render/depth.test.ts` - so it can never again
+   *                 pass on a field nothing consumes.
+   *   `worldAccent` goes in the WORLD, where luminance separation is the point.
+   *
+   * In normal mode they are the same colour, which is why nothing outside this
+   * file had to change: every scene reading `pal.accent` for a label was already
+   * asking for the plate colour and now gets one.
+   */
   readonly accent: string;
+  /**
+   * The accent as it is drawn INTO the world - sparse accent diamonds, near-field
+   * glints - where D41's luminance separation from the sky is the whole job and
+   * plate contrast is irrelevant. Identical to `accent` outside colourblind mode.
+   */
+  readonly worldAccent: string;
   readonly plate: string;
   readonly plateText: string;
   /** The fill debris takes, so hue is never the only signal (D41). */
@@ -79,7 +122,14 @@ function build(id: StopId, colorblind: boolean): StopPalette {
     name: raw.name,
     colors: Object.freeze([...raw.colors]),
     colorRoles: Object.freeze({ ...raw.colorRoles }),
-    accent: colorblind ? raw.colorblind.accent : raw.accent,
+    // THE PLATE ACCENT. `plateAccent` is the colourblind variant's legible
+    // accent; the `?? raw.colorblind.accent` fallback exists so a stop added
+    // without one degrades to today's behaviour rather than to undefined, and
+    // the contrast test below will fail loudly if that fallback is ever taken
+    // by a stop it does not suit.
+    accent: colorblind ? raw.colorblind.plateAccent ?? raw.colorblind.accent : raw.accent,
+    // THE WORLD ACCENT, separated by luminance from the sky (D41).
+    worldAccent: colorblind ? raw.colorblind.accent : raw.accent,
     plate: raw.plate,
     plateText: raw.plateText,
     // Debris takes the third-darkest palette colour. Picked by LUMINANCE, not
@@ -181,7 +231,58 @@ const at = (colors: readonly string[], i: number, fallback: string): string =>
  */
 export function skyStops(p: StopPalette): readonly [string, string, string] {
   const first = at(p.colors, 0, "#000000");
-  return [first, at(p.colors, 1, first), at(p.colors, p.colors.length - 1, first)];
+  const mid = at(p.colors, 1, first);
+  return [first, mid, skyFloor(p, mid)];
+}
+
+/**
+ * How far the sky is allowed to darken from its middle stop to its bottom, in
+ * L*. This is the fix for judge note 5 of round 2: "the MIDDLE is crowded."
+ *
+ * THE CROWDING WAS NOT IN THE DEPTH RAMP. The four plane fills are already ~17
+ * L* apart on Mars, which is a clean ladder. The crowding was between the planes
+ * and THE SKY BEHIND THEM. The sky's bottom stop was the palette's darkest
+ * colour, so on Mars the gradient swept L* 83 -> 18 top to bottom: a range wider
+ * than the entire terrain ladder. Every plane fill therefore matched the sky
+ * exactly at SOME height in the frame, and a silhouette the same value as what
+ * is behind it is not a silhouette. It is what makes four well-separated values
+ * read as one brown soup.
+ *
+ * The reference never does this. `world-bar.png` goes pale teal to mid blue -
+ * maybe 25 L* - and every scrap of dark in the frame is terrain. So the sky is
+ * bounded to a band, the terrain keeps the whole range, and the dark under the
+ * ship comes from the near plane and the floor vignette, which is where it
+ * belongs.
+ *
+ * 20 clears `ramp[1] + 8` on all five bright stops, which is what
+ * `tests/unit/render/depth.test.ts` asserts.
+ */
+export const SKY_L_RANGE = 20;
+
+/**
+ * The sky's bottom stop: the palette's deepest colour, but never darker than
+ * `SKY_L_RANGE` below the middle stop.
+ *
+ * Only bright stops are capped. On a night stop the sky IS the dark - Earth's
+ * launchpad sky runs to a near-black horizon and the near plane separates
+ * UPWARD off it (art-direction section 2, and the dark branch of
+ * `foregroundInk`) - so capping there would remove the one thing those stops
+ * have and gain nothing.
+ */
+function skyFloor(p: StopPalette, mid: string): string {
+  const deep = at(p.colors, p.colors.length - 1, mid);
+  if (relativeLuminance(mid) <= 0.22) return deep;
+  const target = lightness(mid) - SKY_L_RANGE;
+  if (lightness(deep) >= target) return deep;
+  // Monotone in t, so 24 halvings land well inside one 8-bit step.
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 24; i++) {
+    const m = (lo + hi) / 2;
+    if (lightness(mixHex(mid, deep, m)) > target) lo = m;
+    else hi = m;
+  }
+  return mixHex(mid, deep, (lo + hi) / 2);
 }
 
 /**

@@ -24,6 +24,7 @@ export {
   RETENTION_PERCENT,
   catchIsForced,
   createSelectionState,
+  isPracticeSpawn,
   pickNext,
   poolHasCatchWord,
   retentionIsDue,

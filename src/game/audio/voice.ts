@@ -89,6 +89,17 @@ export interface SpeakRequest {
   readonly onEnd: () => void;
   /** Called instead of `onEnd` if the platform refuses the utterance. */
   readonly onError: () => void;
+  /**
+   * The platform reached a WORD BOUNDARY in this utterance.
+   *
+   * This is the only handle Web Speech gives us on the inside of a line, and it
+   * is what makes a graceful interrupt possible at all - see `easeOut` on
+   * `VoiceTransport`. Optional because a fake does not have to fire it and
+   * because Safari's support is unreliable; the ease-out is written so that a
+   * platform which never fires it still interrupts, just on the deadline
+   * instead of on a word.
+   */
+  readonly onBoundary?: () => void;
 }
 
 /**
@@ -282,8 +293,42 @@ export interface VoiceTransport {
   available(): boolean;
   /** Speak, then call `onDone` exactly once - on success, error or cancel. */
   speak(line: VoiceLine, onDone: () => void): void;
+  /** Stop immediately. A hard cut; `VoiceBus.cancel` is its only caller. */
   cancel(): void;
+  /**
+   * STOP GRACEFULLY, then call `done` once.
+   *
+   * ==================== THE PROBLEM, HONESTLY ====================
+   * Web Speech does not go through our audio graph. The browser renders the
+   * utterance straight to the output device, so there is no `GainNode` between
+   * Shadow and the speakers and NO AMOUNT of gain automation can fade him out.
+   * `speechSynthesis` offers exactly three verbs - speak, pause, cancel - and
+   * `cancel()` is a hard stop, usually mid-syllable.
+   *
+   * ==================== WHAT WE DO INSTEAD ====================
+   * The one seam the API does give us is `onboundary`, which fires as the
+   * synthesiser crosses each word. So the ease-out is:
+   *
+   *   1. stop asking for the rest of the line, and wait for the next WORD
+   *      BOUNDARY - the utterance ends on a finished word, never mid-vowel,
+   *      which is the part a listener actually hears as a cut;
+   *   2. cap that wait at `EASE_OUT_DEADLINE_MS` so an interrupt still feels
+   *      instant, and so a platform that never fires `onboundary` (Safari, and
+   *      any fake) still interrupts;
+   *   3. hand back to the bus, which holds the music duck DOWN across a short
+   *      pre-roll gap before the next line starts (`VoiceBus`). The gap is
+   *      silence under a still-ducked bed, so the two lines are separated by a
+   *      breath rather than butted together.
+   *
+   * Together: ends on a word, lands in quiet, next line begins after a beat.
+   * That is what "eases out" can honestly mean without a gain node, and it is
+   * what the tests assert - not a fade that the platform cannot perform.
+   */
+  easeOut(done: () => void): void;
 }
+
+/** How long a graceful stop may wait for a word boundary before cutting. */
+export const EASE_OUT_DEADLINE_MS = 140;
 
 export interface WebSpeechOptions {
   /**
@@ -294,6 +339,13 @@ export interface WebSpeechOptions {
    * fine while being mute. The line is still released either way.
    */
   readonly onRefused?: () => void;
+  /**
+   * Injected timer for the ease-out deadline. Without one the transport cuts on
+   * the first boundary and, if none ever arrives, on the `cancel` the bus would
+   * have done anyway - so omitting it degrades to the old behaviour rather than
+   * hanging.
+   */
+  readonly schedule?: Scheduler;
 }
 
 /**
@@ -313,6 +365,8 @@ export function webSpeechTransport(
   options: WebSpeechOptions = {},
 ): VoiceTransport {
   let done: (() => void) | null = null;
+  /** Set while an ease-out is in flight; see `easeOut`. */
+  let easing: { release: () => void; cancelDeadline: CancelTimer } | null = null;
 
   const finish = (): void => {
     const cb = done;
@@ -320,10 +374,26 @@ export function webSpeechTransport(
     if (cb) cb();
   };
 
+  /** Cut the line NOW and release whoever is waiting on the ease-out. */
+  const cutForEase = (): void => {
+    const pending = easing;
+    easing = null;
+    if (pending === null) return;
+    pending.cancelDeadline();
+    port.cancel();
+    finish();
+    pending.release();
+  };
+
   return {
     id: "webspeech",
     available: () => localVoiceFor(port.voices(), platform, lang) !== null,
     speak(line, onDone) {
+      // An ease-out that is still waiting for a boundary is abandoned: the bus
+      // is already moving on, and its deadline timer must not fire into the
+      // NEXT line and cut that one short instead.
+      easing?.cancelDeadline();
+      easing = null;
       finish();
       done = onDone;
       const voice = localVoiceFor(port.voices(), platform, lang);
@@ -347,11 +417,43 @@ export function webSpeechTransport(
           options.onRefused?.();
           finish();
         },
+        // Every boundary is offered to the ease-out; when none is pending this
+        // is a no-op, which is why the handler can be installed unconditionally
+        // instead of the port having to be re-armed mid-line.
+        onBoundary: () => cutForEase(),
       });
     },
     cancel() {
+      easing?.cancelDeadline();
+      easing = null;
       port.cancel();
       finish();
+    },
+    easeOut(release) {
+      // Nothing in flight: the "graceful stop" of silence is silence.
+      if (done === null) {
+        release();
+        return;
+      }
+      // A second ease-out on the same line collapses into the first rather than
+      // arming a second deadline against it.
+      if (easing !== null) {
+        const previous = easing.release;
+        easing = { ...easing, release: () => { previous(); release(); } };
+        return;
+      }
+      const schedule = options.schedule;
+      easing = {
+        release,
+        cancelDeadline:
+          schedule === undefined
+            ? (): void => undefined
+            : schedule(() => cutForEase(), EASE_OUT_DEADLINE_MS),
+      };
+      // With no scheduler there is no deadline to wait for, so the only honest
+      // thing is to take the cut now rather than wait for a boundary that may
+      // never come and leave the bus holding a duck forever.
+      if (schedule === undefined) cutForEase();
     },
   };
 }
@@ -384,6 +486,14 @@ export function silentTransport(schedule: Scheduler): VoiceTransport {
     cancel() {
       clear();
     },
+    easeOut(release) {
+      // Silence has no syllable to land on. Stopping the timer IS the graceful
+      // stop, and the bus's pre-roll gap still applies - which is the point of
+      // the fallback: the shape of the interrupt is the same with or without a
+      // voice, so a player with no system voice gets the same pacing.
+      clear();
+      release();
+    },
   };
 }
 
@@ -414,6 +524,7 @@ export function adaptiveTransport(env: VoiceEnvironment): VoiceTransport {
       ? null
       : webSpeechTransport(env.speech, env.platform, env.lang, {
           onRefused: () => env.chirp?.(),
+          schedule: env.schedule,
         });
 
   const pick = (): VoiceTransport => (web !== null && web.available() ? web : silent);
@@ -435,6 +546,9 @@ export function adaptiveTransport(env: VoiceEnvironment): VoiceTransport {
     },
     cancel() {
       active.cancel();
+    },
+    easeOut(release) {
+      active.easeOut(release);
     },
   };
 }
@@ -469,19 +583,71 @@ export interface Ducker {
 // The voice bus
 // ---------------------------------------------------------------------------
 
+/**
+ * Silence between two queued lines, ms.
+ *
+ * Short enough to read as one character breathing, long enough that the second
+ * line has its own beginning. This is the whole of the "pre-roll gap" half of
+ * the ease-out (see `VoiceTransport.easeOut`), and the music duck is HELD
+ * across it, so the gap is quiet rather than a hole the music rushes into.
+ */
+export const VOICE_GAP_MS = 180;
+
 export interface VoiceBusOptions {
   readonly transport: VoiceTransport;
   readonly ducker: Ducker;
+  /**
+   * Injected timer for the inter-line gap. Omitting it means no gap - the next
+   * line starts in the same tick - which is only appropriate in a test that is
+   * not about pacing. `buildAudioGraph` always passes the environment's.
+   */
+  readonly schedule?: Scheduler;
 }
 
 /**
- * Sequencing for Shadow. She never talks over herself: a new line cancels the
- * one in flight rather than queueing behind it, because a game line that
- * arrives two sentences late is worse than one that never arrives.
+ * THE VOICE BUS. One line at a time, queued, with a graceful interrupt.
+ *
+ * ==================== WHAT WAS WRONG ====================
+ * This class used to cancel the line in flight whenever a new one arrived, on
+ * the argument that "a game line that arrives two sentences late is worse than
+ * one that never arrives". The player heard the result and was unambiguous:
+ *
+ *   "That can't happen unless that's because of actual controls from the
+ *    player."
+ *
+ * Two problems, and the cancel was the second of them.
+ *
+ * FIRST, cancelling is not the same as not overlapping. `speechSynthesis.cancel()`
+ * is asynchronous and its own queue keeps running: a `cancel()` immediately
+ * followed by a `speak()` in the same task is a race, and the platform can and
+ * does render the tail of the old utterance underneath the head of the new one.
+ * A bus that relies on cancel-then-speak to serialise is relying on a promise
+ * the API never made. THIS bus never has two lines in flight to begin with -
+ * the second one is not handed to the transport until the first has reported
+ * done - so there is no race to lose.
+ *
+ * SECOND, and this is the player's actual point: a line being replaced is not
+ * the same event as a line being interrupted. A scene emitting its next
+ * scripted line is the game talking to itself, and it should WAIT. A child
+ * pressing Enter to leave the screen is the player talking, and that should cut
+ * in. Only the second is an interrupt, so only the second calls `interrupt`.
+ *
+ * ==================== THE DUCK ====================
+ * AC-21.4's duck is held for as long as the bus is ACTIVE - speaking, easing
+ * out, or sitting in a pre-roll gap with something queued - and released once,
+ * when the queue drains. Ducking per line would pump the music up and down in
+ * every gap; `depth` counting in `SidechainDucker` would keep the level right
+ * and the level is not the problem, the movement is.
  */
 export class VoiceBus {
   private speakingLine: VoiceLine | null = null;
+  private readonly queue: VoiceLine[] = [];
   private readonly spokenLines: VoiceLine[] = [];
+  /** True between the duck's one `duck(true)` and its one `duck(false)`. */
+  private ducked = false;
+  /** An ease-out or a pre-roll gap is in flight; nothing may start under it. */
+  private holding = false;
+  private cancelGap: CancelTimer | null = null;
   /**
    * Bumped whenever a line stops for any reason. A transport that reports
    * `onDone` for a line we already abandoned carries a stale token and is
@@ -500,35 +666,136 @@ export class VoiceBus {
     return this.speakingLine !== null;
   }
 
+  /** Lines waiting behind the one in flight. */
+  get queued(): number {
+    return this.queue.length;
+  }
+
+  /** Speaking, easing out, or holding a gap with something still to say. */
+  get active(): boolean {
+    return this.speakingLine !== null || this.holding || this.queue.length > 0;
+  }
+
   /** Every line this bus has started, in order. Tests and evidence read it. */
   history(): readonly VoiceLine[] {
     return this.spokenLines;
   }
 
+  /**
+   * Queue a line. It starts when everything ahead of it has finished, and
+   * never before - two calls in the same tick produce two lines, in order,
+   * with a gap between them, and at no instant are both in flight.
+   */
   speak(line: VoiceLine): void {
-    this.stop();
-    const token = ++this.token;
-    this.speakingLine = line;
-    this.spokenLines.push(line);
-    this.options.ducker.duck(true);
-    this.options.transport.speak(line, () => {
-      if (token !== this.token) return;
-      this.token++;
-      this.speakingLine = null;
-      this.options.ducker.duck(false);
+    this.queue.push(line);
+    this.pump();
+  }
+
+  /**
+   * THE PLAYER MOVED (a screen advanced, a scene was left). Ease the line in
+   * flight out to silence, drop anything queued behind it, and optionally begin
+   * `next` after the pre-roll gap.
+   *
+   * This is the ONLY way a line in flight is displaced, and the reason it takes
+   * the replacement line as an argument rather than being two calls is that
+   * "stop that and say this" has to be one decision: two calls would race the
+   * ease-out's own completion and put the new line back in the queue behind it.
+   */
+  interrupt(next?: VoiceLine): void {
+    this.queue.length = 0;
+    if (next !== undefined) this.queue.push(next);
+    this.clearGap();
+
+    if (this.speakingLine === null) {
+      this.pump();
+      return;
+    }
+
+    // The line in flight is abandoned NOW as far as the bus is concerned; the
+    // transport is still finishing its word. Bumping the token means its
+    // eventual `onDone` cannot start the next line a second time.
+    this.token += 1;
+    this.speakingLine = null;
+    this.holding = true;
+    this.ensureDuck();
+    this.options.transport.easeOut(() => {
+      this.holding = false;
+      this.afterGap();
     });
   }
 
+  /** Stop everything at once. A scene tearing down mid-line; not an interrupt. */
   cancel(): void {
-    this.stop();
+    this.queue.length = 0;
+    this.clearGap();
+    this.holding = false;
+    if (this.speakingLine !== null) {
+      this.token += 1;
+      this.speakingLine = null;
+      this.options.transport.cancel();
+    }
+    this.releaseDuck();
   }
 
-  /** Release whatever is speaking, exactly once. Safe when nothing is. */
-  private stop(): void {
-    if (!this.speakingLine) return;
-    this.token++;
-    this.speakingLine = null;
-    this.options.transport.cancel();
+  /** Start the head of the queue if the bus is free. */
+  private pump(): void {
+    if (this.speakingLine !== null || this.holding) return;
+    const line = this.queue.shift();
+    if (line === undefined) {
+      this.releaseDuck();
+      return;
+    }
+    const token = ++this.token;
+    this.speakingLine = line;
+    this.spokenLines.push(line);
+    this.ensureDuck();
+    this.options.transport.speak(line, () => {
+      if (token !== this.token) return;
+      this.token += 1;
+      this.speakingLine = null;
+      this.afterGap();
+    });
+  }
+
+  /**
+   * A line has ended. Either drain (release the duck) or hold the gap and then
+   * start the next one - with the duck still down, so the gap is silence under
+   * a ducked bed rather than a stab of music between two sentences.
+   */
+  private afterGap(): void {
+    if (this.queue.length === 0) {
+      this.releaseDuck();
+      return;
+    }
+    const schedule = this.options.schedule;
+    if (schedule === undefined) {
+      this.pump();
+      return;
+    }
+    this.holding = true;
+    this.cancelGap = schedule(() => {
+      this.cancelGap = null;
+      this.holding = false;
+      this.pump();
+    }, VOICE_GAP_MS);
+  }
+
+  private clearGap(): void {
+    const cancel = this.cancelGap;
+    this.cancelGap = null;
+    this.holding = false;
+    if (cancel) cancel();
+  }
+
+  private ensureDuck(): void {
+    if (this.ducked) return;
+    this.ducked = true;
+    this.options.ducker.duck(true);
+  }
+
+  private releaseDuck(): void {
+    if (!this.ducked) return;
+    this.ducked = false;
     this.options.ducker.duck(false);
   }
 }
@@ -618,6 +885,7 @@ interface UtteranceCtor {
     volume: number;
     onend: unknown;
     onerror: unknown;
+    onboundary: unknown;
   };
 }
 
@@ -677,6 +945,14 @@ export function webSpeechPort(
         if (settled) return;
         settled = true;
         request.onError();
+      };
+      // The only window into a line that is already speaking, and therefore the
+      // only place a graceful interrupt can land (see `VoiceTransport.easeOut`).
+      // Guarded by `settled` for the same reason the other two are: a boundary
+      // reported after the line has ended belongs to nothing.
+      utterance.onboundary = () => {
+        if (settled) return;
+        request.onBoundary?.();
       };
       synthesis.speak(utterance);
     },

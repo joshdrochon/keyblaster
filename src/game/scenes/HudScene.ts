@@ -5,6 +5,7 @@ import { hexToInt } from "@game/render/wordPlate.js";
 import { FLIGHT_EVENTS, type HudSnapshot } from "@game/flight/stage.js";
 import { type FlightCopy, createFlightCopy } from "@game/flight/copy.js";
 import type { Lang } from "@engine/types.js";
+import { HULL_MARK_COUNT, hullMarkAlpha } from "@engine/hull/index.js";
 
 /**
  * The HUD (design-brief-v2.md section 6, art-direction section 2 layer L7).
@@ -140,10 +141,27 @@ export class HudScene extends Phaser.Scene {
       .setDepth(layer("hud").depth + 1);
   }
 
-  /** D31: three marks that dim. Never a bar, never a counter of what was lost. */
+  /**
+   * D31: THREE marks that dim. Never a bar, never a counter of what was lost.
+   *
+   * THREE, and not one per hull mark, now that the hull scales with stage
+   * length (`@engine/hull`: a 58-word belt carries nine). Nine pips in a row on
+   * the HUD is a lives counter, which AC-22b.1 forbids by name, and it would
+   * have arrived as a side effect of a difficulty fix rather than as anybody's
+   * decision about the surface.
+   *
+   * So the three marks stay and each one is a THIRD of the hull. That is the
+   * same division the star rating uses (`starsForHullHits`), so what the child
+   * watches during the stage and what they are shown at the end of it are the
+   * same three buckets - and at an 18-word stage it is literally unchanged, one
+   * mark per hit.
+   *
+   * Each hit still moves something: a mark dims FRACTIONALLY, by one hit's
+   * worth of its third, so feedback per hit survives the compression.
+   */
   private buildHullMarks(x: number, y: number, accent: string): void {
     this.hullMarks = [];
-    for (let i = 0; i < 3; i += 1) {
+    for (let i = 0; i < HULL_MARK_COUNT; i += 1) {
       const g = this.add.graphics();
       g.fillStyle(hexToInt(accent), 1);
       g.fillRoundedRect(x + i * 24, y, 16, 16, 5);
@@ -159,7 +177,7 @@ export class HudScene extends Phaser.Scene {
     this.comboValue.setText(`x${snapshot.multiplier}`);
 
     this.hullMarks.forEach((mark, i) => {
-      mark.setAlpha(i < snapshot.hull ? 1 : 0.16);
+      mark.setAlpha(hullMarkAlpha(i, snapshot.hull, snapshot.maxHull));
     });
 
     // The combo readout "climbs" with the keystroke tone (design brief 6).

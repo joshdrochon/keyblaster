@@ -48,6 +48,7 @@ const BOOT_MODULE = "/src/game/flight/boot.ts";
 const ASTEROID_MODULE = "/src/game/render/asteroid.ts";
 const PLATE_MODULE = "/src/game/render/wordPlate.ts";
 const STAGE_MODULE = "/src/game/flight/stage.ts";
+const PALETTE_MODULE = "/src/game/render/palette.ts";
 
 interface BootOptions {
   stopId?: string;
@@ -542,7 +543,7 @@ test.describe("Flight - screen 6", () => {
     expect(dr - Math.max(dg, db)).toBeLessThan(12);
   });
 
-  test("FR-5 / AC-5.2: blasting a shield canister repairs one hull mark, capped at three", async ({
+  test("FR-5 / AC-5.2: blasting a shield canister repairs one hull mark, capped at the stage's hull", async ({
     page,
   }) => {
     test.setTimeout(90_000);
@@ -565,6 +566,9 @@ test.describe("Flight - screen 6", () => {
         for (const ch of word) press(ch);
       };
 
+      const maxHull = api.state().maxHull;
+      const full = api.state().hull;
+
       api.strike();
       const damaged = api.state().hull;
 
@@ -572,25 +576,33 @@ test.describe("Flight - screen 6", () => {
       type(first);
       const repaired = api.state().hull;
 
-      // AC-5.2's cap: a canister blasted at full hull cannot push it past three.
+      // AC-5.2's cap: a canister blasted at full hull cannot push it past the
+      // stage's own hull. Read from `maxHull` rather than written as 3, because
+      // the hull now scales with stage length (@engine/hull) - a literal here
+      // would be asserting the stage length instead of the cap.
       const second = api.makeCanister();
       type(second);
       const capped = api.state().hull;
 
-      return { damaged, first, repaired, second, capped };
+      return { maxHull, full, damaged, first, repaired, second, capped };
     });
 
-    expect(run.damaged).toBe(2);
+    expect(run.full).toBe(run.maxHull);
+    expect(run.damaged).toBe(run.maxHull - 1);
     expect(run.first).toBeTruthy();
-    expect(run.repaired).toBe(3);
-    expect(run.capped).toBe(3);
+    expect(run.repaired).toBe(run.maxHull);
+    expect(run.capped).toBe(run.maxHull);
   });
 
   test("AC-4.3 + AC-18.1: an empty hull stalls to screen 6b, and Enter alone flies the stage again with the word history kept", async ({
     page,
   }) => {
     test.setTimeout(90_000);
-    await bootFlight(page, { knobs: { maxLive: 2 } });
+    // An 18-word stage, so the hull is D27's three (@engine/hull reproduces D27
+    // exactly at the length D27 was written for) and the stall is three strikes
+    // away rather than nine. The stall PATH is what this test is about; how many
+    // marks a 58-word belt carries is `tests/unit/flight/shield.test.ts`.
+    await bootFlight(page, { knobs: { maxLive: 2 }, stageWordCount: 18 });
 
     // Fly one word so there is history to keep.
     const first = (await state(page)).rocks[0] as RockView;
@@ -599,7 +611,9 @@ test.describe("Flight - screen 6", () => {
     const exposures = (await state(page)).bookExposures;
     expect(exposures).toBeGreaterThan(0);
 
-    for (let i = 0; i < 3; i += 1) {
+    const maxHull = (await state(page)).maxHull;
+    expect(maxHull, "an 18-word stage is D27's three marks").toBe(3);
+    for (let i = 0; i < maxHull; i += 1) {
       await page.evaluate(() => window.__kbFlight?.strike());
       await page.waitForTimeout(60);
     }
@@ -630,7 +644,7 @@ test.describe("Flight - screen 6", () => {
     );
 
     const restarted = await state(page);
-    expect(restarted.hull).toBe(3); // AC-4.1: hull is full at stage start
+    expect(restarted.hull).toBe(maxHull); // AC-4.1: hull is full at stage start
     expect(restarted.stalled).toBe(false);
     expect(restarted.bookExposures).toBeGreaterThanOrEqual(exposures);
   });
@@ -746,33 +760,79 @@ test.describe("Flight - rubric evidence", () => {
   }) => {
     await bootFlight(page);
 
-    const result = (await page.evaluate(async ([plateUrl, stageUrl]) => {
+    // MEASURED FROM THE RENDERER, IN BOTH PALETTE MODES.
+    //
+    // This used to measure `plateText` only, and the rubric's own copy of the
+    // check measured `palettes.json`'s `colorblind.plateAccent` - a field NO
+    // RENDERER READ. It reported 6.71:1 while the colour a colourblind child
+    // actually saw on Saturn and Pluto was `colorblind.accent` (#111318) on the
+    // plate (#0E1116): 1.02:1. The typed letter, which is the one piece of
+    // feedback the whole game exists to give, was invisible.
+    //
+    // So both colours are measured, both modes are measured, and the values
+    // come from `paletteAt()` - the function the scenes actually call - rather
+    // than from the JSON. A field nothing consumes cannot pass this.
+    const result = (await page.evaluate(async ([plateUrl, palUrl]) => {
       const plate = (await import(plateUrl as string)) as {
         contrastRatio: (a: string, b: string) => number;
       };
-      const stage = (await import(stageUrl as string)) as {
-        allPalettes: () => [string, { plate: string; plateText: string }][];
+      const pal = (await import(palUrl as string)) as {
+        PALETTE_STOP_IDS: readonly string[];
+        paletteAt: (
+          stopId: string,
+          colorblind: boolean,
+        ) => { accent: string; plate: string; plateText: string };
       };
-      const rows = stage.allPalettes().map(([stop, p]) => ({
-        stop,
-        ratio: plate.contrastRatio(p.plate, p.plateText),
-      }));
-      return {
-        rows,
-        minRatio: Math.min(...rows.map((r) => r.ratio)),
-      };
-    }, [PLATE_MODULE, STAGE_MODULE] as const)) as {
-      rows: { stop: string; ratio: number }[];
+      const rows: {
+        stop: string;
+        mode: string;
+        role: string;
+        fg: string;
+        bg: string;
+        ratio: number;
+      }[] = [];
+      for (const colorblind of [false, true]) {
+        for (const stop of pal.PALETTE_STOP_IDS) {
+          const p = pal.paletteAt(stop, colorblind);
+          const mode = colorblind ? "colourblind" : "normal";
+          rows.push({
+            stop,
+            mode,
+            role: "resting",
+            fg: p.plateText,
+            bg: p.plate,
+            ratio: plate.contrastRatio(p.plate, p.plateText),
+          });
+          rows.push({
+            stop,
+            mode,
+            role: "typed",
+            fg: p.accent,
+            bg: p.plate,
+            ratio: plate.contrastRatio(p.plate, p.accent),
+          });
+        }
+      }
+      return { rows, minRatio: Math.min(...rows.map((r) => r.ratio)) };
+    }, [PLATE_MODULE, PALETTE_MODULE] as const)) as {
+      rows: { stop: string; mode: string; role: string; fg: string; bg: string; ratio: number }[];
       minRatio: number;
     };
 
-    expect(result.rows.length).toBe(7);
-    expect(result.minRatio).toBeGreaterThanOrEqual(4.5);
+    // Seven stops x two modes x two roles.
+    expect(result.rows.length).toBe(28);
+    const worst = result.rows.reduce((a, b) => (b.ratio < a.ratio ? b : a));
+    expect(
+      result.minRatio,
+      `worst: ${worst.stop} ${worst.mode} ${worst.role} ${worst.fg} on ${worst.bg}`,
+    ).toBeGreaterThanOrEqual(4.5);
     writeEvidence("contrast.json", {
+      source: "src/game/render/palette.ts paletteAt(), via the running game",
+      modes: ["normal", "colourblind"],
+      roles: ["resting", "typed"],
       minRatio: Number(result.minRatio.toFixed(2)),
-      perStop: Object.fromEntries(
-        result.rows.map((r) => [r.stop, Number(r.ratio.toFixed(2))]),
-      ),
+      samples: result.rows.length,
+      rows: result.rows.map((r) => ({ ...r, ratio: Number(r.ratio.toFixed(2)) })),
     });
   });
 
@@ -857,105 +917,320 @@ test.describe("Flight - rubric evidence", () => {
     expect(delta).toBeGreaterThan(10);
   });
 
-  test("V-22.4 / AC-22.4: the flight frame still reads when desaturated", async ({
+  /**
+   * AC-22.4: "Desaturated flight screenshot: rocket and asteroids identifiable
+   * by silhouette."
+   *
+   * ---------------------------------------------------------------------------
+   * WHY THIS WAS REWRITTEN
+   *
+   * The old version desaturated the frame, Otsu-thresholded it and counted
+   * connected regions, then asserted the count was between 3 and 60. Its whole
+   * evidence artifact was `{"contours": 14}`.
+   *
+   * That number cannot fail for the reason the AC cares about. Fourteen blobs in
+   * a frame says nothing about whether ANY of them is the rocket, or a rock.
+   * Fourteen clouds would pass it. A frame in which every asteroid had dissolved
+   * into the terrain behind it would pass it, as long as the terrain itself had
+   * a few contours - and dissolving into the terrain is precisely the failure
+   * the AC exists to catch.
+   *
+   * So the measurement is now per OBJECT, against objects the scene names. The
+   * live rocks come from `__kbFlight.state()`; the ship is at the anchor
+   * `FlightScene` puts it at. For each, in the DESATURATED frame, we compare the
+   * mean luminance inside the object with the mean luminance of a ring just
+   * outside it. That difference IS "identifiable by silhouette" - it is what
+   * your eye does when the colour is gone - and an object that has dissolved
+   * into its background scores zero however many contours the frame has.
+   */
+  interface Region {
+    area: number;
+    /** Centroid y as a fraction of frame height. Which band it is in. */
+    at: number;
+    inside: number;
+    outside: number;
+    separation: number;
+  }
+  interface Sample {
+    frame: { w: number; h: number };
+    threshold: number;
+    regions: Region[];
+    /** Object-sized regions whose centroid is in the bottom third. */
+    bottomBand: number;
+  }
+
+  /**
+   * AC-22.4: "Desaturated flight screenshot: rocket and asteroids identifiable
+   * by silhouette."
+   *
+   * ---------------------------------------------------------------------------
+   * WHY THIS WAS REWRITTEN
+   *
+   * The old version desaturated the frame, Otsu-thresholded it, counted
+   * connected regions and asserted the count was between 3 and 60. Its entire
+   * evidence artifact was `{"contours": 14}`.
+   *
+   * That number cannot fail for the reason the AC exists. Fourteen regions says
+   * nothing about whether any of them separates from what is behind it, and a
+   * frame in which every asteroid had dissolved into the terrain would still
+   * score a dozen contours off the terrain alone - which is precisely the
+   * failure the AC is there to catch.
+   *
+   * So the measurement is now per REGION and it is about EDGES. Each
+   * object-sized region in the thresholded frame is compared against a ring of
+   * background just outside it, and the weakest of those steps is the number.
+   * A dissolved object has no step, whatever the region count is.
+   *
+   * ---------------------------------------------------------------------------
+   * HOW SENSITIVE IT ACTUALLY IS, MEASURED RATHER THAN ASSERTED
+   *
+   * A real regression was available to test this against: a floor vignette that
+   * washed 58% near-black across the full width at the ship's own height, so a
+   * rock down there measured luminance 76 against a background of 76. A probe
+   * that knew where the objects were scored that at 0.002.
+   *
+   * THIS CHECK DOES NOT FAIL ON IT. Run against that vignette it reports
+   * minSeparation 0.239, regions 6-8 per frame and 1-2 in the bottom band -
+   * degraded against the healthy frame's 0.187 / 8-9 / 2-4, but inside every
+   * threshold here. Otsu is adaptive, so it re-splits a crushed frame and still
+   * finds regions with a step across them.
+   *
+   * That is recorded rather than tuned away. Thresholds fitted to one known
+   * defect are how a check ends up green and meaningless, which is the whole
+   * reason this item was on the false-pass list. So: this version is strictly
+   * stronger than a contour count - it requires object-sized, uncropped regions,
+   * a real luminance step across every one of them, and shapes present in the
+   * bottom third where the player is looking - and it is NOT a proof that the
+   * frame reads. The judge's eye is still the gate for that.
+   *
+   * WHAT IT DOES NOT CLAIM, stated because the last version of this overclaimed
+   * and that is how it got into the false-pass list. It does not identify which
+   * region is the rocket. The scene's debug state reports rock positions in
+   * their parallax container's local space, not in screen space, so there is no
+   * honest way from here to say "this blob is rock-3" without reaching into
+   * another lane's scene internals. What it does assert is the property the AC
+   * turns on: that the frame contains several object-sized shapes and that every
+   * one of them still separates from its background with the colour gone.
+   */
+  test("V-22.4 / AC-22.4: object-sized shapes still separate from their background, desaturated", async ({
     page,
   }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(90_000);
     await bootFlight(page, {
       pixelReadback: true,
       knobs: { maxLive: 4 },
       stageWordCount: 40,
     });
-    await page.waitForTimeout(2200);
+    await page.waitForFunction(
+      () => (window.__kbFlight?.state().rocks.length ?? 0) > 0,
+      null,
+      { timeout: 20_000 },
+    );
+    await page.waitForTimeout(1500);
 
-    const contours = (await page.evaluate(() => {
-      const canvas = document.querySelector("canvas") as HTMLCanvasElement;
-      const W = 240;
-      const H = 135;
-      const off = document.createElement("canvas");
-      off.width = W;
-      off.height = H;
-      const ctx = off.getContext("2d") as CanvasRenderingContext2D;
-      ctx.drawImage(canvas, 0, 0, W, H);
-      const { data } = ctx.getImageData(0, 0, W, H);
+    const sample = (): Promise<Sample> =>
+      page.evaluate(() => {
+        const canvas = document.querySelector("canvas") as HTMLCanvasElement;
+        // Half resolution: enough to resolve a rock, cheap enough to flood-fill
+        // five times without the page stuttering.
+        const W = Math.round(canvas.width / 2);
+        const H = Math.round(canvas.height / 2);
+        const off = document.createElement("canvas");
+        off.width = W;
+        off.height = H;
+        const ctx = off.getContext("2d") as CanvasRenderingContext2D;
+        ctx.drawImage(canvas, 0, 0, W, H);
+        const { data } = ctx.getImageData(0, 0, W, H);
 
-      // Desaturate.
-      const grey = new Uint8Array(W * H);
-      for (let i = 0; i < grey.length; i += 1) {
-        const r = data[i * 4] as number;
-        const g = data[i * 4 + 1] as number;
-        const b = data[i * 4 + 2] as number;
-        grey[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-      }
-
-      // Otsu threshold: the value that best separates light from dark, which
-      // is what "does the silhouette still read" means with the colour gone.
-      const hist = new Array<number>(256).fill(0);
-      for (const v of grey) hist[v] = (hist[v] as number) + 1;
-      const total = grey.length;
-      let sum = 0;
-      for (let i = 0; i < 256; i += 1) sum += i * (hist[i] as number);
-      let sumB = 0;
-      let wB = 0;
-      let best = 0;
-      let threshold = 128;
-      for (let t = 0; t < 256; t += 1) {
-        wB += hist[t] as number;
-        if (wB === 0) continue;
-        const wF = total - wB;
-        if (wF === 0) break;
-        sumB += t * (hist[t] as number);
-        const mB = sumB / wB;
-        const mF = (sum - sumB) / wF;
-        const between = wB * wF * (mB - mF) * (mB - mF);
-        if (between > best) {
-          best = between;
-          threshold = t;
+        const grey = new Uint8Array(W * H);
+        for (let i = 0; i < grey.length; i += 1) {
+          grey[i] = Math.round(
+            0.299 * (data[i * 4] as number) +
+              0.587 * (data[i * 4 + 1] as number) +
+              0.114 * (data[i * 4 + 2] as number),
+          );
         }
-      }
 
-      // Count connected regions of each class. A frame that reads has a
-      // handful of separable shapes; a flat frame has one, and noise has
-      // hundreds.
-      const labels = new Int32Array(W * H).fill(-1);
-      const minArea = 12;
-      let contourCount = 0;
-      const stack: number[] = [];
-      for (let start = 0; start < W * H; start += 1) {
-        if (labels[start] !== -1) continue;
-        const cls = (grey[start] as number) > threshold ? 1 : 0;
-        let area = 0;
-        stack.length = 0;
-        stack.push(start);
-        labels[start] = cls;
-        while (stack.length > 0) {
-          const p = stack.pop() as number;
-          area += 1;
-          const x = p % W;
-          const y = (p - x) / W;
-          const neighbours = [
-            x > 0 ? p - 1 : -1,
-            x < W - 1 ? p + 1 : -1,
-            y > 0 ? p - W : -1,
-            y < H - 1 ? p + W : -1,
-          ];
-          for (const q of neighbours) {
-            if (q < 0) continue;
-            if (labels[q] !== -1) continue;
-            const qc = (grey[q] as number) > threshold ? 1 : 0;
-            if (qc !== cls) continue;
-            labels[q] = cls;
-            stack.push(q);
+        // Otsu: the split that best separates light from dark, which is what
+        // "does it still read" means once the colour is gone.
+        const hist = new Array<number>(256).fill(0);
+        for (const v of grey) hist[v] = (hist[v] as number) + 1;
+        const total = grey.length;
+        let sum = 0;
+        for (let i = 0; i < 256; i += 1) sum += i * (hist[i] as number);
+        let sumB = 0;
+        let wB = 0;
+        let best = 0;
+        let threshold = 128;
+        for (let t = 0; t < 256; t += 1) {
+          wB += hist[t] as number;
+          if (wB === 0) continue;
+          const wF = total - wB;
+          if (wF === 0) break;
+          sumB += t * (hist[t] as number);
+          const mB = sumB / wB;
+          const mF = (sum - sumB) / wF;
+          const between = wB * wF * (mB - mF) * (mB - mF);
+          if (between > best) {
+            best = between;
+            threshold = t;
           }
         }
-        if (area >= minArea) contourCount += 1;
-      }
-      return contourCount;
-    })) as number;
 
-    writeEvidence("desaturated-contours.json", { contours });
-    expect(contours).toBeGreaterThanOrEqual(3);
-    expect(contours).toBeLessThanOrEqual(60);
+        // Connected components of each class.
+        const label = new Int32Array(W * H).fill(-1);
+        const regions: Region[] = [];
+        const stack: number[] = [];
+        // OBJECT-SIZED, in pixels of this half-res buffer. A rock is 40-130 px
+        // across at design resolution, so 20-65 here: an area band of 250..9000
+        // takes rocks and the ship and excludes both the sky and a stray speck.
+        const MIN_AREA = 250;
+        const MAX_AREA = 9000;
+        for (let start = 0; start < W * H; start += 1) {
+          if (label[start] !== -1) continue;
+          const cls = (grey[start] as number) > threshold ? 1 : 0;
+          const id = regions.length;
+          const members: number[] = [];
+          stack.length = 0;
+          stack.push(start);
+          label[start] = id;
+          while (stack.length > 0) {
+            const p = stack.pop() as number;
+            members.push(p);
+            const x = p % W;
+            const y = (p - x) / W;
+            const neighbours = [
+              x > 0 ? p - 1 : -1,
+              x < W - 1 ? p + 1 : -1,
+              y > 0 ? p - W : -1,
+              y < H - 1 ? p + W : -1,
+            ];
+            for (const q of neighbours) {
+              if (q < 0 || label[q] !== -1) continue;
+              if (((grey[q] as number) > threshold ? 1 : 0) !== cls) continue;
+              label[q] = id;
+              stack.push(q);
+            }
+          }
+          // Reserve the id whether or not we keep the region, so labels stay
+          // unique; only object-sized ones are measured.
+          regions.push({ area: members.length, at: 0, inside: 0, outside: 0, separation: 0 });
+          if (members.length < MIN_AREA || members.length > MAX_AREA) continue;
+
+          // A region touching the frame edge is a crop, not an object.
+          let touchesEdge = false;
+          let minX = W;
+          let maxX = 0;
+          let minY = H;
+          let maxY = 0;
+          for (const p of members) {
+            const x = p % W;
+            const y = (p - x) / W;
+            if (x === 0 || y === 0 || x === W - 1 || y === H - 1) touchesEdge = true;
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+          if (touchesEdge) continue;
+
+          let insideSum = 0;
+          for (const p of members) insideSum += grey[p] as number;
+          // The background ring: everything within a 6 px band of the region's
+          // bounding box that is NOT this region. That is what the eye compares
+          // the shape against.
+          const pad = 6;
+          let outSum = 0;
+          let outN = 0;
+          for (let y = Math.max(0, minY - pad); y <= Math.min(H - 1, maxY + pad); y += 1) {
+            for (let x = Math.max(0, minX - pad); x <= Math.min(W - 1, maxX + pad); x += 1) {
+              const p = y * W + x;
+              if (label[p] === id) continue;
+              const insideBox = x >= minX && x <= maxX && y >= minY && y <= maxY;
+              if (insideBox) continue;
+              outSum += grey[p] as number;
+              outN += 1;
+            }
+          }
+          if (outN === 0) continue;
+          const inside = insideSum / members.length;
+          const outside = outSum / outN;
+          let ySum = 0;
+          for (const p of members) ySum += (p - (p % W)) / W;
+          regions[id] = {
+            area: members.length,
+            at: Number((ySum / members.length / H).toFixed(3)),
+            inside: Number(inside.toFixed(1)),
+            outside: Number(outside.toFixed(1)),
+            separation: Number((Math.abs(inside - outside) / 255).toFixed(4)),
+          };
+        }
+
+        const kept = regions.filter((r) => r.separation > 0);
+        return {
+          frame: { w: W, h: H },
+          threshold,
+          regions: kept,
+          bottomBand: kept.filter((r) => r.at > 0.667).length,
+        };
+      });
+
+    // FIVE FRAMES A SECOND APART, because the belt's own pacing decides how many
+    // rocks are live (FR-8 / D19) and a single still can catch a nearly empty
+    // sky. Sampling over time puts what the belt actually produced in front of
+    // the measurement, at several positions and against several backgrounds.
+    const samples: Sample[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      samples.push(await sample());
+      if (i < 4) await page.waitForTimeout(1000);
+    }
+    const regions = samples.flatMap((s) => s.regions);
+    const separations = regions.map((r) => r.separation);
+    const minSeparation = separations.length === 0 ? 0 : Math.min(...separations);
+    const weakest = regions.reduce(
+      (a, b) => (b.separation < a.separation ? b : a),
+      regions[0] ?? { area: 0, inside: 0, outside: 0, separation: 0 },
+    );
+    const perFrame = samples.map((s) => s.regions.length);
+
+    writeEvidence("desaturated-silhouettes.json", {
+      claim:
+        "AC-22.4: with the colour removed, every object-sized shape in the frame still separates from its background",
+      method:
+        "desaturate, Otsu threshold, connected components in an object-sized area band, then mean luminance inside each region vs a 6 px background ring outside its bounding box; 5 frames 1 s apart",
+      limitations: [
+        "regions are not identified as specific rocks: the scene reports rock positions in parallax-container space, not screen space",
+        "measured sensitivity: a floor vignette that crushed the play area to a 0.002 object/background step still scores 0.239 here, because Otsu re-splits a crushed frame. Stronger than the contour count it replaced; not a proof that the frame reads.",
+      ],
+      frame: samples[0]?.frame,
+      frames: samples.length,
+      threshold: samples[0]?.threshold,
+      regionsPerFrame: perFrame,
+      bottomBandPerFrame: samples.map((s) => s.bottomBand),
+      regionsMeasured: regions.length,
+      minSeparation: Number(minSeparation.toFixed(4)),
+      weakest,
+      regions,
+    });
+
+    // Anti-vacuity: a frame with no object-sized shapes in it has nothing to say
+    // about silhouettes, and a minimum over one region is not a minimum.
+    expect(regions.length, "object-sized regions measured").toBeGreaterThanOrEqual(8);
+    expect(
+      Math.min(...perFrame),
+      "every sampled frame has object-sized shapes in it",
+    ).toBeGreaterThanOrEqual(2);
+    // AND IN THE BOTTOM THIRD SPECIFICALLY, which is where the ship flies and
+    // where a full-width darkening wash does its damage. The ship alone
+    // guarantees one there in a healthy frame; zero means something has
+    // flattened the band the player is actually looking at.
+    expect(
+      Math.min(...samples.map((x) => x.bottomBand)),
+      "every sampled frame has an object-sized shape in its bottom third",
+    ).toBeGreaterThanOrEqual(1);
+    // 0.06 of the 8-bit range is about 15 levels: well above dither, and far
+    // below what a real silhouette against terrain gives.
+    expect(minSeparation, `weakest: ${JSON.stringify(weakest)}`).toBeGreaterThan(0.06);
   });
 
   test("V-22.1b / AC-22.1: five parallax layers observed moving at distinct rates", async ({
@@ -977,8 +1252,19 @@ test.describe("Flight - rubric evidence", () => {
     }
     const distinct = new Set(rates.values()).size;
 
-    writeEvidence("parallax-overlay.json", {
-      movingLayers: distinct,
+    // SCENE-QUALIFIED FILENAME, and the scene is recorded inside it.
+    //
+    // `title.spec.ts` used to write `parallax-overlay.json` too, measuring the
+    // weaker property "did the layer move at all" rather than "are the rates
+    // distinct". Both specs run in the same suite, so whichever finished last
+    // owned the path - and the repo's copy was the Title one, which meant the
+    // rubric's "five speeds actually moving" was being certified by a capture
+    // that never measured a speed.
+    writeEvidence("parallax-overlay-flight.json", {
+      scene: "Flight",
+      movingLayers: rates.size,
+      distinctRates: distinct,
+      sampleGapMs: 3000,
       observed: Object.fromEntries(rates),
     });
     expect(distinct).toBeGreaterThanOrEqual(5);

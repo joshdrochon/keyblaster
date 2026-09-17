@@ -274,9 +274,9 @@ function writeReport(results, startedAt) {
   return t;
 }
 
-function writeSummary(passes, t, startedAt, lastCommit) {
+function writeSummary(passes, t, startedAt, lastCommit, mode = "overnight mode") {
   const lines = [
-    `# Gauntlet summary (overnight mode)`,
+    `# Gauntlet summary (${mode})`,
     ``,
     `- Finished: ${new Date().toISOString()}`,
     `- Passes over the run: ${passes}`,
@@ -345,5 +345,9 @@ if (FLAGS.loop) {
     console.log(`\n${t.pass} pass · ${t.fail} fail · ${t.notImplemented} not implemented · ${t.escalated} escalated · ${RUBRIC.length} total`);
     console.log(`Report: gauntlet/report.md`);
   }
+  // Both files, always. See writeSummary's note: a summary that only the
+  // --loop branch refreshes is a summary that lies after any single pass,
+  // and it is the file a human reads first.
+  writeSummary(1, t, startedAt, await lastCommit(), "single pass");
   process.exit(t.fail > 0 ? 1 : 0);
 }

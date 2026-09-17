@@ -1067,3 +1067,290 @@ at the veil's maximum 12%, a #0E1116 plate with #F7FAFF text composites to about
 13.3:1, still ~3x the 4.5 floor. But the check is now an approximation of the
 thing it is named after, and the honest version would sample the rendered plate.
 Flagging rather than leaving it.
+
+---
+
+## E-fail-state · Does a hard fail state (D29) belong in this game at all?
+
+- **Escalated:** 2026-09-16 (fix/playable-path)
+- **Source:** D29, D27, D17, D23, D31; PRD AC-4.3, AC-22b.1; `docs/audit.md` §2.3
+- **Status of the neighbouring item:** the D27-vs-D17 escalation above is now
+  IMPLEMENTED on its recorded lean (option B, hull scales with stage length).
+  This entry is the question that table did not contain.
+- **Evidence:** `gauntlet/evidence/grade2-stall-rate.json`,
+  `tests/unit/simulation/belt.test.ts`, `src/game/scenes/StallScene.ts`,
+  `src/game/flight/copy.ts:38-40`
+
+### What was asked
+
+Implement the hull change, and then: "Ask whether a hard fail state belongs in
+this game at all, and say what you find."
+
+### What was implemented (not this decision)
+
+D27's three marks are now D27's RATE - three marks per 18 spawns - so a 58-word
+belt carries nine (`src/engine/hull/index.ts`). D27 is reproduced exactly at the
+stage length it was written for. Measured, 100 seeds, a grade-2 child (iki 600,
+0.82 per-character accuracy, 2.4 s cold recognition):
+
+| configuration | stalls / 100 | mean hit rate |
+|---|---|---|
+| hull 3 (shipped) | **58** | 0.822 |
+| hull 3 + shield canister | 17 | 0.882 |
+| hull 9 (this change) | **0** | 0.952 |
+| hull 9 + shield canister | 0 | 0.952 |
+
+The 58 reproduces the 55 already on record, so the two figures are comparable.
+
+**D29 IS UNCHANGED.** An empty hull still stalls and still restarts the stage.
+
+### The finding: the fail state is not the problem, the SETBACK is
+
+The three sources the log already cites do not agree that failure should go.
+They agree that THIS failure costs the wrong thing.
+
+**Juul, *The Art of Failure* (2013).** Juul's argument runs against removing
+failure, not for it: the paradox he opens with is that players seek out the very
+games that make them feel inadequate, and that a game which cannot be failed
+cannot be succeeded at either. Two conditions recur in how he treats it - failure
+has to be ATTRIBUTABLE (the player can see what they did) and the SETBACK has to
+be proportionate to what was invested. Our stall satisfies the first: a rock got
+past the ship, on screen, nine times. It fails the second, and it fails it by an
+amount that moved without anyone deciding it. At 18 words a restart cost about 40
+seconds. At 58 it costs a grade-2 child the 250-second belt this build measured -
+and it is charged, by construction, to the slowest child in the room.
+
+*Note on citation quality:* the decision log lists Juul as "cited from memory,
+links pending" and the audit found he grounds NO decision at all. The reading
+above is mine and should be checked before it is leaned on.
+
+**Deci, Koestner & Ryan (1999), read as the audit corrected it.** The audit found
+this paper cited backwards in D74/D27 - it reports that expected,
+performance-contingent rewards UNDERMINE intrinsic motivation (`d = -0.28`), and
+that the effect is larger for children. Two things follow, and only the second is
+about this entry:
+
+1. It cannot be cited in support of the star rating or the trophies. It is not
+   cited for either here.
+2. Its frame - cognitive evaluation theory - is about whether an event reads as
+   INFORMATIONAL or CONTROLLING. D27 calls hull hits "informational feedback".
+   Nine dimmed marks are informational. Deleting two to four minutes of a child's
+   work and putting a card in front of them that offers exactly one action is
+   controlling, and the paper's own mechanism says a controlling event shifts
+   the perceived reason for playing outward. **The mechanic is informational and
+   its consequence is not, and D27 and D29 are the two halves of that.**
+
+Being precise, because this is the citation the audit caught: the 1999
+meta-analysis measures REWARDS. It does not measure restarts. CET's
+informational/controlling distinction is theory Deci and Ryan developed, not a
+finding of that paper. It is a frame here, not a proof.
+
+**What the genre does with children.** The log's own yardstick, Type Storm, read
+from its shipped bundle: "Shield: 3. Third breach ends the run." So the mechanics
+reference does have a hard fail - but Type Storm is a general typing game, not a
+grade 2-5 literacy product, and D58 already restricts it to loop mechanics only.
+The visual bar, Alto's Odyssey, ends a run on a crash; a run is 30-90 seconds and
+restarting is one tap, so the setback is the same size as the attempt. Children's
+literacy software is the population we actually belong to, and there the dominant
+pattern is no terminal failure inside an activity: a wrong answer re-presents the
+prompt. Duolingo's hearts are the visible exception, they are the monetisation
+surface, and they are absent from its children's product.
+
+The pattern across all three is the same one Juul describes. Failure is normal.
+**A failure that costs more than the attempt it ended is not.**
+
+### Why this is not just fixed
+
+D29 is a DECIDED decision and the precedence rule in CLAUDE.md says a collision
+is logged, never overwritten. It is also entangled: AC-4.3 states the restart,
+`starsForHullHits` returns 0 for a stall and the results screen declines to
+render a rating on that basis, `StallScene` exists as a screen with an inventory
+row, and `tests/e2e/playthrough.spec.ts` has a restart path. Changing it is a
+product decision with four dependent surfaces, not a constant.
+
+It is also, right now, rare rather than absent: 0 of 100 for the child measured.
+Nothing here is urgent. It is the SHAPE that is wrong.
+
+### Options (user decision - none taken)
+
+| # | Option | Cost |
+|---|---|---|
+| A | Keep D29 exactly as written. The scaled hull makes the stall rare | Free; already shipped. But "rare" is not "never", and the child it still fires for is the one who can least afford the 2-4 minutes. The mechanic stays informational and its consequence stays controlling. |
+| B | Remove the fail state. An empty hull ends nothing; the belt runs to its last word | Cheapest to build. Deletes the tension D27/D28 exist to create, and by Juul's argument takes the meaning out of the hull along with the sting - nine marks that cannot run out are decoration. |
+| C | **Keep the failure, replace the setback.** An empty hull ENDS THE STAGE WHERE IT IS rather than restarting it: the ship limps, the belt stops, the player goes to the warp break with the words they actually blasted, gets their real results at 1 star, and the stop is simply not marked cleared. Flying it again is a choice they make from the map | Medium. D29 and AC-4.3 both reworded; `StallScene` becomes a beat inside the stage-end flow rather than a dead end. Keeps failure attributable and keeps the run, which is the pair Juul asks for, and makes the retry autonomous rather than imposed, which is the pair SDT asks for. |
+| D | Keep D29 and checkpoint the restart at the last third of the belt | Bounds the setback without changing the decision. Introduces a checkpoint concept that exists nowhere else in this design, and still ends with the player somewhere they did not choose to be. |
+
+**Lean: C, and it is not a compromise between A and B.** A and B disagree about
+whether failure should exist; C says that is the wrong question, because nothing
+in any of the three sources is an argument about the FAILURE - they are all
+arguments about the setback. C is the only option that leaves the hull meaning
+something while making what it costs the same size as what it interrupted. It
+also removes the only place in this game where the player is handed a screen with
+one button on it, which is worth something on its own for a product whose stated
+target is that the child "should always feel like the best typer in the world".
+
+If C is taken, D29 is superseded and a Cxx collision is logged against D27's
+"informational feedback", which is the half of D27 that has been true on the HUD
+and false at the stall since the day both were written.
+
+### Status
+
+OPEN. The hull change ships; D29 is untouched and the stall path still works
+exactly as documented. Nothing in the build depends on this being answered.
+
+---
+
+## E-practice-trajectory · A repeat rock now misses the ship, which bends AC-4.2
+
+- **Escalated:** 2026-09-16 (fix/playable-path)
+- **Source:** D21, D23, D31; PRD AC-4.2, FR-8
+- **Evidence:** `tests/unit/spawn/lane.test.ts`, `tests/unit/selection/consecutive.test.ts`,
+  `gauntlet/evidence/grade2-stall-rate.json`
+
+### The instruction and what it required
+
+"A repeated word must not be aimed at the ship... Make a repeat/retention rock
+spawn off the ship's lane, or otherwise not on a collision course. Keep it
+typeable and keep its fall time honest (FR-8) - this is about trajectory, not
+difficulty."
+
+Moving the COLUMN alone does not discharge that. Every rock that reaches the
+breach line costs a hull mark wherever it is on screen (AC-4.2), so a practice
+rock spawned 400 px from the ship is still a threat - the game has simply stopped
+showing why. So a practice rock (retention, or a word the player has missed) now
+also SAILS PAST the ship: no hull mark, no combo reset, no strike.
+
+Everything else is untouched. Same word, same weighting, same fall time, and it
+still records a miss - so D23 still brings it back sooner and the difficulty
+controller still counts it against the hit rate.
+
+### What it costs, measured
+
+0.2-0.3 rocks per 58-word stage pass by (100 seeds, grade-2 child). Stall rate
+with the trajectory change alone and the hull left at 3: **49 of 100**, against
+58 without it. So this is NOT what made the belt survivable - the hull is - and
+the claim "trajectory, not difficulty" is a measurement rather than a slogan.
+
+### Why it is escalated anyway
+
+AC-4.2 says "an asteroid crossing the breach line decrements hull by exactly 1".
+That is now false for one class of asteroid. The AC is discharged for every rock
+that was ever aimed at the ship and deliberately not for the ones that were not,
+but it IS a deviation from an AC as written and this is the channel for that.
+
+| # | Option | Cost |
+|---|---|---|
+| A | As shipped: practice rocks miss the ship and cost nothing | Delivers the instruction. AC-4.2 needs rewording to "an asteroid ON THE SHIP'S LANE". |
+| B | Column only - spawn off-lane but still take the mark | Visually honest, mechanically not: the rock is drawn missing and damages anyway. |
+| C | Practice rocks never breach: they leave the board early, before the line | Removes the deviation, but also removes the moment where the child sees the word go past, which is the thing D23 wants them to notice. |
+
+**Lean: A**, with AC-4.2 reworded. B is the option that looks safest and is the
+one that actually lies to the player.
+
+### Also needing a ruling: which stop is the "main belt"?
+
+`@engine/awards` now awards D80's twelve trophies, none of which could previously
+be earned (nothing in `src/` ever wrote `profile.trophies`). Eleven map cleanly.
+Belt Runner does not: AC-6d.1c says "main-belt stage 0 hits" and the route has no
+stop called "belt" - the real main belt lies between Mars and Jupiter. Mars is
+taken, as the first belt stage and the one `DEFAULT_FLIGHT_CONFIG` flies, which
+makes it an early reachable trophy rather than a second Ring Weaver. One line to
+change in `MAIN_BELT_STOP` if Jupiter was meant.
+
+### Status
+
+OPEN. Shipped as described, with the deviation named here rather than left for
+the next audit to find.
+
+---
+
+## E-world-5 — Two independent critics say shape vocabulary is not the gap. The direction question is yours.
+
+### What happened
+
+Eight silhouette reference sheets were generated (`design-reference/refs/generated/`, $0.32)
+on my diagnosis that we generate terrain geometry from noise while Alto's Odyssey
+authors a vocabulary of shapes. I looked at two of them, called them good, and told
+the art lane to trace them. That was the commissioner signing off on their own
+commission, and the user caught it.
+
+Two critics then reviewed them. One was given my diagnosis; one was given nothing.
+
+### What was measured
+
+The blind critic and the framed critic converged, having never seen each other's work.
+
+| | Blind | Framed (with my premise) |
+|---|---|---|
+| Sign off? | No | No — 0 PASS, 4 REWORK, 4 REJECT |
+| Usable shapes | "about 2 per stop" | 59 drawn, ~15 usable |
+| Verdict on the premise | not addressed | **refuted** |
+
+The framed critic was handed my conclusion and contradicted it anyway:
+
+> fill every one with `#B5522A`, stack them at five speeds, and you get brown
+> ribbons assembled from authored shapes instead of brown ribbons sampled from
+> noise. The ribbon-ness comes from every layer sharing one fill value with no
+> atmospheric lift, not from the contour being smooth.
+
+Its proof: Alto's own far-field mesas in `world-bar.png` are trapezoids with one
+step. They read as distance because they sit near 90% of sky value at near-zero
+contrast. Shape sophistication is concentrated only in the few dark near layers
+where contrast is high — and `foreground-frame.png`, the one sheet serving that
+layer, failed hardest (four convex pebbles where the bar has a black notched mass
+running off two frame edges).
+
+Both also found the sheets carry LESS variety than the code already has:
+`profiles.ts` ships 10 authored mass profiles, `asteroid.ts` ships 13 debris types.
+Six of eight sheets are one shape repeated. Tracing them is a step backwards.
+
+Independent measurements from the framed critic: solidity (shape area / convex hull
+area) is 0.96–0.99 on every sheet that matters, i.e. the shapes are their own convex
+hulls. Alto's memorable forms are strongly concave or perforated. **Silhouette
+character is bites taken out, not wobble added on.** These sheets added wobble.
+
+### The gap they both name instead
+
+`WORLD-BAR.md` lists eight differences from the bar. The sheets address exactly one
+(item 5, characterful silhouettes). Untouched: atmospheric lift, value range, hue
+shift with depth, one visibly placed light, a dark framing foreground, sparse
+high-contrast accents, a unifying atmosphere pass.
+
+Two specifics worth acting on regardless of direction:
+- **Hue.** Every point sampled in our Mars frame — sky, far band, mid band, near
+  wall, planet, asteroid, temple — falls in hue 12°–28°. One 16-degree wedge.
+  WORLD-BAR item 3 has never been attempted. Root cause is the spec: art-direction
+  §3 gives Mars seven warm browns and no cool, and the rubric's dominant-colour
+  check actively locks the monochrome in.
+- **No horizon.** Both landform bands terminate in a razor-flat edge suspended in
+  mid-sky with gradient visible underneath. Nothing sits on anything. This is
+  structural: `parallax.ts` states that because the world scrolls vertically, the
+  reference's bottom-of-frame foreground became canyon walls down both edges.
+
+### Options (user decision — none taken)
+
+| | Option | Cost | Holds across 7 stops? |
+|---|---|---|---|
+| A | Give each stop a horizon: ground plane at the bottom of L2/L3, mesas sit on it and run off frame bottom | Cheapest | No — impossible for Saturn's rings and the Kuiper belt |
+| B | Drop terrain grammar, commit to space grammar: ring planes edge-on, planet limb, nebula bands, dust fields. Alto becomes the bar for value, hue, light and restraint — not for mesas | Medium, and removes a false note | Yes |
+| C | Re-baseline palettes for genuine hue range; add a real cool to every warm palette and vice versa. Requires re-baselining the rubric's colour-count and dominant-colour checks | Medium | Yes |
+
+**Lean: B + C.** B because floating Martian mesas in a vertically-scrolling space
+game are a false note that better mesas amplify, and it is the only option that
+holds at every stop. C because it is independent of B and it is the one WORLD-BAR
+item never attempted. A is a legitimate cheaper path for the inner stops if Mars
+needs to ship sooner.
+
+### Status — proceeding, not blocked (D94)
+
+Not re-running the image generation: both critics say it is not the bottleneck, so
+spending again before the direction call would be waste. The sheets stay on disk as
+reference under D84; prompt rewrites for all eight are recorded in the critic's
+report if we ever want them.
+
+Proceeding with the part that is direction-INDEPENDENT and that both critics put
+first: **the layer value ramp, atmospheric lift, and hue shift with depth.** Those
+are in-code, cheap, and are what actually reads as depth. Re-running shape sheets
+before them would only produce better-shaped ribbons.
+
+I retracted the tracing instruction to the art lane.

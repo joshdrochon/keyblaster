@@ -63,6 +63,15 @@ it blind. Praise from a critic is not a result.
 - The 8-attempt cap and gauntlet/escalations.md still bound every item, so one stuck
   piece cannot eat an unattended night.
 
+AGENTS (.claude/agents/)
+- `game-mechanics` — PLAYS the game in a real browser with real keystrokes and
+  reports whether it functions. Invoke it whenever the question is "does this
+  work" rather than "do the tests pass". It has already been established twice
+  that a green suite and a green rubric can sit on top of a game a human breaks
+  in thirty seconds; the engine tests cover arithmetic, this agent covers the
+  game. Any change it makes ships with a test in the same change, and it may
+  never weaken an assertion to make one pass.
+
 FIRST TASKS (in order)
 1. Scaffold tooling: TypeScript, Vite, Phaser 3, Vitest, Playwright. `npm test` runs green on an empty suite.
 2. Build src/engine with tests, module by module, in this order: allowlist, words, fallTime, selection, controller, lock, calibration, scoring, persistence, ephemeris, i18n, coach (3 transports).

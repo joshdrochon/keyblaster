@@ -235,9 +235,16 @@ test("AC-22.1 at least five parallax layers actually move on the Title", async (
     return Math.abs(a.x - b.x) > 0.05 || Math.abs(a.y - b.y) > 0.05;
   });
 
-  // Shape is fixed by rubric.mjs item V-22.1b: key "movingLayers".
+  // A SEPARATE PATH FROM THE FLIGHT CAPTURE, deliberately.
+  //
+  // This test and `flight.spec.ts`'s V-22.1b both used to write
+  // `parallax-overlay.json`, and rubric item V-22.1b - "the five speeds
+  // ACTUALLY MOVING" - read whichever won the race. This one only measures
+  // "did the layer move at all", which is a weaker claim, so when it won, the
+  // rubric passed on evidence that did not measure its own item. The Flight
+  // capture owns `parallax-overlay-flight.json` and the rubric reads that.
   writeEvidence(
-    "parallax-overlay.json",
+    "parallax-overlay-title.json",
     `${JSON.stringify(
       {
         movingLayers: moved.length,

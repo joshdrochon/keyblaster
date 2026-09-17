@@ -18,12 +18,35 @@ import { firstLetter, isGuaranteedCatch, weightOf } from "./weights.js";
  * CAN contradict each other:
  *
  *   AC-2.1  no two live asteroids share a first letter (tier locked)
+ *   AC-9.1c NO BACK-TO-BACK REPEAT (AC-9.1 read consecutively; see below)
  *   AC-9.2  every 6th slot is a guaranteed-catch word if none in the last 5
  *   AC-9.1  no repeats until the stage pool is exhausted
  *   AC-9.3  ~20% of slots come from earlier stops
  *   AC-9.4  a word missed this stage is not re-served until the next stage
  *
  * Order, most protected first:
+ *
+ *   0. AC-9.1c - no CONSECUTIVE repeat. A corollary of AC-9.1 rather than a new
+ *      acceptance criterion, ranked second only to AC-2.1.
+ *
+ *      This module used to argue, in a comment right above `commit`, that a
+ *      back-to-back repeat was already impossible: a live word is never
+ *      re-spawned, and (tier locked) its own first letter is blocked. Both
+ *      halves are true and the conclusion did not follow, because BOTH
+ *      conditions need the word to still be LIVE. The instant the player blasts
+ *      it, it is neither live nor letter-blocking - and `commit` empties the
+ *      no-replacement bag on the same spawn that exhausts it (`cycled`), so the
+ *      word that just left the screen is, for exactly one slot, the freshest
+ *      thing in the pool. That is the defect: the child clears a word and the
+ *      very next rock carries it again.
+ *
+ *      It is ranked above AC-9.2 rather than folded into AC-9.1 because it
+ *      excludes precisely ONE word out of the pool. Giving up a guaranteed
+ *      catch (D22, morale) costs the whole wave something; giving up one
+ *      candidate costs nothing that any other rule can measure. The two
+ *      therefore never really compete, and when they somehow do, the visible
+ *      regression - the same word twice in a row, which reads as a bug rather
+ *      than as pedagogy - is the worse one to ship.
  *
  *   1. AC-2.1 - INVIOLABLE while the tier is locked.
  *      It is the only one of the five whose breach breaks a MECHANIC rather
@@ -80,7 +103,7 @@ export const RETENTION_PERCENT = 20;
 export const RETENTION_MIN_STAGE = 2;
 
 /** Which rule the picker had to bend to return a word at all. */
-export type Relaxation = "repeat" | "catch" | "source" | "eligibility";
+export type Relaxation = "repeat" | "consecutive" | "catch" | "source" | "eligibility";
 
 export interface SelectionState {
   /** Stage index along the route (types.stageIndexOf). */
@@ -107,6 +130,17 @@ export interface SelectionState {
   readonly retentionCount: number;
   /** Spawns since the last guaranteed-catch word (AC-9.2). */
   readonly sinceCatch: number;
+  /**
+   * The word this stage served LAST, from either pool, or null before the
+   * first spawn. AC-9.1c's whole state: the one word the next slot may not be.
+   *
+   * Deliberately not derived from `usedStage`/`servedStage`. `usedStage` is the
+   * no-replacement bag and is emptied the moment the pool is exhausted, which
+   * is exactly the instant the back-to-back repeat becomes possible; and
+   * `servedStage` does not include retention words, which have a bag of their
+   * own that cycles far faster because the pool is smaller.
+   */
+  readonly lastServed: string | null;
   /** D25 dual-cannon tier, frozen at stage start (see tier.ts). */
   readonly sharedPrefixTier: boolean;
 }
@@ -130,6 +164,21 @@ export interface Picked {
   readonly guaranteedCatch: boolean;
   /** True if this slot was the forced 6th (AC-9.2). */
   readonly forcedCatch: boolean;
+  /**
+   * THIS ROCK IS A PRACTICE OPPORTUNITY, NOT A NEW CHALLENGE (D21, D23).
+   *
+   * A word is on the belt for one of two reasons. Either it is this stop's
+   * curriculum arriving for the first time, or it is COMING BACK - because the
+   * player missed it and D23 says a missed word comes back sooner, or because
+   * it is a retention probe from an earlier stop (D21, AC-9.3).
+   *
+   * The second kind exists to be practised. The player put it this way and they
+   * are right: the game itself decided to show this word again, so aiming it at
+   * the ship punishes the child for the game's own pedagogy. Presentation reads
+   * this flag and gives the rock a trajectory that is not a collision course;
+   * nothing about the word, its weighting or its fall time changes (FR-8).
+   */
+  readonly practice: boolean;
   /** Rules bent to produce a word; empty on the happy path. */
   readonly relaxed: readonly Relaxation[];
   readonly state: SelectionState;
@@ -194,6 +243,7 @@ export function createSelectionState(input: SelectionInput): SelectionState {
     spawnCount: 0,
     retentionCount: 0,
     sinceCatch: 0,
+    lastServed: null,
     sharedPrefixTier: sharedPrefixUnlocked(stagePool, book),
   };
 }
@@ -227,6 +277,8 @@ interface Attempt {
   readonly requireCatch: boolean;
   /** Honour nextEligibleStage / the SRS rule (AC-9.3, AC-9.4). */
   readonly requireEligible: boolean;
+  /** Exclude `state.lastServed`, i.e. forbid a back-to-back repeat (AC-9.1c). */
+  readonly avoidLast: boolean;
 }
 
 /** Retention words owed after `n` spawns. Integer maths: no 0.2 rounding. */
@@ -273,9 +325,20 @@ export function pickNext(state: SelectionState, context: PickContext): PickOutco
 }
 
 /**
- * Rungs in precedence order: catch before repeat before source before
- * eligibility. When the slot is not forced, the catch rungs are skipped rather
- * than duplicated.
+ * Rungs in precedence order: consecutive before catch before repeat before
+ * source before eligibility. When the slot is not forced, the catch rungs are
+ * skipped rather than duplicated.
+ *
+ * `avoidLast` is the OUTERMOST loop, which is what makes AC-9.1c the last rule
+ * given up. The whole ladder is walked once with the previous word excluded and
+ * only then walked again with it allowed, so every other rule is bent before
+ * the same word comes round twice in a row.
+ *
+ * That ordering is safe for the totality proof at the top of this file, and the
+ * reason is worth stating: the FINAL rung is unchanged - `fresh: false`,
+ * `requireCatch: false`, `requireEligible: false`, `avoidLast: false` - so the
+ * bottom of the cascade still filters the pool by nothing but "not live" and
+ * "first letter not taken". An empty board therefore still always yields a word.
  */
 function cascade(
   forcedCatch: boolean,
@@ -284,17 +347,26 @@ function cascade(
 ): Attempt[] {
   const out: Attempt[] = [];
   const catchPasses = forcedCatch ? [true, false] : [false];
-  for (const requireCatch of catchPasses) {
-    for (const fresh of [true, false]) {
-      for (const source of [preferred, other]) {
-        out.push({ source, fresh, requireCatch, requireEligible: true });
+  for (const avoidLast of [true, false]) {
+    for (const requireCatch of catchPasses) {
+      for (const fresh of [true, false]) {
+        for (const source of [preferred, other]) {
+          out.push({ source, fresh, requireCatch, requireEligible: true, avoidLast });
+        }
       }
     }
-  }
-  // Last resort: ignore the no-replacement cycle AND the in-stage eligibility
-  // refinement. AC-2.1's filter still applies and is never dropped.
-  for (const source of [preferred, other]) {
-    out.push({ source, fresh: false, requireCatch: false, requireEligible: false });
+    // Last resort for this pass: ignore the no-replacement cycle AND the
+    // in-stage eligibility refinement. AC-2.1's filter still applies and is
+    // never dropped.
+    for (const source of [preferred, other]) {
+      out.push({
+        source,
+        fresh: false,
+        requireCatch: false,
+        requireEligible: false,
+        avoidLast,
+      });
+    }
   }
   return out;
 }
@@ -323,6 +395,8 @@ function candidatesFor(
     // be spawned twice (that is physics, not policy), and AC-2.1 owns the rest.
     if (live.has(word)) continue;
     if (blocked.has(firstLetter(word))) continue;
+    // AC-9.1c. One word, from either pool: the one the last rock carried.
+    if (attempt.avoidLast && word === state.lastServed) continue;
     if (attempt.fresh && usedSet.has(word)) continue;
     const record = recordFor(context.book, word);
     if (attempt.requireCatch && !isGuaranteedCatch(word, record)) continue;
@@ -378,18 +452,25 @@ function commit(
   // AC-9.1: the bag refills the moment it is empty, so consecutive blocks of
   // `pool.length` spawns are each a permutation of the pool - every word is
   // served once before any is served twice, which is what "no repeats until
-  // the pool is exhausted" means. The bag is NOT seeded with the word just
-  // served: a back-to-back repeat is already impossible because a live word is
-  // never re-spawned and (tier locked) its own first letter is blocked, and
-  // seeding it would make that one word appear less often than the rest.
+  // the pool is exhausted" means.
+  //
+  // The bag is still NOT seeded with the word just served, and that is now a
+  // deliberate division of labour rather than the mistaken claim it used to
+  // be. Seeding it would make that one word appear less often than every other
+  // word in the pool, which is a permanent distortion of AC-9.1's permutation
+  // in exchange for a one-slot guarantee. `lastServed` buys the same guarantee
+  // for exactly one slot and costs the distribution nothing: the word is
+  // excluded from the NEXT pick and is a full citizen of the bag again after it.
   const nextUsed = new Set(usedSet);
   nextUsed.add(word);
   const cycled = nextUsed.size >= pool.length;
   const nextUsedList = cycled ? [] : [...nextUsed];
 
-  const guaranteedCatch = isGuaranteedCatch(word, recordFor(context.book, word));
+  const record = recordFor(context.book, word);
+  const guaranteedCatch = isGuaranteedCatch(word, record);
 
   const relaxed: Relaxation[] = [];
+  if (word === state.lastServed) relaxed.push("consecutive");
   if (wasUsed) relaxed.push("repeat");
   if (forcedCatch && !guaranteedCatch) relaxed.push("catch");
   if (source !== preferred) relaxed.push("source");
@@ -401,6 +482,7 @@ function commit(
     source,
     guaranteedCatch,
     forcedCatch,
+    practice: isPracticeSpawn(word, source, record, state),
     relaxed,
     state: {
       ...state,
@@ -412,12 +494,43 @@ function commit(
           : state.servedStage,
       spawnCount: state.spawnCount + 1,
       retentionCount: state.retentionCount + (source === "retention" ? 1 : 0),
+      lastServed: word,
       // AC-9.2's counter is driven by what the word IS, not by why it was
       // chosen: an unforced slot that happens to serve a mastered word resets
       // the window exactly like a forced one.
       sinceCatch: guaranteedCatch ? 0 : state.sinceCatch + 1,
     },
   };
+}
+
+/**
+ * Is this spawn a word COMING BACK rather than a word arriving (D21, D23)?
+ *
+ * Three ways in, and each is a rule that already exists:
+ *
+ *   1. it came from the retention pool - that is AC-9.3's spaced-repetition
+ *      probe and is a check on something the player learned at an earlier stop;
+ *   2. this stage has already served it once (`servedStage`) - the bag cycled,
+ *      or a rung relaxed AC-9.1, and either way the child has met it today;
+ *   3. the player has MISSED it before (`record.misses > 0`) - D23's "a missed
+ *      word comes back sooner", which is the case the player named.
+ *
+ * Case 3 is read off the word book rather than off this stage's history on
+ * purpose: a word missed at Mars and met again at Saturn is still a word the
+ * game chose to re-teach, and it is still not something to fly at the ship.
+ *
+ * Pure and exported so the scene never has to re-derive it from three sources
+ * and get a fourth answer.
+ */
+export function isPracticeSpawn(
+  word: string,
+  source: "stage" | "retention",
+  record: WordRecord,
+  state: SelectionState,
+): boolean {
+  if (source === "retention") return true;
+  if (state.servedStage.includes(word)) return true;
+  return record.misses > 0;
 }
 
 /**

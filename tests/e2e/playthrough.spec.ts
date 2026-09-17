@@ -115,7 +115,7 @@ async function beltState(page: import("@playwright/test").Page): Promise<BeltSta
 async function clearTheBelt(
   page: import("@playwright/test").Page,
   where: () => string,
-): Promise<void> {
+): Promise<number> {
   let stallRestarts = 0;
   let last: BeltState = { rocks: [], spawned: 0, total: 0, stageComplete: false };
   for (let i = 0; i < 2000; i++) {
@@ -124,8 +124,8 @@ async function clearTheBelt(
     // running behind it. "Flight is gone" is therefore not the end of the
     // stage - the break opening is. Waiting on the wrong one of those spins
     // here until the test times out, and says nothing about the game.
-    if (here.includes("Warp")) return;
-    if (!here.includes("Flight")) return;
+    if (here.includes("Warp")) return stallRestarts;
+    if (!here.includes("Flight")) return stallRestarts;
     // Three hull hits sink the ship into the stall card (D27/D29, never a
     // "game over"). Restarting the stage is the card's only action and is the
     // documented recovery (AC-4.3), so take it and keep flying. Capped, because
@@ -143,7 +143,7 @@ async function clearTheBelt(
     }
     last = await beltState(page);
     // The scene's own end-of-stage flag, which is set before Warp is launched.
-    if (last.stageComplete) return;
+    if (last.stageComplete) return stallRestarts;
     if (last.rocks.length === 0) {
       await page.waitForTimeout(120);
       continue;
@@ -463,8 +463,32 @@ test("a player can get from the Title to a placed beacon using only the keyboard
   expect(await activeScenes(page)).toContain("Flight");
 
   // --- Fly the Mars belt to the end of the stage --------------------------
-  await clearTheBelt(page, where);
+  const stalls = await clearTheBelt(page, where);
   await mark("belt cleared");
+
+  /**
+   * SURVIVABILITY, MEASURED AGAINST THE REAL SCENE.
+   *
+   * `tests/unit/simulation/belt.test.ts` answers "is a belt survivable" with a
+   * simulation that shares the ENGINE with `FlightScene` and shares none of its
+   * loop. That simulation reported zero stalls while this spec was red with
+   * "the belt stalled 5 times and never completed", and both were telling the
+   * truth: the three players it asserts about (accuracy 0.88-0.97) all sit
+   * above the 94.8% a three-mark hull demanded of a 58-word stage, so the
+   * population it measured excluded every player who could fail. The grade-2
+   * tail was not in it. Asked about that child, the same harness reports 58
+   * stalls in 100.
+   *
+   * So the loop below now RECORDS what it always tolerated. The restart path
+   * stays - a stall must not hang this spec - but a stage that stalls at all is
+   * a failure here, and this is the only check in the suite where that claim is
+   * made about the scene the child actually flies rather than about a model of
+   * it.
+   */
+  expect(
+    stalls,
+    `the belt stalled ${stalls} time(s) on the real scene. ${where()}`,
+  ).toBe(0);
 
   // --- Warp break: retype the sentence made of the words just blasted -----
   await waitForScene(page, "Warp", 120_000).catch(async (e) => {

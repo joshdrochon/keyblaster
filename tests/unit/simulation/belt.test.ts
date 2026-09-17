@@ -9,6 +9,7 @@ import {
 } from "./flight.js";
 import { DEFAULT_FLIGHT_CONFIG, stagePoolFor } from "@game/flight/stage.js";
 import { MAX_LIVE_MAX, MAX_LIVE_MIN } from "@engine/controller/knobs.js";
+import { HULL_BASE_MARKS, hullForStage, survivableHitRate } from "@engine/hull/index.js";
 import type { WordBook } from "@engine/words/index.js";
 
 /**
@@ -54,6 +55,18 @@ const SEEDS = 40;
  * calibrated latency would let a belt paced purely off calibration look safe.
  */
 const MEDIAN: SimPlayer = { accuracy: 0.93, ikiMs: 350, fkLatencyMs: 500, coldRecognitionMs: 1500 };
+/**
+ * THE CHILD THIS ROUND IS ABOUT. A grade-2 typist: 600 ms between keys, 0.82
+ * per-character accuracy, 2.4 s to recognise a word they do not know yet. These
+ * are the numbers in the D27-vs-D17 escalation, so the "before" figure here is
+ * directly comparable with the one that was already on record.
+ *
+ * They are NOT in `PLAYERS`: the three players above are spreads around the
+ * median and the survivability assertions are made about them. This one is the
+ * tail, and what is measured about them is a rate, not a pass/fail.
+ */
+const GRADE2: SimPlayer = { accuracy: 0.82, ikiMs: 600, fkLatencyMs: 700, coldRecognitionMs: 2400 };
+const STALL_SEEDS = 100;
 const SLOW: SimPlayer = { accuracy: 0.88, ikiMs: 440, fkLatencyMs: 650, coldRecognitionMs: 1900 };
 const FAST: SimPlayer = { accuracy: 0.97, ikiMs: 260, fkLatencyMs: 400, coldRecognitionMs: 1100 };
 
@@ -225,6 +238,101 @@ describe("D31: the belt slows down for the player who is struggling", () => {
       // stage too hard (LOOSEN_BELOW), so the belt has stopped being a belt.
       expect(s.meanHitRate, `maxLive ${maxLive}`).toBeGreaterThanOrEqual(0.8);
     }
+  });
+});
+
+/**
+ * D17 vs D27, MEASURED - the decision this round implements.
+ *
+ * D27 fixes the hull at three marks. D17 targets 85% success. At 18 words those
+ * agree; at 58 they cannot, because three marks out of 58 demands 94.8% and
+ * that is four points above the TOP of D17's band. The escalation recorded what
+ * that costs a real child: a grade-2 typist stalled on 55 of 100 belts.
+ *
+ * `@engine/hull` turns D27's three marks into D27's RATE - three marks per 18
+ * words, so 58 words carries nine - and this is the before-and-after. The two
+ * changes are measured SEPARATELY, because one of them is doing nearly all of
+ * the work and a single lumped figure would hide which.
+ */
+describe("D17 / D27 / AC-4.3: the grade-2 child, before and after", () => {
+  const stallRate = (over: Partial<BeltConfig>): {
+    stalls: number;
+    meanHitRate: number;
+    meanPassedBy: number;
+    meanDurationS: number;
+  } => {
+    const runs: BeltResult[] = [];
+    for (let seed = 1; seed <= STALL_SEEDS; seed += 1) {
+      runs.push(simulateBelt(belt(over), GRADE2, {}, mulberry32(seed)));
+    }
+    return {
+      stalls: runs.filter((r) => r.stalled).length,
+      meanHitRate: mean(runs.map((r) => r.hitRate)),
+      meanPassedBy: mean(runs.map((r) => r.passedBy)),
+      meanDurationS: mean(runs.map((r) => r.durationMs / 1000)),
+    };
+  };
+
+  it("AC-4.3 / D31: the stall rate goes from most belts to none of them", () => {
+    // BEFORE: the shipped hull of 3 against a 58-word stage, the exact
+    // configuration the escalation measured. AFTER: the same belt, same seeds,
+    // same child, with the hull scaled by stage length.
+    const before = stallRate({ maxHull: HULL_BASE_MARKS, practiceRocksPassBy: false });
+    const passByOnly = stallRate({ maxHull: HULL_BASE_MARKS });
+    const hullOnly = stallRate({ practiceRocksPassBy: false });
+    const after = stallRate({});
+    const withCanisters = stallRate({ canisters: true });
+
+    // The baseline has to reproduce the number already on record, or the
+    // "after" figure is being compared against a different simulation.
+    expect(before.stalls).toBeGreaterThan(50);
+    expect(before.stalls).toBeLessThanOrEqual(60);
+
+    // THE CLAIM. Not "fewer"; none. D31 says the child who stalls is not the
+    // problem, and a stage that ends under one child in a hundred is a stage
+    // that ends under children.
+    expect(after.stalls).toBe(0);
+    // And it is the HULL doing it, not the trajectory change riding along.
+    expect(hullOnly.stalls).toBe(0);
+    expect(passByOnly.stalls).toBeGreaterThan(30);
+    expect(withCanisters.stalls).toBe(0);
+
+    mkdirSync("gauntlet/evidence", { recursive: true });
+    writeFileSync(
+      "gauntlet/evidence/grade2-stall-rate.json",
+      JSON.stringify(
+        {
+          player: GRADE2,
+          stageWordCount: WORDS,
+          seeds: STALL_SEEDS,
+          hullBefore: HULL_BASE_MARKS,
+          hullAfter: hullForStage(WORDS),
+          survivableHitRateBefore: survivableHitRate(WORDS, HULL_BASE_MARKS),
+          survivableHitRateAfter: survivableHitRate(WORDS),
+          runs: { before, passByOnly, hullOnly, after, withCanisters },
+          source: "tests/unit/simulation/belt.test.ts",
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+  });
+
+  it("D17: the child now lands inside the band instead of under the floor", () => {
+    // The point of the change is not "easier". It is that the measured hit rate
+    // and the rate the stage DEMANDS finally overlap, which is what D17 and D27
+    // were always meant to say together.
+    const after = stallRate({});
+    expect(after.meanHitRate).toBeGreaterThanOrEqual(survivableHitRate(WORDS));
+  });
+
+  it("D21/D23: the pass-by is a trajectory change, not a difficulty discount", () => {
+    // How much hull the practice rule actually gives back over a whole stage.
+    // If this were large, "trajectory not difficulty" would be a slogan rather
+    // than a description - a stage would be measurably easier because rocks
+    // stopped counting.
+    const after = stallRate({});
+    expect(after.meanPassedBy).toBeLessThan(1);
   });
 });
 

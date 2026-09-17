@@ -19,4 +19,13 @@ npx vitest run tests/unit --coverage.enabled=false --reporter=dot
 echo "pre-commit: trace-check"
 node scripts/trace-check.mjs >/dev/null
 
+# Regenerate the ticket board so docs/tickets.md can never be older than the
+# commit it describes. Deliberately NOT --check: a FALSE-PASS ticket records a
+# defect we already know about and have not fixed yet, and blocking every commit
+# on that would just get the hook bypassed. The board being CURRENT is the gate;
+# `npm run tickets:check` is the one that fails on unfinished work.
+echo "pre-commit: tickets"
+node scripts/tickets.mjs >/dev/null
+git add gauntlet/tickets.json docs/tickets.md
+
 echo "pre-commit: green"

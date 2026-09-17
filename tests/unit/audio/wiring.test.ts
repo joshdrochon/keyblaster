@@ -43,6 +43,8 @@ import { fakeVoiceEnvironment } from "./fakes.js";
 
 const CUE_EVENT = "kb:flight:cue";
 const HUD_EVENT = "kb:flight:hud";
+/** `scenes/lib/init.goTo` emits this on `game.events` before every hand-off. */
+const TRANSITION_EVENT = "story-transition";
 
 /** A two-method stand-in for `game.events`. Phaser is not imported here. */
 class FakeChannel {
@@ -79,11 +81,19 @@ interface Harness {
   readonly registry: FakeRegistry;
   readonly ctx: NullAudioContext;
   finishSpeech(): void;
+  /** The platform crossed a word boundary in the line in flight. */
+  boundary(): void;
+  /** Utterances the platform was actually handed, in order. */
+  spokenTexts(): string[];
+  /** `speechSynthesis.cancel()` calls. */
+  cancels(): number;
+  /** Run every pending timer: the ease-out deadline and the inter-line gap. */
+  tick(): void;
 }
 
 function harness(volumes?: { music?: number; sfx?: number }): Harness {
   const ctx = new NullAudioContext();
-  const { env, speech } = fakeVoiceEnvironment();
+  const { env, speech, scheduler } = fakeVoiceEnvironment();
   const graph = buildAudioGraph(ctx, { voiceEnv: env, rand: seededRandom(0xbeef) });
   const channel = new FakeChannel();
   const registry = new FakeRegistry();
@@ -93,6 +103,7 @@ function harness(volumes?: { music?: number; sfx?: number }): Harness {
     registry,
     cueEvent: CUE_EVENT,
     hudEvent: HUD_EVENT,
+    transitionEvent: TRANSITION_EVENT,
     ...(volumes ? { volumes } : {}),
   });
   return {
@@ -101,6 +112,10 @@ function harness(volumes?: { music?: number; sfx?: number }): Harness {
     registry,
     ctx,
     finishSpeech: () => speech?.finishLast(),
+    boundary: () => speech?.last?.onBoundary?.(),
+    spokenTexts: () => (speech?.requests ?? []).map((r) => r.text),
+    cancels: () => speech?.cancels ?? 0,
+    tick: () => scheduler.runAll(),
   };
 }
 
@@ -593,3 +608,106 @@ function variantOf(id: string): ReturnType<typeof variantsFor>[number] {
 function hotBase(id: string, field: "startHz" | "peakGain" = "startHz"): number {
   return variantOf(id)[field];
 }
+
+// ---------------------------------------------------------------------------
+// Shadow never talks over himself, and only the player cuts him off
+// ---------------------------------------------------------------------------
+
+describe("AC-21.4: the voice bus serialises across the whole game", () => {
+  it("two scenes speaking in the same tick produce two lines, never two at once", () => {
+    // The player's report, as a test at the level they experienced it: not
+    // "the bus queues", but "the GAME never plays two voice lines together".
+    const h = harness();
+    h.audio.speak({ id: "a", text: "Mars ahead.", kind: "scripted" });
+    h.audio.speak({ id: "b", text: "Course locked.", kind: "scripted" });
+
+    expect(h.spokenTexts()).toEqual(["Mars ahead."]);
+    h.finishSpeech();
+    h.tick();
+    expect(h.spokenTexts()).toEqual(["Mars ahead.", "Course locked."]);
+    expect(h.audio.snapshot().voiceQueued).toBe(0);
+  });
+
+  it("the snapshot never reports more than one line in flight", () => {
+    const h = harness();
+    for (let i = 0; i < 6; i += 1) {
+      h.audio.speak({ id: `l${i}`, text: `line ${i}`, kind: "scripted" });
+      const snap = h.audio.snapshot();
+      expect(snap.voiceSpeaking).toBe(true);
+      expect(h.spokenTexts().length).toBe(1);
+    }
+    expect(h.audio.snapshot().voiceQueued).toBe(5);
+  });
+
+  it("a coach note queues behind a scripted line instead of cutting it", () => {
+    // AC-21.6's note is still text-first; what changed is that it waits its
+    // turn rather than talking over whatever Shadow was already saying.
+    const h = harness();
+    h.audio.speak({ id: "a", text: "Mars ahead.", kind: "scripted" });
+    const rendered: string[] = [];
+    const result = h.audio.speakNote({ note: "Nice work." }, (d) => rendered.push(d.text));
+
+    expect(result.order).toEqual(["text", "speech"]);
+    expect(rendered).toEqual(["Nice work."]);
+    // The TEXT is up immediately - that is AC-21.6 - and the speech is queued.
+    expect(h.spokenTexts()).toEqual(["Mars ahead."]);
+    h.finishSpeech();
+    h.tick();
+    expect(h.spokenTexts()).toEqual(["Mars ahead.", "Nice work."]);
+  });
+
+  it("THE PLAYER ADVANCING A SCREEN eases Shadow out - and nothing else does", () => {
+    // `goTo` emits this before every hand-off in the game, and it is the only
+    // event in the build that is always the player acting.
+    const h = harness();
+    h.audio.speak({ id: "a", text: "a long line being walked away from", kind: "scripted" });
+    expect(h.cancels()).toBe(0);
+
+    h.channel.emit(TRANSITION_EVENT, "Warp");
+
+    // Eased, not cut: the platform has not been stopped yet, and it stops on
+    // the next word boundary.
+    expect(h.cancels()).toBe(0);
+    h.boundary();
+    expect(h.cancels()).toBe(1);
+    expect(h.audio.snapshot().voiceInterrupts).toBe(1);
+  });
+
+  it("a hand-off drops the lines queued behind it - that screen is gone", () => {
+    const h = harness();
+    h.audio.speak({ id: "a", text: "first", kind: "scripted" });
+    h.audio.speak({ id: "b", text: "second", kind: "scripted" });
+    h.channel.emit(TRANSITION_EVENT, "Results");
+    h.boundary();
+    h.tick();
+    expect(h.spokenTexts()).toEqual(["first"]);
+    expect(h.audio.snapshot().voiceQueued).toBe(0);
+  });
+
+  it("the next screen's first line starts AFTER the gap, into quiet", () => {
+    const h = harness();
+    h.audio.speak({ id: "a", text: "outgoing", kind: "scripted" });
+    h.audio.interruptFor({ id: "b", text: "incoming", kind: "scripted" });
+    h.boundary();
+    expect(h.spokenTexts()).toEqual(["outgoing"]);
+    h.tick();
+    expect(h.spokenTexts()).toEqual(["outgoing", "incoming"]);
+  });
+
+  it("interruptFor with nothing to say still stops the line", () => {
+    const h = harness();
+    h.audio.speak({ id: "a", text: "outgoing", kind: "scripted" });
+    h.audio.interruptFor();
+    h.boundary();
+    h.tick();
+    expect(h.cancels()).toBe(1);
+    expect(h.audio.snapshot().voiceSpeaking).toBe(false);
+  });
+
+  it("detaching stops listening for hand-offs", () => {
+    const h = harness();
+    expect(h.channel.count(TRANSITION_EVENT)).toBe(1);
+    h.audio.dispose();
+    expect(h.channel.count(TRANSITION_EVENT)).toBe(0);
+  });
+});

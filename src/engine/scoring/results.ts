@@ -3,7 +3,7 @@ import { STOP_IDS, isBeltStop, stageIndexOf } from "../types.js";
 import { firstFkLatency, median } from "../words/index.js";
 import { accuracy, wpm } from "./rates.js";
 import { meanOf } from "./stats.js";
-import { starsForHullHits } from "./stars.js";
+import { HULL_HITS_PER_STAGE, starsForHullHits } from "./stars.js";
 
 /**
  * The results screen (D50, PRD section 3.8, AC-20.1 .. AC-20.4).
@@ -32,8 +32,18 @@ export interface StageTally {
   readonly hits: number;
   /** Counted for the engine only; never surfaced as a score (D31). */
   readonly typos: number;
-  /** 0..2 for a cleared stage; 3 is a stall, not a rating (D27, D29). */
+  /**
+   * Fewer than `maxHull` for a cleared stage; reaching `maxHull` is a stall,
+   * not a rating (D27, D29).
+   */
   readonly hullHits: number;
+  /**
+   * The stage's hull capacity (`@engine/hull.hullForStage`). Optional, and it
+   * defaults to D27's three: every caller written before the hull started
+   * scaling with stage length keeps AC-4.4's exact 0/1/2 mapping without
+   * changing a line.
+   */
+  readonly maxHull?: number;
 }
 
 /**
@@ -256,7 +266,7 @@ export function computeStageResults(input: StageResultsInput): StageResults {
     accuracyDelta:
       previous === null ? null : stageAccuracy - previous.lastAccuracy,
     previousStopId: previous?.stopId ?? null,
-    stars: starsForHullHits(tally.hullHits),
+    stars: starsForHullHits(tally.hullHits, tally.maxHull ?? HULL_HITS_PER_STAGE),
     words: exposures.map(wordProgressMarker),
     retention: retentionLine(exposures),
   };

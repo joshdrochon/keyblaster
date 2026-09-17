@@ -62,9 +62,11 @@ import {
   accuracy,
   comboReducer,
   hudMultiplierFor,
+  starsForHullHits,
   wordScore,
   wpm,
 } from "@engine/scoring/index.js";
+import type { StageAward } from "@engine/awards/index.js";
 import {
   type WordBook,
   applyToBook,
@@ -73,6 +75,7 @@ import {
 } from "@engine/words/index.js";
 import { STOP_IDS, type StopId } from "@engine/types.js";
 import {
+  DEFAULT_FLIGHT_CONFIG,
   FLIGHT_EVENTS,
   type FlightConfig,
   type FlightCue,
@@ -94,13 +97,14 @@ import {
   stageOutcome,
 } from "@game/flight/blastHistory.js";
 import {
-  MAX_HULL,
   hullAfterShield,
   hullAfterStrike,
+  hullForStage,
   isStalled,
   maySpawnCanister,
   startingHull,
 } from "@game/flight/shield.js";
+import { type LaneSpec, isOnShipLane, spawnX } from "@engine/spawn/index.js";
 import { HudScene } from "./HudScene.js";
 import { StallScene } from "./StallScene.js";
 import { audioFrom } from "@game/audio/wiring.js";
@@ -137,6 +141,44 @@ import { audioFrom } from "@game/audio/wiring.js";
 const STALL_SINK_MS = 2400;
 
 /**
+ * WORD PLATES DRAW ABOVE EVERY ROCK (AC-22.8, and the reason the game exists).
+ *
+ * Rocks all live in one container and are added in spawn order, so a rock that
+ * arrives later draws over an earlier rock's plate. That is not a cosmetic
+ * overlap: the word is the thing the child is trying to read, and a covered
+ * word is a rock they cannot shoot. The player reported exactly this.
+ *
+ * The fix is depth, which is the only fix that is total - reordering by
+ * overlap, or fading whichever rock is on top, both leave cases where two
+ * plates cover each other. Plates are therefore parented to their OWN
+ * container, half a step above `debris` (4) and still below `nearField` (5) so
+ * nothing about the parallax stack changes. Every plate is above every rock,
+ * always, by construction rather than by arrangement.
+ *
+ * A second thing falls out of it and it is a fix in its own right: a plate is
+ * no longer a child of a rock that SPINS (`spinPerSec`), so the word hangs
+ * level under its rock instead of tumbling with it. Art-direction section 4
+ * always said the plate hangs below the rock; it now actually does.
+ */
+const PLATE_DEPTH = layer("debris").depth + 0.5;
+
+/**
+ * Half the Lantern's drawn width, px (`drawLantern`: the tail fins reach 46).
+ * Used to work out which spawn columns would drop a rock onto the ship.
+ */
+const SHIP_HALF_WIDTH_PX = 46;
+
+/**
+ * Keep-out at each edge of the playfield.
+ *
+ * The near plane carries near-black framing masses down both edges
+ * (render/parallax.ts, canyonWalls) which reach about 8.5% of the stage. A rock
+ * spawns clear of them: a foreground that covers a word costs a child a rock,
+ * which is the same defect as one rock covering another rock's plate.
+ */
+const SPAWN_MARGIN_PX = 320;
+
+/**
  * What the world slows to for the warp break (D30). Not zero: "a calm break" is
  * a change of pace, and rubric item 2 wants an idle frame to still be alive.
  */
@@ -151,6 +193,15 @@ interface LiveRock {
   readonly sizePx: number;
   readonly debris: DebrisType;
   readonly isCanister: boolean;
+  /**
+   * D21/D23: this word is COMING BACK - a retention probe, or one the player
+   * missed - so the game chose to show it again. `@engine/selection` decides;
+   * this scene only reads it, to pick a column that is not the ship's and to
+   * let the rock sail past instead of into the hull. See `spawnRock`.
+   */
+  readonly isPractice: boolean;
+  /** Plate centre below the rock centre, px (`render/wordPlate.plateOffsetY`). */
+  readonly plateOffsetY: number;
   readonly spawnedAtMs: number;
   readonly fallMs: number;
   /**
@@ -183,6 +234,8 @@ export interface FlightDebugState {
   readonly parkedId: string | null;
   readonly stalled: boolean;
   readonly stageComplete: boolean;
+  /** Hull marks this stage has (`@engine/hull.hullForStage`). */
+  readonly maxHull: number;
   readonly maxLive: number;
   readonly knobChanges: number;
   /** The gap the belt is currently holding between rocks, ms (@engine/pacing). */
@@ -195,9 +248,20 @@ export interface FlightDebugState {
     readonly y: number;
     readonly plateY: number;
     readonly plateTop: number;
+    /** The plate's rectangle in world space - what AC-22.8 must keep legible. */
+    readonly plateLeft: number;
+    readonly plateRight: number;
+    readonly plateBottom: number;
+    /** Phaser depth of the plate layer; must exceed `rockDepth` for every rock. */
+    readonly plateDepth: number;
     readonly rockBottom: number;
+    readonly rockDepth: number;
     readonly typedCount: number;
     readonly isCanister: boolean;
+    /** D21/D23: this word came back, so it is not aimed at the ship. */
+    readonly isPractice: boolean;
+    /** True if this rock's column would bring it down onto the Lantern. */
+    readonly onShipLane: boolean;
     readonly debrisType: string;
   }[];
   readonly layerOffsets: Readonly<Record<string, number>>;
@@ -219,6 +283,14 @@ export class FlightScene extends Phaser.Scene {
   private selection!: SelectionState;
   private controller!: ControllerState;
   private combo: ComboState = INITIAL_COMBO_STATE;
+  /**
+   * The longest unbroken chain this stage reached (AC-6c.1's combo, at its
+   * peak). `combo` itself is the LIVE chain and is reset by a typo or a hull
+   * hit, so by stage end it says nothing about what the player achieved - which
+   * is why Chain 25 and Chain 50 (D80, AC-6d.1c) could never have been awarded
+   * from it. Recorded here because nothing persists a chain.
+   */
+  private bestCombo = 0;
   private book: WordBook = {};
   /**
    * D09. What the player ACTUALLY shot down this stage, in order, and what got
@@ -229,7 +301,18 @@ export class FlightScene extends Phaser.Scene {
   private history: BlastHistory = emptyHistory();
 
   private rocks: LiveRock[] = [];
-  private hull = MAX_HULL;
+  private hull = hullForStage(DEFAULT_FLIGHT_CONFIG.stageWordCount);
+  /**
+   * Hull marks THIS stage has, from `@engine/hull.hullForStage`.
+   *
+   * It is a field rather than the module constant it used to be because D27's
+   * three marks and D17's 80-90% band only agree at 18 words, and this stage is
+   * 58 (see `@engine/hull`'s header for the arithmetic). Every place that used
+   * to read `MAX_HULL` reads this, including the two `hullHits` figures the
+   * results screen turns into stars - if one of them kept the constant, a
+   * nine-mark stage would report six hits it never took.
+   */
+  private maxHull = hullForStage(DEFAULT_FLIGHT_CONFIG.stageWordCount);
   private score = 0;
   private hits = 0;
   private typos = 0;
@@ -300,6 +383,8 @@ export class FlightScene extends Phaser.Scene {
   /** The D30 calm-down, held so the warp jump can stop it. */
   private calmTween: Phaser.Tweens.Tween | null = null;
   private debrisLayer!: Phaser.GameObjects.Container;
+  /** Every word plate in the game, above every rock. See `PLATE_DEPTH`. */
+  private plateLayer!: Phaser.GameObjects.Container;
   private shipLayer!: Phaser.GameObjects.Container;
   private shipBody!: Phaser.GameObjects.Container;
   private emitterHead!: Phaser.GameObjects.Container;
@@ -314,6 +399,8 @@ export class FlightScene extends Phaser.Scene {
   private shakeX = 0;
   private shakeY = 0;
   private breachY = 0;
+  /** The Lantern's column. AC-1.1 freezes it for the stage. */
+  private shipX = 0;
   private plateStyle!: WordPlateStyle;
 
   constructor() {
@@ -323,7 +410,8 @@ export class FlightScene extends Phaser.Scene {
   init(data: Partial<FlightConfig>): void {
     this.cfg = flightConfigFrom(data);
     this.rocks = [];
-    this.hull = startingHull();
+    this.maxHull = hullForStage(this.cfg.stageWordCount);
+    this.hull = startingHull(this.cfg.stageWordCount);
     this.score = 0;
     this.hits = 0;
     this.typos = 0;
@@ -343,6 +431,7 @@ export class FlightScene extends Phaser.Scene {
     this.parked = null;
     this.retentionWords = new Set<string>();
     this.combo = INITIAL_COMBO_STATE;
+    this.bestCombo = 0;
     // A restart is a fresh attempt at the stage (AC-4.3), so the run record
     // starts empty even though the word book is carried over.
     this.history = emptyHistory();
@@ -472,6 +561,7 @@ export class FlightScene extends Phaser.Scene {
     });
 
     this.debrisLayer = this.add.container(0, 0).setDepth(layer("debris").depth);
+    this.plateLayer = this.add.container(0, 0).setDepth(PLATE_DEPTH);
     this.shipLayer = this.add.container(0, 0).setDepth(layer("shipFx").depth);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.parallax.destroy());
   }
@@ -479,6 +569,7 @@ export class FlightScene extends Phaser.Scene {
   private buildShip(width: number, height: number): void {
     const shipX = width / 2;
     const shipY = height - 150;
+    this.shipX = shipX;
     this.breachY = shipY - 74;
 
     this.shipBody = this.add.container(0, 0);
@@ -836,7 +927,11 @@ export class FlightScene extends Phaser.Scene {
       rock.container.x =
         rock.homeX + Math.sin(now / 1400 + rock.driftPhase) * 10;
       rock.container.rotation += rock.spinPerSec * (1 / 60);
-      if (t >= 1) this.breach(rock, now);
+      // The plate is not a child of the rock (see PLATE_DEPTH), so it is
+      // carried here. Deliberately not rotated: the rock tumbles, the word does
+      // not, which is what art-direction section 4 asked for all along.
+      rock.plate.setPosition(rock.container.x, rock.container.y + rock.plateOffsetY);
+      if (t >= 1) this.resolveAtBreachLine(rock, now);
     }
   }
 
@@ -872,7 +967,10 @@ export class FlightScene extends Phaser.Scene {
     }
     this.selection = outcome.state;
     if (outcome.source === "retention") this.retentionWords.add(outcome.word);
-    this.spawnRock(outcome.word, now);
+    // D21/D23: `practice` means the ENGINE chose to show this word again. The
+    // scene does not re-derive that from the book; `@engine/selection` is the
+    // only thing that knows why a word is on the belt.
+    this.spawnRock(outcome.word, now, outcome.practice);
     this.lastSpawnGapMs = this.spawnGapAfter(now);
     this.nextSpawnAtMs = now + this.lastSpawnGapMs;
   }
@@ -921,7 +1019,32 @@ export class FlightScene extends Phaser.Scene {
     return Math.max(this.lastResolveAtMs, target.spawnedAtMs);
   }
 
-  private spawnRock(word: string, now: number): void {
+  /**
+   * The geometry `@engine/spawn` needs to keep a practice rock out of the
+   * ship's path. A rock's own half-width is used rather than its plate's,
+   * because the plate is narrower than the rock at every length
+   * (`render/wordPlate.plateSize` vs `asteroid.asteroidSizePx`) - so clearing
+   * the rock clears the word too.
+   */
+  private laneSpec(sizePx: number): LaneSpec {
+    return {
+      width: this.scale.width,
+      marginPx: SPAWN_MARGIN_PX,
+      shipX: this.shipX,
+      shipHalfWidthPx: SHIP_HALF_WIDTH_PX,
+      rockHalfWidthPx: sizePx / 2,
+    };
+  }
+
+  /**
+   * Put one rock on the belt.
+   *
+   * `practice` is `@engine/selection`'s `Picked.practice` - this word is COMING
+   * BACK, because the player missed it (D23) or because it is a retention probe
+   * (D21). See `lanePlacement` for what that changes and, just as importantly,
+   * for what it does not.
+   */
+  private spawnRock(word: string, now: number, practice = false): void {
     const width = this.scale.width;
     const letters = [...word].length;
     const sizePx = asteroidSizePx(letters);
@@ -929,7 +1052,7 @@ export class FlightScene extends Phaser.Scene {
     const debris = types[this.nextRockIndex % Math.max(1, types.length)] as DebrisType;
     const isCanister =
       this.canisterId === null &&
-      maySpawnCanister(this.hull, this.canisterId !== null) &&
+      maySpawnCanister(this.hull, this.maxHull, this.canisterId !== null) &&
       this.rng() < 0.5;
 
     const id = `rock-${this.nextRockIndex}`;
@@ -955,22 +1078,16 @@ export class FlightScene extends Phaser.Scene {
       });
     }
 
-    const plate = new WordPlate(
-      this,
-      0,
-      plateOffsetY(sizePx, this.plateStyle),
-      word,
-      this.plateStyle,
-    );
+    const offsetY = plateOffsetY(sizePx, this.plateStyle);
+    const plate = new WordPlate(this, 0, 0, word, this.plateStyle);
+    // NOT a child of the rock. See PLATE_DEPTH: every plate draws above every
+    // rock, and `updateRocks` carries it to the rock's column each frame.
+    this.plateLayer.add(plate);
 
-    // The near plane now carries near-black framing masses down both edges
-    // (render/parallax.ts, canyonWalls), which reach about 8.5% of the stage.
-    // A rock spawns clear of them by its own half-width plus its plate: a
-    // foreground that covers a word is a foreground that costs a child a rock.
-    const margin = 320;
-    const homeX = margin + this.rng() * (width - margin * 2);
-    const container = this.add.container(homeX, -sizePx, [body, plate]);
+    const homeX = spawnX(this.laneSpec(sizePx), this.rng, practice);
+    const container = this.add.container(homeX, -sizePx, [body]);
     this.debrisLayer.add(container);
+    plate.setPosition(homeX, -sizePx + offsetY);
 
     const record = recordFor(this.book, word);
     const fallMs = fallTimeMs({
@@ -993,6 +1110,8 @@ export class FlightScene extends Phaser.Scene {
       sizePx,
       debris,
       isCanister,
+      isPractice: practice,
+      plateOffsetY: offsetY,
       spawnedAtMs: now,
       fallMs,
       clearEstimateMs,
@@ -1008,9 +1127,12 @@ export class FlightScene extends Phaser.Scene {
     this.spawnedCount += 1;
 
     // Arrive, never appear: Back.Out is the pop curve (art-direction section 8).
+    // The plate pops with its rock even though it is no longer parented to it -
+    // one tween over both targets, so they cannot come in out of step.
     container.setScale(0.7);
+    plate.setScale(0.7);
     this.tweens.add({
-      targets: container,
+      targets: [container, plate],
       scale: 1,
       duration: 260,
       ease: "Back.Out",
@@ -1195,6 +1317,9 @@ export class FlightScene extends Phaser.Scene {
     this.parked = null;
 
     this.combo = comboReducer(this.combo, "hit");
+    // The peak, kept because the live chain is about to be resettable and a
+    // chain is the one thing about a stage that nothing persists.
+    this.bestCombo = Math.max(this.bestCombo, this.combo.combo);
     const points = wordScore([...word].length, this.combo.multiplier);
     this.score += points;
     this.hits += 1;
@@ -1220,7 +1345,7 @@ export class FlightScene extends Phaser.Scene {
 
     if (rock !== undefined) {
       if (rock.isCanister) {
-        this.hull = hullAfterShield(this.hull);
+        this.hull = hullAfterShield(this.hull, this.maxHull);
         this.canisterId = null;
         this.removeScorch();
         this.cue("shield");
@@ -1393,8 +1518,39 @@ export class FlightScene extends Phaser.Scene {
   // Hull
   // -------------------------------------------------------------------------
 
-  /** AC-4.2 / D28: shake + one spark burst + a scorch. No flash, no explosion. */
-  private breach(rock: LiveRock, now: number): void {
+  /**
+   * A rock reached the breach line. What happens next depends on whether it was
+   * ever pointed at the ship.
+   *
+   * THE RULE, AND THE PLAYER'S REASONING FOR IT (D21, D23, D31). A word is on
+   * this belt for one of two reasons: it is new, or the GAME PUT IT BACK -
+   * because the child missed it (D23, "a missed word comes back sooner") or
+   * because it is a retention check (D21, AC-9.3). The second kind exists to be
+   * practised. Flying it at the hull charges the child for the game's own
+   * decision to re-teach them something, which is the direction D31 forbids
+   * outright.
+   *
+   * So a practice rock is placed off the ship's lane at spawn
+   * (`@engine/spawn`) and, when it gets to the bottom, it goes PAST the ship
+   * rather than into it. Nothing else about it is softened: the same word, the
+   * same fall time (FR-8), the same weighting, the same record of a miss - so
+   * it still comes back, and the difficulty controller still counts it. It is
+   * a rock that missed, not a rock that was made easy.
+   */
+  private resolveAtBreachLine(rock: LiveRock, now: number): void {
+    if (rock.isPractice) this.passBy(rock, now);
+    else this.breach(rock, now);
+  }
+
+  /**
+   * Everything a rock leaving the board costs the ENGINE, whichever way it left.
+   *
+   * Shared so a pass-by and a strike can never disagree about what the player
+   * now knows, what the controller saw, or what the warp sentence may light up.
+   * The only things NOT here are the hull, the combo and the strike art, which
+   * is exactly the difference between the two.
+   */
+  private retireAtBreachLine(rock: LiveRock, now: number): void {
     rock.resolved = true;
     this.rocks = this.rocks.filter((r) => r.id !== rock.id);
     if (rock.isCanister) this.canisterId = null;
@@ -1411,11 +1567,45 @@ export class FlightScene extends Phaser.Scene {
     // about how fast they type. Pacing off it would read a belt that is already
     // too fast as a player who is slow.
     this.lastResolveAtMs = now;
-    this.combo = comboReducer(this.combo, "hullHit");
-    this.hull = hullAfterStrike(this.hull);
     // The other half of D09: a word that got through is the one thing the warp
     // sentence must NOT light up, and it is what Shadow names (AC-15.5).
     this.history = recordMiss(this.history, { word: rock.word, atMs: now });
+  }
+
+  /**
+   * A practice rock sails past the Lantern and out of the frame.
+   *
+   * No hull mark, because it never touched the ship. No combo reset, for the
+   * same reason - `comboReducer`'s only breaking event here is `hullHit`, and
+   * there was no hull hit. No shake, no scorch, no cue: the ten SFX events are
+   * responses to something happening TO the ship, and nothing happened.
+   *
+   * It still records a miss (above), so D23 brings the word back sooner, which
+   * is the whole point of it having been here.
+   */
+  private passBy(rock: LiveRock, now: number): void {
+    this.retireAtBreachLine(rock, now);
+
+    const drift = rock.container.x < this.shipX ? -80 : 80;
+    for (const target of [rock.container, rock.plate]) {
+      this.tweens.add({
+        targets: target,
+        y: this.scale.height + 160,
+        x: target.x + drift,
+        alpha: 0,
+        duration: 620,
+        ease: "Cubic.Out",
+        onComplete: () => target.destroy(),
+      });
+    }
+    this.publishHud(true);
+  }
+
+  /** AC-4.2 / D28: shake + one spark burst + a scorch. No flash, no explosion. */
+  private breach(rock: LiveRock, now: number): void {
+    this.retireAtBreachLine(rock, now);
+    this.combo = comboReducer(this.combo, "hullHit");
+    this.hull = hullAfterStrike(this.hull, this.maxHull);
 
     rock.plate.destroy();
     this.tweens.add({
@@ -1574,7 +1764,7 @@ export class FlightScene extends Phaser.Scene {
       stopId: this.cfg.stopId,
       wpm: this.currentWpm(),
       accuracy: accuracy(this.hits, this.typos),
-      hullHits: MAX_HULL - this.hull,
+      hullHits: this.maxHull - this.hull,
       score: this.score,
       book: this.book,
       knobs: this.controller.knobs,
@@ -1635,6 +1825,11 @@ export class FlightScene extends Phaser.Scene {
         payload: {
           tally: this.stageTally(),
           exposures: this.stageExposures(),
+          // D80's trophies. Four facts that live for one stage and are then
+          // gone - no profile field holds a chain or a tier - so if they do not
+          // travel with the payload, Chain 25, Chain 50 and Sharp Eye can never
+          // be earned by playing. They could not, until this line.
+          award: this.stageAward(),
         },
       });
       this.scene.bringToTop(SCENE_KEYS.warp);
@@ -1665,6 +1860,31 @@ export class FlightScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * What `@engine/awards` needs and the profile cannot supply (D80, AC-6d.1c).
+   *
+   * All four die with the stage: the peak chain, whether D25's shared-prefix
+   * tier was on, the stars, and whether every retention word was recalled.
+   * Nothing writes them anywhere, which is precisely why three of the twelve
+   * trophies were unreachable.
+   *
+   * `retentionAllRecalled` is `null` when the stage had no retention words, and
+   * that distinction is load-bearing: a Mars belt has no earlier stop to draw
+   * from, and "recalled all zero of them" must not earn Long Memory.
+   */
+  private stageAward(): StageAward {
+    const retention = [...this.retentionWords];
+    const blasted = new Set(stageOutcome(this.history, this.cfg.calibration).blasted);
+    return {
+      stopId: this.cfg.stopId,
+      stars: starsForHullHits(this.maxHull - this.hull, this.maxHull),
+      bestCombo: this.bestCombo,
+      sharedPrefixStage: this.selection.sharedPrefixTier,
+      retentionAllRecalled:
+        retention.length === 0 ? null : retention.every((w) => blasted.has(w)),
+    };
+  }
+
   /** The raw counters `@engine/scoring` turns into WPM, accuracy and stars. */
   private stageTally(): StageTally {
     return {
@@ -1676,7 +1896,10 @@ export class FlightScene extends Phaser.Scene {
       elapsedMs: this.time.now - this.stageStartMs,
       hits: this.hits,
       typos: this.typos,
-      hullHits: MAX_HULL - this.hull,
+      hullHits: this.maxHull - this.hull,
+      // Without this the results screen would rate a nine-mark stage on a
+      // three-mark curve and call a cleared belt a stall (AC-4.4, @engine/hull).
+      maxHull: this.maxHull,
     };
   }
 
@@ -1763,7 +1986,7 @@ export class FlightScene extends Phaser.Scene {
       atMs: this.time.now,
       combo: this.combo.combo,
       hull: this.hull,
-      maxHull: MAX_HULL,
+      maxHull: this.maxHull,
       live: this.rocks.length,
     });
   }
@@ -1777,7 +2000,7 @@ export class FlightScene extends Phaser.Scene {
       multiplier: hudMultiplierFor(this.combo.combo),
       score: this.score,
       hull: this.hull,
-      maxHull: MAX_HULL,
+      maxHull: this.maxHull,
       liveCount: this.rocks.length,
       accent: this.palette.accent,
       plate: this.palette.plate,
@@ -1813,6 +2036,7 @@ export class FlightScene extends Phaser.Scene {
           parkedId: this.parked?.id ?? null,
           stalled: this.stalled,
           stageComplete: this.stageComplete,
+          maxHull: this.maxHull,
           maxLive: this.controller.knobs.maxLive,
           knobChanges: this.knobChanges,
           spawnGapMs: this.lastSpawnGapMs,
@@ -1822,11 +2046,20 @@ export class FlightScene extends Phaser.Scene {
             sizePx: r.sizePx,
             x: r.container.x,
             y: r.container.y,
-            plateY: r.container.y + r.plate.y,
-            plateTop: r.container.y + r.plate.y - r.plate.plateSizePx.height / 2,
+            // The plate is its own object on its own layer now, so these are
+            // read straight off it rather than composed from the rock.
+            plateY: r.plate.y,
+            plateTop: r.plate.y - r.plate.plateSizePx.height / 2,
+            plateLeft: r.plate.x - r.plate.plateSizePx.width / 2,
+            plateRight: r.plate.x + r.plate.plateSizePx.width / 2,
+            plateBottom: r.plate.y + r.plate.plateSizePx.height / 2,
+            plateDepth: this.plateLayer.depth,
             rockBottom: r.container.y + r.sizePx / 2,
+            rockDepth: this.debrisLayer.depth,
             typedCount: r.plate.typedCount,
             isCanister: r.isCanister,
+            isPractice: r.isPractice,
+            onShipLane: isOnShipLane(r.container.x, this.laneSpec(r.sizePx)),
             debrisType: r.debris.id,
           })),
           layerOffsets: { ...this.layerOffsets },
@@ -1845,7 +2078,7 @@ export class FlightScene extends Phaser.Scene {
         if (!this.cfg.debug || this.stalled) return;
         this.controller = recordOutcome(this.controller, "missed");
         this.combo = comboReducer(this.combo, "hullHit");
-        this.hull = hullAfterStrike(this.hull);
+        this.hull = hullAfterStrike(this.hull, this.maxHull);
         this.strike(this.scale.width / 2);
         this.publishHud(true);
         if (isStalled(this.hull)) this.beginStall();
@@ -1868,24 +2101,69 @@ export class FlightScene extends Phaser.Scene {
         return rock.word;
       },
       words: () => this.rocks.map((r) => r.word),
-      spawn: (word: string) => {
+      spawn: (word: string, options?: SpawnDebugOptions) => {
         // Debug only: puts a KNOWN word on the belt so the shared-prefix and
         // parked-word paths (D25, AC-2.2) can be exercised deterministically
         // instead of waiting for the picker to happen to serve the pair.
+        //
+        // `options` exists for the plate-legibility spec: proving that a rock
+        // cannot cover a word needs two rocks placed ON TOP of each other, and
+        // waiting for the picker to do that by chance is not a test.
         if (!this.cfg.debug) return;
-        this.spawnRock(word, this.time.now);
+        this.spawnRock(word, this.time.now, options?.practice ?? false);
+        const rock = this.rocks[this.rocks.length - 1];
+        if (rock === undefined || options === undefined) return;
+        // BOTH overrides go through the rock's own fields, not through the
+        // display objects. `updateRocks` recomputes x and y from `homeX` and
+        // from how long the rock has been falling on EVERY frame, so writing
+        // the container directly lasts exactly one frame - which is long enough
+        // to make a test look like it worked and short enough to make it
+        // meaningless.
+        //
+        // y is set by BACK-DATING the spawn to the moment a rock falling
+        // normally would have been at that height. The rock is then in every
+        // respect an ordinary rock that happens to have started earlier, rather
+        // than one being dragged around behind the simulation's back.
+        const span = rock.toY - rock.fromY;
+        const placed: LiveRock = {
+          ...rock,
+          homeX: typeof options.x === "number" ? options.x : rock.homeX,
+          spawnedAtMs:
+            typeof options.y === "number" && span !== 0
+              ? this.time.now - ((options.y - rock.fromY) / span) * rock.fallMs
+              : rock.spawnedAtMs,
+        };
+        this.rocks = this.rocks.map((r) => (r.id === rock.id ? placed : r));
+        this.updateRocks(this.time.now);
+        // Land the arrival pop immediately. A placed rock is usually placed so
+        // that a spec can MEASURE it, and the Back.Out tween starts at scale
+        // 0.7 - so a spec reading `plateSizePx` while the tween is still
+        // running (or, on a paused scene, never running) would screenshot a
+        // rectangle larger than the plate actually drawn in it and blame the
+        // sky it caught at the edges on the plate.
+        this.tweens.killTweensOf([rock.container, rock.plate]);
+        rock.container.setScale(1);
+        rock.plate.setScale(1);
       },
     };
   }
 }
 
 /** The read-only measurement surface the e2e uses (gated behind `debug`). */
+/** Placement overrides for the debug spawn hook. Evidence only, never gameplay. */
+export interface SpawnDebugOptions {
+  readonly x?: number;
+  readonly y?: number;
+  /** Spawn it as a D21/D23 practice rock (off-lane, sails past the ship). */
+  readonly practice?: boolean;
+}
+
 export interface FlightDebugApi {
   state(): FlightDebugState;
   strike(): void;
   makeCanister(): string | null;
   words(): string[];
-  spawn(word: string): void;
+  spawn(word: string, options?: SpawnDebugOptions): void;
 }
 
 declare global {

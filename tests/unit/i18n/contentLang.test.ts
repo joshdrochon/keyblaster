@@ -4,6 +4,7 @@ import {
   DEVANAGARI_INPUT_METHODS,
   DEVANAGARI_LANGS,
   availableContentLangs,
+  typeableContentLangs,
   canTypeLang,
   isDevanagariLang,
   resolveContentLang,
@@ -17,29 +18,29 @@ const ALL_INPUT_METHODS: readonly InputMethod[] = [
 
 describe("AC-14.1: content languages are filtered by input method", () => {
   it("AC-14.1: Devanagari content is NOT offered on a latin input method", () => {
-    expect(availableContentLangs("latin")).toEqual(["en", "es"]);
-    expect(availableContentLangs("latin")).not.toContain("hi");
+    expect(typeableContentLangs("latin")).toEqual(["en", "es"]);
+    expect(typeableContentLangs("latin")).not.toContain("hi");
   });
 
   it("AC-14.1: Devanagari content IS offered on translit (D46)", () => {
-    expect(availableContentLangs("translit")).toContain("hi");
+    expect(typeableContentLangs("translit")).toContain("hi");
   });
 
   it("AC-14.1: Devanagari content IS offered on inscript", () => {
-    expect(availableContentLangs("inscript")).toContain("hi");
+    expect(typeableContentLangs("inscript")).toContain("hi");
   });
 
   it("AC-14.1: hi is offered by exactly the two Devanagari input methods", () => {
     const offering = ALL_INPUT_METHODS.filter((m) =>
-      availableContentLangs(m).includes("hi"),
+      typeableContentLangs(m).includes("hi"),
     );
     expect(offering.sort()).toEqual([...DEVANAGARI_INPUT_METHODS].sort());
   });
 
   it("AC-14.1: Latin-script content is offered on every input method", () => {
     for (const method of ALL_INPUT_METHODS) {
-      expect(availableContentLangs(method), method).toContain("en");
-      expect(availableContentLangs(method), method).toContain("es");
+      expect(typeableContentLangs(method), method).toContain("en");
+      expect(typeableContentLangs(method), method).toContain("es");
     }
   });
 
@@ -56,21 +57,21 @@ describe("AC-14.1: content languages are filtered by input method", () => {
 
   for (const [method, expected] of EXPECTED) {
     it(`AC-14.1: ${method} offers exactly [${expected.join(", ")}]`, () => {
-      expect(availableContentLangs(method)).toEqual(expected);
+      expect(typeableContentLangs(method)).toEqual(expected);
     });
   }
 
   it("AC-14.1: the menu never offers a language twice", () => {
     for (const method of ALL_INPUT_METHODS) {
-      const offered = availableContentLangs(method);
+      const offered = typeableContentLangs(method);
       expect(new Set(offered).size, method).toBe(offered.length);
     }
   });
 
   it("AC-14.1: the returned array is a copy the caller may sort in place", () => {
-    const first = availableContentLangs("translit");
+    const first = typeableContentLangs("translit");
     first.reverse();
-    expect(availableContentLangs("translit")).toEqual(["en", "es", "hi"]);
+    expect(typeableContentLangs("translit")).toEqual(["en", "es", "hi"]);
   });
 
   it("hi is the only Devanagari language", () => {
@@ -83,12 +84,18 @@ describe("AC-14.1: content languages are filtered by input method", () => {
 
 describe("resolveContentLang", () => {
   it("leaves a still-legal choice untouched", () => {
-    expect(resolveContentLang("hi", "translit", "en")).toBe("hi");
-    expect(resolveContentLang("es", "latin", "en")).toBe("es");
+    // D95: es and hi are no longer shipped, so a choice of either is repaired
+    // to English even when the input method could type it. The "leave a legal
+    // choice alone" property is asserted on the language that IS shipped; the
+    // Devanagari repair path keeps its own test below.
+    expect(resolveContentLang("en", "translit", "en")).toBe("en");
+    expect(resolveContentLang("en", "latin", "en")).toBe("en");
   });
 
   it("AC-14.1: repairs hi content when the input method drops to latin", () => {
-    expect(resolveContentLang("hi", "latin", "es")).toBe("es");
+    // D95: the uiLang fallback is also filtered, so this lands on English
+    // rather than Spanish. Restoring SHIPPED_LANGS restores the es outcome.
+    expect(resolveContentLang("hi", "latin", "es")).toBe("en");
   });
 
   it("falls back to en when the UI language is also untypeable", () => {
