@@ -29,7 +29,7 @@ that binding.
 
 ---
 
-## The twenty-four
+## The twenty-six
 
 | # | What was green | What shipped | Found by |
 |---|---|---|---|
@@ -164,6 +164,8 @@ does anything. The reward exists, the unlock fires, the catalog is correct, and
 the flight screen draws the same hardcoded cream ship regardless.
 
 | 24 | The **difficulty controller** — `Knobs`, the ease ramp, `endStage`, all unit-tested, all correct | `endStage` computes the new knob and emits it on `FLIGHT_EVENTS.stageComplete`. `grep -rn "FLIGHT_EVENTS.stageComplete" src/` returns **one hit: the emit**. No listener, no `Profile` field, and neither `PreflightScene.complete` nor `ResultsScene.replay` passes `knobs`. So `FlightConfig.knobs` is `{}` and `maxLive` is **2 on every belt, for every child, forever** | The difficulty lane, before changing anything, checking where its output would land |
+| 25 | `profileWriters`, the guard written **specifically** to catch instance 1 — a persisted field with no live writer | Deleting the `persistStageKnobs` call from `FlightScene` leaves it **green**. So does deleting the `words` write, and the `calibration` write. Its liveness regex matches the wrapper's own definition in `src/game/scenes/lib/init.ts`, so every writer routed through that helper verifies itself. The guard against the defect class had the defect class | The lane closing instance 24, checking whether the existing guard would have caught it |
+| 26 | `no-user-quotes`, the gate that keeps a bug reporter's words out of a repo that gets submitted, passing on every commit for months | It looked for attribution phrases and for a hand-listed set of the reporter's misspellings — guesses about what a future quote would look like. **42 tracked lines quote reports verbatim**, across `src/`, `tests/` and the shipped `docs/`. One quotes a report with its typo intact. The gate's own docstring called itself "deliberately a blunt instrument" that "cannot recognise an arbitrary future quote" — while `gauntlet/user-reported.json` had every quote enumerated under `said` the whole time | Checking which private files were gitignored, and noticing the tracked ones had never been checked the same way |
 
 Instance 24 is the orphan pattern (instance 1) arriving at the top of the
 game. UR-51 asked whether the engine that raises difficulty with the player was
@@ -256,6 +258,19 @@ All of that machinery verifies **internal consistency**. None of it verifies
 that the thing being checked is the thing being shipped. That binding is
 maintained by attention, and attention is exactly what a green suite spends.
 
-Every one of the twenty-four was ultimately found the same way: by someone looking at
+Every one of the twenty-six was ultimately found the same way: by someone looking at
 the actual artifact — a screen, a waveform, a route, a rendered page — rather
 than at a result. That is the cheapest available guard and the easiest to skip.
+
+**25 and 26 are a category of their own, and they are worse.** Both are
+*guards* — code whose entire purpose is to catch this defect class — and both
+had the defect class. `profileWriters` was written to catch instance 1 and
+cannot see the write it was pointed at. `no-user-quotes` shipped 42 leaks while
+printing OK, and its own docstring argued that catching them was impossible,
+next to a file that had enumerated every one of them.
+
+So the habit generalises one step further than the list above says. A guard is
+a test, and rule 4 applies to it without exception: **break the thing the guard
+protects and watch the guard go red.** Neither of these two had ever been run
+against the defect it existed to catch. Both were believed because they printed
+a pass, which is precisely what the other twenty-four were.

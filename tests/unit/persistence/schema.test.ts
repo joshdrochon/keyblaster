@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_KNOBS } from "@engine/controller/index.js";
 import {
   DEFAULT_AVATAR,
   DEFAULT_PROFILE_NAME,
@@ -27,6 +28,12 @@ const freshProfile = () => blankProfile({ id: "fresh", createdAt: 0 });
 
 describe("blankProfile / blankProgress", () => {
   it("D43: a new profile is name + avatar + the ship they named, and nothing else", () => {
+    // THIS LIST IS THE ASSERTION, and adding to it has to be deliberate. It is
+    // how AC-18.2 / NFR-3 are held by construction: a field that reaches a
+    // child's save has to be typed out here by somebody who has thought about
+    // whether it is PII. `knobs` (UR-51) is two integers describing how many
+    // asteroids the game will put on screen - it says nothing about who the
+    // child is, and `pii.test.ts` scans it alongside everything else.
     const p = blankProfile({ id: "a", createdAt: 7 });
     expect(Object.keys(p).sort()).toEqual(
       [
@@ -34,6 +41,7 @@ describe("blankProfile / blankProgress", () => {
         "calibration",
         "createdAt",
         "id",
+        "knobs",
         "name",
         "progress",
         "settings",
@@ -45,6 +53,10 @@ describe("blankProfile / blankProgress", () => {
         "words",
       ].sort(),
     );
+    // D18's cold start: a pilot nobody has watched starts at the gentlest
+    // setting, where UR-51's `concurrencyTarget` is exactly 1 and every fall
+    // time is FR-8's literal formula.
+    expect(p.knobs).toEqual(DEFAULT_KNOBS);
     expect(p.name).toBe(DEFAULT_PROFILE_NAME);
     expect(p.avatar).toBe(DEFAULT_AVATAR);
     expect(p.shipId).toBe(DEFAULT_SHIP_ID);

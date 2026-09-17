@@ -6,8 +6,8 @@ import { INK, SPACE } from "./theme.js";
  *
  * Settings used to be the cleanest web form in the build: flat rows, a pill
  * slider with a white dot, a "70%" caption. Correct, legible, and plainly not
- * part of a ship. The request was for the inside of a space ship, and the name
- * for what they asked for is a DIEGETIC INTERFACE - the panel is not a menu the
+ * part of a ship. UR-11 asked for a ship's interior instead, and the name for
+ * what it describes is a DIEGETIC INTERFACE - the panel is not a menu the
  * player is shown, it is the console the pilot is sitting at.
  *
  * WHY THIS FILE IS SEPARATE FROM `cockpit.ts`. Everything here is pure: numbers

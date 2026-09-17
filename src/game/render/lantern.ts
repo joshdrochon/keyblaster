@@ -33,6 +33,14 @@ import {
   smoothPolygon,
   starPoints,
 } from "./textures.js";
+import {
+  FIN_TIP,
+  LANTERN_DESIGN_HEIGHT,
+  LENS_LOCAL,
+  LENS_R,
+  NOZZLE_BOTTOM,
+  PIVOT,
+} from "./lanternGeometry.js";
 
 // ---------------------------------------------------------------------------
 // Geometry, in design units. W = 80 is the fuselage half-width.
@@ -72,31 +80,20 @@ const PORTHOLE_R = 46;
 const BAND_THIN: readonly [number, number] = [0.04, 0.1];
 const BAND_THICK: readonly [number, number] = [0.17, 0.3];
 
-const NOZZLE_BOTTOM = 178;
-const FIN_TIP = { x: 123, y: 150 };
-
-/** The emitter pivots here, at the top of the fixed collar. */
-const PIVOT = { x: 0, y: -160 };
-/** Lens centre relative to PIVOT. */
-const LENS_LOCAL = { x: 0, y: -50 };
-const LENS_R = 37;
-
-/** Top of the beam head to the bottom of the nozzle bell, in design units. */
-export const LANTERN_DESIGN_HEIGHT = NOZZLE_BOTTOM - (PIVOT.y + LENS_LOCAL.y - LENS_R);
-
 /**
- * The lens centre relative to the rig's origin, design units.
- *
- * The beam comes out of HERE (AC-24.1: one beam source), and a caller that
- * draws its own beam - Flight does, because the beam is gameplay - needs the
- * origin without reaching into the rig's transform. `beamOrigin()` is the
- * answer when the rig sits at world coordinates; this is the answer when it is
- * nested inside somebody else's container.
+ * The design-unit geometry moved to `lanternGeometry.ts`, which imports no
+ * Phaser, so a unit test can ask how tall the ship is without booting a game
+ * (UR-53 places one in a 110 px gap on the Director map and has to prove it
+ * fits, at all seven stops). Re-exported here, so every existing importer of
+ * `LANTERN_DESIGN_HEIGHT` / `LANTERN_LENS_OFFSET` is unaffected.
  */
-export const LANTERN_LENS_OFFSET = {
-  x: PIVOT.x + LENS_LOCAL.x,
-  y: PIVOT.y + LENS_LOCAL.y,
-} as const;
+export {
+  LANTERN_DESIGN_HEIGHT,
+  LANTERN_LENS_OFFSET,
+  LANTERN_ABOVE_ORIGIN,
+  LANTERN_PLUME_LENGTH,
+  lanternDesignBox,
+} from "./lanternGeometry.js";
 
 // ---------------------------------------------------------------------------
 // Colourways: the four ships in the reference sheet (D79, AC-24.3).

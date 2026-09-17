@@ -176,6 +176,69 @@ test.describe("Director map (row 3, D13/D40)", () => {
     );
   });
 
+  /**
+   * UR-53: the Lantern hovers above the CURRENT planet, and current means the
+   * SELECTED one.
+   *
+   * There was no ship on this screen at all before this. The geometry - does it
+   * fit between the header block and the beacon lamp, at all seven stops - is
+   * arithmetic and lives in `tests/unit/scenes/mapLayout.test.ts`. What only a
+   * running game can answer is whether it FOLLOWS, so that is what this asks:
+   * press a key, and the ship is over the stop the board is now about.
+   *
+   * It reads ONE snapshot per position. `ship.x` and `ship.targetX` taken in
+   * two round trips would describe two different moments and the assertion
+   * would be about scheduling rather than about the ship (coding-standards
+   * rule 7).
+   *
+   * Watch it fail: delete the `this.moveShipTo(...)` line from
+   * `DirectorMapScene.select` and the ship stays on Earth while the board
+   * retitles - `uranus: ship is at 210, the stop is at 1210`.
+   */
+  test("UR-53 the Lantern hovers over the selected stop, and follows it", async ({ page }) => {
+    await mount(page, KEY, { progress: PROGRESS_VARIANTS.midRun });
+    const first = await snapshot(page, KEY);
+    const ship = (s: typeof first): { x: number; y: number; targetX: number } =>
+      s["ship"] as { x: number; y: number; targetX: number };
+
+    expect(ship(first), "the map draws no ship at all").not.toBeNull();
+    expect(
+      Math.abs(ship(first).x - ship(first).targetX),
+      `${first.selected}: ship is at ${ship(first).x}, the stop is at ${ship(first).targetX}`,
+    ).toBeLessThan(2);
+
+    const seen = new Set<number>([ship(first).targetX]);
+    const ys: number[] = [ship(first).y];
+    for (let i = 0; i < 3; i += 1) {
+      await page.keyboard.press("ArrowLeft");
+      // The move is EASED, so poll for it landing rather than for a clock.
+      await page.waitForFunction(
+        () => {
+          const sc = window.__kb?.game.scene.getScene("DirectorMap") as unknown as {
+            snapshot: () => { ship: { x: number; targetX: number } | null };
+          };
+          const sh = sc.snapshot().ship;
+          return sh !== null && Math.abs(sh.x - sh.targetX) < 2;
+        },
+        null,
+        { timeout: 30_000 },
+      );
+      const s = await snapshot(page, KEY);
+      expect(
+        Math.abs(ship(s).x - ship(s).targetX),
+        `${s.selected}: ship is at ${ship(s).x}, the stop is at ${ship(s).targetX}`,
+      ).toBeLessThan(2);
+      seen.add(ship(s).targetX);
+      ys.push(ship(s).y);
+    }
+    // CONTROL: the ship actually moved. Four identical x values would satisfy
+    // every assertion above and mean the ship is nailed to one planet.
+    expect(seen.size, `the ship never left x=${[...seen][0]}`).toBe(4);
+    // ...and it moved along ONE line, so the route reads as a row. The idle bob
+    // is a few px, which is the world being alive (D41), not a wobble.
+    expect(Math.max(...ys) - Math.min(...ys)).toBeLessThan(12);
+  });
+
   test("AC-22b.1 a locked stop can be focused and refuses nothing out loud", async ({ page }) => {
     await mount(page, KEY, { progress: PROGRESS_VARIANTS.marsOnly });
     let s = await snapshot(page, KEY);

@@ -7,13 +7,13 @@ import { describe, expect, it } from "vitest";
  * UR-50.5 AS A RULE: NO SCREEN WITHOUT A LANE LETS ITS PLANES TRAVEL.
  *
  * ================== THE DEFECT, TWICE ==================
- * UR-14, from play on the Title: "the stars should not actually be moving in
- * the parallax. Keep the stars just keep them stationary and flickering slowly
- * at different intervals." That was fixed - `render/starField.ts` pins the
+ * UR-14, from play on the Title: stars must not ride the parallax. They should
+ * hold position and flicker slowly, each on its own interval. That was fixed -
+ * `render/starField.ts` pins the
  * field to the `sky` container, which `PINNED` holds at (0,0) forever.
  *
- * UR-50.5, from play on the Briefing, months later: "THE STARS IN THE WINDOW
- * STILL TRAVEL LEFT TO RIGHT."
+ * UR-50.5, from play on the Briefing, months later: stars in the window were
+ * STILL crossing the frame left to right.
  *
  * Both reports were right and the first fix was not wrong. The travelling
  * objects were never the starfield. They are the DECORATIVE DEBRIS planes, and

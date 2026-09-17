@@ -14,9 +14,9 @@ import { createWarpSentence, typeChar } from "@game/scenes/support/warpSentence"
  * UR-26 - A FINISHED WORD SAYS SO, AND THE SENTENCE DOES NOT MOVE.
  *
  * ================== THE REQUEST ==================
- * The user, unprompted: "when a word is complete in the warp drive sequence it
- * should expand slightly and go back to original size to indicate its been
- * typed out. Makes for a nice effect."
+ * UR-26, raised unprompted rather than as a defect: finishing a word in the
+ * warp sentence should make that word grow a little and settle back to its
+ * original size, so the child can see it has been typed out.
  *
  * ================== WHY THIS IS NOT A FIVE-LINE CHANGE ==================
  * The warp sentence is a LAID-OUT LINE: `WarpScene.layoutLetters` places one

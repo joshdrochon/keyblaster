@@ -10,6 +10,7 @@ import {
   migrateToCurrent,
 } from "@engine/persistence/index.js";
 import { SAMPLE_CAP } from "@engine/words/index.js";
+import { DEFAULT_KNOBS } from "@engine/controller/index.js";
 import { FakeStorage, v1Payload } from "./fixtures.js";
 
 const freshProfile = () => blankProfile({ id: "fresh", createdAt: 0 });
@@ -44,10 +45,56 @@ describe("the migration chain", () => {
   });
 
   it("reports the versions it applied, in order", () => {
+    // UR-51 added v3 (`Profile.knobs`), so the chain a v1 payload walks is now
+    // two links. `applied` is keyed by the version each migration upgrades
+    // FROM, which is why it reads [1, 2] and not [2, 3].
     const out = migrateToCurrent(v1Payload(), 1);
     expect(out.ok).toBe(true);
-    expect(out.applied).toEqual([1]);
-    expect(out.payload["version"]).toBe(2);
+    expect(out.applied).toEqual([1, 2]);
+    expect(out.payload["version"]).toBe(SCHEMA_VERSION);
+    expect(out.payload["version"]).toBe(3);
+  });
+
+  it("UR-51: v3 gives every migrated profile the cold-start knob, and no other", () => {
+    // THE WHOLE POINT OF THE MIGRATION, and the thing it deliberately does NOT
+    // do: it does not infer a difficulty from `progress`. A v1 payload has no
+    // rolling hit rate in it (D53), and D18 says difficulty rises only as a
+    // player is watched getting better - so a child returning with six stops
+    // cleared opens at the floor and climbs like everyone else. That costs them
+    // a few stages of ramp and cannot hurt anybody, which is the right way
+    // round for a migration.
+    //
+    // WATCHED FAILING, with the real number: drop `2: v2ToV3` from MIGRATIONS
+    // and `ok` reads false with `applied` [1] - the payload never reaches v3 and
+    // the load path replaces the child's profile with a fresh one.
+    const out = migrateToCurrent(v1Payload(), 1);
+    const profiles = out.payload["profiles"] as Record<string, unknown>[];
+    expect(profiles.length).toBeGreaterThan(0);
+    for (const profile of profiles) {
+      expect(profile["knobs"]).toEqual(DEFAULT_KNOBS);
+    }
+  });
+
+  it("UR-51: v3 leaves a knob that is already there alone", () => {
+    // A payload written by this build and re-migrated must not have an earned
+    // difficulty reset to the floor by the upgrade path.
+    const earned = { maxLive: 6, lengthBias: -1 };
+    const out = migrateToCurrent(
+      { version: 2, activeProfileId: "p", profiles: [{ id: "p", knobs: earned }] },
+      2,
+    );
+    expect(out.ok).toBe(true);
+    expect((out.payload["profiles"] as Record<string, unknown>[])[0]!["knobs"]).toEqual(earned);
+  });
+
+  it("UR-51: v3 survives a payload whose profiles list is not a list", () => {
+    // Every link has to assume nothing: a migration that throws on a
+    // half-corrupt payload is another way to crash on load, which AC-18.4
+    // forbids. This is the v3 link's own version of the sweep below, entered at
+    // v2 so it is that link and not v1's that handles it.
+    const out = migrateToCurrent({ version: 2, profiles: "nope" }, 2);
+    expect(out.ok).toBe(true);
+    expect(out.payload["profiles"]).toEqual([]);
   });
 
   it("never throws on a half-corrupt payload at any link", () => {
@@ -106,7 +153,7 @@ describe("AC-18.4: a v1 payload still loads after v2 exists", () => {
     expect(en?.["star"]?.firstFkLatencyMs).toBeNull();
   });
 
-  it("a migrated payload re-migrated is unchanged (the chain is idempotent at v2)", () => {
+  it("a migrated payload re-migrated is unchanged (the chain is idempotent at the head)", () => {
     const once = migrateToCurrent(v1Payload(), 1).payload;
     const twice = migrateToCurrent(once, SCHEMA_VERSION).payload;
     expect(twice).toEqual(once);

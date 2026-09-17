@@ -2,12 +2,12 @@
  * THE WORDS SHADOW NAMES (UR-24).
  *
  * ================== WHAT WAS REPORTED ==================
- * A player, looking at Shadow saying
+ * UR-24, raised against a Shadow line of the form
  *
  *   You had that one. Keep an eye on "solid" and "rock".
  *
- * said: "solid and rock should genuinely be a different color like gold or
- * something that stands out". They are right, and it is more than taste: those
+ * asked for the two named words to be drawn in a colour that stands out from
+ * the rest of the sentence. That is right, and it is more than taste: those
  * two words are the ones the child is about to meet again on the next belt, so
  * making them findable in the sentence is a LEARNING affordance rather than a
  * decoration. In a flat line they are carried by two straight quotes and

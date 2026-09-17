@@ -6,14 +6,16 @@ import {
   HEADER_CONTRACT,
   HINT_CONTRACT,
   headingText,
+  hintText,
 } from "../../src/game/ui/grid";
 
 /**
  * UR-19 - EVERY PAGE FOLLOWS SUIT, AS THREE MEASUREMENTS.
  *
  * ================== WHY THIS FILE EXISTS ==================
- * A player: "Make sure every page is following suit." `ui/grid.ts` gave the
- * product one gutter and one heading line and a unit guard against literal
+ * UR-19 asked for every screen to be laid out to one shared standard.
+ * `ui/grid.ts` gave the product one gutter and one heading line and a unit
+ * guard against literal
  * coordinates, and the ticket was closed. A blind critic then measured the
  * running game and found the fix had been judged on the four screens that
  * already looked alike:
@@ -179,12 +181,28 @@ const COMPOSITE_REASON =
   "header on the left gutter, chips on the right, and seven route labels " +
   "distributed along the span between them";
 
+/**
+ * The screens with no text on the hint line, and why.
+ *
+ * THE LIST MAY ONLY SHRINK, and two entries changed shape under UR-56 rather
+ * than leaving it. A hint that repeats the verb on the button beside it was
+ * reported as noise, and the same shape was on two screens: Beacon drew
+ * "enter to continue" 28 px from a button reading "continue", Briefing drew
+ * "enter to launch · esc to go back" under a button reading "launch" and a chip
+ * reading "back to the map". Neither was moved to the gutter - a hint with
+ * nothing of its own to say does not belong anywhere - so both are now in this
+ * list for the same reason the Title and Earth activation are: there is no hint
+ * line, on purpose. `src/game/ui/hint.ts` carries the rule and
+ * `tests/unit/ui/hint.test.ts` sweeps every scene for it.
+ *
+ * DirectorMap LEFT the list. Its hint was centred at the foot of the screen;
+ * it is on the gutter in the band now (UR-54).
+ */
 const HINT_GAPS: Readonly<Record<string, string>> = {
   Title: "no hint line; the menu items carry their own sublines",
   EarthActivation: "no hint line",
-  Beacon: "hint sits inline to the right of the continue button",
-  DirectorMap: "hint is centred at the foot rather than on the gutter",
-  Briefing: "hint sits under the launch button, on the right",
+  Beacon: "no hint line (UR-56): one focused button, which names its own action",
+  Briefing: "no hint line (UR-56): both actions are labelled plates on screen",
   Warp: "hint sits inside the sentence card",
   Ending: "hint sits under the centred button",
 };
@@ -199,6 +217,47 @@ const HINT_GAPS: Readonly<Record<string, string>> = {
  * sixty seconds for a scene the page had never been sent to. Three runs of this
  * spec failed that way before the cause was read rather than guessed at.
  */
+/**
+ * WAIT FOR THE ENTRANCE TO LAND, NOT FOR A CLOCK (coding-standards rule 6).
+ *
+ * Every screen here arrives: `TitleScene` tweens each menu item in from
+ * `x - 26` over 420 ms with a 90 ms stagger, and the others do something
+ * similar. `settle(2200)` is four times the longest of those and it STILL
+ * measured mid-flight on a cold dev server - the Title reported exactly 26 px
+ * of "drift" between the two viewports, which is not a drift, it is the
+ * entrance offset read before the tween finished. A clock is not a
+ * synchronisation primitive; the number it produced was a property of the
+ * machine, not of the layout.
+ *
+ * Repeating tweens are SKIPPED, and they have to be: the Lantern's idle bob and
+ * the exhaust flicker never finish by design (D41 keeps the world alive), so
+ * "no tweens are running" would wait for ever on three screens.
+ *
+ * The timeout falls back to the old behaviour rather than failing: this helper
+ * is a wait, and a wait that turns a slow machine into a red gate has replaced
+ * one bad measurement with another.
+ */
+async function awaitArrivals(page: Page, key: string): Promise<void> {
+  try {
+    await page.waitForFunction(
+      (k) => {
+        const kb = window.__kb;
+        const scene = kb?.game.scene.getScene(k) as unknown as {
+          tweens?: { getTweens: () => { repeat?: number; loop?: number; totalProgress?: number }[] };
+        } | null;
+        const tweens = scene?.tweens?.getTweens() ?? [];
+        return tweens.every(
+          (t) => t.repeat === -1 || t.loop === -1 || (t.totalProgress ?? 1) >= 1,
+        );
+      },
+      key,
+      { timeout: 8_000 },
+    );
+  } catch {
+    // Fall through: `settle` below is the floor this file always had.
+  }
+}
+
 async function open(page: Page, screen: (typeof SCREENS)[number]): Promise<void> {
   await freezeReloads(page);
   await page.goto(`/?scene=${screen.key}`);
@@ -214,6 +273,7 @@ async function open(page: Page, screen: (typeof SCREENS)[number]): Promise<void>
   );
   await restartScene(page, screen.key, { stopId: "mars" });
   await settle(page, 2200);
+  await awaitArrivals(page, screen.key);
 }
 
 /**
@@ -257,12 +317,29 @@ test("UR-19: every page follows suit - header, hint and anchoring", async ({ pag
     else headerFails.push(screen.key);
 
     // --- 2. the hint band -------------------------------------------------
+    //
+    // TWO ACCEPTABLE ORIGINS, exactly as the header check above has. The menu
+    // kit draws its hint UNPLATED, so its ink lands on the gutter; a story
+    // screen draws it with `skyText`, and there it is the PLATE that lands on
+    // the gutter while the ink sits one padding in (`grid.ts`, "PLATED TEXT" -
+    // putting the ink on the line is what made the Results heading look like it
+    // was hugging the corner). Measuring plated ink against the plate's corner
+    // reported the Director map as non-conforming when its hint plate starts on
+    // the same line as its heading plate and its board, which is the alignment
+    // UR-54 asked for. Same defect the header check already documents, one
+    // contract further down the file.
     const inBand = narrow.filter(
       (t) =>
         t.box.y >= HINT_CONTRACT.top - HINT_CONTRACT.slack &&
         t.box.y <= HINT_CONTRACT.top + HINT_CONTRACT.slack,
     );
-    if (!inBand.some((t) => Math.abs(t.box.x - HINT_CONTRACT.x) <= 4)) {
+    const platedHintX = hintText().x;
+    if (
+      !inBand.some(
+        (t) =>
+          Math.abs(t.box.x - HINT_CONTRACT.x) <= 4 || Math.abs(t.box.x - platedHintX) <= 4,
+      )
+    ) {
       hintFails.push(screen.key);
     }
 
@@ -270,6 +347,7 @@ test("UR-19: every page follows suit - header, hint and anchoring", async ({ pag
     await page.setViewportSize({ width: 1707, height: 720 });
     await restartScene(page, screen.key, { stopId: "mars" });
     await settle(page, 2200);
+    await awaitArrivals(page, screen.key);
     const wide = await textsOf(page, screen.key);
 
     // KEYED BY TEXT **AND OCCURRENCE**. The warp break draws one Text per

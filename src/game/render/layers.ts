@@ -94,3 +94,57 @@ export function idleDriftPx(spec: LayerSpec, elapsedMs: number, reducedMotion: b
   const period = reducedMotion ? 24000 : 12000;
   return Math.sin((elapsedMs / period) * Math.PI * 2) * (spec.speed * 6);
 }
+
+
+/**
+ * The lane guard, as a fraction of the stage width, that near-plane objects and
+ * the foreground veil keep off the CENTRE.
+ *
+ * Its long justification lives with the planes in `parallax.ts`; the value is
+ * here because `DEBRIS_SPEC` below is the table those planes are built from and
+ * a guard split across two files is a guard with two values.
+ */
+export const LANE_GUARD = 0.2;
+
+/**
+ * THE DECORATIVE-DEBRIS BUDGET, one table, read by every plane `parallax.ts`
+ * populates.
+ *
+ * These were four inline literal blocks. They are a table because a keep-clear
+ * guard has to be provable against the numbers the GAME draws with, and a unit
+ * test cannot boot Phaser: `tests/unit/render/keepClear.test.ts` sweeps every
+ * plane in this table against every screen's zones, so a plane added here with
+ * no keep-clear wired in fails the sweep instead of shipping.
+ *
+ * The values themselves are unchanged and two of them are hard-won - see the
+ * long notes at `nearField` and `foreVeil` in `parallax.ts` for the border
+ * measurements that pin `count`, the size range and `laneGuard`. Editing a row
+ * here is an art-direction change, not a refactor.
+ */
+export interface DebrisPlaneSpec {
+  readonly count: number;
+  readonly minPx: number;
+  readonly maxPx: number;
+  /** Keep out of the centre [lane, 1-lane] of the width. 0 allows all of it. */
+  readonly laneGuard: number;
+}
+
+export const DEBRIS_SPEC: Readonly<Partial<Record<LayerId, DebrisPlaneSpec>>> = {
+  farField: { count: 7, minPx: 10, maxPx: 26, laneGuard: 0 },
+  midField: { count: 5, minPx: 26, maxPx: 54, laneGuard: 0 },
+  debris: { count: 5, minPx: 46, maxPx: 78, laneGuard: 0.3 },
+  nearField: { count: 4, minPx: 70, maxPx: 132, laneGuard: LANE_GUARD },
+  foreVeil: { count: 2, minPx: 130, maxPx: 230, laneGuard: LANE_GUARD * 0.8 },
+} as const;
+
+/**
+ * The planes that draw IN FRONT of a menu screen's own graphics.
+ *
+ * The table above puts `nearField` at depth 5 and `foreVeil` at 6.5; the Director
+ * map draws its planet discs at 4. That is the whole of UR-52: only the planes
+ * in this set can cover anything a still screen draws, and `nearField` is the
+ * one carrying 70-132 px near-black rocks. It is exported so a screen's own
+ * test can say WHICH planes it is defending against rather than asserting over
+ * a number it copied.
+ */
+export const OVERDRAWING_PLANES: readonly LayerId[] = ["nearField", "foreVeil"];

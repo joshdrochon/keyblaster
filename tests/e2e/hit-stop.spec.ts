@@ -6,8 +6,8 @@ import { bootFlight, flightState, spawnAt } from "./support/flightBoot.js";
 /**
  * UR-33 - HIT STOP, AND THE ONE WAY IT COULD BE CATASTROPHIC.
  *
- * "when an asteroid is blocked or destroyed can we freeze the animation for a
- * couple frames" - Vlambeer's hit lag, and a good instinct: it makes a hit read
+ * UR-33 asked for a hold of a couple of frames on every rock kill or block -
+ * Vlambeer's hit lag, and a good instinct: it makes a hit read
  * as something the ship pushed through instead of a sprite being switched off.
  *
  * ================== WHAT THIS SPEC IS REALLY FOR ==================

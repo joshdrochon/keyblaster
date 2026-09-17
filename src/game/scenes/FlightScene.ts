@@ -6,7 +6,7 @@ import {
   cameraSwayPx,
   layer,
 } from "@game/render/layers.js";
-import { particleSpec } from "@game/render/particles.js";
+import { particleSpec, shardWaves } from "@game/render/particles.js";
 import { buildParallax, type Parallax } from "@game/render/parallax.js";
 import { TEX } from "@game/render/textures.js";
 import { paletteAt as stopPaletteAt } from "@game/render/palette.js";
@@ -117,9 +117,11 @@ import { refineCalibration } from "@engine/calibration/index.js";
 import {
   activeProfile,
   persistStageBook,
+  persistStageKnobs,
   refineStoredCalibration,
   storedBook,
   storedCalibration,
+  storedKnobs,
 } from "./lib/init.js";
 import { HudScene } from "./HudScene.js";
 import { StallScene } from "./StallScene.js";
@@ -735,7 +737,20 @@ export class FlightScene extends Phaser.Scene {
       book: this.book,
       allowlist,
     });
-    this.controller = createController({ knobs: this.cfg.knobs });
+    // UR-51: the knob the PROFILE holds, not the one the hand-off chain
+    // remembered to carry. Same argument as `storedCalibration` above and
+    // `storedProgress` on the map: every screen between Pre-flight and here
+    // forwards the config by hand, and this field reached nothing at all until
+    // now precisely because nobody added it to that chain.
+    //
+    // A STATED KNOB STILL WINS, and it has to: `bootFlight` and every e2e mount
+    // of this screen need to be able to put a SPECIFIC difficulty on the belt,
+    // because "a deeper board changes what is on screen" is otherwise not a
+    // thing any check can ask. `cfg.knobs` is `{}` on the real path, so the
+    // spread leaves the stored pair untouched there.
+    this.controller = createController({
+      knobs: { ...(storedKnobs(this) ?? {}), ...this.cfg.knobs },
+    });
 
     // D46: what "matches" means is i18n's job, not the lock's, so the matcher
     // built from the profile's input method is injected here. A romanized Hindi
@@ -1371,6 +1386,13 @@ export class FlightScene extends Phaser.Scene {
       word,
       ease: record.ease,
       calibration: this.fallTimeCalibration(),
+      // UR-51: FR-8's budget pays for reading and typing a rock, never for
+      // WAITING behind one, and every rock on a board deeper than one is
+      // waiting. `@engine/pacing` builds the queue this knob asks for; this is
+      // the half that makes the rocks in it answerable. Leave it out and the
+      // belt drops the back of its own queue - measured at 40 stalls in 40 for
+      // a MEDIAN pilot, hit rate 0.214.
+      knobs: this.controller.knobs,
     });
     const clearEstimateMs = expectedClearMs({
       length: letters,
@@ -1828,8 +1850,41 @@ export class FlightScene extends Phaser.Scene {
       this.cfg.colorblindPalette ? this.palette.colorblind.debris : null,
     );
 
-    this.shards.setParticleTint(hexToInt(fill));
-    this.shards.emitParticleAt(x, y, shardSpec.quantity);
+    /**
+     * THE FRAGMENTS LEAVE OVER TIME, NOT ON ONE FRAME (UR-48, the visual half).
+     *
+     * This was `emitParticleAt(x, y, shardSpec.quantity)` - the whole population
+     * on the fracture frame. The crumble the ear hears is 64 grains scattered
+     * over ~460 ms by a decaying density, so the two disagreed: the picture had
+     * finished breaking before the sound had started shedding. `shardWaves()`
+     * is the sound's own onset distribution sampled 12 times; see the block
+     * comment on `shardOnsetsMs` in `render/particles.ts` for the derivation and
+     * for why the population was cut rather than grown.
+     *
+     * THE TINT IS RE-APPLIED PER WAVE, and that is load-bearing rather than
+     * tidy. `setParticleTint` colours the particles emitted AFTER it, so with a
+     * single up-front call a second rock destroyed mid-burst would repaint this
+     * rock's remaining fragments in the new rock's colour - UR-47 a third time,
+     * reachable any time two blasts land inside 440 ms of each other, which at
+     * the belt's current occupancy is most of them. Each wave carries the tint
+     * of the rock it came from.
+     *
+     * THE GUARD IS FOR THE SCENE ENDING MID-BURST. A stage can complete, or the
+     * player can quit, between the first wave and the last; Phaser clears the
+     * scene's clock on shutdown, but the emitter is the thing being written to
+     * and a destroyed emitter is not something to find out about from a stack
+     * trace in a child's browser.
+     */
+    const tint = hexToInt(fill);
+    for (const wave of shardWaves(shardSpec.quantity)) {
+      const emit = (): void => {
+        if (!this.scene.isActive()) return;
+        this.shards.setParticleTint(tint);
+        this.shards.emitParticleAt(x, y, wave.count);
+      };
+      if (wave.atMs <= 0) emit();
+      else this.time.delayedCall(wave.atMs, emit);
+    }
 
     this.blastFlash(x, y, rock.sizePx);
     this.shockwave(x, y, rock.sizePx);
@@ -2137,6 +2192,29 @@ export class FlightScene extends Phaser.Scene {
     // somewhere that outlives the attempt. Writing only at `checkStageEnd`
     // would throw away every stalled run's book.
     persistStageBook(this, this.cfg.contentLang, this.book);
+    // UR-51 / D31: A STALL IS A STAGE ENDING, AND THE KNOB HAS TO HEAR ABOUT IT.
+    //
+    // This clause exists because persisting the knob created the hole it
+    // closes. `checkStageEnd` is the only other caller of `endStage`, and it
+    // cannot run on a stall - it requires every word spawned and the board
+    // empty. So without this the knob would move in ONE DIRECTION ACROSS
+    // SESSIONS: a child who clears a belt ratchets up, a child who cannot clear
+    // one never ratchets back, and the one that traps is the grade-2 child who
+    // stalls at Jupiter and comes back tomorrow to the difficulty that stalled
+    // them. That was harmless while nothing persisted; it is not any more.
+    //
+    // IT CANNOT TIGHTEN HERE, and that is arithmetic rather than hope. A stall
+    // means the hull emptied, which is `hullForStage` marks taken, so the
+    // stage's own hit rate is below `TIGHTEN_FLOOR` and AC-10.3's D18 guard
+    // refuses the step. `tests/unit/flight/stallKnob.test.ts` sweeps every
+    // reachable stall state and asserts it.
+    //
+    // AC-10.1 holds: `endStage` moves at most one knob, and a belt ends exactly
+    // once - either here or in `checkStageEnd`, never both, because
+    // `checkStageEnd` returns early on `stageComplete` and a stalled belt never
+    // reaches it.
+    this.controller = endStage(this.controller);
+    persistStageKnobs(this, this.controller.knobs);
     this.game.events.emit(FLIGHT_EVENTS.stall, { stopId: this.cfg.stopId });
 
     this.tweens.add({
@@ -2230,6 +2308,10 @@ export class FlightScene extends Phaser.Scene {
     // baseline measured on a child's first evening would still be setting fall
     // time a year later - and a profile that predates the ritual running at all
     // would never be measured by anything.
+    // UR-51: the knob `endStage` just moved, written where it survives the tab
+    // closing. AC-10.1 is untouched - `endStage` above is the only mover and it
+    // moves at most one knob; this only stores what it decided.
+    persistStageKnobs(this, this.controller.knobs);
     refineStoredCalibration(this, observedTimings(this.history));
     // FR-7, the half that survives the stage. Every blast, miss and typo has
     // been folded into `this.book` by `applyToBook`; this is the line that

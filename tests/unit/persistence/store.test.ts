@@ -9,9 +9,20 @@ import {
   blankProfile,
   createProfileStore,
   loadState,
+  resetProfileProgress,
   serializeState,
 } from "@engine/persistence/index.js";
 import { DEFAULT_SETTINGS, STOP_IDS, type Profile } from "@engine/types.js";
+import {
+  DEFAULT_KNOBS,
+  MAX_LIVE_MAX,
+  MAX_LIVE_MIN,
+  applyChange,
+  applyKnobs,
+  concurrencyTarget,
+  loosenStep,
+  tightenStep,
+} from "@engine/controller/index.js";
 import { FakeClock, FakeStorage, populatedProfile, storedPayload, v1Payload, wordRecord } from "./fixtures.js";
 
 function setup(raw?: string): { store: ProfileStore; storage: FakeStorage; clock: FakeClock } {
@@ -401,5 +412,186 @@ describe("AC-7.2 / D44: round-trip fidelity", () => {
     const final = createProfileStore({ storage, clock: new FakeClock() });
     expect(final.profiles[0]).toEqual(expected);
     expect(Object.keys(final.profiles[0]?.words["en"] ?? {})).toEqual(["w0", "w1", "w2"]);
+  });
+});
+
+/**
+ * UR-51: THE DIFFICULTY KNOB HAS TO SURVIVE THE TAB CLOSING.
+ *
+ * `docs/verification-gaps.md` instance 24: `endStage` computed the right knob,
+ * emitted it on `FLIGHT_EVENTS.stageComplete`, and nothing listened. `maxLive`
+ * was 2 on every belt of every run for every child, so the whole difficulty
+ * controller was inert.
+ *
+ * WHY THESE ARE ROUND TRIPS AND NOT WRITES. A write is the half that was never
+ * the problem - `endStage` always worked. The claim that matters is that a knob
+ * earned on Tuesday is still there on Wednesday, so every test below goes
+ * value -> store -> serialized bytes -> a SECOND store built from those bytes,
+ * and reads it back from the far side. `tests/unit/arch/profileWriters` cannot
+ * make this claim: it asks whether a writer exists, and a writer that nothing
+ * calls satisfies it (see gauntlet/escalations.md).
+ */
+describe("UR-51 / FR-10: the difficulty knob round-trips through storage", () => {
+  it("UR-51: a knob written at stage end is still there after a reload", () => {
+    const { store, storage, clock } = setup();
+    const pilot = store.createProfile({ name: "Ada" });
+    // The cold start, before anything is earned.
+    expect(pilot.knobs).toEqual(DEFAULT_KNOBS);
+
+    // Five tighten steps, which is what a route's worth of stage boundaries
+    // does to a pilot who stays inside D17's band.
+    let knobs = pilot.knobs;
+    for (let stage = 0; stage < 5; stage += 1) {
+      const step = tightenStep(knobs);
+      expect(step, `stage ${stage} had no step left`).not.toBeNull();
+      knobs = applyChange(knobs, step);
+      store.updateProfile(pilot.id, (p) => applyKnobs(p, knobs));
+    }
+    expect(knobs.maxLive).toBe(MAX_LIVE_MAX);
+    clock.advance(DEBOUNCE_MS);
+
+    // THE FAR SIDE. A second store, built from the bytes the first one wrote.
+    //
+    // WATCHED FAILING, with the real number: delete the `knobs` block from
+    // `encodeProfile` and this reads `{ maxLive: 2, lengthBias: 0 }` against the
+    // `{ maxLive: 7 }` the child earned. The in-memory profile above still says
+    // 7, which is exactly how this defect class hides.
+    //
+    // I TRIED A WEAKER LEVER FIRST AND IT DID NOT FIRE. Removing `"knobs"` from
+    // `PROFILE_FIELDS` left all of these green: that list is read by the PII
+    // scan and by documentation, not by the encoder, which copies field by
+    // field in its own literal. A control that does not go red is not a control,
+    // so the one named here is the one that was actually run.
+    const reloaded = createProfileStore({ storage, clock: new FakeClock() });
+    expect(reloaded.loadResult.fresh).toBe(false);
+    expect(reloaded.activeProfile()?.knobs).toEqual(knobs);
+    expect(reloaded.activeProfile()?.knobs.maxLive).toBe(MAX_LIVE_MAX);
+  });
+
+  it("UR-51: a loosened knob round-trips too, so the ramp is not one-way", () => {
+    // The direction that protects the child who is struggling. A knob that only
+    // ever ratchets up across sessions traps the grade-2 pilot on the
+    // difficulty that stalled them yesterday.
+    const { store, storage, clock } = setup();
+    const pilot = store.createProfile({ name: "Rey" });
+    store.updateProfile(pilot.id, (p) => applyKnobs(p, { maxLive: 6, lengthBias: 0 }));
+    store.updateProfile(pilot.id, (p) =>
+      applyKnobs(p, applyChange({ maxLive: 6, lengthBias: 0 }, loosenStep({ maxLive: 6, lengthBias: 0 }))),
+    );
+    clock.advance(DEBOUNCE_MS);
+    const reloaded = createProfileStore({ storage, clock: new FakeClock() });
+    // loosenStep drops lengthBias first (D53's mirror-image order), so maxLive
+    // is untouched and the bias is at its floor.
+    expect(reloaded.activeProfile()?.knobs).toEqual({ maxLive: 6, lengthBias: -1 });
+  });
+
+  it("UR-51: D18's cold start survives the round trip - a new pilot opens at the floor", () => {
+    // THE SAFETY PROPERTY, END TO END. `concurrencyTarget(MAX_LIVE_MIN)` is
+    // exactly 1, so at this knob the fall budget is FR-8's literal formula and
+    // the belt holds no standing queue. A first belt that opened anywhere else
+    // would be difficulty raised on a child the game has never watched, which
+    // is what D18 forbids.
+    const { store, storage, clock } = setup();
+    const fresh = store.createProfile({ name: "New" });
+    expect(fresh.knobs.maxLive).toBe(MAX_LIVE_MIN);
+    expect(concurrencyTarget(fresh.knobs.maxLive)).toBe(1);
+    clock.advance(DEBOUNCE_MS);
+    const reloaded = createProfileStore({ storage, clock: new FakeClock() });
+    expect(reloaded.activeProfile()?.knobs).toEqual(DEFAULT_KNOBS);
+  });
+
+  it("UR-51: a reset takes the knob back to the cold start, and keeps the calibration", () => {
+    // Difficulty is EARNED, so D41's reset clears it. The baseline next door is
+    // a measurement OF the child and is still true after a reset - that
+    // asymmetry is the whole reason they are two fields.
+    const { store, storage, clock } = setup();
+    const pilot = store.createProfile({ name: "Ada" });
+    store.updateProfile(pilot.id, (p) => ({
+      ...applyKnobs(p, { maxLive: MAX_LIVE_MAX, lengthBias: 1 }),
+      calibration: { ikiMs: 615, fkLatencyMs: 700 },
+    }));
+    store.updateProfile(pilot.id, (p) => resetProfileProgress(p));
+    clock.advance(DEBOUNCE_MS);
+    const reloaded = createProfileStore({ storage, clock: new FakeClock() });
+    expect(reloaded.activeProfile()?.knobs).toEqual(DEFAULT_KNOBS);
+    expect(reloaded.activeProfile()?.calibration.ikiMs).toBe(615);
+  });
+
+  it("UR-51: a corrupt stored knob is repaired to FR-10's range and SAYS SO", () => {
+    // A knob is read straight into the fall-time budget and the spawn gap, so a
+    // stored 999 is not a cosmetic defect. `clampKnobs` is reused rather than
+    // reimplemented; what the decoder adds is the repair log, because a payload
+    // we changed has to be reported like every other one.
+    const raw = storedPayload(
+      [{ ...blankProfile({ id: "p1", createdAt: 0 }), knobs: { maxLive: 999, lengthBias: 7 as 1 } }],
+      "p1",
+    );
+    const { store } = setup(raw);
+    expect(store.activeProfile()?.knobs).toEqual({ maxLive: MAX_LIVE_MAX, lengthBias: 1 });
+    expect(store.loadResult.notices.map((n) => n.code)).toContain("repaired");
+    // BOTH knobs are out of range, so BOTH have to be reported. Asserting only
+    // that SOME repair happened would have missed the defect coverage found
+    // here: the first draft compared the clamped bias against an already
+    // narrowed one, so a stored lengthBias of 7 was rewritten to 1 in silence.
+    //
+    // WATCHED FAILING, with the real number: narrow the bias before the
+    // comparison (`lengthBias: asLengthBias(...)` inside `wanted`) and this
+    // reads 1 repaired path against the 2 expected.
+    const paths = store.loadResult.notices
+      .filter((n) => n.code === "repaired")
+      .flatMap((n) => n.detail.split(/[\s,]+/))
+      .filter((d) => d.includes("knobs"));
+    expect(paths.some((d) => d.endsWith("maxLive"))).toBe(true);
+    expect(paths.some((d) => d.endsWith("lengthBias"))).toBe(true);
+  });
+
+  it("UR-51: a v2 payload with no knobs block loads at the cold start, silently", () => {
+    // Every profile written before this field existed looks like this. The v3
+    // migration supplies the knob, and the load must NOT report damage: a
+    // profile that never had the field did not lose it.
+    //
+    // The `migrated` notice IS expected and is asserted rather than tolerated: a
+    // v2 payload that loaded without walking the chain would mean the version
+    // bump did nothing, and `toEqual` on the whole code list is what makes that
+    // a statement instead of a shrug.
+    //
+    // WATCHED FAILING, with the real number: drop `2: v2ToV3` from MIGRATIONS
+    // and this reads ["unmigratable", "quarantined"] against ["migrated"], with
+    // the child's whole profile parked under QUARANTINE_KEY and replaced by a
+    // fresh one.
+    //
+    // NOTE WHAT THIS DOES NOT TEST. Making `decodeKnobs` log a repair for an
+    // absent block leaves this green, because the migration supplies the block
+    // before the decoder ever sees it. The decoder`s own absent-block path is
+    // reached by a CURRENT-version payload with the field missing, and it is
+    // asserted separately below - the two look identical from here and are not
+    // the same code.
+    const v2 = JSON.parse(storedPayload([blankProfile({ id: "p1", createdAt: 0 })], "p1")) as {
+      version: number;
+      profiles: Record<string, unknown>[];
+    };
+    v2.version = 2;
+    delete v2.profiles[0]!["knobs"];
+    const { store } = setup(JSON.stringify(v2));
+    expect(store.activeProfile()?.knobs).toEqual(DEFAULT_KNOBS);
+    expect(store.loadResult.notices.map((n) => n.code)).toEqual(["migrated"]);
+  });
+
+  it("UR-51: a CURRENT-version payload missing the knobs block is not damage either", () => {
+    // The decoder's own absent-block path, which the migration test above
+    // cannot reach. A hand-edited save, or a payload written by a build that
+    // bumped the version before it wrote the field, must open at the cold start
+    // and report nothing: a profile that never had the field did not lose it.
+    //
+    // WATCHED FAILING, with the real number: have `decodeKnobs` call
+    // `repaired(log, path)` on `undefined` and the codes read ["repaired"]
+    // against the [] expected.
+    const current = JSON.parse(storedPayload([blankProfile({ id: "p1", createdAt: 0 })], "p1")) as {
+      profiles: Record<string, unknown>[];
+    };
+    delete current.profiles[0]!["knobs"];
+    const { store } = setup(JSON.stringify(current));
+    expect(store.activeProfile()?.knobs).toEqual(DEFAULT_KNOBS);
+    expect(store.loadResult.notices.map((n) => n.code)).toEqual([]);
   });
 });

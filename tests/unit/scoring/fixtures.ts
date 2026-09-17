@@ -1,3 +1,4 @@
+import { DEFAULT_KNOBS } from "@engine/controller/index.js";
 import type { Profile, StopId, StopProgress, WordRecord } from "@engine/types.js";
 import { DEFAULT_CALIBRATION, DEFAULT_SETTINGS, EASE_NEW } from "@engine/types.js";
 
@@ -46,6 +47,7 @@ export function profile(progress: StopProgress[] = []): Profile {
     avatar: "a1",
     shipId: "lantern",
     shipName: "Lantern",
+    knobs: DEFAULT_KNOBS,
     createdAt: 0,
     calibration: DEFAULT_CALIBRATION,
     settings: DEFAULT_SETTINGS,

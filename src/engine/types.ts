@@ -3,6 +3,11 @@
  * src/engine, must never import Phaser or touch the DOM (CLAUDE.md HARD RULES).
  */
 
+// `Knobs` is the difficulty controller's state and lives with the controller
+// (`controller/knobs.ts`, which imports nothing), so this is a leaf import and
+// not a cycle. It is here because the knob is PERSISTED - see `Profile.knobs`.
+import type { Knobs } from "./controller/knobs.js";
+
 /** UI and content languages (D45). */
 export type Lang = "en" | "es" | "hi";
 
@@ -181,6 +186,30 @@ export interface Profile {
   shipName: string;
   createdAt: number;
   calibration: Calibration;
+  /**
+   * The difficulty controller's state, carried between belts (FR-10, D20, D53).
+   *
+   * ================== WHY THIS FIELD EXISTS (UR-51) ==================
+   * It did not, and the whole controller was inert because of it.
+   * `FlightScene.checkStageEnd` called `endStage`, got the right knob, emitted
+   * it on `FLIGHT_EVENTS.stageComplete` - and `grep -rn
+   * "FLIGHT_EVENTS.stageComplete" src/` returned one hit, the emit. Nothing
+   * listened, nothing stored it, and neither route into the flight screen
+   * passed it, so `FlightConfig.knobs` was `{}` and `maxLive` was 2 on every
+   * belt of every run for every child. The engine was raising a ceiling nobody
+   * could ever reach; `docs/verification-gaps.md` instance 24 is the write-up.
+   *
+   * IT HAS TO BE PERSISTED AND NOT MERELY HANDED ALONG. A route is seven stops
+   * and children do not fly it in one sitting. A knob that lives in a scene
+   * hand-off resets when the tab closes, and a knob that resets never climbs -
+   * which is the same "difficulty never adapts" the child reported, wearing a
+   * different coat.
+   *
+   * IT IS EARNED, SO `resetProfileProgress` CLEARS IT, unlike `calibration`
+   * next door: a baseline is a measurement OF the child and survives a reset,
+   * while a difficulty step is something they worked up to.
+   */
+  knobs: Knobs;
   settings: Settings;
   progress: StopProgress[];
   trophies: string[];

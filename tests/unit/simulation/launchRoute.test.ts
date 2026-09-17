@@ -15,7 +15,13 @@ import {
   type RitualStepInput,
 } from "@engine/calibration/index.js";
 import { BELT_STOP_IDS, DEFAULT_CALIBRATION, type Calibration } from "@engine/types.js";
-import { MAX_LIVE_MAX, MAX_LIVE_MIN } from "@engine/controller/knobs.js";
+import { DEFAULT_KNOBS, MAX_LIVE_MAX, MAX_LIVE_MIN } from "@engine/controller/knobs.js";
+import {
+  createController,
+  endStage,
+  knobsDiffCount,
+  recordOutcome,
+} from "@engine/controller/index.js";
 import { DEFAULT_FLIGHT_CONFIG, stagePoolFor } from "@game/flight/stage.js";
 import { survivableHitRate } from "@engine/hull/index.js";
 
@@ -600,5 +606,177 @@ describe("UR-57 / AC-11.5: the belief the belt opens on", () => {
     // cites for folding at a stage of play's weight.
     expect(perStopFk).toBeGreaterThan(4);
     expect(perStopIki).toBeGreaterThan(12);
+  });
+});
+
+/**
+ * UR-51: WHAT THE CLIMB ACTUALLY LOOKS LIKE, ONCE THE KNOB IS PERSISTED.
+ *
+ * Until this round the question could not be asked. `endStage` moved the knob,
+ * nothing stored it, and every belt opened at `MAX_LIVE_MIN` - so the ramp was
+ * a property of the controller's unit tests and of nothing a child ever flew.
+ * With `Profile.knobs` persisted it is now what WILL happen to every child in a
+ * week, so it is measured rather than predicted.
+ *
+ * The controller is carried stop to stop here exactly as the profile carries
+ * it: this belt's own outcomes go through the real rolling window, `endStage`
+ * runs once per belt, and the knob it returns opens the next one.
+ */
+describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => {
+  const MEDIAN_R: SimPlayer = MEDIAN;
+  const PILOTS: ReadonlyArray<readonly [string, SimPlayer]> = [
+    ["fast", FAST],
+    ["median", MEDIAN_R],
+    ["slow", SLOW],
+    ["grade2", GRADE2],
+  ];
+
+  interface Step {
+    stop: string;
+    maxLive: number;
+    meanLive: number;
+    peakLive: number;
+    hitRate: number;
+    stalls: number;
+    knobMovesThisStage: number;
+  }
+
+  const avg = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
+
+  function climb(player: SimPlayer): Step[] {
+    const cols = BELT_STOP_IDS.map(() => ({
+      maxLive: [] as number[],
+      meanLive: [] as number[],
+      peak: [] as number[],
+      hit: [] as number[],
+      stalls: 0,
+      moves: [] as number[],
+    }));
+    for (let seed = 1; seed <= SEEDS; seed += 1) {
+      // A brand-new profile: D18's cold start, which is also UR-51's safety
+      // floor. `DEFAULT_KNOBS` is what `blankProfile` writes.
+      let controller = createController({ knobs: DEFAULT_KNOBS });
+      let calibration = calibrationOf(player);
+      const rng = mulberry32(seed);
+      for (let stop = 0; stop < BELT_STOP_IDS.length; stop += 1) {
+        const opened = controller.knobs;
+        const result: BeltResult = simulateBelt(
+          {
+            stopIndex: stop + 1,
+            stagePool: stagePoolFor(BELT_STOP_IDS[stop]!),
+            retentionPool: [],
+            spawnCount: WORDS,
+            calibration,
+            knobs: opened,
+          },
+          player,
+          {},
+          rng,
+        );
+        const col = cols[stop]!;
+        col.maxLive.push(opened.maxLive);
+        col.meanLive.push(result.meanLive);
+        col.peak.push(result.peakLive);
+        col.hit.push(result.hitRate);
+        if (result.stalled) col.stalls += 1;
+        calibration = result.calibration;
+
+        // The stage boundary, exactly as the scene runs it: this belt's own
+        // outcomes through the real window, then one `endStage`.
+        let next = controller;
+        for (const spawn of result.spawns) {
+          next = recordOutcome(next, spawn.hit ? "blasted" : "missed");
+        }
+        next = endStage(next);
+        col.moves.push(knobsDiffCount(opened, next.knobs));
+        controller = next;
+      }
+    }
+    return cols.map((c, i) => ({
+      stop: BELT_STOP_IDS[i]!,
+      maxLive: Number(avg(c.maxLive).toFixed(2)),
+      meanLive: Number(avg(c.meanLive).toFixed(2)),
+      peakLive: Math.max(...c.peak),
+      hitRate: Number(avg(c.hit).toFixed(4)),
+      stalls: c.stalls,
+      knobMovesThisStage: Math.max(...c.moves),
+    }));
+  }
+
+  const rows: Record<string, Step[]> = {};
+  for (const [name, player] of PILOTS) rows[name] = climb(player);
+
+  it("UR-51 / D18: every pilot's FIRST belt opens at the cold start", () => {
+    // The safety property, at the only moment it is unconditional. A new
+    // profile has never been watched, so `concurrencyTarget` is 1, FR-8's
+    // budget is its literal formula and the belt holds no standing queue.
+    //
+    // WATCHED FAILING, with the real number: seed the climb at
+    // `{ maxLive: MAX_LIVE_MAX }` and the fast pilot's first belt opens at 7
+    // against the 2 expected - a four-deep board on a child's first belt,
+    // before the game has watched them type a single word.
+    for (const [name, steps] of Object.entries(rows)) {
+      expect(steps[0]!.maxLive, name).toBe(MAX_LIVE_MIN);
+      expect(steps[0]!.meanLive, name).toBeLessThan(1.1);
+    }
+  });
+
+  it("AC-10.1 / D20: at most one knob moves per stage, at every stop, for every pilot", () => {
+    for (const [name, steps] of Object.entries(rows)) {
+      for (const step of steps) {
+        expect(step.knobMovesThisStage, `${name} at ${step.stop}`).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("UR-51: the ramp is monotone and reaches the top of the range by the end of the route", () => {
+    for (const [name, steps] of Object.entries(rows)) {
+      for (let i = 1; i < steps.length; i += 1) {
+        expect(steps[i]!.maxLive, `${name} at ${steps[i]!.stop}`).toBeGreaterThanOrEqual(
+          steps[i - 1]!.maxLive,
+        );
+      }
+      expect(steps[steps.length - 1]!.meanLive, name).toBeGreaterThan(3);
+    }
+  });
+
+  it("UR-51: nobody stalls anywhere on the climb, grade-2 included", () => {
+    for (const [name, steps] of Object.entries(rows)) {
+      for (const step of steps) {
+        expect(step.stalls, `${name} stalled ${step.stalls} times at ${step.stop}`).toBe(0);
+      }
+    }
+  });
+
+  it("records the ramp", () => {
+    // THE FINDING THIS EVIDENCE EXISTS FOR, and it is not a number to tune.
+    // The controller tightens on hit rate above 0.90, and EVERY simulated pilot
+    // clears that - the grade-2 child runs 0.92 to 0.96. So every pilot arrives
+    // at the top of the knob, at very nearly the same rate, and the depth a
+    // child ends up flying is not actually a function of their skill. The
+    // simulation says that is survivable; it cannot say whether four words at
+    // once is too much for a seven-year-old to look at. See
+    // gauntlet/escalations.md, UR-51, decision 2.
+    mkdirSync(EVIDENCE, { recursive: true });
+    writeFileSync(
+      `${EVIDENCE}/difficulty-ramp.json`,
+      `${JSON.stringify(
+        {
+          ticket: "UR-51",
+          seeds: SEEDS,
+          note:
+            "A brand-new profile per seed; the real controller carried stop to stop, one endStage per belt. maxLive is the knob the belt OPENED on; meanLive is time-weighted rocks on the board.",
+          before:
+            "maxLive was 2 at every stop for every pilot, because nothing persisted the knob (verification-gaps instance 24).",
+          finding:
+            "every pilot reaches the top of the range, because tightening triggers on hit rate > 0.90 and the grade-2 pilot runs 0.92-0.96.",
+          rows,
+          generatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    expect(Object.keys(rows).length).toBe(4);
   });
 });

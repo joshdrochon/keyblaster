@@ -440,25 +440,21 @@ export class BeaconScene extends Phaser.Scene {
     );
     text.setOrigin(0.5);
     made.push(text);
-    // The hint is on open sky beside the button, so it is plated like the rest.
-    // `alpha: 0.7` on `textDim` is 3.0:1 - a keyboard hint a child cannot read
-    // is a keyboard hint that does not exist.
-    const hint = skyText(
-      this,
-      BUTTON.x + BUTTON.w + 28,
-      BUTTON.y + BUTTON.h / 2 - 16,
-      this.lane.copy.text("beacon.hint"),
-      {
-        screen: "beacon",
-        id: "beacon.hint",
-        size: TYPE.caption,
-        color: INK.textDim,
-        lang: this.lane.lang,
-        depth: 10,
-        padY: 8,
-      },
-    );
-    made.push(...hint.objects);
+    /**
+     * UR-56: the keyboard hint beside this button was reported as redundant
+     * and asked to be removed outright.
+     *
+     * There WAS a hint here - `beacon.hint`, "enter to continue" - plated on
+     * open sky 28 px to the right of this button, which reads "continue". One
+     * button, opening with focus, with a visible ring on it, and a second piece
+     * of text beside it saying the same word in the dimmest legible ink.
+     *
+     * It is not moved to the grid line, it is gone: there is nothing for a hint
+     * to teach on a screen with a single focused control. `ui/hint.ts` holds
+     * that as a rule for every screen rather than as this comment, because the
+     * last two times a defect was fixed on the screen it was reported against
+     * it came straight back on the next one (UR-06 -> UR-52, UR-14 -> UR-50.5).
+     */
     return made;
   }
 

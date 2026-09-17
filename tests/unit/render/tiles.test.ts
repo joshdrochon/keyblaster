@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { KeepClearShape } from "../../../src/game/render/keepClear.js";
 import {
   type TileOp,
   FALLBACK_RADII,
@@ -434,7 +435,7 @@ describe("UR-06: decorative debris keeps off the scene's own text", () => {
     facets: [] as const,
     radii: [1, 0.9, 1.05, 0.95, 1, 0.92] as const,
   };
-  const opts = (keepClear?: readonly { x: number; y: number; w: number; h: number }[]) => ({
+  const opts = (keepClear?: readonly KeepClearShape[]) => ({
     materials: [material],
     count: 40,
     minPx: 40,
@@ -455,7 +456,7 @@ describe("UR-06: decorative debris keeps off the scene's own text", () => {
         return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
       });
 
-  const RECT = { x: 172, y: 222, w: 666, h: 806 };
+  const RECT = { kind: "rect", x: 172, y: 222, w: 666, h: 806 } as const;
   const overlaps = (b: { x0: number; x1: number; y0: number; y1: number }): boolean =>
     b.x1 > RECT.x && b.x0 < RECT.x + RECT.w && b.y1 > RECT.y && b.y0 < RECT.y + RECT.h;
 

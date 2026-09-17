@@ -41,7 +41,7 @@ import {
 /**
  * THE COCKPIT CONSOLE (UR-11).
  *
- * "In the settings, the menu should look like the inside of a space ship."
+ * UR-11 asked for the settings screen to read as a ship's interior.
  * What shipped was a flat pill slider with a white dot and a 0% caption. What
  * replaces it is a rotary knob, an illuminated toggle and a detented selector.
  *

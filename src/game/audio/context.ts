@@ -103,6 +103,17 @@ export interface StereoPannerNodeLike extends AudioNodeLike {
 export interface AudioContextLike {
   readonly currentTime: number;
   readonly sampleRate: number;
+  /**
+   * HOW FAR BEHIND THE RENDERER `currentTime` IS (UR-55).
+   *
+   * Optional, because only a real `AudioContext` has one: an `OfflineAudioContext`
+   * has no output device to be behind, and neither does `NullAudioContext` or the
+   * test renderer. Where it exists it is the honest measure of how far in the past
+   * `currentTime` already is, and `sfxLookaheadSeconds` reads it so a machine with
+   * a slow output path gets a lookahead that actually clears its own latency
+   * rather than the one this game was measured on.
+   */
+  readonly baseLatency?: number;
   readonly destination: AudioNodeLike;
   createGain(): GainNodeLike;
   createOscillator(): OscillatorNodeLike;

@@ -78,6 +78,13 @@ const LANE_EN = {
   "ending.continue": "see the stage report",
 } as const;
 
+/**
+ * The English lane table, exported so `tests/unit/ui/hint.test.ts` can resolve a
+ * hint and a button label from the SHIPPED copy rather than from a second list
+ * it typed out itself (UR-56: the rule is checked against what renders).
+ */
+export const LANE_COPY_EN: Readonly<Record<string, string>> = LANE_EN;
+
 export type LaneStringKey = keyof typeof LANE_EN;
 
 export const LANE_STRING_KEYS = Object.keys(LANE_EN) as LaneStringKey[];

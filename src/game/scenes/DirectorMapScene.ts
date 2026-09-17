@@ -3,9 +3,40 @@ import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { hexToNum, paletteAt } from "@game/render/palette";
 import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
 import { ensureTextures, fillShape, starPoints } from "@game/render/textures";
-import { INK, SPACE, TYPE } from "@game/ui/theme";
+import { DUR, INK, SKY_PLATE, SPACE, TYPE } from "@game/ui/theme";
 import { headerText } from "@game/ui/grid";
+import { hintOrigin } from "@game/ui/hint";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
+import { LANTERN_DESIGN_HEIGHT, drawLantern, type LanternRig } from "@game/render/lantern";
+import {
+  CAPTION_GAP,
+  CHIP,
+  LAMP_RISE,
+  MAP_HEADER_PAD_Y,
+  NODE_R,
+  NODE_RIM,
+  PANEL_PAD,
+  PANEL_STAR_R,
+  ROUTE_X0,
+  ROUTE_Y,
+  SHADOW_SCALE,
+  SHIP_SCALE,
+  SHIP_Y,
+  STAR_R,
+  STAR_ROW_GAP,
+  chipX,
+  mapKeepClear,
+  nodeStep,
+  nodeX,
+  panelBox,
+  panelInkLeft,
+  panelInkRight,
+  panelStarsY,
+  routeX1,
+  shadowAt,
+  starsCentreForRight,
+  type PanelBox,
+} from "./support/mapLayout";
 import { STOP_IDS, isBeltStop, type StopId, type StopProgress } from "@engine/types";
 import {
   createFocusRing,
@@ -53,41 +84,22 @@ import {
  * Entry points to the Beacon Log and Settings live here (design brief 3), and
  * so does the per-stop personal-best board (D43). The board is personal-best
  * only; no global rank is rendered anywhere on this screen (AC-18.3).
- */
-const ROUTE_Y = 430;
-const ROUTE_X0 = 210;
-/**
- * The route's right end and the board's box, READ AT DRAW TIME.
  *
- * These were module-level `const`s off `GAME_WIDTH`, which was right while the
- * world was a fixed 1920 wide. `GAME_WIDTH` is now the window's own aspect at
- * 1080 (D99, `sceneKeys` header) and a top-level `const` captures the live
- * binding at import time - i.e. freezes it at 1920 before `bootGame` has
- * measured anything, which would pin Pluto and the right edge of the board
- * 320 px inside a 21:9 window and leave a strip of empty sky beside them.
- * Functions, called from the method that draws.
+ * ---------------------------------------------------------------------------
+ * THE GEOMETRY LIVES IN `support/mapLayout.ts`, with no Phaser in it.
+ *
+ * It was here, as module-level constants, and three user reports against this
+ * screen (UR-52 debris over the planets, UR-53 no ship above the current
+ * planet, UR-54 nothing on the shared grid) could only be checked by looking at
+ * a capture. Everything positional moved out so a unit test can hold it.
+ *
+ * Anything that depends on the world's width is a FUNCTION there, for the
+ * reason `sceneKeys` gives (D99): a top-level `const` off `GAME_WIDTH` freezes
+ * 1920 at import time, before `bootGame` has measured the window, which would
+ * pin Pluto and the right edge of the board 320 px inside a 21:9 frame.
  */
-const routeX1 = (): number => GAME_WIDTH - 210;
-const NODE_R = 46;
-interface PanelBox {
-  readonly x: number;
-  readonly y: number;
-  readonly w: number;
-  readonly h: number;
-}
-const panelBox = (): PanelBox => ({ x: 200, y: 700, w: GAME_WIDTH - 400, h: 250 });
-const CHIP = { w: 262, h: 66, y: 74, gap: 22 };
 const BLINK_PERIOD_MS = 2600;
 const BLINK_STAGGER = 0.085;
-/**
- * How far the lamp floats above the planet's limb.
- *
- * It was 38 px above a 46 px disc, plus a 34 px halo, which put a bright ring
- * in open sky with a hairline connecting it to a planet 38 px below - it read
- * as a separate object, not as this stop's beacon. 16 px puts the halo's lower
- * edge inside the disc, so the lamp is unmistakably ON the world it marks.
- */
-const LAMP_RISE = 16;
 
 interface NodeView {
   readonly stopId: StopId;
@@ -112,6 +124,9 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   private panelBoard!: Phaser.GameObjects.Text;
   private panelAction!: Phaser.GameObjects.Text;
   private panelStars!: Phaser.GameObjects.Graphics;
+  /** UR-53: the Lantern, hovering over whichever stop is selected. */
+  private lantern: LanternRig | null = null;
+  private shipTween: Phaser.Tweens.Tween | null = null;
   private selected: StopId = "earth";
   /** How many star glyphs the screen has actually drawn (D27 evidence). */
   private starGlyphs = 0;
@@ -135,6 +150,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     this.story = resolveInit(withStoredProgress(this, data), "earth");
     this.nodes = [];
     this.starGlyphs = 0;
+    this.lantern = null;
+    this.shipTween = null;
   }
 
   create(): void {
@@ -156,6 +173,12 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       // across the frame while the comment next to them said they did not.
       crossDrift: false,
       seed: 0x0d13,
+      // UR-52: decorative debris drew ACROSS the planets on this screen. The
+      // planets, their lamps, their captions and this screen's chrome, as
+      // shapes the debris planes are told to avoid. See `mapLayout.mapKeepClear`
+      // for why the list is what it is, and `render/keepClear.ts` for why the
+      // mechanism is shared with the Title rather than re-derived here.
+      keepClear: mapKeepClear(),
     });
 
     // ONE DERIVATION FOR THE WHOLE SCREEN (D13, engine/progress `routeView`).
@@ -180,7 +203,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       depth: 10,
       padY: 14,
     });
-    const sub = headerText(1, undefined, 8);
+    const sub = headerText(1, undefined, MAP_HEADER_PAD_Y);
     skyText(this, sub.x, sub.y, text.text("map.subheading"), {
       screen: "map",
       id: "map.subheading",
@@ -192,7 +215,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       depth: 10,
       padY: 8,
     });
-    const third = headerText(2, undefined, 8);
+    const third = headerText(2, undefined, MAP_HEADER_PAD_Y);
     skyText(
       this,
       third.x,
@@ -213,27 +236,40 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     this.buildNodes();
 
     // --- the personal-best board (D43) -----------------------------------
+    //
+    // UR-54: the board at the foot of the screen is to start on the same left
+    // edge as the heading above it. It is the content column now
+    // (`mapLayout.panelBox`), so
+    // its plate starts where the heading's plate starts and ends where the
+    // heading's column ends, and every line inside it hangs off ONE inset -
+    // the title used 40 and the two lines under it 42.
     const PANEL = panelBox();
+    const inkLeft = panelInkLeft();
     // Opaque: a card the size of this one shows the sky behind it as a SHAPE,
     // not a tint. See `lib/kit.plate`.
     plate(this, PANEL.x, PANEL.y, PANEL.w, PANEL.h).setDepth(9);
-    this.panelTitle = label(this, PANEL.x + 40, PANEL.y + 34, "", {
+    this.panelTitle = label(this, inkLeft, PANEL.y + 34, "", {
       size: TYPE.heading,
       color: INK.text,
       lang: this.story.lang,
     }).setDepth(10);
-    this.panelChapter = label(this, PANEL.x + 42, PANEL.y + 96, "", {
+    this.panelChapter = label(this, inkLeft, PANEL.y + 96, "", {
       size: TYPE.caption,
       color: INK.textDim,
       lang: this.story.lang,
     }).setDepth(10);
-    this.panelBoard = label(this, PANEL.x + 42, PANEL.y + 146, "", {
+    this.panelBoard = label(this, inkLeft, PANEL.y + 146, "", {
       size: TYPE.body,
       color: INK.textDim,
       lang: this.story.lang,
     }).setDepth(10);
     this.panelStars = this.add.graphics().setDepth(10);
-    this.panelAction = label(this, PANEL.x + PANEL.w - 40, PANEL.y + 40, "", {
+    // UR-54: the travel label and the three stars did not share a right edge.
+    // Both hang off ONE
+    // right-hand ink line now; `drawStars` is given the centre that puts the
+    // cluster's right EDGE on it (`starsCentreForRight`), which is the 42.4 px
+    // the two were out by.
+    this.panelAction = label(this, panelInkRight(), PANEL.y + 40, "", {
       size: TYPE.label,
       color: INK.accent,
       align: "right",
@@ -242,23 +278,28 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       .setOrigin(1, 0)
       .setDepth(10);
 
-    skyText(this, GAME_WIDTH / 2, GAME_HEIGHT - 66, text.text("map.hint"), {
+    // UR-54 / UR-19: the hint is a GRID LINE, bottom-left, like every other
+    // screen's. It was centred on the world at `GAME_HEIGHT - 66`, which is one
+    // of the six different hint positions the blind critic measured.
+    const hint = hintOrigin(SKY_PLATE.padX, MAP_HEADER_PAD_Y);
+    skyText(this, hint.x, hint.y, text.text("map.hint"), {
       screen: "map",
       id: "map.hint",
       size: TYPE.caption,
       color: INK.textDim,
-      align: "center",
       lang: this.story.lang,
       depth: 10,
-      originX: 0.5,
-      padY: 8,
+      padY: MAP_HEADER_PAD_Y,
     });
 
-    this.shadow = drawShadow(this, GAME_WIDTH - 150, GAME_HEIGHT - 190, "idle", {
-      scale: 0.8,
+    const shadowAnchor = shadowAt();
+    this.shadow = drawShadow(this, shadowAnchor.x, shadowAnchor.y, "idle", {
+      scale: SHADOW_SCALE,
       reducedMotion: ctx.reducedMotion,
       depth: 11,
     });
+
+    this.buildLantern(ctx.reducedMotion);
 
     // --- focus order: seven stops, then the two entry points --------------
     const targets: FocusTarget[] = this.nodes.map((n) => ({
@@ -289,11 +330,60 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.teardown());
   }
 
+  /**
+   * UR-53: the ship is to hover above the stop the screen is currently about.
+   *
+   * There was no ship on this screen at all - the map drew the route and the
+   * Shadow and nothing that was the player. It hovers over the SELECTED stop;
+   * `mapLayout` records why selection rather than furthest-beacon progress.
+   *
+   * ONE `drawLantern`, never a private copy of the drawing (coding-standards
+   * rule 3: a private method in `FlightScene` is what the one-implementation
+   * guard could not see, and it was the ship on screen for the entire game).
+   *
+   * `exhaust: false`, `beam: false`. A ship holding station is not burning, and
+   * the plume would reach 152 design units past the nozzle - a third again as
+   * tall - straight into the beacon lamp below it. `iris: 0.35` keeps the
+   * instrument lit so it reads as the same object the Title and Flight draw.
+   */
+  private buildLantern(reducedMotion: boolean): void {
+    this.lantern = drawLantern(this, nodeX(0), SHIP_Y, {
+      scale: SHIP_SCALE,
+      reducedMotion,
+      idleBob: true,
+      exhaust: false,
+      beam: false,
+      iris: 0.35,
+    });
+    // The ship plane (depth 6), which is in FRONT of every debris plane this
+    // screen decorates - so the ship needs no keep-clear zone of its own.
+    this.parallax.layerOf("shipFx").container.add(this.lantern.container);
+  }
+
+  /** Move the ship to stop `i`. Eased, because a cursor that teleports reads
+   *  as a redraw rather than as a ship (AC-22.5; D41 stills it). */
+  private moveShipTo(i: number): void {
+    const ship = this.lantern;
+    if (ship === null) return;
+    const x = nodeX(i);
+    this.shipTween?.remove();
+    this.shipTween = null;
+    if (this.story.ctx.reducedMotion) {
+      ship.container.setX(x);
+      return;
+    }
+    this.shipTween = this.tweens.add({
+      targets: ship.container,
+      x,
+      duration: DUR.panel,
+      ease: EASE.arrive,
+    });
+  }
+
   private buildChips(): FocusTarget[] {
     const { text } = this.story;
-    const right = GAME_WIDTH - 96;
-    const settingsX = right - CHIP.w;
-    const logX = settingsX - CHIP.gap - CHIP.w;
+    const logX = chipX(0);
+    const settingsX = chipX(1);
     const make = (
       id: string,
       x: number,
@@ -323,11 +413,10 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
 
   private buildNodes(): void {
     const { progress, ctx } = this.story;
-    const step = (routeX1() - ROUTE_X0) / (STOP_IDS.length - 1);
 
     this.view.forEach((stop, i) => {
       const { stopId, charted, locked } = stop;
-      const x = ROUTE_X0 + step * i;
+      const x = nodeX(i);
       const pal = paletteAt(stopId, ctx.colorblindPalette);
       const entry = progressFor(progress, stopId);
 
@@ -342,7 +431,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
         : (pal.colorRoles["atmosphere"] ?? pal.colorRoles["sky"] ?? pal.colors[2] ?? INK.locked);
       const shade = locked ? INK.panelSunken : (pal.colors[pal.colors.length - 1] ?? INK.bgDeep);
       disc.fillStyle(hexToNum(INK.bgDeep), 1);
-      disc.fillCircle(x, ROUTE_Y, NODE_R + 8);
+      disc.fillCircle(x, ROUTE_Y, NODE_R + NODE_RIM);
       disc.fillStyle(hexToNum(body), 1);
       disc.fillCircle(x, ROUTE_Y, NODE_R);
       // Offset + radius stays under 1.0 so the night side cannot spill past
@@ -370,7 +459,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       skyText(
         this,
         x,
-        ROUTE_Y + NODE_R + 26,
+        ROUTE_Y + NODE_R + CAPTION_GAP,
         status === "" ? this.stopName(stopId) : `${this.stopName(stopId)}\n${status}`,
         {
           screen: "map",
@@ -396,8 +485,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
         this.drawStars(
           this.add.graphics().setDepth(7),
           x,
-          ROUTE_Y + NODE_R + 116,
-          14,
+          ROUTE_Y + NODE_R + STAR_ROW_GAP,
+          STAR_R,
           entry.stars,
           pal.accent,
         );
@@ -451,6 +540,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     }
     const stop = stopId as StopId;
     this.selected = stop;
+    this.moveShipTo(STOP_IDS.indexOf(stop));
     const { text, progress } = this.story;
     const entry: StopProgress = progressFor(progress, stop);
     const bundle = hasStageBundle(stop) ? stageBundle(stop) : null;
@@ -474,12 +564,11 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
 
     this.panelStars.clear();
     if (hasRun) {
-      const PANEL = panelBox();
       this.drawStars(
         this.panelStars,
-        PANEL.x + PANEL.w - 140,
-        PANEL.y + PANEL.h - 62,
-        16,
+        starsCentreForRight(panelInkRight(), PANEL_STAR_R),
+        panelStarsY(),
+        PANEL_STAR_R,
         entry.stars,
         paletteAt(stop, this.story.ctx.colorblindPalette).accent,
       );
@@ -590,6 +679,16 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       focusIndex: this.menu.index,
       focusId: this.menu.targets[this.menu.index]?.id ?? null,
       litCount: this.nodes.filter((n) => n.charted).length,
+      // UR-53 evidence: where the ship IS, and where the selected planet is.
+      // Two numbers taken in one read, so they describe one moment (rule 7).
+      ship:
+        this.lantern === null
+          ? null
+          : {
+              x: this.lantern.container.x,
+              y: this.lantern.container.y,
+              targetX: nodeX(STOP_IDS.indexOf(this.selected)),
+            },
       skyText: skyTextSamples(this),
       starGlyphs: this.starGlyphs,
       entryPoints: this.menu.targets
@@ -607,6 +706,10 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   }
 
   private teardown(): void {
+    this.shipTween?.remove();
+    this.shipTween = null;
+    this.lantern?.destroy();
+    this.lantern = null;
     this.menu.destroy();
     this.shadow.destroy();
     this.parallax.destroy();
@@ -616,9 +719,11 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
 /**
  * Focus-ring geometry, exported so the e2e can assert it is on screen.
  *
- * Getters for the two members that depend on the world's width (D99): a plain
- * object literal here would snapshot 1920 at import time and the e2e would be
- * asserting against a map the game is not drawing.
+ * A re-export of `support/mapLayout.ts` now, which is where the numbers live
+ * and where the unit suite holds them. Getters for the two members that depend
+ * on the world's width (D99): a plain object literal here would snapshot 1920
+ * at import time and the e2e would be asserting against a map the game is not
+ * drawing.
  */
 export const MAP_GEOMETRY = {
   ROUTE_Y,
@@ -627,8 +732,14 @@ export const MAP_GEOMETRY = {
     return routeX1();
   },
   NODE_R,
+  get STEP(): number {
+    return nodeStep();
+  },
   get PANEL(): PanelBox {
     return panelBox();
+  },
+  get SHIP_Y(): number {
+    return SHIP_Y;
   },
   SPACE,
 };

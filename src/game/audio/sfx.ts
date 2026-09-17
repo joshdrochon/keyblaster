@@ -124,8 +124,9 @@ export interface SfxVariant {
   /**
    * UR-34 - THE TRANSIENT. Optional.
    *
-   * "Sound design is incredibly effective at simulating touch. Add sharp,
-   * high-quality mechanical keyboard click sounds to every keystroke."
+   * UR-34 asked for a sharp mechanical-keyboard click on every keystroke, on
+   * the ground that sound is how a screen simulates touch. That is the right
+   * ground: touch is an EDGE, and a cue with no edge cannot stand in for one.
    *
    * Rendered, the keystroke cue had NO transient to speak of: 0.4-1.8% of its
    * first five milliseconds above 4 kHz, rising to a peak of 0.035-0.048. It is
@@ -388,7 +389,7 @@ export const SFX_VARIANTS: Readonly<Record<SfxEventId, readonly SfxVariant[]>> =
   ]),
   // D62: "warp is a full stinger". The loudest, longest thing in the game.
   //
-  // UR-13 - "IT SHOULD MAKE A NICE SOUND WHEN IT TAKES OFF WITH THE WARP."
+  // UR-13 - THE TAKEOFF IS SUPPOSED TO BE A REWARD, AND WAS NOT.
   //
   // What was here was a sawtooth and a square sweeping to 1400-1650 Hz under a
   // 6.4-7.2 kHz lowpass with half its level in white noise. Rendered offline,
@@ -608,6 +609,75 @@ export interface SfxPlayResult {
 export const STALLED_VOICE_SPACING_MS = 12;
 
 /**
+ * UR-55 - HOW FAR AHEAD OF THE CLOCK A VOICE IS SCHEDULED, AND WHY IT MUST BE
+ * AHEAD AT ALL.
+ *
+ * `ctx.currentTime` on the main thread NEVER names a sample the renderer has
+ * yet to produce. It is the start of the last completed render quantum; the
+ * audio thread is already working on the next one, and Chrome reports the gap
+ * as `baseLatency` (two quanta, 5.3 ms at 48 kHz, on every machine this game
+ * was measured on). So `setValueAtTime(x, ctx.currentTime)` is an event in the
+ * PAST, and Web Audio resolves a past event by jumping the param straight to
+ * where the completed automation left it.
+ *
+ * WHICH MEANS AN ATTACK SHORTER THAN THAT GAP IS NEVER RENDERED. It is not
+ * shortened - it is skipped, and the layer's first sample arrives at full gain.
+ * The click layer's attack is 0.35 ms and the tone's is 1-2 ms; both are under
+ * one 2.67 ms quantum, so on a real context BOTH were being skipped, every time.
+ * Measured in Chromium's own `OfflineAudioContext` with the clock made stale by
+ * exactly one quantum - the smallest staleness any real context has - the first
+ * sample of a voice steps by:
+ *
+ *   event       on time      one quantum late     that is
+ *   keystroke   -101.1 dBFS  -30.4 dBFS median    71 dB, 3600x
+ *   blast       -101.6 dBFS  -25.0 dBFS median    77 dB, 6700x
+ *
+ * and the worst of sixty presses reached -24.6 and -19.3 dBFS, 0.6x the whole
+ * sound's own largest step. INTERMITTENT BY CONSTRUCTION: the size of the step
+ * is the first sample of the noise buffer at this voice's random read offset
+ * (UR-34), so it is a different height on every press - most are small, some
+ * are the full jump. "Every once in a while" is that distribution.
+ *
+ * 8 ms. It has to clear the gap between the clock we read and the sample the
+ * renderer is on: one quantum is 2.67 ms at 48 kHz and 2.90 ms at 44.1 kHz, and
+ * Chrome's `baseLatency` is two of them. 8 ms clears two quanta at either rate
+ * with room over, and it is under half a 60 fps frame, so no cue is heard late -
+ * the ear reads two transients under about 20 ms apart as one event, which is
+ * the same budget `STALLED_VOICE_SPACING_MS` is chosen against.
+ *
+ * The alternative - lengthening the envelopes past a quantum - was rejected:
+ * the 0.35 ms click attack is the EDGE the click layer exists to provide, and
+ * stretching it to 3 ms to survive a scheduling bug would be answering the
+ * wrong question with the sound design.
+ */
+export const SFX_SCHEDULE_LOOKAHEAD_MS = 8;
+
+/**
+ * The lookahead for a particular context, in seconds.
+ *
+ * 8 ms is the FLOOR, not the answer. It clears the two render quanta this game
+ * was measured on, and a machine whose output path is slower is behind by more
+ * than that - a Bluetooth headset or a shared-mode WASAPI device can report a
+ * `baseLatency` of 20 ms or more, and on one of those a fixed 8 ms would leave
+ * the defect exactly where it was. So the context is ASKED when it can answer,
+ * and twice its own reported latency is the bar, because `baseLatency` is the
+ * device's contribution and the renderer is ahead of the clock by roughly that
+ * again.
+ *
+ * A context that does not report one - an `OfflineAudioContext`, the null
+ * context, the test renderer - is not behind an output device at all, and gets
+ * the floor.
+ */
+export function sfxLookaheadSeconds(ctx: Pick<AudioContextLike, "baseLatency">): number {
+  const floor = SFX_SCHEDULE_LOOKAHEAD_MS / 1000;
+  const reported = ctx.baseLatency;
+  if (typeof reported !== "number" || !Number.isFinite(reported) || reported <= 0) return floor;
+  // Capped: past a tenth of a second the machine's own latency is what the
+  // child is hearing and adding more of it would make the cue late for real.
+  return Math.min(0.1, Math.max(floor, reported * 2));
+}
+
+/**
  * UR-30 - HOW FAR EACH VOICE IS DETUNED, IN CENTS.
  *
  * "The typing sounds don't feel satisfying." Rendered as a belt - 20 words of
@@ -722,13 +792,19 @@ export class SfxBus {
    */
   private startTime(): number {
     const clock = this.ctx.currentTime;
+    // UR-55: every voice is scheduled into the FUTURE, because `clock` is
+    // already in the past by at least a render quantum and an envelope whose
+    // attack falls before the renderer's current sample is skipped rather than
+    // shortened. The lookahead is added on both branches so the UR-15 stall
+    // spacing still measures from the same place it always did.
+    const lookahead = sfxLookaheadSeconds(this.ctx);
     if (clock > this.lastClock) {
       this.lastClock = clock;
       this.stalledVoices = 0;
-      return clock;
+      return clock + lookahead;
     }
     this.stalledVoices += 1;
-    return clock + (this.stalledVoices * STALLED_VOICE_SPACING_MS) / 1000;
+    return clock + lookahead + (this.stalledVoices * STALLED_VOICE_SPACING_MS) / 1000;
   }
 
   /** Builds and schedules the nodes for one play. */

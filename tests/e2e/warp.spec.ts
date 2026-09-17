@@ -496,9 +496,9 @@ test("AC-22b.1 nothing on the warp break reads as punishment", async ({ page }) 
 // ---------------------------------------------------------------------------
 
 /**
- * The user, unprompted: "when a word is complete in the warp drive sequence it
- * should expand slightly and go back to original size to indicate its been
- * typed out. Makes for a nice effect."
+ * UR-26, raised unprompted rather than as a defect: finishing a word in the
+ * warp sentence should make that word grow a little and settle back to its
+ * original size, so the child can see it has been typed out.
  *
  * The rule is unit-tested without a browser in
  * `tests/unit/scenes/warpWordPulse.test.ts`. What these three cases assert is
@@ -952,7 +952,8 @@ test("UR-26 visual evidence: the word grows in the pixels and the line does not"
     `${JSON.stringify(
       {
         ticket: "UR-26",
-        said: "when a word is complete in the warp drive sequence it should expand slightly and go back to original size to indicate its been typed out",
+        requirement:
+          "a word grows slightly on the keystroke that finishes it, returns to its original size, and moves nothing else on the line",
         band,
         sequence: strip.map((f) => ({
           ms: f.ms,

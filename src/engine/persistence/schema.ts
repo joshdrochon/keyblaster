@@ -19,6 +19,12 @@ import {
   isStopId,
 } from "../types.js";
 import { SAMPLE_CAP } from "../words/index.js";
+import {
+  DEFAULT_KNOBS,
+  asLengthBias,
+  clampKnobs,
+  type Knobs,
+} from "../controller/knobs.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -55,7 +61,7 @@ export const QUARANTINE_KEY = `${STORAGE_KEY}:quarantine`;
  *
  * Adding v3 is one function in migrations.ts plus this number.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** Ship name default, fixed by C07 / AC-6b.1. */
 export const DEFAULT_SHIP_NAME = "Lantern";
@@ -294,6 +300,12 @@ export function blankProfile(input: NewProfileInput): Profile {
     shipName: input.shipName ?? DEFAULT_SHIP_NAME,
     createdAt: input.createdAt,
     calibration: { ...DEFAULT_CALIBRATION, ...input.calibration },
+    // D18's cold start, and UR-51's safety floor, in one line. A fresh pilot
+    // opens at `MAX_LIVE_MIN`, where `concurrencyTarget` is exactly 1: the fall
+    // budget is FR-8's literal formula and the belt holds no standing queue.
+    // Difficulty increases only as the player gets better, and on a first belt
+    // the game has never watched them.
+    knobs: DEFAULT_KNOBS,
     settings: { ...DEFAULT_SETTINGS, ...input.settings },
     progress: blankProgress(),
     trophies: [],
@@ -314,6 +326,11 @@ export function resetProfileProgress(profile: Profile): Profile {
   return {
     ...profile,
     progress: blankProgress(),
+    // Earned, so it goes back to the cold start (UR-51). `calibration` above is
+    // deliberately kept: a baseline is a measurement OF the child and is still
+    // true after a reset, while a difficulty step is something they worked up
+    // to and a reset is a request to work up to it again.
+    knobs: DEFAULT_KNOBS,
     trophies: [],
     unlockedShips: [profile.shipId],
     unlockedSkins: [],
@@ -340,6 +357,41 @@ function decodeCalibration(raw: unknown, log: RepairLog, path: string): Calibrat
       `${path}.fkLatencyMs`,
     ),
   };
+}
+
+/**
+ * Difficulty knobs off a stored payload (UR-51).
+ *
+ * `clampKnobs` is the engine's own repair rule and it is reused rather than
+ * reimplemented, so a corrupt knob can never mean two different things in two
+ * places. What this adds is the REPAIR LOG: a knob outside FR-10's 2..7, or a
+ * lengthBias that is not -1/0/+1, is a payload we changed, and the load notice
+ * has to say so like every other repaired field.
+ *
+ * A missing block decodes to `DEFAULT_KNOBS` WITHOUT logging a repair - that is
+ * what every profile written before this field existed looks like, and the v3
+ * migration has already supplied it. Logging it would make every upgraded
+ * profile report damage it did not take.
+ */
+function decodeKnobs(raw: unknown, log: RepairLog, path: string): Knobs {
+  if (raw === undefined) return DEFAULT_KNOBS;
+  if (!isPlainObject(raw)) {
+    repaired(log, path);
+    return DEFAULT_KNOBS;
+  }
+  // The RAW numbers, before any narrowing. Comparing the clamped pair against
+  // an already-narrowed one is how the lengthBias repair went unreported: the
+  // first draft ran `asLengthBias` here, so `wanted.lengthBias` was in range by
+  // the time it was compared and the notice never fired. Coverage found it -
+  // the branch was unreachable - and it was a real defect, not a missing test:
+  // a stored lengthBias of 7 was silently rewritten and the child's load
+  // reported nothing.
+  const rawMaxLive = finiteNumber(raw["maxLive"], DEFAULT_KNOBS.maxLive, log, `${path}.maxLive`);
+  const rawBias = finiteNumber(raw["lengthBias"], DEFAULT_KNOBS.lengthBias, log, `${path}.lengthBias`);
+  const clamped = clampKnobs({ maxLive: rawMaxLive, lengthBias: asLengthBias(rawBias) });
+  if (clamped.maxLive !== rawMaxLive) repaired(log, `${path}.maxLive`);
+  if (clamped.lengthBias !== rawBias) repaired(log, `${path}.lengthBias`);
+  return clamped;
 }
 
 function decodeSettings(raw: unknown, log: RepairLog, path: string): Settings {
@@ -504,6 +556,7 @@ export function decodeProfile(raw: unknown, log: RepairLog, path: string): Profi
     shipName: boundedString(raw["shipName"], MAX_NAME_LENGTH, DEFAULT_SHIP_NAME, log, `${path}.shipName`),
     createdAt: finiteNumber(raw["createdAt"], 0, log, `${path}.createdAt`),
     calibration: decodeCalibration(raw["calibration"], log, `${path}.calibration`),
+    knobs: decodeKnobs(raw["knobs"], log, `${path}.knobs`),
     settings: decodeSettings(raw["settings"], log, `${path}.settings`),
     progress: decodeProgress(raw["progress"], log, `${path}.progress`),
     trophies: idList(raw["trophies"], log, `${path}.trophies`),
@@ -534,6 +587,7 @@ export const PROFILE_FIELDS: readonly string[] = [
   "shipName",
   "createdAt",
   "calibration",
+  "knobs",
   "settings",
   "progress",
   "trophies",
@@ -583,6 +637,10 @@ function encodeProfile(profile: Profile): Record<string, unknown> {
     calibration: {
       ikiMs: profile.calibration.ikiMs,
       fkLatencyMs: profile.calibration.fkLatencyMs,
+    },
+    knobs: {
+      maxLive: profile.knobs.maxLive,
+      lengthBias: profile.knobs.lengthBias,
     },
     settings: {
       musicVolume: profile.settings.musicVolume,

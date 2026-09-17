@@ -10,6 +10,7 @@ import {
   type ObservedTimings,
 } from "@engine/calibration/index.js";
 import { bookOf, withProfileBook, type WordBook } from "@engine/words/index.js";
+import { applyKnobs, type Knobs } from "@engine/controller/index.js";
 import { services } from "@game/boot";
 import Phaser from "phaser";
 import { DEFAULT_SCENE_CONTEXT, SCENE_KEYS, type SceneContext } from "@game/sceneKeys";
@@ -395,6 +396,67 @@ export function persistStageBook(
   );
   store.flush();
   return updated === null ? null : bookOf(updated.words, lang);
+}
+
+// ---------------------------------------------------------------------------
+// The difficulty knob: the seam between `@engine/controller` and the profile
+// ---------------------------------------------------------------------------
+
+/**
+ * THE DEFECT THIS SECTION EXISTS FOR (UR-51, verification-gaps instance 24).
+ *
+ * The third instance of the shape above, and the one that reached furthest.
+ * `FlightScene.checkStageEnd` called `endStage`, the controller returned the
+ * right knob, and the scene emitted it on `FLIGHT_EVENTS.stageComplete`.
+ * `grep -rn "FLIGHT_EVENTS.stageComplete" src/` returned ONE hit: the emit.
+ * No listener, no profile field, and neither `PreflightScene.complete` nor
+ * `ResultsScene.replay` passed `knobs`, so `FlightConfig.knobs` was `{}` and
+ * `maxLive` was 2 on every belt of every run for every child. Every test of the
+ * controller passed, because every test called it directly.
+ *
+ * WHY THE SCENE READS THE STORE RATHER THAN BEING HANDED THE KNOB. The
+ * hand-off chain is the mechanism that lost this field, and it has lost two
+ * others the same way - `stage` was pinned at 1 because `StoryInit` has no
+ * `stage`, and `shipId` reached nothing for the same reason. Every screen
+ * between Pre-flight and Flight forwards the config by hand, so a knob added to
+ * that chain is a knob one refactor away from being dropped again, silently.
+ * Reading it here is ONE seam that cannot be forgotten, and it is the pattern
+ * `FlightConfig.shipId` already documents: a stated value wins so a standalone
+ * e2e mount can put a specific knob on the belt, and `null` means ask the
+ * profile, which is the only authority on the real path.
+ */
+
+/**
+ * The knob this profile should open its next belt on, or null in a standalone
+ * mount with no store.
+ *
+ * Deliberately NOT falling back to `DEFAULT_KNOBS` here: null and "the cold
+ * start" are different answers, and the caller needs to tell them apart to
+ * honour an explicitly configured knob.
+ */
+export function storedKnobs(scene: Phaser.Scene): Knobs | null {
+  const profile = activeProfile(scene);
+  return profile === null ? null : profile.knobs;
+}
+
+/**
+ * Write the controller's knob through to the stored profile at stage end.
+ *
+ * `flush`, like the calibration and book writes either side of it, and for the
+ * same reason: a route is seven stops and children do not fly it in one
+ * sitting. A knob that only survives while the tab is open is a knob that never
+ * climbs, which is the difficulty ramp being invisible by a third route.
+ *
+ * Returns null with no store - a harness mount must not be able to raise the
+ * difficulty on a real child's save.
+ */
+export function persistStageKnobs(scene: Phaser.Scene, knobs: Knobs): Knobs | null {
+  const store = storeOf(scene);
+  const profile = store?.activeProfile() ?? null;
+  if (store === null || profile === null) return null;
+  const updated = store.updateProfile(profile.id, (p: Profile) => applyKnobs(p, knobs));
+  store.flush();
+  return updated?.knobs ?? null;
 }
 
 // ---------------------------------------------------------------------------

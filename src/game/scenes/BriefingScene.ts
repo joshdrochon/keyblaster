@@ -184,15 +184,16 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     })
       .setOrigin(0.5)
       .setDepth(22);
-    // "enter to launch": 4.13:1 in `INK.textFaint` on the hull.
-    label(this, btn.x + btn.w / 2, btn.y + btn.h + 14, text.text("briefing.hint"), {
-      size: TYPE.caption,
-      color: INK.textDim,
-      align: "center",
-      lang,
-    })
-      .setOrigin(0.5, 0)
-      .setDepth(22);
+    /**
+     * UR-56, same defect as the Beacon screen's "enter to continue".
+     *
+     * `briefing.hint` - "enter to launch · esc to go back" - was drawn 14 px
+     * UNDER this button, which reads "launch", and named the way out, which is
+     * a chip reading "back to the map". Both halves repeated a plate that is
+     * already on the screen, and the second half only became a repeat when
+     * UR-27 made that chip visible and labelled - so the line had nothing left
+     * of its own to say. Removed, not relocated; `ui/hint.ts` carries the rule.
+     */
 
     // --- the way out (UR-27) ----------------------------------------------
     //

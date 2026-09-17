@@ -42,3 +42,6 @@ gauntlet/memwatch.log
 gauntlet/memwatch-ALERT.txt
 dist-play/
 tests/e2e/scratch/
+
+# A private handoff note, not a project document. Kept on disk, never pushed.
+docs/SUBMIT.md

@@ -1,4 +1,5 @@
 import { SCHEMA_VERSION, isPlainObject } from "./schema.js";
+import { DEFAULT_KNOBS } from "../controller/knobs.js";
 import { SAMPLE_CAP } from "../words/index.js";
 
 /**
@@ -10,9 +11,13 @@ import { SAMPLE_CAP } from "../words/index.js";
  * guarded. It must never throw - a migration that throws on a half-corrupt
  * payload is just another way to crash on load, which AC-18.4 forbids.
  *
- * ADDING v3. Write `function v2ToV3(p) {...}`, add `3: v2ToV3` to MIGRATIONS,
- * bump SCHEMA_VERSION to 3. Nothing else changes: old payloads walk the chain
- * 1 -> 2 -> 3, and a v1 payload written by the first build still loads.
+ * ADDING v4. Write `function v3ToV4(p) {...}`, add `3: v3ToV4` to MIGRATIONS,
+ * bump SCHEMA_VERSION to 4. Nothing else changes: old payloads walk the chain
+ * 1 -> 2 -> 3 -> 4, and a v1 payload written by the first build still loads.
+ *
+ * NOTE THE KEY. `MIGRATIONS` is keyed by the version a migration upgrades FROM,
+ * so v3 is added under `2`. Writing it under `3` is the mistake this line
+ * exists to stop: the chain would skip it silently and `ok` would still be true.
  *
  * WHY FORWARD-ONLY. There is no down migration and there never will be. A newer
  * build's payload is handled by the future-version policy in load.ts (quarantine
@@ -23,6 +28,7 @@ export type Migration = (payload: Record<string, unknown>) => Record<string, unk
 /** Keyed by the version the migration UPGRADES FROM. */
 export const MIGRATIONS: Readonly<Record<number, Migration>> = {
   1: v1ToV2,
+  2: v2ToV3,
 };
 
 /** The oldest payload version this build can still read. */
@@ -146,4 +152,41 @@ export function inferFirstFkLatency(record: Record<string, unknown>): number | n
   const seen = typeof exposures === "number" && Number.isFinite(exposures) ? exposures : samples.length;
   if (seen > SAMPLE_CAP) return null;
   return first;
+}
+
+// ---------------------------------------------------------------------------
+// v2 -> v3
+// ---------------------------------------------------------------------------
+
+/**
+ * v3 adds `Profile.knobs` - the difficulty controller's state (UR-51).
+ *
+ * WHY EVERY UPGRADED PROFILE STARTS AT THE COLD START, INCLUDING A CHILD WHO
+ * HAS ALREADY FLOWN THE WHOLE ROUTE. There is nothing in a v2 payload to infer
+ * a knob from. It is tempting to reach for `progress` - six stops cleared, so
+ * surely a higher `maxLive` - and it would be wrong twice over: the knob
+ * responds to a ROLLING HIT RATE over the last 20 spawns (D53), which a stored
+ * stars-and-best-wpm row cannot reconstruct, and D18 says difficulty rises only
+ * as a player is watched getting better. Handing a returning child a four-deep
+ * board on the strength of a progress row is exactly the unwatched tightening
+ * D18 forbids.
+ *
+ * So they open at `MAX_LIVE_MIN` and climb from there, one step per stage, the
+ * same as everyone. That costs a returning player a few stages of ramp and
+ * cannot hurt anybody, which is the right way round for a migration.
+ *
+ * The field is written EXPLICITLY rather than left for the decoder's default,
+ * so a v3 payload on disk is complete: a payload whose fields only exist once
+ * something decodes it is a payload that reads differently depending on which
+ * build opens it.
+ */
+function v2ToV3(payload: Record<string, unknown>): Record<string, unknown> {
+  const profiles = Array.isArray(payload["profiles"]) ? payload["profiles"] : [];
+  return {
+    ...payload,
+    version: 3,
+    profiles: profiles.map((raw) =>
+      isPlainObject(raw) ? { ...raw, knobs: raw["knobs"] ?? { ...DEFAULT_KNOBS } } : raw,
+    ),
+  };
 }

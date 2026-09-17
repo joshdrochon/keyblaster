@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_KNOBS } from "@engine/controller/index.js";
 import {
   CHAIN_TROPHIES,
   MAIN_BELT_STOP,
@@ -58,6 +59,7 @@ function freshProfile(): Profile {
     shipId: "ship-1",
     shipName: "Lantern",
     createdAt: 0,
+    knobs: DEFAULT_KNOBS,
     calibration: { ...DEFAULT_CALIBRATION },
     settings: { ...DEFAULT_SETTINGS },
     progress: STOP_IDS.map(blankStopProgress),

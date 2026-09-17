@@ -16,7 +16,8 @@ import { freezeReloads } from "./support/lane";
  *
  * Identical. At 2x that canvas covers 2880x1620 REAL pixels while being handed
  * 1920x1080, so the browser upscales everything about 1.5x - which is what
- * "the text and other looks not very sharp" was. Nothing in `src/` had ever
+ * UR-18 was seeing when it reported the type and art looking soft on a retina
+ * display. Nothing in `src/` had ever
  * read `devicePixelRatio`. All the art here is vector drawn in code (D83) and
  * would be pixel-perfect at any resolution; we were never asking for one.
  *

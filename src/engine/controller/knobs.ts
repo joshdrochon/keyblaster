@@ -214,3 +214,26 @@ export function knobsDiffCount(a: Knobs, b: Knobs): number {
   if (a.lengthBias !== b.lengthBias) n += 1;
   return n;
 }
+
+/**
+ * Write a knob pair onto anything that carries one - the profile, in practice
+ * (UR-51). Generic and structural for the same reason `applyCalibration` is:
+ * the engine must not import the persistence module to write a persisted field,
+ * and a test wants to hand it a bare `{ knobs }` rather than a whole Profile.
+ *
+ * Clamps on the way in. A knob arrives here from `endStage`, which cannot
+ * produce an out-of-range value - but it is the LAST gate before a number is
+ * written to a child's save, and a corrupt value stored is a corrupt value for
+ * ever, while a corrupt value rejected is one stage of difficulty.
+ *
+ * THE PARAMETER IS CALLED `profile` ON PURPOSE. `tests/unit/arch/profileWriters`
+ * finds a writer by looking for an exported function whose parameter is named
+ * `profile` or `p` and which returns a spread of it with a Profile field
+ * replaced - the shape every pure updater here uses. Named anything else, this
+ * function is invisible to the guard, `knobs` reads as an orphan field, and the
+ * one check in this repo that would catch UR-51's defect happening again is
+ * blind to the field it was added for.
+ */
+export function applyKnobs<T extends { knobs: Knobs }>(profile: T, knobs: Knobs): T {
+  return { ...profile, knobs: clampKnobs(knobs) };
+}

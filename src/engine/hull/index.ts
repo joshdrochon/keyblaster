@@ -178,8 +178,9 @@ export const HULL_MARK_DIM = 0.16;
 /**
  * THE LANTERN'S LIGHT, as a fraction of full.
  *
- * ================== THE REPORT ==================
- * "noticed the hull can take infinite damage?"
+ * ================== UR-22 ==================
+ * Reported from play: the hull looked as though it could absorb damage without
+ * limit.
  *
  * The rule was never wrong - `isStalled` ends the belt at zero and always has.
  * What was wrong is that NOTHING ON SCREEN MOVED. A 58-word belt carries nine

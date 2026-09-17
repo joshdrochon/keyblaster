@@ -38,6 +38,12 @@ import { SHIPPED_LANGS } from "../../engine/i18n/index.js";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
 import { INK, TYPE, chromeCase } from "@game/ui/theme";
 import { skyText, skyTextSamples, type SceneSnapshot } from "./lib/kit.js";
+import {
+  LANG_Y_MAX,
+  WORDMARK_X,
+  WORDMARK_Y,
+  titleKeepClear,
+} from "./support/titleLayout.js";
 import { typographyOf } from "./lib/typography.js";
 
 /**
@@ -47,9 +53,6 @@ import { typographyOf } from "./lib/typography.js";
  */
 const FONT = '"Avenir Next","Nunito","Trebuchet MS",system-ui,sans-serif';
 
-/** Where the lockup sits when nothing is in the way of it. */
-const WORDMARK_X = 200;
-const WORDMARK_Y = 250;
 /** Mark, accent rule and tagline, top to bottom. */
 const LOCKUP_H = 218;
 
@@ -94,8 +97,6 @@ const PRIMARY_Y_MAX = 740;
 const PRIMARY_GAP = 92;
 const SETTINGS_GAP = 166;
 const LANG_GAP = 174;
-/** The language row is the last thing down the column and must stay on screen. */
-const LANG_Y_MAX = 1000;
 
 /**
  * Endonyms for the language switch (D45). These are language TAGS, not UI copy:
@@ -173,23 +174,13 @@ export class TitleScene extends Phaser.Scene {
      * ours to place, so here the DEBRIS moves. `parallax.ts` cannot know where a
      * scene's text is; the scene can, so it says.
      *
-     * One rectangle over the whole lockup and the controls beneath it, with a
-     * margin — a rock touching the edge of a letter is as bad as one on it.
+     * THE ZONE ITSELF MOVED OUT OF THIS FILE (UR-52). It was assembled here, as
+     * a rect literal, and the same defect then landed on the Director map's
+     * planets because a paragraph in one scene is not a mechanism. It is now
+     * `support/titleLayout.ts` -> `render/keepClear.ts`, which every screen
+     * registers with and which a unit test can hold without booting Phaser.
      */
-    const KEEP_CLEAR_PAD = 28;
-    // Bounded by the LAYOUT CONSTANTS, not by the measured lockup: the parallax
-    // is built before the type is, and a keep-clear that depends on the thing it
-    // protects would have to be recomputed after the fact. These are the same
-    // constants the lockup is placed from, so the rectangle cannot drift from
-    // what it is covering. LANG_Y_MAX is the lowest any control goes.
-    const textKeepClear = [
-      {
-        x: WORDMARK_X - KEEP_CLEAR_PAD,
-        y: WORDMARK_Y - KEEP_CLEAR_PAD,
-        w: W * 0.52,
-        h: LANG_Y_MAX - WORDMARK_Y + KEEP_CLEAR_PAD * 2,
-      },
-    ];
+    const textKeepClear = titleKeepClear(W);
 
     this.parallax = buildParallax(this, {
       palette: pal,

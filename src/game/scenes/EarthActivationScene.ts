@@ -68,12 +68,16 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
   private statusText!: Phaser.GameObjects.Text;
   private litText!: Phaser.GameObjects.Text;
   /**
-   * The "type launch to wake the beacon" instruction.
+   * The "type launch to wake the beacon" instruction. no-user-quotes-ok: that
+   * string is shipped game copy (`earth.typePrompt` in src/content/en/ui.json),
+   * not a report's wording - UR-17 screenshotted the screen that draws it, and
+   * rewording it here would make this comment name a string the game does not
+   * have.
    *
    * HELD IN A FIELD BECAUSE IT HAS TO BE REMOVED. It sits at exactly the same
    * y as `litText`, so once the beacon lights the two draw on top of each
-   * other and the result is unreadable — the user hit this in play and
-   * screenshotted it. It was a local, so nothing could reach it to take it
+   * other and the result is unreadable — UR-17 caught it in play and attached a
+   * screenshot. It was a local, so nothing could reach it to take it
    * away: the overlap was structurally guaranteed, not a timing accident.
    */
   private hintText!: Phaser.GameObjects.Text;

@@ -11,13 +11,13 @@ import {
 import { DESIGN } from "./support/lane.js";
 
 /**
- * UR-22 "noticed the hull can take infinite damage?" and
- * UR-21 "name of the map should probably shown somewhere".
+ * UR-22 (the hull looked as though it could absorb damage without limit) and
+ * UR-21 (the current stop is not named anywhere on screen).
  *
  * Both are about what the flight screen SHOWS, so both are measured off the
  * frame. The arithmetic behind UR-22 lives in `tests/unit/flight/hullLamp` -
  * how far the Lantern's light moves per hit, and how that compares to the three
- * dimming pips a player looked at and called infinite. This file is the part
+ * dimming pips that read, in play, as no damage at all. This file is the part
  * that cannot be argued with: a rectangle of the screen, before and after a
  * hit, decoded from a PNG.
  *

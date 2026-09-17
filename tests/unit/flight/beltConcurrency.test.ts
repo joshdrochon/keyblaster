@@ -17,8 +17,8 @@ import { stagePoolFor } from "../../../src/game/flight/stage.js";
  * HOW MANY WORDS CAN BE ON SCREEN AT ONCE - the arithmetic, not the opinion.
  *
  * ================== THE REPORT ==================
- * "I noticed that there is only one asteroid on the screen at once, there
- * should be more than one, does that happen after you get to harder levels?"
+ * UR-42: only one asteroid is ever on screen at once, and does that change at
+ * harder levels?
  *
  * The answer is no, it does not happen at harder levels, and this file is why.
  * It is not `maxLive`: `gauntlet/evidence/belt-survivability.json` records

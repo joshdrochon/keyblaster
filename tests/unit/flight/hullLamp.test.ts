@@ -13,11 +13,11 @@ import {
 } from "../../../src/engine/hull/index.js";
 
 /**
- * UR-22 - "noticed the hull can take infinite damage?"
+ * UR-22 - the hull appeared to absorb damage without limit.
  *
  * The rule was never the defect. `isStalled` has always ended the belt at zero
- * and `FlightScene.breach` has always called it. What the player was reporting
- * is that TAKING DAMAGE DID NOT LOOK LIKE ANYTHING, so the hull read as
+ * and `FlightScene.breach` has always called it. What the report describes is
+ * that TAKING DAMAGE DID NOT LOOK LIKE ANYTHING, so the hull read as
  * bottomless.
  *
  * The number underneath that: a 58-word stage carries nine marks and the HUD

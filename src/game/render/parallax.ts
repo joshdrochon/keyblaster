@@ -83,6 +83,8 @@
 
 import Phaser from "phaser";
 import {
+  DEBRIS_SPEC,
+  LANE_GUARD as LANE_GUARD_FRACTION,
   LAYERS,
   type LayerId,
   type LayerSpec,
@@ -122,8 +124,8 @@ import {
   veilTile,
   wrapXY,
   wrapY,
-  type Rect,
 } from "./tiles.js";
+import type { KeepClearShape } from "./keepClear.js";
 import { buildStarField, type StarField } from "./starField.js";
 import { debrisTypesFor } from "./asteroid.js";
 import { TEX, ensureTextures } from "./textures.js";
@@ -228,7 +230,7 @@ const VEIL_ALPHA_REDUCED = 0.5;
  * near silhouettes hang off the frame EDGE instead of reaching inward, which is
  * what a near-camera object does in the reference anyway.
  */
-const LANE_GUARD = 0.2;
+const LANE_GUARD = LANE_GUARD_FRACTION;
 
 
 /**
@@ -282,15 +284,18 @@ export interface ParallaxOptions {
   readonly framing?: boolean;
   readonly atmosphere?: boolean;
   /**
-   * Rectangles decorative debris must not overlap, in design coordinates.
+   * Zones decorative debris must not overlap, in design coordinates.
    *
    * `LANE_GUARD` keeps rocks out of the SHIP'S lane, which is the centre. It
-   * cannot help a screen whose text is elsewhere: the Title's wordmark sits in
-   * the LEFT band, which is exactly where the guard sends rocks, so KEYBLASTER
-   * had an asteroid across its K (UR-06). The scene knows where its text is and
-   * this file cannot, so the scene passes it in.
+   * cannot help a screen whose content is elsewhere: the Title's wordmark sits
+   * in the LEFT band, which is exactly where the guard sends rocks, so
+   * KEYBLASTER had an asteroid across its K (UR-06), and the Director map's
+   * seven planets run the whole width, so a near-black rock landed on Mars
+   * (UR-52). The scene knows where its content is and this file cannot, so the
+   * scene passes it in - built with `render/keepClear.ts`, which is the one
+   * mechanism every screen registers with.
    */
-  readonly keepClear?: readonly Rect[];
+  readonly keepClear?: readonly KeepClearShape[];
   /**
    * May the decorative planes TRAVEL sideways? Default true, which is what
    * every screen did before UR-50.
@@ -649,11 +654,9 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
       "farField",
       driftTile(W, H, {
         materials: materialsFor(pal, farFill, liftAt(0, DEPTH_PLANES), 0.55, false),
-        count: 7,
-        minPx: 10,
-        maxPx: 26,
+        ...DEBRIS_SPEC["farField"]!,
         light,
-        laneGuard: 0,
+        keepClear,
         rand,
       }),
     );
@@ -667,11 +670,9 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
       "midField",
       driftTile(W, H, {
         materials: materialsFor(pal, midFill, liftAt(1, DEPTH_PLANES), 0.45, true),
-        count: 5,
-        minPx: 26,
-        maxPx: 54,
+        ...DEBRIS_SPEC["midField"]!,
         light,
-        laneGuard: 0,
+        keepClear,
         rand,
       }),
     );
@@ -730,11 +731,9 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
         wrapY(
           driftTile(W, H, {
             materials: materialsFor(pal, debrisFill, liftAt(2, DEPTH_PLANES), 0.6, true),
-            count: 5,
-            minPx: 46,
-            maxPx: 78,
+            ...DEBRIS_SPEC["debris"]!,
             light,
-            laneGuard: 0.3,
+            keepClear,
             rand,
           }),
           H,
@@ -781,12 +780,9 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
         materials: materialsFor(pal, objectInk, 0, 0.8, true),
         // HELD, AND THE REASON IS A CONSTRAINT COLLISION - see the note on
         // `LANE_GUARD` and the foreVeil block below.
-        count: 4,
-        minPx: 70,
-        maxPx: 132,
+        ...DEBRIS_SPEC["nearField"]!,
         light,
-        laneGuard: LANE_GUARD,
-            keepClear,
+        keepClear,
         rand,
       }),
     );
@@ -843,12 +839,9 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
          * real finding underneath the critic's "bands 2 and 3 have almost no
          * on-screen area". Adding it is a bigger change than a constant.
          */
-        count: 2,
-        minPx: 130,
-        maxPx: 230,
+        ...DEBRIS_SPEC["foreVeil"]!,
         light,
-        laneGuard: LANE_GUARD * 0.8,
-            keepClear,
+        keepClear,
         rand,
       }),
     );

@@ -19,9 +19,9 @@ import {
 /**
  * UR-24 - THE WORDS SHADOW NAMES STAND OUT.
  *
- * A player: "solid and rock should genuinely be a different color like gold or
- * something that stands out". They are the words the child meets again on the
- * next belt, so this is a learning affordance, not a swatch.
+ * UR-24 asked for the words Shadow names to be drawn in a colour that stands
+ * out from the rest of the line. They are the words the child meets again on
+ * the next belt, so this is a learning affordance, not a swatch.
  *
  * Two things can go wrong and both are checked here:
  *

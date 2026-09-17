@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import * as LANTERN_GEOMETRY from "@game/render/lanternGeometry";
 import { rectsOverlap, type Rect } from "@game/ui/layout";
 import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
 import {
@@ -42,30 +40,28 @@ import {
  */
 
 /**
- * The ship's real dimensions, READ OUT OF `render/lantern.ts`.
+ * The ship's real dimensions, IMPORTED FROM THE MODULE THAT DECLARES THEM.
  *
- * Not imported: that module pulls in Phaser, which touches `window` at import
- * time and cannot be loaded in the node environment these unit tests run in.
- * Not transcribed either - a transcription is what this check exists to catch.
- * So the numbers are parsed from the source that draws the ship, and the
- * assertion below compares them against `warpLayout`'s restatement.
+ * They used to be parsed out of `render/lantern.ts` with five regexes, because
+ * that module pulls in Phaser, which touches `window` at import time and cannot
+ * be loaded in the node environment these unit tests run in. Transcribing them
+ * was not an option either - a transcription is exactly what this check exists
+ * to catch.
+ *
+ * UR-53 put a Lantern on the Director map and had to prove it fits in the gap
+ * between the header block and a beacon lamp, which is the same question asked
+ * of a different frame. So the design-unit geometry moved to
+ * `render/lanternGeometry.ts`, which imports nothing, and `lantern.ts` imports
+ * and re-exports it. Both screens and this test now read ONE declaration, which
+ * is strictly stronger than parsing it: there is no longer a second copy for
+ * `warpLayout` to drift from, and a rename fails the typechecker instead of
+ * throwing here at import time.
  */
-const LANTERN_SRC = readFileSync(
-  resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/render/lantern.ts"),
-  "utf8",
-);
-
-function num(pattern: RegExp): number {
-  const m = LANTERN_SRC.match(pattern);
-  if (m?.[1] === undefined) throw new Error(`lantern.ts no longer declares ${pattern}`);
-  return Number(m[1]);
-}
-
-const NOZZLE_BOTTOM = num(/const NOZZLE_BOTTOM = (-?\d+(?:\.\d+)?);/);
-const PIVOT_Y = num(/const PIVOT = \{ x: -?\d+(?:\.\d+)?, y: (-?\d+(?:\.\d+)?) \};/);
-const LENS_LOCAL_Y = num(/const LENS_LOCAL = \{ x: -?\d+(?:\.\d+)?, y: (-?\d+(?:\.\d+)?) \};/);
-const LENS_R = num(/const LENS_R = (-?\d+(?:\.\d+)?);/);
-const FIN_TIP_X = num(/const FIN_TIP = \{ x: (-?\d+(?:\.\d+)?), y: -?\d+(?:\.\d+)? \};/);
+const NOZZLE_BOTTOM = LANTERN_GEOMETRY.NOZZLE_BOTTOM;
+const PIVOT_Y = LANTERN_GEOMETRY.PIVOT.y;
+const LENS_LOCAL_Y = LANTERN_GEOMETRY.LENS_LOCAL.y;
+const LENS_R = LANTERN_GEOMETRY.LENS_R;
+const FIN_TIP_X = LANTERN_GEOMETRY.FIN_TIP.x;
 
 const right = (r: Rect): number => r.x + r.w;
 const bottom = (r: Rect): number => r.y + r.h;

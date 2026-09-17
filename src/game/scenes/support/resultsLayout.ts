@@ -75,9 +75,9 @@ export const STAGE_H = 1080;
  * The two columns, FROM THE GRID (`ui/grid.ts`).
  *
  * They were `160 / 980 / 1180 / 580`: a left margin of 160 that no menu screen
- * shared, and a right edge at 1760 that no other screen shared either. A player
- * looking at this screen said "make sure every page is following suit", and
- * this was the screen they were looking at.
+ * shared, and a right edge at 1760 that no other screen shared either. UR-19
+ * asked for every screen to be laid out to one shared standard, and this is the
+ * screen it was raised from.
  *
  * `twoColumns(0.63)` is the same 63/37 split the old numbers made, laid on the
  * product's one gutter, so the stage report now starts where the Beacon Log's

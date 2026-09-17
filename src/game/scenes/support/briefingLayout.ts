@@ -247,8 +247,8 @@ export function shelfLamps(): readonly number[] {
 /**
  * THE WAY OUT.
  *
- * A player: "if i click on a planet I should have a way to go back to the map,
- * make a bug for it". Escape ALREADY went back - `BriefingScene` has passed
+ * UR-27: opening a planet left no visible way back to the map.
+ * Escape ALREADY went back - `BriefingScene` has passed
  * `onBack` since it landed and `lib/kit.createKeyboardMenu` fires it on Escape
  * or Backspace - so nothing was broken. The affordance was invisible: the
  * screen printed "enter to launch" and never mentioned the other key, and a
@@ -256,8 +256,8 @@ export function shelfLamps(): readonly number[] {
  * is the half-supported input that makes a mechanic worse than absent.
  *
  * IT USED TO SIT TOP-RIGHT, in the Director map's chip shape, so that the way
- * out of a stop looked like the ways out of the map. The same player has since
- * looked at it and asked for the two actions to be together, which is the
+ * out of a stop looked like the ways out of the map. UR-50.1 then asked for the
+ * two actions to sit together, which is the
  * better call and not a close one: the top-right chip is 820 px from the button
  * it is an alternative to, so the screen asks "launch?" in one corner and
  * answers "or don't" in another.

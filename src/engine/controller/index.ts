@@ -44,6 +44,7 @@ export {
   MAX_LIVE_MAX,
   MAX_LIVE_MIN,
   applyChange,
+  applyKnobs,
   asLengthBias,
   clampKnobs,
   concurrencyTarget,

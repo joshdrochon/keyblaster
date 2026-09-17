@@ -16,6 +16,7 @@
 import { describe, expect, it } from "vitest";
 import {
   OfflineAudioContextLike,
+  RENDER_QUANTUM,
   bandEnergyFraction,
   bandRms,
   largestStep,
@@ -43,7 +44,9 @@ import {
   GENTLE_EVENTS,
   GENTLE_LIMITS,
   SFX_EVENTS,
+  SFX_SCHEDULE_LOOKAHEAD_MS,
   SfxBus,
+  sfxLookaheadSeconds,
   variantsFor,
   type SfxEventId,
   type SfxVariant,
@@ -59,7 +62,7 @@ import {
   crumbleSeed,
   onsetTimes,
 } from "../../../src/game/audio/crumble.js";
-import { seededRandom } from "../../../src/game/audio/context.js";
+import { seededRandom, type AudioContextLike, type AudioNodeLike } from "../../../src/game/audio/context.js";
 import { fakeVoiceEnvironment } from "./fakes.js";
 
 const SR = 48000;
@@ -517,6 +520,25 @@ describe("UR-34: every key has a switch under it, and no two are alike", () => {
       history: bus.history(),
       at: (k: number, seconds = 0.3): Float32Array =>
         all.subarray(Math.floor(k * gap * SR), Math.floor((k * gap + seconds) * SR)),
+      /**
+       * The window that opens where the voice actually SOUNDS, rather than
+       * where `play()` was called.
+       *
+       * UR-55: a voice is scheduled `sfxLookaheadSeconds` past the clock,
+       * because `currentTime` names audio the renderer has already produced and
+       * an envelope scheduled behind it is skipped rather than shortened. A
+       * 6 ms window anchored on the call instant therefore opens on silence and
+       * measures nothing - which is what `expected 0 to be greater than 0.1`
+       * meant the first time this ran after the lookahead landed, and it is a
+       * fact about the window, not about the click.
+       */
+      attack: (k: number, seconds: number): Float32Array => {
+        const from = Math.floor(k * gap * SR);
+        const limit = Math.floor((k * gap + 0.4) * SR);
+        let onset = from;
+        while (onset < limit && Math.abs(all[onset] as number) < 1e-6) onset++;
+        return all.subarray(onset, onset + Math.floor(seconds * SR));
+      },
     };
   };
 
@@ -528,157 +550,7 @@ describe("UR-34: every key has a switch under it, and no two are alike", () => {
     const belt = playMany("keystroke", 30);
     const highs: number[] = [];
     for (let k = 0; k < 30; k++) {
-      highs.push(bandEnergyFraction(belt.at(k, 0.006), SR, 2000, SR / 2));
-    }
-    highs.sort((a, b) => a - b);
-    // Every single press, not just the median: this fires hundreds of times and
-    // a cue that is sometimes a click and sometimes a thud reads as a fault.
-    expect(highs[0] as number).toBeGreaterThan(0.1);
-  });
-
-  /**
-   * An edge, not a swell.
-   *
-   * MEASURED AS A MEDIAN OVER THIRTY PRESSES, not per press, and that is a
-   * deliberate choice rather than a softer bar. The click is noise, so its
-   * realised peak inside a 17-sample envelope varies about two to one from
-   * press to press; "time to 90% of this press's peak" is therefore a noisy
-   * statistic and one press in twelve lands late for no reason a listener could
-   * hear. The median is stable and still discriminates: the old cue's attack
-   * peaked at its tone's envelope apex, 0.81-2.31 ms in.
-   */
-  it("the median key press reaches its attack peak in well under a millisecond", () => {
-    const belt = playMany("keystroke", 30);
-    const rises: number[] = [];
-    for (let k = 0; k < 30; k++) {
-      const s = belt.at(k, 0.006);
-      const pk = peak(s);
-      for (let i = 0; i < s.length; i++) {
-        if (Math.abs(s[i] as number) >= pk * 0.9) {
-          rises.push((i / SR) * 1000);
-          break;
-        }
-      }
-    }
-    rises.sort((a, b) => a - b);
-    expect(rises[15] as number).toBeLessThan(0.7);
-  });
-
-  /**
-   * UR-44 - THE GENTLE BUDGET, MEASURED ON THE RENDER.
-   *
-   * I INTRODUCED THIS DEFECT AND THIS TEST IS THE GUARD THAT WOULD HAVE CAUGHT
-   * IT. `sfx.test.ts` asserts `GENTLE_LIMITS` against `v.peakGain` - a DECLARED
-   * FIELD - so the click and sub layers I added in UR-34 sat on top of the
-   * budget without ever touching it. Rendered, the typo cue reached 0.222 while
-   * a hull hit reached 0.070: a mistyped key landed three times harder than
-   * being struck by a rock, which is failure vocabulary expressed as volume.
-   *
-   * A declared number cannot police a sum of layers. This measures the sound.
-   */
-  it("D31: every gentle event is inside its budget WHEN RENDERED, not just declared", () => {
-    // The budget is the declared ceiling put through the buses it really goes
-    // through - derived, so retuning the mix moves it and nobody has to notice.
-    const ceiling = GENTLE_LIMITS.maxPeakGain * busChain("sfx");
-    for (const event of GENTLE_EVENTS) {
-      const belt = playMany(event, 24, 2.2);
-      const peaks = Array.from({ length: 24 }, (_, k) => peak(belt.at(k, 2)));
-      expect(Math.max(...peaks), `${event} rendered peak`).toBeLessThan(ceiling);
-    }
-  });
-
-  /**
-   * D31 again, and the part the declared budget could never express: the typo
-   * must be the gentlest thing in the game, against every other event as it is
-   * actually rendered rather than against its own recipe.
-   */
-  it("D31: a mistyped key is the quietest sound the game makes", () => {
-    const loudest = (event: SfxEventId): number => {
-      const belt = playMany(event, 12, 2.2);
-      return Math.max(...Array.from({ length: 12 }, (_, k) => peak(belt.at(k, 2))));
-    };
-    const typo = loudest("typo");
-    for (const event of SFX_EVENTS) {
-      if (event === "typo") continue;
-      expect(typo, `typo vs ${event}`).toBeLessThan(loudest(event));
-    }
-  });
-
-  /**
-   * THE REPETITION TRAP. Two presses of the SAME variant must still not be the
-   * same sound: the click's band and level are drawn fresh, and the noise is
-   * read from a different place in the buffer every time.
-   *
-   * FAILED FIRST by reverting `noise.start(now, this.noiseOffset())` to
-   * `noise.start(now)` and dropping `CLICK_JITTER` - two presses of one variant
-   * were then bit-identical, max difference 0.0.
-   */
-  it("two presses of the same switch are not the same sound", () => {
-    const belt = playMany("keystroke", 15);
-    const byVariant = new Map<string, number[]>();
-    belt.history.forEach((play, k) => {
-      const list = byVariant.get(play.variant.id) ?? [];
-      list.push(k);
-      byVariant.set(play.variant.id, list);
-    });
-    let compared = 0;
-    for (const indices of byVariant.values()) {
-      for (let a = 0; a < indices.length - 1; a++) {
-        const first = belt.at(indices[a] as number, 0.05);
-        const second = belt.at(indices[a + 1] as number, 0.05);
-        let diff = 0;
-        const shared = Math.min(first.length, second.length);
-        for (let i = 0; i < shared; i++) {
-          diff = Math.max(diff, Math.abs((first[i] as number) - (second[i] as number)));
-        }
-        // As different as a keypress is loud. Not a nudge - a different press.
-        expect(diff).toBeGreaterThan(peak(first) * 0.4);
-        compared += 1;
-      }
-    }
-    expect(compared).toBeGreaterThan(5);
-  });
-
-});
-
-describe("UR-34: every key has a switch under it, and no two are alike", () => {
-  // UR-34: sound is an effective proxy for touch, so every keystroke should
-  // carry a sharp mechanical-keyboard click.
-  //
-  // Measured before anything was added, the keystroke cue had NO transient: its
-  // first five milliseconds carried 0.4-1.8% of their energy above 4 kHz and
-  // rose to a peak of 0.035-0.048 over 0.81-2.31 ms. A soft tone cannot feel
-  // like touching something, because touch is an edge.
-  //
-  // It is now three layers: a click (the switch), a sub (the case thock) and
-  // the pentatonic tone (D75's progress signal), which is deliberately
-  // untouched - losing the ladder to gain a click would be a bad trade.
-
-  const playMany = (event: SfxEventId, count: number, gap = 0.5) => {
-    const { ctx, output } = onBus("sfx");
-    const bus = new SfxBus(ctx, output);
-    for (let k = 0; k < count; k++) {
-      ctx.currentTime = k * gap;
-      bus.play(event);
-    }
-    ctx.currentTime = 0;
-    const all = ctx.render(count * gap + 0.5);
-    return {
-      history: bus.history(),
-      at: (k: number, seconds = 0.3): Float32Array =>
-        all.subarray(Math.floor(k * gap * SR), Math.floor((k * gap + seconds) * SR)),
-    };
-  };
-
-  /**
-   * FAILED FIRST with `click` deleted from the three keystroke recipes: 0.0%,
-   * because there was nothing above 2 kHz in the attack at all.
-   */
-  it("the attack of a key is mostly high frequency - it is a click", () => {
-    const belt = playMany("keystroke", 30);
-    const highs: number[] = [];
-    for (let k = 0; k < 30; k++) {
-      highs.push(bandEnergyFraction(belt.at(k, 0.006), SR, 2000, SR / 2));
+      highs.push(bandEnergyFraction(belt.attack(k, 0.006), SR, 2000, SR / 2));
     }
     highs.sort((a, b) => a - b);
     // Every single press, not just the median: this fires hundreds of times and
@@ -1498,5 +1370,193 @@ describe("UR-48: a blasted rock crumbles rather than detonating", () => {
       const samples = crumbleSamples(SR, crumbleSeed(v));
       expect(bandEnergyFraction(samples, SR, 8000, SR / 2), `crumble ${v}`).toBeLessThan(0.02);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UR-55
+// ---------------------------------------------------------------------------
+
+/**
+ * A CONTEXT WHOSE CLOCK IS BEHIND ITS RENDERER, WHICH IS EVERY REAL ONE.
+ *
+ * `OfflineAudioContextLike` sets `currentTime` to the start of the block it is
+ * ABOUT to render, so a voice scheduled at `ctx.currentTime` lands exactly on
+ * the next sample. No browser is ever that generous: `AudioContext.currentTime`
+ * names the start of the last COMPLETED render quantum, the audio thread is
+ * already working on the next one, and Chrome reports the gap as `baseLatency`
+ * (two quanta on every machine this was measured on). That one-quantum gift is
+ * why a skipped attack envelope was invisible to every test in this file.
+ *
+ * This wrapper takes it away. Everything else is the real renderer.
+ */
+class LateClockContext implements AudioContextLike {
+  constructor(
+    private readonly inner: OfflineAudioContextLike,
+    private readonly lateSeconds: number,
+  ) {}
+  get currentTime(): number {
+    return Math.max(0, this.inner.currentTime - this.lateSeconds);
+  }
+  get sampleRate(): number {
+    return this.inner.sampleRate;
+  }
+  get destination(): AudioNodeLike {
+    return this.inner.destination;
+  }
+  createGain(): ReturnType<OfflineAudioContextLike["createGain"]> {
+    return this.inner.createGain();
+  }
+  createOscillator(): ReturnType<OfflineAudioContextLike["createOscillator"]> {
+    return this.inner.createOscillator();
+  }
+  createBiquadFilter(): ReturnType<OfflineAudioContextLike["createBiquadFilter"]> {
+    return this.inner.createBiquadFilter();
+  }
+  createBufferSource(): ReturnType<OfflineAudioContextLike["createBufferSource"]> {
+    return this.inner.createBufferSource();
+  }
+  createBuffer(
+    channels: number,
+    length: number,
+    sampleRate: number,
+  ): ReturnType<OfflineAudioContextLike["createBuffer"]> {
+    return this.inner.createBuffer(channels, length, sampleRate);
+  }
+  createStereoPanner(): ReturnType<OfflineAudioContextLike["createStereoPanner"]> {
+    return this.inner.createStereoPanner();
+  }
+}
+
+/** One render quantum, in seconds: the SMALLEST staleness a real clock has. */
+const QUANTUM_SECONDS = RENDER_QUANTUM / SR;
+
+/**
+ * One voice on a clock that is `lateSeconds` behind, and the two numbers that
+ * decide whether its onset is a ramp or a step:
+ *
+ *   onset - how far the signal moves on the FIRST sample it is audible on;
+ *   loudest - the largest move it makes anywhere in its life.
+ *
+ * Reported as a pair on purpose. An absolute dB bar would be a number someone
+ * chose; the voice's own largest step is a number the recipe chose, and an
+ * onset is by construction the quietest instant of a sound - it cannot be a
+ * measurable fraction of the sound's loudest edge unless an envelope was
+ * skipped and the first sample arrived at full gain.
+ */
+function onsetOf(
+  event: SfxEventId,
+  lateSeconds: number,
+  seed: number,
+): { onset: number; loudest: number; index: number } {
+  const inner = new OfflineAudioContextLike(SR);
+  const out = inner.createGain();
+  out.gain.value = busChain("sfx");
+  out.connect(inner.destination);
+  const ctx = new LateClockContext(inner, lateSeconds);
+  const bus = new SfxBus(ctx, out, seededRandom(seed));
+  let played = false;
+  const rendered = inner.render(0.9, (t) => {
+    if (!played && t >= 0.25) {
+      played = true;
+      bus.play(event);
+    }
+  });
+  let first = Math.floor(0.25 * SR);
+  while (first < rendered.length && Math.abs(rendered[first] as number) < 1e-9) first++;
+  const onset =
+    first < rendered.length
+      ? Math.abs((rendered[first] as number) - (rendered[first - 1] as number))
+      : 0;
+  return { onset, loudest: largestStep(rendered, first + 1).step, index: first };
+}
+
+describe("UR-55: an SFX onset is a ramp on a real clock, not a step", () => {
+  /**
+   * THE BAR. A voice's first audible sample may not move further than a
+   * fiftieth of the largest move that same voice makes anywhere else.
+   *
+   * 1/50 is not a line drawn round the current build. It sits two and a half
+   * orders of magnitude above where a correctly rendered attack lands, and more
+   * than an order below where the defect put it:
+   *
+   *   onset step / that voice's own largest step
+   *   keystroke   scheduled ahead 9.66e-5      behind the renderer 0.3641
+   *   blast       scheduled ahead 4.99e-5      behind the renderer 0.2394
+   */
+  const ONSET_FRACTION_BAR = 0.02;
+
+  /**
+   * THE MEASUREMENT, at the smallest staleness any real context has.
+   *
+   * FAILED FIRST with `SFX_SCHEDULE_LOOKAHEAD_MS` set to 0 in sfx.ts - that is,
+   * with voices scheduled at `ctx.currentTime` exactly the way they were before
+   * UR-55. Both of these, and both halves of the negative control with them:
+   *
+   *   AssertionError: expected 0.3640502470248289 to be less than 0.02  (keystroke)
+   *   AssertionError: expected 0.23938361049609466 to be less than 0.02 (blast)
+   *   AssertionError: keystroke before/after: expected 1 to be greater than 100
+   *   AssertionError: expected 0 to be greater than 0.005804988662131519
+   *
+   * Eighteen and twelve times the bar. Restored, the same two renders measure
+   * 9.66e-5 and 4.99e-5 - a factor of 959 and 2167 on the onset step itself.
+   *
+   * THE SAME DEFECT IN A REAL BROWSER, for the record, since this renderer is
+   * not one: driven through Chromium's own `OfflineAudioContext` with the clock
+   * stale by one quantum, the first sample of a voice stepped by -30.4 dBFS
+   * (keystroke) and -25.0 dBFS (blast) against -101 dBFS scheduled ahead, over
+   * sixty presses each. Worst of the sixty: -24.6 and -19.3 dBFS.
+   */
+  for (const event of ["keystroke", "blast"] as const) {
+    it(`${event}: one render quantum of clock staleness does not step the first sample`, () => {
+      const late = onsetOf(event, QUANTUM_SECONDS, 0x5f3a21);
+      expect(late.loudest).toBeGreaterThan(0.001);
+      expect(late.onset / late.loudest).toBeLessThan(ONSET_FRACTION_BAR);
+    });
+  }
+
+  /**
+   * THE NEGATIVE CONTROL.
+   *
+   * A test that only asserts the current render is clean passes forever, including
+   * after the defect comes back - rule 4 and docs/verification-gaps.md. So this
+   * puts the defect back, through the public surface and without touching the
+   * source: a clock stale by MORE than the lookahead is exactly the condition
+   * the lookahead exists to cover, and past it the envelope is behind the
+   * renderer again.
+   *
+   * It asserts the defect is BIG, which is the half that would go quiet if
+   * someone made the measurement blind - if the wrapper stopped shifting the
+   * clock, or `onsetOf` stopped finding the onset, or the click layer were
+   * deleted, this fails too.
+   */
+  it("reintroducing the defect makes the same measurement go red", () => {
+    const beyond = sfxLookaheadSeconds({}) + QUANTUM_SECONDS;
+    for (const event of ["keystroke", "blast"] as const) {
+      const broken = onsetOf(event, beyond, 0x5f3a21);
+      expect(broken.onset / broken.loudest, `${event} defect`).toBeGreaterThan(
+        ONSET_FRACTION_BAR * 10,
+      );
+      const fixed = onsetOf(event, QUANTUM_SECONDS, 0x5f3a21);
+      // The same voice, the same seed, the same renderer: the ONLY difference
+      // is whether the envelope lands ahead of the renderer or behind it.
+      expect(broken.onset / fixed.onset, `${event} before/after`).toBeGreaterThan(100);
+    }
+  });
+
+  /** The lookahead is a floor plus the machine's own latency, not a constant. */
+  it("the lookahead clears two render quanta, and grows with a slow output", () => {
+    // 8 ms against 2 x 128 samples: 5.33 ms at 48 kHz, 5.80 ms at 44.1 kHz.
+    expect(SFX_SCHEDULE_LOOKAHEAD_MS / 1000).toBeGreaterThan((2 * RENDER_QUANTUM) / 44100);
+    // A context that cannot report its latency gets the floor.
+    expect(sfxLookaheadSeconds({})).toBeCloseTo(SFX_SCHEDULE_LOOKAHEAD_MS / 1000, 6);
+    expect(sfxLookaheadSeconds({ baseLatency: 0.002 })).toBeCloseTo(
+      SFX_SCHEDULE_LOOKAHEAD_MS / 1000,
+      6,
+    );
+    // A Bluetooth headset reporting 20 ms gets 40, not 8.
+    expect(sfxLookaheadSeconds({ baseLatency: 0.02 })).toBeCloseTo(0.04, 6);
+    // ...and never more than a tenth of a second, whatever it claims.
+    expect(sfxLookaheadSeconds({ baseLatency: 5 })).toBeCloseTo(0.1, 6);
   });
 });

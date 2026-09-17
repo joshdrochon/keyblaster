@@ -39,6 +39,14 @@ import {
   mixHex,
   relativeLuminance,
 } from "./palette.js";
+import { hitsKeepClear, type KeepClearShape } from "./keepClear.js";
+
+export {
+  hitsKeepClear,
+  type KeepClearShape,
+  type KeepClearRect,
+  type KeepClearCircle,
+} from "./keepClear.js";
 
 // ---------------------------------------------------------------------------
 // Ops
@@ -204,10 +212,10 @@ export function dustTile(w: number, h: number, fill: string, rand: () => number)
 
 /**
  * `starTile` is gone (UR-14). Stars are no longer tiled, wrapped or scrolled -
- * they are a PINNED field that twinkles, in `starField.ts`. A player put it
- * plainly: "the stars should not actually be moving in the parallax", and they
- * are right about the physics as well as the look. Nothing at interstellar
- * distance has perceptible parallax.
+ * they are a PINNED field that twinkles, in `starField.ts`. The report was that
+ * the stars must not move with the parallax, and it is right about the physics
+ * as well as the look: nothing at interstellar distance has perceptible
+ * parallax.
  */
 
 /** Foreground motes and glints: sparse, blurred BY SIZE, never by a filter. */
@@ -352,51 +360,38 @@ export interface DriftTileOptions {
   /** Keep out of [lane, 1-lane] in x. 0 allows the whole width. */
   readonly laneGuard: number;
   /**
-   * Rectangles no decorative rock may overlap, in tile coordinates.
+   * Shapes no decorative rock may overlap, in tile coordinates.
    *
    * `laneGuard` keeps debris out of the SHIP'S lane, which is the centre. It
-   * cannot help a screen whose text is somewhere else: on the Title the
+   * cannot help a screen whose content is somewhere else: on the Title the
    * wordmark sits in the LEFT band, which is exactly where the guard sends
-   * rocks, so KEYBLASTER had an asteroid across its K. A scene knows where its
-   * own text is and the parallax cannot, so the scene passes it in.
+   * rocks, so KEYBLASTER had an asteroid across its K (UR-06); on the Director
+   * map the seven planets sit across the WHOLE width and a near-black rock
+   * landed on Mars (UR-52). A scene knows where its own content is and the
+   * parallax cannot, so the scene passes it in.
+   *
+   * The zone list and the edge-accurate hit test live in `keepClear.ts`, which
+   * is the shared mechanism BOTH those screens now register with. It used to be
+   * a rect list defined in this file and assembled by hand inside
+   * `TitleScene.create()`, which is why the second screen did not get it.
    */
-  readonly keepClear?: readonly Rect[];
+  readonly keepClear?: readonly KeepClearShape[];
   readonly rand: () => number;
 }
 
-/** A rectangle in tile coordinates. */
+/**
+ * A rectangle in tile coordinates.
+ *
+ * Retained as the untagged rectangle the rest of this module uses for bands and
+ * bounds. Keep-clear zones are `KeepClearShape` (re-exported at the top of this
+ * file), because a planet is a disc and a bounding box round one excludes 21%
+ * more sky than it needs to.
+ */
 export interface Rect {
   readonly x: number;
   readonly y: number;
   readonly w: number;
   readonly h: number;
-}
-
-/**
- * Does a rock at (cx, cy) with this radius touch any keep-clear rectangle?
- *
- * Measured to the shape's EDGE, for the same reason the lane guard is: a
- * centre-based test silently inverts once the radius outgrows the margin, and
- * that is precisely how 67px of rock ended up inside the word lane.
- */
-function hitsKeepClear(
-  cx: number,
-  cy: number,
-  radius: number,
-  rects: readonly Rect[] | undefined,
-): boolean {
-  if (rects === undefined) return false;
-  for (const r of rects) {
-    if (
-      cx + radius > r.x &&
-      cx - radius < r.x + r.w &&
-      cy + radius > r.y &&
-      cy - radius < r.y + r.h
-    ) {
-      return true;
-    }
-  }
-  return false;
 }
 
 /**

@@ -777,7 +777,7 @@ export class WarpScene extends Phaser.Scene {
       } else {
         letter.setColor(pal.plateText);
         // 0.55, NOT 0.45 (UR-41). At 0.45 the untyped filler composited to
-        // 4.39:1 against the panel - the ONLY text in the game under AC-22.8's
+        // 4.39:1 against the panel - the ONLY text in the game under AC-22.8's  no-user-quotes-ok: UR-41 is a blind-critic note, and its one-line summary phrases this measurement the same ordinary way; the words here are the contrast argument, not a report's
         // 4.5, and a blind critic measured 4.33 off the pixels. It is large
         // type, so WCAG would allow 3:1; the bar on this project is 4.5 for
         // every size and re-baselining it quietly to win one number is not a
@@ -1015,8 +1015,8 @@ export class WarpScene extends Phaser.Scene {
   /**
    * UR-24 - THE WORDS SHADOW NAMES ARE DRAWN IN THE STOP ACCENT.
    *
-   * A player: "solid and rock should genuinely be a different color like gold
-   * or something that stands out". Those two words are what the child meets
+   * UR-24 asked for the words Shadow names to be drawn in a colour that stands
+   * out from the rest of the line. Those two words are what the child meets
    * again on the next belt, so this is a learning affordance rather than a
    * swatch, and in a flat line they were carried by two straight quotes alone.
    *
@@ -1377,8 +1377,9 @@ export class WarpScene extends Phaser.Scene {
   // -------------------------------------------------------------------------
 
   /**
-   * "When a word is complete in the warp drive sequence it should expand
-   * slightly and go back to original size to indicate its been typed out."
+   * UR-26: finishing a word in the warp sentence should make that word grow a
+   * little and settle back to its original size, so the child can see it has
+   * been typed out.
    *
    * The screen already recolours a typed letter to the accent, which is a
    * per-CHARACTER signal; there was nothing at all for the unit the child is
@@ -1717,8 +1718,7 @@ export class WarpScene extends Phaser.Scene {
         scaleX: l.scaleX,
       })),
       /**
-       * UR-26. "When a word is complete... it should expand slightly and go
-       * back to original size."
+       * UR-26: a finished word grows a little and returns to its original size.
        *
        * `peakScale` and `frames` are HIGH-WATER MARKS written by the tween, not
        * instantaneous reads: the pulse is 240 ms out and back and a snapshot

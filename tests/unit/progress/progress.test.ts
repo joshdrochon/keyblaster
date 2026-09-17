@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_KNOBS } from "@engine/controller/index.js";
 import {
   blankStopProgress,
   clearStopOnProfile,
@@ -120,6 +121,7 @@ describe("clearStopOnProfile", () => {
   const profile = (progress: StopProgress[]): Profile =>
     ({ id: "p", name: "Ada", avatar: "a", shipId: "coral", shipName: "Lantern",
        createdAt: 0, calibration: { ikiMs: 350, fkLatencyMs: 500 },
+       knobs: DEFAULT_KNOBS,
        settings: {} as Profile["settings"], progress, trophies: [],
        unlockedShips: [], unlockedSkins: [], words: {} }) as Profile;
 

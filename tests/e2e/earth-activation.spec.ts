@@ -140,8 +140,8 @@ test.describe("Earth activation (row 2b, D57)", () => {
 
 test.describe("UR-17: the instruction leaves when it stops being true", () => {
   /**
-   * The user hit this in play and screenshotted it: "the beacon is lit." drawn
-   * ON TOP of "type launch to wake the beacon", both at GAME_HEIGHT * 0.76.
+   * UR-17, caught in play and attached as a screenshot: "the beacon is lit."
+   * drawn ON TOP of "type launch to wake the beacon", both at GAME_HEIGHT * 0.76. no-user-quotes-ok: both strings are shipped game copy (`earth.lit` / `earth.typePrompt` in src/content/en/ui.json), quoted here because the defect IS which two strings collide
    *
    * The instruction was a LOCAL, so nothing could reach it to remove it — the
    * overlap was structurally guaranteed rather than a timing accident.

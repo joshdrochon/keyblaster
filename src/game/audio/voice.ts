@@ -761,9 +761,10 @@ export function silentTransport(schedule: Scheduler): VoiceTransport {
  * it, so `web` is null in every shipped session and the condition below could
  * never be true. Shadow therefore made NO SOUND on any unrendered line -
  * including all seven coach templates at the warp break, which interpolate the
- * child's own missed word and so can never be pre-rendered. A player asked
- * "Does Shadow talk? I thought he was supposed to at least chirp or something",
- * which is the whole of UR-25.
+ * child's own missed word and so can never be pre-rendered. UR-25 is a player
+ * asking whether Shadow is meant to make any sound at all - he is a character
+ * who talks, and on those lines he was mute - and that question is the whole of
+ * the ticket.
  *
  * The condition is now the honest one: this line is about to make no sound, so
  * make the small one. A rendered clip is sound and never chirps.

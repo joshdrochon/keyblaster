@@ -5,13 +5,13 @@ import { freezeReloads } from "./support/lane.js";
  * UR-50.5 / UR-14: NOTHING IN THE SKY TRAVELS SIDEWAYS, ON ANY SCREEN.
  *
  * ================== THE DEFECT, REPORTED TWICE ==================
- * UR-14, from play on the Title: "the stars should not actually be moving in
- * the parallax. Keep the stars just keep them stationary and flickering slowly
- * at different intervals." Fixed - `render/starField.ts` pins the field to the
- * `sky` container, which never scrolls or sways.
+ * UR-14, from play on the Title: the stars must not move with the parallax -
+ * they should hold still and twinkle slowly, each on its own interval. Fixed -
+ * `render/starField.ts` pins the field to the `sky` container, which never
+ * scrolls or sways.
  *
- * UR-50.5, from play on the Briefing, months later: "THE STARS IN THE WINDOW
- * STILL TRAVEL LEFT TO RIGHT."
+ * UR-50.5, from play on the Briefing, months later: the stars in the window
+ * still travel left to right.
  *
  * Both reports were right and the first fix was not wrong, because the
  * travelling objects were never the starfield. They are the decorative debris

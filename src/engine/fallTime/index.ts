@@ -60,9 +60,9 @@ export function recognitionBudgetMs(ease: number): number {
  * exactly floor(fall / service) answerable rocks, which at the shipped
  * constants is 1 for every pilot in every shipped pool
  * (gauntlet/evidence/belt-concurrency.json: 1.18 fast, 1.25 median, 1.38
- * grade-2). That is why "there is only one asteroid on the screen at once"
- * (UR-42) could not be bought with `maxLive`, and it is what UR-51 decided to
- * change.
+ * grade-2). That is why UR-42's report - a board that never holds more than one
+ * word-asteroid - could not be answered with `maxLive`, and it is what UR-51
+ * decided to change.
  *
  * So the budget scales with the depth the controller is asking for. This is the
  * reason the scale is NOT a new global constant: a global would widen the

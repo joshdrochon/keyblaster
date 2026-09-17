@@ -25,9 +25,10 @@ import { audioFrom } from "@game/audio/wiring";
 /**
  * SCREEN 11 - SETTINGS (D41, D45; AC-19.1 to AC-19.4).
  *
- * UR-11: "the menu should look like the inside of a space ship. For instance,
- * maybe a knob instead of this." The screen it replaced was, in the 17-screen
- * critic's words, "the cleanest UI in the build" - which was true and was also
+ * UR-11 asked for this screen to read as a ship's interior, with real hardware
+ * - a knob was given as the example - in place of web widgets. The screen it
+ * replaced was, in the 17-screen critic's words, "the cleanest UI in the
+ * build" - which was true and was also
  * the problem: clean web UI, flat rows and a pill slider with a percentage, in
  * a game about flying a ship.
  *

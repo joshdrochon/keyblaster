@@ -5,12 +5,12 @@
  * WHY IT IS NOT A PARALLAX LAYER
  *
  * The stars used to be `starTile` on the `celestial` container, wrapped with
- * `wrapY` and scrolled at that layer's 0.05. A player looked at the Title and
- * said: "the stars should not actually be moving in the parallax. Keep the stars
- * just keep them stationary and flickering slowly at different intervals."
+ * `wrapY` and scrolled at that layer's 0.05. UR-14, reported from play on the
+ * Title: the stars must not move with the parallax at all. They should hold
+ * still and twinkle slowly, each on its own interval.
  *
- * That is right about the look and right about the physics, which is why it
- * looks wrong. Parallax is an artifact of DISTANCE: the nearer a thing is, the
+ * That is right about the look and right about the physics, which is why the
+ * scrolling version looks wrong. Parallax is an artifact of DISTANCE: the nearer a thing is, the
  * faster it crosses your view. Stars are so far away that no motion of the ship
  * produces perceptible displacement - it is the same reason the Moon "follows"
  * a car and the constellations do not. A sliding starfield says the stars are
