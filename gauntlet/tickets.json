@@ -613,6 +613,16 @@
     ]
   },
   {
+    "id": "KB-ESC-e-music-1-the-seven-composed-tracks-are-wire",
+    "kind": "escalation",
+    "title": "E-MUSIC-1 · The seven composed tracks are wired in.",
+    "source": "gauntlet/escalations.md:3107",
+    "state": "BLOCKED",
+    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
+    "evidence": [],
+    "refs": []
+  },
+  {
     "id": "KB-ESC-e-music-1-there-is-no-music-the-structure-is",
     "kind": "escalation",
     "title": "E-MUSIC-1 — There is no music.",
@@ -3882,13 +3892,15 @@
     "title": "From stage 2 on, 20% (±1) of spawns are retention words from earlier stops, spaced by the SRS rule: eligible …",
     "source": "docs/prd.md",
     "state": "DONE",
-    "why": "named by an assertion in 3 test file(s)",
+    "why": "named by an assertion in 5 test file(s)",
     "testTypes": [
       "U"
     ],
     "evidence": [
+      "tests/unit/flight/stageIndex.test.ts",
       "tests/unit/selection/consecutive.test.ts",
       "tests/unit/selection/selection.test.ts",
+      "tests/unit/words/bookPersistence.test.ts",
       "tests/unit/words/words.test.ts"
     ],
     "refs": []

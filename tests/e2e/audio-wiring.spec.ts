@@ -91,6 +91,10 @@ interface WiringSnapshot {
   musicIndices: number[];
   hudSamples: number;
   musicIndex: number;
+  musicStops: string[];
+  musicTrackIds: string[];
+  musicTrack: string | null;
+  musicSource: string;
   frames: number;
   advancedMs: number;
   spoken: { id: string; kind: string }[];
@@ -898,3 +902,70 @@ test("AC-21.5: a whole session makes zero TTS network calls", async ({ page }) =
   };
 });
 
+
+// ---------------------------------------------------------------------------
+// 10. E-MUSIC-1 / UR-12: the composed music is really fetched, decoded, played
+// ---------------------------------------------------------------------------
+
+test("E-MUSIC-1 / UR-12: a real boot fetches the stop's composed track and plays it", async ({
+  page,
+}) => {
+  // THE FAILURE THIS CATCHES. Every other check of this feature can pass on a
+  // build that emitted no mp3: the glob compiles, the catalog reports ids, the
+  // unit tests use a fake. Only a real browser fetching a real URL off a real
+  // dev server and handing the bytes to a real `decodeAudioData` proves the
+  // file exists, is audio, and reached the graph.
+  const musicRequests: { url: string; status: number }[] = [];
+  page.on("response", (response) => {
+    const url = response.url();
+    if (/\/music\/|music\/[a-z]+\.mp3/.test(url) || /(earth|mars|jupiter|saturn|uranus|neptune|pluto)[.-][^/]*\.mp3$/.test(url)) {
+      musicRequests.push({ url, status: response.status() });
+    }
+  });
+
+  await bootReal(page);
+  await page.waitForFunction(
+    () =>
+      (window as unknown as { __kb: { audio: { snapshot(): { musicSource: string } } } }).__kb.audio.snapshot()
+        .musicSource !== "silent",
+    null,
+    { timeout: 20_000 },
+  );
+
+  const s = await snap(page);
+  // Earth opens the game, so Earth's piece is what is playing.
+  expect(s.musicStops[0]).toBe("earth");
+  expect(s.musicTrack).toBe("earth");
+  expect(s.musicSource).toBe("track");
+  // A build that shipped no files would report an empty list here and fall back
+  // to the synthesised layers, which is a DIFFERENT state and not this one.
+  expect(s.musicTrackIds).toContain("earth");
+  expect(s.musicTrackIds.length).toBe(7);
+
+  // The bytes really came off the server.
+  const earth = musicRequests.filter((r) => /earth/.test(r.url));
+  expect(earth.length).toBeGreaterThan(0);
+  for (const request of earth) expect(request.status).toBe(200);
+
+  // And the graph is playing a LOOPING BUFFER of that file, not an oscillator.
+  const graph = await page.evaluate(() => {
+    const kb = (window as unknown as {
+      __kb: { audio: { graph: { ctx: AudioContext; music: { trackId: string | null; sourceKind: string } } } };
+    }).__kb;
+    return {
+      sourceKind: kb.audio.graph.music.sourceKind,
+      trackId: kb.audio.graph.music.trackId,
+      sampleRate: kb.audio.graph.ctx.sampleRate,
+    };
+  });
+  expect(graph.sourceKind).toBe("track");
+  expect(graph.trackId).toBe("earth");
+
+  evidence["music"] = {
+    stop: s.musicTrack,
+    source: s.musicSource,
+    shippedTracks: s.musicTrackIds,
+    fetched: musicRequests,
+    contextSampleRate: graph.sampleRate,
+  };
+});

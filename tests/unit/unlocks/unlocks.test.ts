@@ -9,6 +9,7 @@ import {
   newUnlocks,
   satisfiedShips,
   satisfiedSkins,
+  unlocksForNewPilot,
 } from "@engine/unlocks/index.js";
 import { CHAIN_TROPHIES, CLEAN_STAGE_STARS, type StageAward } from "@engine/awards/index.js";
 import { STOP_IDS, type Profile, type StopId } from "@engine/types.js";
@@ -374,6 +375,26 @@ describe("AC-6d.2: an unlock happens once, changes nothing else, and shows up", 
     expect(satisfiedSkins(played)).toContain(FIRST_THREE_STAR_SKIN);
     expect(newUnlocks(played).skins).toEqual([]);
     expect(newUnlocks(freshProfile(), stage({ bestCombo: 25 })).skins).toEqual(["skin-2"]);
+  });
+
+  it("D79: a pilot being created owns the starting hull and nothing anyone else earned", () => {
+    // Unlocks are PER PROFILE. `ProfileCreateScene` used to draw its tiles from
+    // `app.profile()` - whichever pilot is currently active, i.e. somebody
+    // else - and its own comment said that must not happen. It was inert while
+    // neither list could ever fill; the moment `applyUnlocks` went live it
+    // became a younger sibling inheriting an older one's hulls.
+    const starting = unlocksForNewPilot();
+    expect(starting.ships).toEqual(blankProfile({ id: "x", createdAt: 0 }).unlockedShips);
+    expect(starting.skins).toEqual([]);
+    expect(starting.ships).toEqual([SHIPS[0]?.id]);
+
+    // And it does not move when another pilot finishes the game.
+    let veteran = freshProfile();
+    for (const stopId of STOP_IDS) {
+      veteran = playStop(veteran, stopId, { award: { bestCombo: 50 } });
+    }
+    expect(veteran.unlockedShips.length).toBe(SHIPS.length);
+    expect(unlocksForNewPilot()).toEqual(starting);
   });
 
   it("AC-6d.1: outside a run, no stage-only trim is reachable at all", () => {

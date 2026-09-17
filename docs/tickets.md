@@ -4,12 +4,12 @@
      computed from evidence on each run, and a hand-typed status is the
      exact failure this board exists to prevent. -->
 
-Generated: 2026-09-17T05:02:08.844Z
-Tickets: **363**
+Generated: 2026-09-17T05:06:18.267Z
+Tickets: **364**
 
 | DONE | OPEN | UNVERIFIED | FALSE-PASS | BLOCKED | EXEMPT |
 |---|---|---|---|---|---|
-| 157 | 21 | 65 | 10 | 70 | 40 |
+| 157 | 21 | 65 | 10 | 71 | 40 |
 
 **DONE** means an assertion names it and the evidence is fresher than the
 code. **UNVERIFIED** means something claims it but the binding is weak or
@@ -126,7 +126,7 @@ measure its claim — read those first.
 | DONE | `KB-AC-8.2` | A known long word can fall faster than an unknown short word. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-8.3` | Fall time is never displayed as a rule; no UI element maps size to speed. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-9.1` | Weighted sampling without replacement within a stage; no repeats until pool exhausted. | named by an assertion in 3 test file(s) | docs/prd.md |
-| DONE | `KB-AC-9.3` | From stage 2 on, 20% (±1) of spawns are retention words from earlier stops, spaced by the SRS rule: eligible … | named by an assertion in 3 test file(s) | docs/prd.md |
+| DONE | `KB-AC-9.3` | From stage 2 on, 20% (±1) of spawns are retention words from earlier stops, spaced by the SRS rule: eligible … | named by an assertion in 5 test file(s) | docs/prd.md |
 | DONE | `KB-AC-9.4` | A missed word's next eligibility is set to "next stage" (D23). | named by an assertion in 3 test file(s) | docs/prd.md |
 
 ## collision (14) — 9 DONE · 5 BLOCKED
@@ -244,7 +244,7 @@ measure its claim — read those first.
 | DONE | `KB-D97` | The parallax world drops terrain grammar entirely. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:120 |
 | DONE | `KB-D98` | Web Speech is removed from the shipped build. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:122 |
 
-## escalation (53) — 4 DONE · 49 BLOCKED
+## escalation (54) — 4 DONE · 50 BLOCKED
 
 | state | id | title | why | source |
 |---|---|---|---|---|
@@ -270,6 +270,7 @@ measure its claim — read those first.
 | BLOCKED | `KB-ESC-e-ai-2-the-honesty-marker-contradicts-ac-15-` | E-AI-2 - the honesty marker contradicts AC-15.1's "the UI is identical" | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2753 |
 | BLOCKED | `KB-ESC-e-ai-3-when-a-composed-sentence-is-allowed-t` | E-AI-3 - when a composed sentence is allowed to replace the static one | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2801 |
 | BLOCKED | `KB-ESC-e-fail-state-does-a-hard-fail-state-d29-belo` | E-fail-state · Does a hard fail state (D29) belong in this game at all? | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1073 |
+| BLOCKED | `KB-ESC-e-music-1-the-seven-composed-tracks-are-wire` | E-MUSIC-1 · The seven composed tracks are wired in. | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:3107 |
 | BLOCKED | `KB-ESC-e-music-1-there-is-no-music-the-structure-is` | E-MUSIC-1 — There is no music. | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2983 |
 | BLOCKED | `KB-ESC-e-playable-path-four-decisions-taken-on-the-` | E-playable-path · Four decisions taken on the `fix/playable-path` lane | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:856 |
 | BLOCKED | `KB-ESC-e-practice-trajectory-a-repeat-rock-now-miss` | E-practice-trajectory · A repeat rock now misses the ship, which bends AC-4.2 | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1203 |

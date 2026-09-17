@@ -161,6 +161,24 @@ export function newUnlocks(
 }
 
 /**
+ * What a pilot who does not exist yet owns: the starting hull, no trim.
+ *
+ * D79 makes unlocks PER PROFILE. The create screen used to read them off
+ * `app.profile()`, which is whichever pilot is currently active - i.e. somebody
+ * else - and its own comment said that must not happen. That was inert only
+ * while the two lists could never fill: with `applyUnlocks` live it becomes a
+ * younger sibling inheriting an older one's hulls on their first ever screen,
+ * which is the one thing a per-profile reward must not do.
+ *
+ * Matches `blankProfile`'s grant by construction (asserted in
+ * `tests/unit/unlocks/unlocks.test.ts`), so the tiles a pilot sees while being
+ * created are the ones they will hold a second later.
+ */
+export function unlocksForNewPilot(): NewUnlocks {
+  return { ships: [SHIP_UNLOCKS[0]?.id ?? "ship-1"], skins: [] };
+}
+
+/**
  * Apply this run's unlocks to a profile. Pure; the caller persists it.
  *
  * Returns the SAME object when nothing is new, so a caller can cheaply tell

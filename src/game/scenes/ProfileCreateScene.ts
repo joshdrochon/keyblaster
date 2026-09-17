@@ -11,6 +11,7 @@ import {
 import { drawAvatar, drawShip } from "@game/ui/chrome";
 import { SHADOW_HEIGHT, drawShadow } from "@game/render/shadow";
 import { AVATARS, SHIPS, SKINS, shipDef } from "@game/ui/catalog";
+import { unlocksForNewPilot } from "@engine/unlocks/index.js";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { uiText } from "@game/ui/text";
 import type { MenuKey } from "@game/ui/i18n";
@@ -199,12 +200,13 @@ export class ProfileCreateScene extends MenuScene {
   /** Beat 2: what you fly. Four hulls, four skins, locks explained in words. */
   private buildShipStep(): Control[] {
     const controls: Control[] = [];
-    const profile = this.app.profile();
     // A pilot who does not exist yet owns exactly what `blankProfile` grants:
-    // their starting hull and no skins. Unlocks are per profile (D79), so a
-    // new pilot never inherits another pilot's ships.
-    const unlockedShips = profile?.unlockedShips ?? [SHIPS[0]?.id ?? "ship-1"];
-    const unlockedSkins = profile?.unlockedSkins ?? [];
+    // their starting hull and no skins. Unlocks are per profile (D79), so a new
+    // pilot never inherits another pilot's ships - which is what this line used
+    // to do, reading `app.profile()`, i.e. whichever pilot is currently active.
+    // Harmless while nothing could fill those lists; a younger sibling opening
+    // the game on their brother's save the moment `applyUnlocks` went live.
+    const { ships: unlockedShips, skins: unlockedSkins } = unlocksForNewPilot();
 
     const tileW = 260;
     SHIPS.forEach((ship, i) => {

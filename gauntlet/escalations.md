@@ -3103,3 +3103,94 @@ already paying — the AC-22.9 frame-budget argument for lazy beds is about
 the music fix, so the game gets one rule instead of two.
 
 **Status: needs the user.** Tracked under `UR-10-audio-pop`.
+
+## E-MUSIC-1 · The seven composed tracks are wired in. Three calls made, one musical judgement is yours.
+
+- **Escalated:** 2026-09-16 (music lane)
+- **Source:** `E-MUSIC-1`, `UR-12`, D63, PRD FR-21 / AC-21.2
+- **Status:** SHIPPED and playing. Nothing here blocks; these are decisions taken under D94, plus one thing only you can decide.
+- **Evidence:** `node scripts/render-music.mjs --check-loops` (measures the real
+  mp3s through the shipping code), `tests/unit/audio/musicLoop.test.ts`,
+  `tests/unit/audio/musicTracks.test.ts`, `tests/e2e/audio-wiring.spec.ts`
+  ("E-MUSIC-1 / UR-12: a real boot fetches the stop's composed track and plays it").
+
+### 1. THE MUSICAL JUDGEMENT — `pluto` still dips at the loop, and only you can hear it
+
+Every track was measured before and after loop preparation. The wrap is clean on
+all seven: the largest seam step is 0.073 of the biggest step the music takes on
+its own, i.e. no clicks anywhere. The defect that WAS there is a level hole -
+earth, mars and uranus end with a long fade-out, earth also fades in - and
+trimming the fade out of the loop fixes six of the seven.
+
+| stop | loop head / tail level | verdict |
+|---|---|---|
+| earth | 0.87 / 1.17 | fixed (was 0.60 / 0.07) |
+| mars | 1.28 / 1.18 | fixed (was 1.22 / 0.01) |
+| jupiter | 1.37 / 0.82 | fine |
+| saturn | 0.98 / 1.00 | fine |
+| uranus | 1.17 / 1.20 | fixed (was 1.20 / 0.06) |
+| neptune | 1.07 / 0.98 | fine |
+| **pluto** | 1.18 / **0.74** | **under the 0.75 bar** |
+
+Pluto's last second sits 2.6 dB below the piece's own median, and no trim moves
+it, because it is not a fade: the piece genuinely ENDS at a quieter dynamic.
+Looped, it gets gradually quieter and then jumps back up once per lap.
+
+|  | | cost | gets |
+|---|---|---|---|
+| A | Regenerate `pluto` with "ends at the same energy it starts, no ritard, no fade" in the brief | one API call, ~$0.32 | the only track still under the bar |
+| B | Accept it | 0 | a 2.6 dB swell once every ~39 s under a game full of SFX |
+| C | Lower `END_LEVEL_MIN` to 0.7 so it passes | 0 | nothing — this is weakening an assertion to make something pass |
+
+**Lean: A.** It is one cheap call and the script is resumable, so deleting
+`pluto.mp3` and re-running renders only that one. C is not an option; it is
+named here only so nobody reaches for it later. B is defensible - 2.6 dB is not
+a click and may well be inaudible under the belt - but the bar was set BEFORE
+the measurement, and moving it afterwards is how bars stop meaning anything.
+
+**I cannot hear any of them.** Nothing above is a judgement about whether a
+track is too tense, too sad, or wrong for its planet - only about level and
+continuity, which are measurable. Those seven judgements are still yours.
+
+### 2. A FAILED TRACK IS SILENCE, NOT THE SYNTHESISED STACK
+
+The synth layer stack is still in the code and still plays when a build shipped
+no music files at all. It does NOT cover a track that 404s.
+
+|  | | gets | costs |
+|---|---|---|---|
+| A | Failed fetch -> silence (**implemented**) | a broken asset pipeline is audible as a missing feature | a child on a flaky connection gets no music that session |
+| B | Failed fetch -> fall back to the synthesised layers | music always | the synth covers a shipping failure so convincingly that nobody finds it |
+
+**Lean: A, and it is what ships.** This project has twice shipped a feature that
+looked wired and was inert; B is a machine for making that invisible. The two
+states are told apart in the evidence (`musicSource` is `"synth"`, `"track"` or
+`"silent"`) so the difference is reportable rather than guessed at. Say the word
+and B is four lines.
+
+### 3. THE SEVEN ARRIVE AT SEVEN DIFFERENT LEVELS — corrected in code, not in the files
+
+EBU R128, measured with ffmpeg:
+
+| saturn | jupiter | mars | neptune | pluto | uranus | earth |
+|---|---|---|---|---|---|---|
+| -12.3 | -14.0 | -15.2 | -16.5 | -16.6 | -16.7 | **-17.0 LUFS** |
+
+4.7 LU end to end. Warping from Earth to Saturn would be a volume jump with
+nothing to do with the game. Three of them (saturn, jupiter, mars) also decode
+ABOVE full scale - true peaks -1.0, -1.3, -1.4 dBFS with samples over 1.0 -
+which is a clipping risk on a cheap speaker.
+
+Fixed at playback: `MusicBus` measures each decoded loop's RMS and trims it to
+one reference level (0.57x to 1.07x across the seven), so a regenerated track is
+corrected the moment it is dropped in and there is no number to maintain by
+hand. No file was re-encoded. If you would rather normalise the assets
+themselves, the measurement is already in `--check-loops`.
+
+### 4. Between 1.2% and 10.2% of each piece is discarded
+
+The trim throws away the fade regions: 89.8% of `mars` is kept, 93.2% of
+`uranus`, 93.3% of `earth`, and 97-99% of the rest. What is discarded is the
+fade in and the fade out, which is material a loop cannot use. Flagging it
+because "the loop is 36 s not 40 s" is a fact about the shipped product, not
+because it is a problem.
