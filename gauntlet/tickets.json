@@ -517,6 +517,18 @@
     ]
   },
   {
+    "id": "KB-ESC-d99-the-letterbox-is-gone-two-residuals-need",
+    "kind": "escalation",
+    "title": "D99 — the letterbox is gone; two residuals need a call",
+    "source": "gauntlet/escalations.md:2723",
+    "state": "BLOCKED",
+    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
+    "evidence": [],
+    "refs": [
+      "D99"
+    ]
+  },
+  {
     "id": "KB-ESC-design-brief-s-flat-25-spanish-is-wrong-for-",
     "kind": "escalation",
     "title": "Design brief's flat \"+25% Spanish\" is wrong for short labels",
@@ -3094,7 +3106,7 @@
     "title": "Every screen reachable and returnable via keyboard alone.",
     "source": "docs/prd.md",
     "state": "DONE",
-    "why": "named by an assertion in 15 test file(s)",
+    "why": "named by an assertion in 16 test file(s)",
     "testTypes": [
       "E"
     ],
@@ -3113,7 +3125,8 @@
       "tests/e2e/results.spec.ts",
       "tests/e2e/settings.spec.ts",
       "tests/e2e/title.spec.ts",
-      "tests/e2e/warp.spec.ts"
+      "tests/e2e/warp.spec.ts",
+      "tests/unit/ui/cockpit.test.ts"
     ],
     "refs": []
   },
@@ -4797,9 +4810,9 @@
     "title": "Vertical bars flank the picture at any window that is not 16:9.",
     "source": "gauntlet/user-reported.json",
     "state": "DONE",
-    "why": "Canvas now fills the window at every tested shape: gap L0 R0 at 2000x1010, 2560x1080 and 1440x900, verified by measuring the canvas rect and by looking at the capture. Root cause was an over-constrained design WIDTH: FR-8 needs a fixed fall DISTANCE, which is vertical, so height stays 1080 — the width was pinned at 1920 alongside it for no independent reason. Five earlier fixes all answered 'what colour should the gap be'.",
+    "why": "FIXED AT THE SOURCE. GAME_WIDTH is now a live binding set at boot from the window's aspect at a pinned 1080 height (FR-8 needs a fixed fall DISTANCE, which is vertical). Three frozen module-level captures were found and fixed. Verified by decoding the PNGs: at 2560x1080 columns x=0 and x=2559 carry identical values to x=60 and x=2499; at the user's 2000x1010 exactly one column differs by ~0.2px of rounding, painted sky, against the 102px slab at rgb(16,41,80) it replaced. NOTE: the world widens but never narrows (MIN_ASPECT 16/9) because narrowing CROPS content — Beacon Log ran 384px off the right edge at 1440. Windows narrower than 16:9 therefore keep TOP and BOTTOM bars; the side bars are gone at every ratio.",
     "evidence": [
-      "Canvas now fills the window at every tested shape: gap L0 R0 at 2000x1010, 2560x1080 and 1440x900, verified by measuring the canvas rect and by looking at the capture. Root cause was an over-constrained design WIDTH: FR-8 needs a fixed fall DISTANCE, which is vertical, so height stays 1080 — the width was pinned at 1920 alongside it for no independent reason. Five earlier fixes all answered 'what colour should the gap be'."
+      "FIXED AT THE SOURCE. GAME_WIDTH is now a live binding set at boot from the window's aspect at a pinned 1080 height (FR-8 needs a fixed fall DISTANCE, which is vertical). Three frozen module-level captures were found and fixed. Verified by decoding the PNGs: at 2560x1080 columns x=0 and x=2559 carry identical values to x=60 and x=2499; at the user's 2000x1010 exactly one column differs by ~0.2px of rounding, painted sky, against the 102px slab at rgb(16,41,80) it replaced. NOTE: the world widens but never narrows (MIN_ASPECT 16/9) because narrowing CROPS content — Beacon Log ran 384px off the right edge at 1440. Windows narrower than 16:9 therefore keep TOP and BOTTOM bars; the side bars are gone at every ratio."
     ],
     "refs": []
   },

@@ -7,7 +7,7 @@
     "rootCause": "Width was over-constrained. FR-8's fall time needs a fixed fall DISTANCE, which is vertical, so height must stay 1080 — but the width was pinned at 1920 alongside it for no independent reason.",
     "state": "DONE",
     "owner": "letterbox lane",
-    "evidence": "Canvas now fills the window at every tested shape: gap L0 R0 at 2000x1010, 2560x1080 and 1440x900, verified by measuring the canvas rect and by looking at the capture. Root cause was an over-constrained design WIDTH: FR-8 needs a fixed fall DISTANCE, which is vertical, so height stays 1080 — the width was pinned at 1920 alongside it for no independent reason. Five earlier fixes all answered 'what colour should the gap be'."
+    "evidence": "FIXED AT THE SOURCE. GAME_WIDTH is now a live binding set at boot from the window's aspect at a pinned 1080 height (FR-8 needs a fixed fall DISTANCE, which is vertical). Three frozen module-level captures were found and fixed. Verified by decoding the PNGs: at 2560x1080 columns x=0 and x=2559 carry identical values to x=60 and x=2499; at the user's 2000x1010 exactly one column differs by ~0.2px of rounding, painted sky, against the 102px slab at rgb(16,41,80) it replaced. NOTE: the world widens but never narrows (MIN_ASPECT 16/9) because narrowing CROPS content — Beacon Log ran 384px off the right edge at 1440. Windows narrower than 16:9 therefore keep TOP and BOTTOM bars; the side bars are gone at every ratio."
   },
   {
     "id": "UR-02-floating-bases",

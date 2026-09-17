@@ -98,7 +98,7 @@ function resultsProfile(relativeBoard: boolean): Record<string, unknown> {
       cleared: stopId === "earth" || stopId === "mars",
       stars: 3,
       bestWpm: stopId === "mars" ? 22 : 0,
-      bestAccuracy: 95,
+      bestAccuracy: 0.95, // fraction, as the engine produces it
       lastWpm: 20,
       lastAccuracy: 94,
       beaconPlacedAt: stopId === "earth" || stopId === "mars" ? 1 : null,

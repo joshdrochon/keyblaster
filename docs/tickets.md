@@ -4,12 +4,12 @@
      computed from evidence on each run, and a hand-typed status is the
      exact failure this board exists to prevent. -->
 
-Generated: 2026-09-17T04:01:36.384Z
-Tickets: **356**
+Generated: 2026-09-17T04:16:30.243Z
+Tickets: **357**
 
 | DONE | OPEN | UNVERIFIED | FALSE-PASS | BLOCKED | EXEMPT |
 |---|---|---|---|---|---|
-| 157 | 22 | 65 | 10 | 62 | 40 |
+| 157 | 22 | 65 | 10 | 63 | 40 |
 
 **DONE** means an assertion names it and the evidence is fresher than the
 code. **UNVERIFIED** means something claims it but the binding is weak or
@@ -84,7 +84,7 @@ measure its claim — read those first.
 | DONE | `KB-AC-17.1` | Coordinates computed from Keplerian elements (JPL approximate elements, J2000) for the stop's planet on the c… | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-17.2` | Pluto uses the 1800–2050 element set. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-17.3` | Beacon persists to profile and blinks on the Director map thereafter. | named by an assertion in 1 test file(s) | docs/prd.md |
-| DONE | `KB-AC-18.1` | Every screen reachable and returnable via keyboard alone. | named by an assertion in 15 test file(s) | docs/prd.md |
+| DONE | `KB-AC-18.1` | Every screen reachable and returnable via keyboard alone. | named by an assertion in 16 test file(s) | docs/prd.md |
 | DONE | `KB-AC-18.3` | Leaderboards: personal-best per stop; opt-in relative board shows the player and up to 2 above / 2 below; no … | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-18.4` | Local persistence via localStorage with versioned schema and migration; corrupted storage | named by an assertion in 8 test file(s) | docs/prd.md |
 | DONE | `KB-AC-19.2` | Keyboard layout changes the key | named by an assertion in 3 test file(s) | docs/prd.md |
@@ -244,7 +244,7 @@ measure its claim — read those first.
 | DONE | `KB-D97` | The parallax world drops terrain grammar entirely. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:120 |
 | DONE | `KB-D98` | Web Speech is removed from the shipped build. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:122 |
 
-## escalation (47) — 4 DONE · 43 BLOCKED
+## escalation (48) — 4 DONE · 44 BLOCKED
 
 | state | id | title | why | source |
 |---|---|---|---|---|
@@ -263,6 +263,7 @@ measure its claim — read those first.
 | BLOCKED | `KB-ESC-d25-s-parked-word-tier-is-unreachable-at-thr` | D25's parked-word tier is unreachable at three of six belts | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:672 |
 | BLOCKED | `KB-ESC-d27-vs-d17-hull-3-and-the-80-90-band-cannot-` | D27 vs D17 — hull 3 and the 80-90% band cannot both hold at 58 words | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:925 |
 | BLOCKED | `KB-ESC-d51-the-calibration-ritual-never-ran-so-the-` | D51 — the calibration ritual never ran, so the belt was flown for a child who was not there | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2107 |
+| BLOCKED | `KB-ESC-d99-the-letterbox-is-gone-two-residuals-need` | D99 — the letterbox is gone; two residuals need a call | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2723 |
 | BLOCKED | `KB-ESC-design-brief-s-flat-25-spanish-is-wrong-for-` | Design brief's flat "+25% Spanish" is wrong for short labels | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:249 |
 | BLOCKED | `KB-ESC-devanagari-word-plate-progress-has-no-glyph-` | Devanagari word-plate progress has no glyph index (open seam, not a blocker) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:511 |
 | BLOCKED | `KB-ESC-e-ai-1-the-hackathon-is-build-and-demo-an-ai` | E-AI-1 — The hackathon is "Build and demo an AI-powered learning tool". | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2643 |
@@ -407,7 +408,7 @@ measure its claim — read those first.
 | OPEN | `KB-UR-09-parallax-quality` | Overall parallax quality. | reported 1x by the user: "Can you do some research on how paralex should behave." | gauntlet/user-reported.json |
 | OPEN | `KB-UR-10-audio-pop` | An audible pop/click recurs during play, characteristic of a loop seam in the ambient bed. | reported 1x by the user: "theres a pop every so often in the game like its being looped." | gauntlet/user-reported.json |
 | OPEN | `KB-UR-11-cockpit-settings` | Settings reads as a generic web form — flat rows, a pill slider, a percentage readout. | reported 1x by the user: "in the settings, the menu should look like the inside of a space ship." | gauntlet/user-reported.json |
-| DONE | `KB-UR-01-edge-bars` | Vertical bars flank the picture at any window that is not 16:9. | Canvas now fills the window at every tested shape: gap L0 R0 at 2000x1010, 2560x1080 and 1440x900, verified by measuring the canvas rect an… | gauntlet/user-reported.json |
+| DONE | `KB-UR-01-edge-bars` | Vertical bars flank the picture at any window that is not 16:9. | FIXED AT THE SOURCE. | gauntlet/user-reported.json |
 | DONE | `KB-UR-02-floating-bases` | Landform masses ended in a dead-flat horizontal edge suspended in mid-air with sky visible underneath, scroll… | D97: terrain grammar dropped entirely for space grammar. | gauntlet/user-reported.json |
 | DONE | `KB-UR-03-tagline` | Tagline pointed the wrong direction on a game whose arc is Earth OUTWARD to Pluto. | Changed in en/es/hi. | gauntlet/user-reported.json |
 | DONE | `KB-UR-07-parallax-strips` | Visible vertical seams across the sky; the world reads as stitched panels drifting sideways. | atmospherePass called the RNG inside the wrap loop, so the three 'wrapped' copies of each streak had different y values — they were never c… | gauntlet/user-reported.json |

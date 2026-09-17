@@ -7,6 +7,8 @@ import {
   AmbientBus,
   ambientCrossfade,
   bedSpec,
+  WIND_LOOP_SECONDS,
+  windLoopSamples,
 } from "../../../src/game/audio/ambient.js";
 import type { StopId } from "../../../src/engine/types.js";
 
@@ -209,5 +211,106 @@ describe("AC-21.1: beds crossfade on transition", () => {
     ambient.advance(AMBIENT_CROSSFADE_MS);
     // Two sources, but the expensive part - the sample data - was made once.
     expect(ctx.created.filter((n) => n.kind === "bufferSource").length).toBe(2);
+  });
+});
+
+describe("UR-10: the wind loop is continuous across its seam", () => {
+  // WHY THIS FILE HAS A SIGNAL-PROCESSING TEST.
+  //
+  // The user heard "a pop every so often in the game like its being looped".
+  // `wind.loop = true` on the ambient bed's noise buffer is the ONLY looping
+  // source in src/ - every other voice is a continuous oscillator or a
+  // one-shot. So "every so often" has exactly one candidate period, and it is
+  // measurable: a loop whose last sample does not join its first sample steps
+  // the wind's DC level once per lap, which is a click.
+  //
+  // MEASURED, NOT ASSUMED. Offline render of the Neptune bed in Chromium
+  // (windLevel 0.42, windFilterHz 480, filterHz 620, level 0.48) put the old
+  // seam at 0.2873 in the buffer, arriving at the output as a 0.0579 level
+  // step in 0.54 ms - 47% of that bed's whole RMS (0.1224), once every 4.000 s.
+  //
+  // The thresholds below are the signal's OWN statistics, not tuned constants:
+  // the seam has to be no worse than the biggest step the noise takes on its
+  // own anywhere in the buffer. There is nothing to weaken.
+
+  const SAMPLE_RATE = 48000;
+
+  interface SeamStats {
+    readonly samples: Float32Array;
+    readonly seamStep: number;
+    readonly maxInteriorStep: number;
+    readonly seamCurvature: number;
+    readonly maxInteriorCurvature: number;
+  }
+
+  const seamStats = (samples: Float32Array): SeamStats => {
+    const n = samples.length;
+    const at = (i: number): number => samples[((i % n) + n) % n] as number;
+
+    let maxInteriorStep = 0;
+    for (let i = 1; i < n; i++) {
+      maxInteriorStep = Math.max(maxInteriorStep, Math.abs(at(i) - at(i - 1)));
+    }
+    // Second difference: catches a seam that matches in VALUE but breaks the
+    // slope, which is still an audible edge.
+    let maxInteriorCurvature = 0;
+    for (let i = 2; i < n; i++) {
+      maxInteriorCurvature = Math.max(maxInteriorCurvature, Math.abs(at(i) - 2 * at(i - 1) + at(i - 2)));
+    }
+    return {
+      samples,
+      seamStep: Math.abs(at(0) - at(-1)),
+      maxInteriorStep,
+      seamCurvature: Math.abs(at(1) - 2 * at(0) + at(-1)),
+      maxInteriorCurvature,
+    };
+  };
+
+  it("UR-10: the loop seam is no larger a step than the noise takes on its own", () => {
+    const s = seamStats(windLoopSamples(SAMPLE_RATE));
+    // Wrapping from the last sample to the first must be indistinguishable
+    // from any other sample-to-sample move in the buffer. Anything bigger is
+    // a step change in level once per lap, i.e. the pop.
+    expect(s.seamStep).toBeLessThanOrEqual(s.maxInteriorStep);
+  });
+
+  it("UR-10: the seam does not break the slope either", () => {
+    const s = seamStats(windLoopSamples(SAMPLE_RATE));
+    expect(s.seamCurvature).toBeLessThanOrEqual(s.maxInteriorCurvature);
+  });
+
+  it("UR-10: the seam holds at 44.1 kHz too, so it is not a rate coincidence", () => {
+    const s = seamStats(windLoopSamples(44100));
+    expect(s.seamStep).toBeLessThanOrEqual(s.maxInteriorStep);
+    expect(s.seamCurvature).toBeLessThanOrEqual(s.maxInteriorCurvature);
+  });
+
+  it("UR-10: fixing the seam did not flatten, quieten or truncate the wind", () => {
+    // A seamless loop is trivial to fake by returning silence, so the wind has
+    // to still be wind: full length, in range, and with its level unchanged.
+    const samples = windLoopSamples(SAMPLE_RATE);
+    expect(samples.length).toBe(SAMPLE_RATE * WIND_LOOP_SECONDS);
+
+    let sq = 0;
+    let peak = 0;
+    for (const v of samples) {
+      sq += v * v;
+      peak = Math.max(peak, Math.abs(v));
+    }
+    const rms = Math.sqrt(sq / samples.length);
+    // The pre-fix generator measured rms 0.1989, peak 0.8986. Hold both.
+    expect(rms).toBeGreaterThan(0.15);
+    expect(peak).toBeGreaterThan(0.5);
+    expect(peak).toBeLessThanOrEqual(1);
+
+    // And it must have no DC offset to speak of, or every bed sits off-centre.
+    const mean = samples.reduce((a, v) => a + v, 0) / samples.length;
+    expect(Math.abs(mean)).toBeLessThan(0.1);
+  });
+
+  it("UR-10: the generator is deterministic, so the bed is the same every run", () => {
+    expect([...windLoopSamples(SAMPLE_RATE).slice(0, 64)]).toEqual([
+      ...windLoopSamples(SAMPLE_RATE).slice(0, 64),
+    ]);
   });
 });

@@ -2719,3 +2719,85 @@ starting unilaterally: it is a scope decision on the submission's central claim
 with ~51 hours left, and that is theirs. Lean: **build it** — without it the
 claim does not hold, and with it there is a real answer to "where is the AI"
 plus a child-safety story that plays well to engineer judges.
+
+## D99 — the letterbox is gone; two residuals need a call
+
+- **Escalated:** 2026-09-16
+- **Source:** user report x6 ("remove the letterbox bars"), AC-18.1, FR-8, AC-22.9
+- **Evidence:** `tests/e2e/aspect.spec.ts` (13 tests, green), `tests/unit/scenes/worldSize.test.ts`,
+  `gauntlet/evidence/aspect-*.png`
+
+### What changed
+
+The bars were made by fitting a fixed 1920x1080 rect into a window that is not
+16:9. `GAME_WIDTH` is now the window's own aspect at a **pinned 1080 height**
+(`src/game/sceneKeys.ts`), so `Scale.FIT` has nothing left to letterbox. Height
+stays fixed because FR-8's fall time is measured against a fixed fall distance.
+
+Measured at the reported window, 2000x1010: **102 px of bar on each side before,
+0 after** (at most one column of sub-pixel rounding slack, and that column is
+painted sky, not black). Same at 2560x1080 and 3440x1440.
+
+### Residual 1 — windows NARROWER than 16:9 still letterbox top and bottom
+
+The world may get wider than the artboard. It may not get narrower, and this is
+measured, not assumed. Booting every screen at a narrowed world and reading the
+live scene tree:
+
+| world width | window | Beacon Log | Results | Briefing |
+|---|---|---|---|---|
+| 1440 | 4:3 | **+384 px** off the right edge | +272 | +168 |
+| 1728 | 16:10 | +96 px | +3 | — |
+| 1920+ | 16:9 and wider | — | — | — |
+
+The Beacon Log's trophy block is `3 x 340 + 2 x 24` starting at x=708, so it
+needs 1776 px whatever the window is. Content off the right edge is cropped
+content, which is exactly what `Scale.ENVELOP` was rejected for under AC-18.1;
+doing the cropping sideways is not an improvement.
+
+| option | what it costs |
+|---|---|
+| A. Floor the world at 16:9 (shipped) | 4:3 and 16:10 windows keep a top and bottom bar, painted with the stop's sky by `viewportBackdrop` |
+| B. Re-lay out Beacon Log, Results and Briefing to fit 1440, then drop the floor to 4:3 | a real layout pass on three screens across two lanes; unlocks every ratio |
+| C. Flex the height too on narrow windows | breaks FR-8: a taller world hands the player more seconds for the same word |
+
+**Lean: A, with B as a follow-up ticket.** A is safe and reversible — the floor
+is one constant, and `aspect.spec.ts`'s "nothing is cropped" test fails
+immediately (Beacon Log +384) if anyone lowers it without doing B first, which is
+the point of writing it that way. C is out. Note that the SIDE bars — the actual
+six-times-reported defect — are gone at 4:3 and 16:10 as well; what remains there
+is a horizontal band at top and bottom, which nobody has reported.
+
+### Residual 2 — a resize mid-flight waits for the flight to end
+
+Relayout is `scene.restart()`, because `create()` is the code that lays a screen
+out: `setGameSize` alone removes the letterbox and puts a strip of bare clear
+colour down the right instead, where the parallax was never built. Restarting
+Flight/Hud/Stall would throw away the run in progress, so a resize during a
+flight is deferred and re-tried every 900 ms until the flight ends. Until then
+that window keeps whatever bar the drag opened.
+
+| option | what it costs |
+|---|---|
+| A. Defer until the run ends (shipped) | a window dragged mid-flight is letterboxed until the flight finishes |
+| B. Restart Flight on resize | correct picture, and the child loses the run they were in |
+| C. A real `resize()` on `render/parallax.ts` + FlightScene | correct and cheap at runtime; touches `render/*` (at rest, D97 just landed) and FlightScene |
+
+**Lean: A now, C as the proper fix.** B is not defensible: nobody should lose a
+run to a window drag. C is the right answer and is not this lane's file to open
+tonight.
+
+### Unrelated, found while measuring
+
+- A rock in the Title's debris field overlaps the KEYBLASTER wordmark. It is
+  **pre-existing**: it overlaps the "K" at a plain 1920-wide world too
+  (`gauntlet/evidence/aspect-16x9.png`). A wider world changes WHICH rock lands
+  there rather than fixing or causing it — at 2560 it sits across the "K" and
+  "E", at 2000 it only grazes the "K". `TitleScene.wordmarkY` already keeps the
+  SUN out of the letters; the debris layer has no equivalent keep-out. Same
+  class of defect, different layer, not fixed here.
+- The atmosphere layer's `kb/tex/mote` dust overhangs the right edge by 22 px
+  and the bottom by 20 px at every ratio including a plain 1920x1080. Ambient
+  and deliberate as far as anyone can tell; recorded because a first draft of
+  the overflow test failed on it and the temptation is to silently widen the
+  tolerance.

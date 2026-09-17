@@ -4,20 +4,17 @@ import {
   type InputMethod,
   type KeyboardLayout,
   type Lang,
-  LANGS,
   type Settings,
 } from "@engine/types";
 import { MenuScene } from "@game/ui/MenuScene";
+import { type Control, MenuButton } from "@game/ui/controls";
 import {
-  type Control,
-  type OptionChoice,
-  MenuButton,
-  OptionRow,
-  SliderRow,
-  ToggleRow,
-} from "@game/ui/controls";
-import { plate, strokePlate } from "@game/ui/chrome";
-import { hexToNum } from "@game/render/palette";
+  KnobRow,
+  type SelectorChoice,
+  SelectorRow,
+  SwitchRow,
+  drawConsoleFace,
+} from "@game/ui/cockpit";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { uiText } from "@game/ui/text";
 import type { MenuKey } from "@game/ui/i18n";
@@ -26,9 +23,33 @@ import { audioFrom } from "@game/audio/wiring";
 /**
  * SCREEN 11 - SETTINGS (D41, D45; AC-19.1 to AC-19.4).
  *
- * "Settings should look like ship controls, not a form", so the screen is two
- * consoles - the sound desk and the flight deck - each on its own plate, with
- * the values as sliders, pips and readouts rather than as labelled inputs.
+ * UR-11: "the menu should look like the inside of a space ship. For instance,
+ * maybe a knob instead of this." The screen it replaced was, in the 17-screen
+ * critic's words, "the cleanest UI in the build" - which was true and was also
+ * the problem: clean web UI, flat rows and a pill slider with a percentage, in
+ * a game about flying a ship.
+ *
+ * So this is a DIEGETIC INTERFACE (tvtropes: Diegetic Interface; Kerbal Space
+ * Program's modelled instrument panels; `20,000 Atmospheres`, where "the user
+ * interface is also the world in which you play the game"). Not a menu the
+ * player is shown - two console panels the PILOT is sitting at, bezelled,
+ * screwed down and lit from above, with a rotary knob for a continuous value, a
+ * lit toggle for a binary and a detented selector for a small set.
+ * `ui/cockpit.ts` draws the hardware; `ui/panel.ts` holds the maths and the
+ * inks; the shape vocabulary is traced from
+ * design-reference/refs/cockpit/console-2.png, which is LOOKED AT and never
+ * loaded (D83, D84).
+ *
+ * THREE THINGS OUTRANK THE FICTION and are asserted, not asserted-about:
+ *   - AC-18.1. Every control is operated by Left/Right through the one focus
+ *     list, and the gold ring lands on its box. `settings.spec.ts` walks the
+ *     whole panel and checks the ring at every stop.
+ *   - AC-22.8. Every label and value clears 4.5:1 on the charcoal, measured as
+ *     a cross product in tests/unit/ui/cockpit.test.ts, with a negative control
+ *     so "all green" cannot mean "nothing measured".
+ *   - A SEVEN-YEAR-OLD CAN READ IT. Every knob keeps the "70%" the slider had,
+ *     every switch keeps the word "on", every selector keeps the name of what
+ *     it is set to - each printed behind glass, in the accent, at 12.8:1.
  *
  * AC-19.1: every setting PERSISTS and TAKES EFFECT WITHOUT A RELOAD. Both
  * halves are real work and they are done differently:
@@ -53,6 +74,11 @@ import { audioFrom } from "@game/audio/wiring";
  * triangle, no shouting - it asks twice, in plain words, and the safe answer
  * has focus both times.
  */
+/** Where the first control sits, and how much panel shows around the stack. */
+const TOP = 228;
+const ROW_GAP = 14;
+const BEZEL = 26;
+
 export class SettingsScene extends MenuScene {
   static readonly KEY = SCENE_KEYS.settings;
 
@@ -78,19 +104,16 @@ export class SettingsScene extends MenuScene {
     const leftX = SPACE.gutter;
     const rightX = SPACE.gutter * 2 + colW;
 
-    this.panelPlate(leftX - 24, 190, colW + 48, 700);
-    this.panelPlate(rightX - 24, 190, colW + 48, 760);
-
     const controls: Control[] = [];
-    let y = 230;
+    let y = TOP;
     const advance = (c: Control): void => {
       controls.push(c);
-      y += c.ringBounds().h + 14;
+      y += c.ringBounds().h + ROW_GAP;
     };
 
     // --- sound desk --------------------------------------------------------
     advance(
-      new SliderRow(this, this.uiStyle, "settings.music", leftX, y, this.depth, {
+      new KnobRow(this, this.uiStyle, "settings.music", leftX, y, this.depth, {
         label: this.t.t("ui.settings.music"),
         width: colW,
         value: s.musicVolume,
@@ -102,7 +125,7 @@ export class SettingsScene extends MenuScene {
       }),
     );
     advance(
-      new SliderRow(this, this.uiStyle, "settings.sfx", leftX, y, this.depth, {
+      new KnobRow(this, this.uiStyle, "settings.sfx", leftX, y, this.depth, {
         label: this.t.t("ui.settings.sfx"),
         width: colW,
         value: s.sfxVolume,
@@ -116,7 +139,7 @@ export class SettingsScene extends MenuScene {
 
     // --- keyboard and language --------------------------------------------
     advance(
-      new OptionRow<KeyboardLayout>(
+      new SelectorRow<KeyboardLayout>(
         this,
         this.uiStyle,
         "settings.keyboardLayout",
@@ -141,7 +164,7 @@ export class SettingsScene extends MenuScene {
       ),
     );
     advance(
-      new OptionRow<InputMethod>(
+      new SelectorRow<InputMethod>(
         this,
         this.uiStyle,
         "settings.inputMethod",
@@ -165,7 +188,7 @@ export class SettingsScene extends MenuScene {
       ),
     );
     advance(
-      new OptionRow<Lang>(this, this.uiStyle, "settings.uiLang", leftX, y, this.depth, {
+      new SelectorRow<Lang>(this, this.uiStyle, "settings.uiLang", leftX, y, this.depth, {
         label: this.t.t("settings.uiLang"),
         width: colW,
         value: s.uiLang,
@@ -177,7 +200,7 @@ export class SettingsScene extends MenuScene {
 
     const typeable = availableContentLangs(s.inputMethod);
     advance(
-      new OptionRow<Lang>(
+      new SelectorRow<Lang>(
         this,
         this.uiStyle,
         "settings.contentLang",
@@ -212,15 +235,21 @@ export class SettingsScene extends MenuScene {
       ),
     );
 
+    // The left console is only as tall as the controls that were MEASURED onto
+    // it. A hard-coded 700 was a promise about wrapped text that nothing
+    // measured, and a knob row is half again the height of the pill-slider row
+    // it replaced - so the panel would have ended in the middle of a control.
+    const leftBottom = y - ROW_GAP;
+
     // --- flight deck -------------------------------------------------------
-    y = 230;
+    y = TOP;
     const advanceRight = (c: Control): void => {
       controls.push(c);
-      y += c.ringBounds().h + 14;
+      y += c.ringBounds().h + ROW_GAP;
     };
 
     advanceRight(
-      new OptionRow<"lower" | "upper">(
+      new SelectorRow<"lower" | "upper">(
         this,
         this.uiStyle,
         "settings.letterCase",
@@ -241,7 +270,7 @@ export class SettingsScene extends MenuScene {
       ),
     );
     advanceRight(
-      new ToggleRow(
+      new SwitchRow(
         this,
         this.uiStyle,
         "settings.letterSpacing",
@@ -259,7 +288,7 @@ export class SettingsScene extends MenuScene {
       ),
     );
     advanceRight(
-      new ToggleRow(
+      new SwitchRow(
         this,
         this.uiStyle,
         "settings.reducedMotion",
@@ -279,7 +308,7 @@ export class SettingsScene extends MenuScene {
       ),
     );
     advanceRight(
-      new ToggleRow(
+      new SwitchRow(
         this,
         this.uiStyle,
         "settings.colorblind",
@@ -297,13 +326,14 @@ export class SettingsScene extends MenuScene {
       ),
     );
 
+    y += 24;
     advanceRight(
       new MenuButton(
         this,
         this.uiStyle,
         "settings.resetProgress",
         rightX,
-        y + 40,
+        y,
         this.depth,
         {
           label: this.t.t("ui.settings.resetProgress"),
@@ -311,6 +341,16 @@ export class SettingsScene extends MenuScene {
           onPress: () => this.askReset(),
         },
       ),
+    );
+
+    const rightBottom = y - ROW_GAP;
+
+    this.consoleFace(leftX - BEZEL, TOP - BEZEL, colW + BEZEL * 2, leftBottom - TOP + BEZEL * 2);
+    this.consoleFace(
+      rightX - BEZEL,
+      TOP - BEZEL,
+      colW + BEZEL * 2,
+      rightBottom - TOP + BEZEL * 2,
     );
 
     this.addHint("ui.common.hintAdjust");
@@ -333,20 +373,25 @@ export class SettingsScene extends MenuScene {
     if (repaired !== s.contentLang) this.app.applySettings({ contentLang: repaired });
   }
 
-  /** The console plate behind a column: this is a panel, not a page. */
-  private panelPlate(x: number, y: number, w: number, h: number): void {
+  /**
+   * The console panel a column of controls is screwed to.
+   *
+   * Drawn BEHIND the controls, at `depth - 1`, and sized from the measured
+   * stack rather than from a constant: every row on this screen is taller than
+   * the flat row it replaced, and a fixed panel height would have ended
+   * halfway through a knob.
+   *
+   * The row of indicator pips the old plate carried is gone. It was decorative,
+   * and on a panel that now reads as real hardware a row of lights that means
+   * nothing is a row of lights a child will try to interpret - which is the one
+   * thing a console in a game for seven-year-olds must not do.
+   */
+  private consoleFace(x: number, y: number, w: number, h: number): void {
     const g = this.add.graphics().setDepth(this.depth - 1);
-    plate(g, x, y, w, h, hexToNum(INK.panelSunken), 0.55, 26);
-    strokePlate(g, x, y, w, h, hexToNum(INK.line), 2, 26);
-    // A row of indicator pips along the top edge, like a real desk. Decorative
-    // and deliberately not a status: nothing here can read as an alarm.
-    for (let i = 0; i < 6; i += 1) {
-      g.fillStyle(hexToNum(this.uiStyle.accent), i % 2 === 0 ? 0.5 : 0.18);
-      g.fillCircle(x + 28 + i * 20, y + 22, 5);
-    }
+    drawConsoleFace(g, { x, y, w, h });
   }
 
-  private langChoices(langs: readonly Lang[]): OptionChoice<Lang>[] {
+  private langChoices(langs: readonly Lang[]): SelectorChoice<Lang>[] {
     return langs.map((lang) => ({
       value: lang,
       label: this.t.t(`ui.settings.lang.${lang}` as MenuKey),

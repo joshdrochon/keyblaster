@@ -160,6 +160,79 @@ export function ambientCrossfade(elapsedMs: number, durationMs: number): { out: 
   return equalPowerCrossfade(progress(elapsedMs, durationMs));
 }
 
+/** Length of the wind noise loop, in seconds. */
+export const WIND_LOOP_SECONDS = 4;
+
+/**
+ * How much of the tail is folded back over the head to close the loop. A
+ * quarter second: long enough that the blend is inaudible in noise this slow,
+ * short enough to leave most of the lap as untouched material.
+ */
+export const WIND_WRAP_SECONDS = 0.25;
+
+/**
+ * The wind layer's looping noise, as plain samples.
+ *
+ * PURE ON PURPOSE. This is the only sound in the game that repeats, so it is
+ * the only sound that can have a LOOP SEAM - and a seam is measurable, not a
+ * matter of taste. Keeping the generator free of the audio context means the
+ * test can read every sample and assert the seam away, instead of asserting
+ * that some nodes were created.
+ *
+ * UR-10 - WHY THE TAIL IS FOLDED OVER THE HEAD.
+ * Brown noise is a random walk. A walk starts at zero and ends wherever it
+ * ended, so cutting `length` samples out of one and setting `loop = true`
+ * guarantees a STEP at the wrap: the old buffer went from -0.2485 back to
+ * +0.0389, a jump of 0.2873 where the largest step the noise takes anywhere
+ * else in 192,000 samples is 0.0844. Rendered through Neptune's bed that
+ * arrived as a 0.0579 level change in 0.54 ms - 47% of the whole bed's RMS -
+ * once every 4.000 s. That is the pop the user heard, and no amount of
+ * reseeding or re-tuning removes it, because it is a property of walks.
+ *
+ * So the walk is run for `length + wrap` samples and its last `wrap` samples
+ * are equal-power crossfaded over its first `wrap`. Read what that does at the
+ * two joins:
+ *
+ *   out[length-1] = x[length-1]   and   out[0] = x[length]
+ *
+ * which are CONSECUTIVE samples of one continuous walk - so wrapping around is
+ * indistinguishable from playing straight on, in value and in slope alike. At
+ * the other end out[wrap-1] = x[wrap-1] and out[wrap] = x[wrap], likewise
+ * consecutive. The seam is not made small; it is made not to exist.
+ *
+ * Equal power rather than linear because the head and the far tail of a walk
+ * are uncorrelated, and a linear blend of uncorrelated noise dips ~3 dB in the
+ * middle - the same reasoning as `equalPowerCrossfade` for the bed transition.
+ */
+export function windLoopSamples(sampleRate: number, seconds = WIND_LOOP_SECONDS): Float32Array {
+  const rate = Number.isFinite(sampleRate) && sampleRate > 0 ? sampleRate : 48000;
+  const length = Math.max(1, Math.floor(rate * seconds));
+  // At least two samples of overlap, and never more than half the lap.
+  const wrap = Math.min(Math.floor(length / 2), Math.max(0, Math.floor(rate * WIND_WRAP_SECONDS)));
+
+  // Brown-ish noise: white noise integrated, which is much closer to wind
+  // than white is, and costs one add per sample. Run PAST the end by `wrap`
+  // so there is real walk to fold back, never a repeat of the head.
+  const walk = new Float32Array(length + wrap);
+  const rng = seededRandom(0x2b7c19);
+  let last = 0;
+  for (let i = 0; i < walk.length; i++) {
+    const white = rng() * 2 - 1;
+    last = clamp((last + 0.02 * white) / 1.02, -1, 1);
+    walk[i] = last * 3.5;
+  }
+
+  const data = walk.slice(0, length);
+  if (wrap < 2) return data;
+  for (let i = 0; i < wrap; i++) {
+    // t runs 0..1 INCLUSIVE over the region, so the first blended sample is
+    // purely tail and the last is purely head. Both joins are then exact.
+    const fade = equalPowerCrossfade(i / (wrap - 1));
+    data[i] = (walk[length + i] as number) * fade.out + (walk[i] as number) * fade.in;
+  }
+  return data;
+}
+
 interface BedVoice {
   readonly spec: AmbientBedSpec;
   readonly gain: GainNodeLike;
@@ -349,18 +422,9 @@ export class AmbientBus {
   private windBuffer(): AudioBufferLike {
     const cached = AmbientBus.sharedWind.get(this.ctx);
     if (cached) return cached;
-    const length = Math.max(1, Math.floor(this.ctx.sampleRate * 4));
+    const length = Math.max(1, Math.floor(this.ctx.sampleRate * WIND_LOOP_SECONDS));
     const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    const rng = seededRandom(0x2b7c19);
-    // Brown-ish noise: white noise integrated, which is much closer to wind
-    // than white is, and costs one add per sample.
-    let last = 0;
-    for (let i = 0; i < length; i++) {
-      const white = rng() * 2 - 1;
-      last = clamp((last + 0.02 * white) / 1.02, -1, 1);
-      data[i] = last * 3.5;
-    }
+    buffer.getChannelData(0).set(windLoopSamples(this.ctx.sampleRate));
     AmbientBus.sharedWind.set(this.ctx, buffer);
     return buffer;
   }

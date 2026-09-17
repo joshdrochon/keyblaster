@@ -41,12 +41,25 @@ export const STOPS = [
   "pluto",
 ] as const;
 
-/** A cleared, beacon-placed stop. */
+/**
+ * A cleared, beacon-placed stop.
+ *
+ * ACCURACY IS A FRACTION, because that is what the game stores.
+ * `@engine/scoring/rates.accuracy` returns `hits / attempts` — 0.96, not 96 —
+ * and every screen formats it as `accuracy * 100` at the point of display.
+ *
+ * These fixtures used to inject PERCENT (96), which is a different shape from
+ * anything the engine can produce. It hid a real bug for a while (the map was
+ * the one screen not multiplying, so a 97% run rendered as "1% accurate") and
+ * then, once that was fixed, produced "9700% accurate" — the fixture and the
+ * formatter each scaling once. A fixture that cannot come out of the engine is
+ * not a test of the game; it is a test of the fixture.
+ */
 export function charted(
   stopId: string,
   stars = 3,
   bestWpm = 24,
-  bestAccuracy = 96,
+  bestAccuracy = 0.96,
 ): Record<string, unknown> {
   return {
     stopId,
@@ -55,7 +68,7 @@ export function charted(
     bestWpm,
     bestAccuracy,
     lastWpm: bestWpm - 2,
-    lastAccuracy: bestAccuracy - 1,
+    lastAccuracy: Math.max(0, bestAccuracy - 0.01),
     beaconPlacedAt: 1_700_000_000_000,
   };
 }
@@ -66,13 +79,16 @@ export const PROGRESS_VARIANTS = {
   marsOnly: [charted("earth", 3, 0, 0)],
   /** "Mid-run": Earth through Saturn charted, Uranus open, the rest locked. */
   midRun: [
+    // Accuracy is a FRACTION here, as the engine produces it. See `charted`.
     charted("earth", 3, 0, 0),
-    charted("mars", 3, 26, 97),
-    charted("jupiter", 2, 29, 93),
-    charted("saturn", 2, 31, 91),
+    charted("mars", 3, 26, 0.97),
+    charted("jupiter", 2, 29, 0.93),
+    charted("saturn", 2, 31, 0.91),
   ],
   /** "All seven". */
-  allSeven: STOPS.map((s, i) => charted(s, i === 0 ? 3 : ((i % 3) + 1), 20 + i * 3, 90 + i)),
+  allSeven: STOPS.map((s, i) =>
+    charted(s, i === 0 ? 3 : ((i % 3) + 1), 20 + i * 3, (90 + i) / 100),
+  ),
 } as const;
 
 declare global {
