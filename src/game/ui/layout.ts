@@ -195,7 +195,16 @@ export function fitPlan(
 // The Beacon Log's frame
 // ---------------------------------------------------------------------------
 
-const RIGHT_EDGE = GAME_WIDTH - SPACE.gutter;
+/**
+ * The right gutter, READ AT DRAW TIME.
+ *
+ * This was `const RIGHT_EDGE = GAME_WIDTH - SPACE.gutter` at module top level,
+ * which was correct while the world was a fixed 1920 wide and is a frozen 1872
+ * now that it is not (D99, `sceneKeys` header): a module-level `const` captures
+ * the live binding's value at import time, before `bootGame` has measured the
+ * window. A getter reads it when the screen is actually laid out.
+ */
+const rightEdge = (): number => GAME_WIDTH - SPACE.gutter;
 
 /**
  * SCREEN 10's regions, as numbers rather than as literals sprinkled through the
@@ -246,7 +255,10 @@ export const BEACON_LOG = {
 
   /** Right-aligned block in the header band; only drawn in the empty state. */
   aside: {
-    right: RIGHT_EDGE,
+    /** Live: the world's right gutter, which moves with the window (D99). */
+    get right(): number {
+      return rightEdge();
+    },
     w: 640,
     top: 44,
     h: 152,

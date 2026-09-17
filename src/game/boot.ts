@@ -27,6 +27,8 @@ import {
   GAME_HEIGHT,
   GAME_WIDTH,
   SCENE_KEYS,
+  designWidthFor,
+  setGameWidth,
   type SceneContext,
 } from "./sceneKeys.js";
 import { hexToNum, paletteFor } from "./render/palette.js";
@@ -305,6 +307,108 @@ function wireAudioToFrames(
 }
 
 // ---------------------------------------------------------------------------
+// The world follows the window (D99)
+// ---------------------------------------------------------------------------
+
+/** How long the drag has to stop before the world is resized. */
+const RESIZE_SETTLE_MS = 180;
+
+/** How often a deferred resize asks again whether it may land. */
+const RESIZE_RETRY_MS = 900;
+
+/** Below this the change is rounding, not a resize. */
+const RESIZE_EPSILON_PX = 2;
+
+/**
+ * Scenes whose relayout would cost the player something they earned.
+ *
+ * Relayout is `scene.restart()`, which re-runs `create` against the new world
+ * width - correct, and for these three it would also throw away the run in
+ * progress: the belt, the score and the hull. A window drag mid-flight is not
+ * worth a lost run, so the new size WAITS for the flight to end. Until it
+ * does, the window keeps whatever letterbox the drag opened up, which is the
+ * one place in the game where the old behaviour survives. Recorded in
+ * gauntlet/escalations.md.
+ */
+const RESIZE_HOLD_KEYS: readonly string[] = [
+  SCENE_KEYS.flight,
+  SCENE_KEYS.hud,
+  SCENE_KEYS.stall,
+];
+
+/**
+ * Keep the world's width equal to the window's aspect, for the whole session.
+ *
+ * WHY A RESTART AND NOT JUST `setGameSize`. `setGameSize` alone removes the
+ * letterbox and puts a different gap in its place: every scene builds its
+ * parallax, its full-bleed plate and its right-anchored HUD in `create`, so a
+ * window widened after that has a strip down the right with no sky in it,
+ * showing the WebGL clear colour. That is the same defect wearing a different
+ * hat, which is exactly how this bug survived five fixes. `create` is the code
+ * that lays a screen out, so relayout means running it again.
+ *
+ * WHEN IT WAITS. Never mid-run (see `RESIZE_HOLD_KEYS`), and never while any
+ * scene is paused or asleep - the Pause card pauses the scene underneath it
+ * and Settings puts Pause to sleep, and restarting only the visible one would
+ * leave the sleeper laid out for a window that no longer exists. A deferred
+ * resize re-asks every `RESIZE_RETRY_MS` until it can land.
+ */
+function followWindowSize(game: Phaser.Game, backdrop: ViewportBackdrop | null): void {
+  let timer = 0;
+  let deferred: number | null = null;
+
+  const suspended = (): boolean =>
+    game.scene.scenes.some((s) => s.sys.isPaused() || s.sys.isSleeping());
+
+  const midRun = (): boolean =>
+    RESIZE_HOLD_KEYS.some((key) => {
+      const scene = game.scene.getScene(key);
+      return scene !== null && (scene.sys.isActive() || scene.sys.isPaused());
+    });
+
+  const apply = (width: number): void => {
+    setGameWidth(width);
+    game.scale.setGameSize(GAME_WIDTH, GAME_HEIGHT);
+    backdrop?.refresh();
+    for (const scene of game.scene.getScenes(true)) {
+      const key = scene.sys.settings.key;
+      if (key === SCENE_KEYS.boot) continue;
+      // The same data the scene was started with, so a restart is a relayout
+      // and not a different screen.
+      scene.scene.restart(scene.sys.settings.data);
+    }
+    game.events.emit("kb.worldResize", GAME_WIDTH, GAME_HEIGHT);
+  };
+
+  const attempt = (): void => {
+    timer = 0;
+    const want = deferred ?? designWidthFor(window.innerWidth, window.innerHeight);
+    if (Math.abs(want - GAME_WIDTH) < RESIZE_EPSILON_PX) {
+      deferred = null;
+      return;
+    }
+    if (midRun() || suspended()) {
+      deferred = want;
+      timer = window.setTimeout(attempt, RESIZE_RETRY_MS);
+      return;
+    }
+    deferred = null;
+    apply(want);
+  };
+
+  const onResize = (): void => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(attempt, RESIZE_SETTLE_MS);
+  };
+
+  window.addEventListener("resize", onResize);
+  game.events.once(Phaser.Core.Events.DESTROY, () => {
+    window.removeEventListener("resize", onResize);
+    window.clearTimeout(timer);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
@@ -378,15 +482,31 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
   const discovered = await discoverScenes();
 
   /**
-   * THE LETTERBOX (see ui/viewportBackdrop.ts for the full reasoning).
+   * THE WORLD'S SIZE, MEASURED FROM THE WINDOW (D99).
    *
-   * `Scale.FIT` is kept deliberately: it is the only one of the three options
-   * that keeps the flight play-field at exactly its design size on every window
-   * (FR-8's fall-time budget is measured against a fixed fall distance) while
-   * also keeping every HUD row on screen (AC-18.1 - `Scale.ENVELOP` would crop
-   * about a quarter of the height at 21:9, and that is where the score and the
-   * hint line live). What FIT leaves behind is two bars, so the bars get the
-   * stop's own sky instead of black.
+   * `sceneKeys` carries the full reasoning. In one line: the letterbox was
+   * made by fitting a fixed 16:9 rect into a window that is not 16:9, so the
+   * rect is no longer fixed. The width is the window's own aspect at a pinned
+   * 1080 height, and `Scale.FIT` then has nothing left to letterbox - it only
+   * scales the world up or down to the window, which is what it is for.
+   *
+   * This must run BEFORE `new Phaser.Game` and before any scene module is
+   * asked for a coordinate, so that every `GAME_WIDTH` read in the game is the
+   * real one. `discoverScenes()` above only IMPORTS the scene modules; none of
+   * them lays anything out until `create`.
+   */
+  setGameWidth(designWidthFor(window.innerWidth, window.innerHeight));
+
+  /**
+   * The viewport backdrop (see ui/viewportBackdrop.ts).
+   *
+   * It no longer has a letterbox to fill - there isn't one. What it still does
+   * is own the pixels behind the game canvas, which matters for the at most
+   * one device-independent pixel of slack that rounding the design width to an
+   * integer can leave, and for the instant during a window drag between the
+   * browser resizing the canvas and the debounced relayout below catching up.
+   * Cheap insurance: it repaints on a stop change and on resize, never on a
+   * tick (AC-22.9).
    *
    * Installed BEFORE `new Phaser.Game`, so it is the first child of the parent
    * element and the game canvas is drawn over it.
@@ -436,7 +556,35 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
     // particles (AC-22.9).
     scale: {
       mode: Phaser.Scale.FIT,
-      autoCenter: Phaser.Scale.CENTER_BOTH,
+      /**
+       * NO_CENTER, and the CSS does the centring. Not a style preference — the
+       * game was centred TWICE. It still matters with D99 in place: the world
+       * matches the window's aspect to within a rounded pixel, so there is at
+       * most ~1 px of slack, and centring that twice puts all of it on one
+       * side where it reads as a hairline down one edge.
+       *
+       * `autoCenter: CENTER_BOTH` centres the canvas by setting a margin, and
+       * `#app { display:grid; place-items:center }` in index.html then centres
+       * the resulting margin box a second time. The two offsets add, so the
+       * bars came out 3:1 instead of 1:1 at every window that is not exactly
+       * 16:9: measured 144 px above the game and 48 below it at 1024x768, and
+       * 375 left against 125 right at 2100x900.
+       *
+       * That also silently broke the letterbox. `viewportBackdrop.designRect`
+       * paints the sky against `(w - rw) / 2` — where a correctly centred
+       * canvas would be — so the gradient was being drawn for a rect the game
+       * had been pushed out of, by half a bar.
+       *
+       * CSS wins over `autoCenter` because `#app`'s grid is the mechanism the
+       * backdrop already documents itself against (see viewportBackdrop's
+       * z-index note), and because the backdrop is `position:absolute` inside
+       * that grid and so is unaffected by it either way.
+       *
+       * Invisible to the suite until now: 27 of 30 e2e specs run at 1280x720,
+       * which is exactly 16:9 and therefore has no bar to be asymmetric.
+       * `aspect.spec.ts` covers it now, 4:3 included.
+       */
+      autoCenter: Phaser.Scale.NO_CENTER,
       width: GAME_WIDTH,
       height: GAME_HEIGHT,
     },
@@ -524,6 +672,9 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
   };
 
   game.events.once(Phaser.Core.Events.DESTROY, () => backdrop?.destroy());
+
+  // The window is draggable, so the world's width has to keep following it.
+  followWindowSize(game, backdrop);
 
   return game;
 }

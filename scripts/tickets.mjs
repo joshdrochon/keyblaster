@@ -49,6 +49,7 @@ import {
   sceneRowMap,
 } from "./trace-check.mjs";
 import { RUBRIC } from "../tests/gauntlet/rubric.mjs";
+import { srcHash } from "./lib/srcHash.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(REPO, p), "utf8");
@@ -110,13 +111,44 @@ function newestSourceMtime() {
 }
 
 const NEWEST_SRC = newestSourceMtime();
+const CURRENT_SRC_HASH = srcHash();
 
-/** @returns {{exists:boolean, stale:boolean, ageMs:number|null, path:string}} */
+/**
+ * @returns {{exists:boolean, stale:boolean, ageMs:number|null, path:string, reason:string}}
+ *
+ * CONTENT first, mtime only as a fallback. An artifact that records the
+ * `src-hash` of the tree it measured is stale when that hash no longer matches
+ * — a fact `touch` cannot forge and `git checkout` cannot disturb. mtime is
+ * kept for artifacts that carry no hash yet, and it is the WEAKER answer: the
+ * critic showed `touch gauntlet/report.md` converting 21 UNVERIFIED tickets to
+ * DONE, and `git checkout` rewriting every mtime under src/ so the verdict
+ * depended on checkout order.
+ */
 function artifact(relPath) {
   const abs = join(REPO, relPath);
-  if (!existsSync(abs)) return { exists: false, stale: false, ageMs: null, path: relPath };
+  if (!existsSync(abs)) {
+    return { exists: false, stale: false, ageMs: null, path: relPath, reason: "missing" };
+  }
   const m = statSync(abs).mtimeMs;
-  return { exists: true, stale: m < NEWEST_SRC, ageMs: NEWEST_SRC - m, path: relPath };
+  const raw = readIf(relPath);
+  const stamped = raw === null ? null : /<!--\s*src-hash:\s*([0-9a-f]{16})/.exec(raw)?.[1] ?? null;
+  if (stamped !== null) {
+    const now = CURRENT_SRC_HASH;
+    return {
+      exists: true,
+      stale: stamped !== now,
+      ageMs: NEWEST_SRC - m,
+      path: relPath,
+      reason: stamped === now ? "src-hash matches" : `src-hash ${stamped} != ${now}`,
+    };
+  }
+  return {
+    exists: true,
+    stale: m < NEWEST_SRC,
+    ageMs: NEWEST_SRC - m,
+    path: relPath,
+    reason: "no src-hash stamp; fell back to mtime, which touch can forge",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -449,7 +481,7 @@ const firstSentence = (s, n = 110) => {
  * exercised directly rather than only through whatever the repo happens to
  * look like on the day.
  */
-export function rubricState({ result, falsePass, stale, ageMs }) {
+export function rubricState({ result, falsePass, stale, ageMs, staleReason }) {
   if (falsePass) return { state: STATE.FALSE_PASS, why: falsePass.why };
   if (!result) return { state: STATE.OPEN, why: "no row for this item in gauntlet/report.md" };
   const status = String(result.status).toUpperCase();
@@ -460,11 +492,24 @@ export function rubricState({ result, falsePass, stale, ageMs }) {
   if (status === "PASS" && stale) {
     return {
       state: STATE.UNVERIFIED,
-      why: `reported PASS, but report.md predates the newest file in src/ by ${fmtAge(ageMs)}`,
+      why: `reported PASS on a tree that is no longer this one (${staleReason ?? `older by ${fmtAge(ageMs)}`})`,
     };
   }
   if (status === "PASS") return { state: STATE.DONE, why: result.measurement };
   return { state: STATE.OPEN, why: status };
+}
+
+/** Defects the user reported by looking at the game. See the block that uses it. */
+function userReported() {
+  const raw = readIf("gauntlet/user-reported.json");
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error(`tickets: gauntlet/user-reported.json is not valid JSON — ${e.message}`);
+    process.exitCode = 1;
+    return [];
+  }
 }
 
 export function buildTickets() {
@@ -496,6 +541,7 @@ export function buildTickets() {
       falsePass: falsePasses.get(item.id),
       stale: reportMeta.stale,
       ageMs: reportMeta.ageMs,
+      staleReason: reportMeta.reason,
     });
 
     tickets.push({
@@ -705,6 +751,37 @@ export function buildTickets() {
       why,
       evidence: screenEvidence,
       refs: sceneFor ? [sceneFor] : [],
+    });
+  }
+
+  // --- User-reported defects ----------------------------------------------
+  /**
+   * Things the USER saw and reported, in their own words.
+   *
+   * These get first-class tickets because they are the only requirements in
+   * this project verified by the one test that has never been wrong all night:
+   * a person looking at the screen. The suite was green over an unplayable
+   * game, over invisible asteroids, over a dead voice pipeline and over six
+   * reports of the same bars. Every one of those was found by eye.
+   *
+   * Status is NOT computed here. A user-reported defect is closed when the user
+   * says it is closed, or when there is evidence a critic accepted — not when a
+   * check we wrote goes green. That is the whole lesson of the night, so the
+   * `state` field is read from the file and the file records who closed it.
+   */
+  for (const r of userReported()) {
+    tickets.push({
+      id: `KB-${r.id}`,
+      kind: "user-reported",
+      title: firstSentence(r.what, 110),
+      source: "gauntlet/user-reported.json",
+      state: r.state === "DONE" ? STATE.DONE : STATE.OPEN,
+      why:
+        r.state === "DONE"
+          ? r.evidence ?? "closed"
+          : `reported ${r.reports ?? 1}x by the user: "${firstSentence(r.said, 90)}"`,
+      evidence: r.evidence ? [r.evidence] : [],
+      refs: [],
     });
   }
 

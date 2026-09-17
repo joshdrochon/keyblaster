@@ -52,6 +52,22 @@
  *   - `browserSpeechPort` warms the list on construction and re-reads it on
  *     `voiceschanged`, so the list is loaded long before the first line.
  *
+ * ================== D98: THE STAND-IN IS CUT ==================
+ * D88's Web Speech stand-in existed because there was no ElevenLabs key. There
+ * is one, Shadow's lines are rendered with it, and the stand-in stayed wired
+ * underneath every speak site - so a line nobody remembered to render degraded
+ * to an OS voice rather than failing loudly, and a player heard that happen at
+ * the warp break. The rule now:
+ *
+ *   - a spoken line with no rendered clip is a BUILD FAILURE
+ *     (tests/unit/audio/spokenLines.test.ts enumerates every speakable string)
+ *   - if one slips through anyway, the runtime behaviour is SILENCE
+ *   - `webSpeechTransport` stays in this file behind `allowSystemVoice`, off by
+ *     default, for the one genuinely unrenderable case: live model text
+ *
+ * Everything below about voice selection and cloud voices therefore describes
+ * the OPT-IN path. It is still correct, and it is no longer the default.
+ *
  * ================== NOTHING READS AS FAILURE (D31) ==================
  * Shadow never says a line because the player got something wrong; this module
  * only speaks what it is handed. The one rule it enforces itself is AC-21.6:
@@ -147,13 +163,36 @@ export interface VoiceEnvironment {
   readonly chirp?: () => void;
   /**
    * Shadow's PRE-RENDERED lines (D63). Absent on a build that ships no files,
-   * and absent for every line that has no file - which includes every coach
-   * note, forever, because those are written at runtime.
+   * and absent for any line that has no file.
+   *
+   * THE COACH NOTE IS NOT SUCH A LINE, whatever the comment here used to say.
+   * Its text is authored and finite - D33's fallback bundle and the mock's
+   * slot-free notes - and it is rendered like everything else; only an
+   * interpolated mock note or live model text has no file (D98).
    *
    * `graph.ts` builds this over the voice bus, so a clip is ducked, mastered
    * and faded by the same graph everything else in the game goes through.
    */
   readonly clips?: VoiceClipPlayer;
+  /**
+   * ============ D98: THE SYSTEM VOICE IS OFF UNLESS ASKED FOR ============
+   *
+   * D88 chose Web Speech as a STAND-IN because there was no ElevenLabs key.
+   * That condition ended - Shadow is rendered with Liam - but the stand-in
+   * stayed wired underneath every speak site, so any line nobody remembered to
+   * render degraded silently to an OS voice instead of failing loudly. A
+   * player heard exactly that at the warp break.
+   *
+   * So the default is now OFF, and `undefined` means off: a line with no
+   * rendered clip is SILENT at runtime and a BUILD FAILURE at the guard
+   * (`tests/unit/audio/spokenLines.test.ts`). A missing voice is a small
+   * defect; a stranger's voice in the middle of a children's game is not.
+   *
+   * The flag exists because one case is genuinely unrenderable - a live model
+   * note - and someone running with a real `/api/coach` may want it read. It
+   * is opt-in, per session, and `createAudioSystem` does not set it.
+   */
+  readonly allowSystemVoice?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -257,10 +296,13 @@ export function localVoiceFor(
 // ---------------------------------------------------------------------------
 
 /**
- * `scripted` lines are the ones ElevenLabs pre-renders when the key lands
- * (D63/D88); `coachNote` is runtime LLM text and stays system voice (D88's
- * recorded lean). The transport is free to treat them differently; nothing
- * above the transport needs to know that it does.
+ * Where the TEXT came from, and nothing else.
+ *
+ * It is deliberately not the axis the transport branches on - see
+ * `createVoiceTransport` - and `coachNote` no longer implies "system voice":
+ * D88's lean was recorded when the coach note was believed to be runtime LLM
+ * text, and D98 records what it actually is. A coach note whose sentence was
+ * authored has a clip exactly like a scripted line does.
  */
 export type VoiceLineKind = "scripted" | "coachNote";
 
@@ -718,8 +760,11 @@ export function silentTransport(schedule: Scheduler): VoiceTransport {
  */
 export function adaptiveTransport(env: VoiceEnvironment): VoiceTransport {
   const silent = silentTransport(env.schedule);
+  // D98: the platform voice is not a fallback any more. It is built only when
+  // the session explicitly opted in; otherwise an unrendered line is silent and
+  // the guard fails the build for it. See `VoiceEnvironment.allowSystemVoice`.
   const web =
-    env.speech === null
+    env.speech === null || env.allowSystemVoice !== true
       ? null
       : webSpeechTransport(env.speech, env.platform, env.lang, {
           onRefused: () => env.chirp?.(),

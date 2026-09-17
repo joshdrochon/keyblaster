@@ -19,7 +19,8 @@
  * artifact, and never passed as an argv.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -68,6 +69,78 @@ const SPOKEN_UI_KEYS = [
   "preflight.line.returning",
 ];
 
+/**
+ * ================== THE COACH NOTE IS RENDERABLE (D98) ==================
+ *
+ * It was excluded from the first pass as "runtime LLM text, unrenderable by
+ * construction", and that was wrong in both of the cases that actually happen:
+ *
+ *   - `/api/coach` is not deployed, so D33's shipped fallback bundle is the
+ *     note on every warp break;
+ *   - and the proxy is not even the default. `chooseTransport` gives an
+ *     unconfigured build the MOCK, whose canned notes are what a player hears.
+ *     "That was a clean run, pilot." - heard in the system voice, which is what
+ *     started this - is `mock.ts` `CLEAN[0]`.
+ *
+ * Both are finite, authored text. They are collected FROM THE CODE THAT
+ * PRODUCES THEM (`coachNoteLines()` in src/engine/coach/spokenNotes.ts) rather
+ * than copied here, which is the rule the SPOKEN_FIELDS comment above asks for,
+ * applied properly: this script, the runtime lookup (`coachNoteClipId`, used by
+ * `installAudio.speakNote`) and the D98 guard
+ * (tests/unit/audio/spokenLines.test.ts) read ONE enumeration. A note added to
+ * either source becomes a render and a failing guard, never a silent miss.
+ *
+ * NOT EVERYTHING CAN BE RENDERED, and the split is data rather than a comment:
+ * three mock templates interpolate the child's own missed words (AC-15.5) and a
+ * live model note is whatever the model wrote. `unrenderableCoachNotes()` names
+ * them; under D98 they are SILENT at runtime rather than read by an OS voice.
+ *
+ * Which LANGUAGES are rendered is `--langs` (default `en`), because Liam
+ * reading Hindi with an English accent is worse than no voice at all. See
+ * gauntlet/escalations.md E-VOICE-1.
+ */
+
+/**
+ * Load the engine's note enumeration into this script.
+ *
+ * The engine is TypeScript with `.js` import specifiers, so it cannot simply be
+ * `import()`ed from a .mjs script; esbuild (already a dependency of vite) is
+ * used to bundle it to one temporary ESM file, which is imported and then
+ * deleted. Importing the REAL module is the point - the alternative is a copy
+ * of the strings in this file, and a copy is how the first 28 renders came to
+ * target ids the game never spoke.
+ */
+async function loadCoachNotes() {
+  let esbuild;
+  try {
+    esbuild = await import("esbuild");
+  } catch {
+    console.error(
+      "esbuild is not installed, so the coach notes cannot be collected from " +
+        "src/engine/coach. Run `npm install` and try again.",
+    );
+    process.exit(2);
+  }
+  const out = join(tmpdir(), `kb-coach-notes-${process.pid}.mjs`);
+  try {
+    await esbuild.build({
+      entryPoints: [join(REPO, "src/engine/coach/spokenNotes.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: out,
+      logLevel: "warning",
+    });
+    const mod = await import(`file://${out}`);
+    return {
+      lines: mod.coachNoteLines(),
+      unrenderable: mod.unrenderableCoachNotes(),
+    };
+  } finally {
+    rmSync(out, { force: true });
+  }
+}
+
 /** ElevenLabs bills per character. Flash v2.5 is ~$0.00003/char on paid tiers. */
 const USD_PER_CHAR = 0.00003;
 
@@ -94,8 +167,13 @@ const CAP_USD = Number(value("cap-usd", process.env["SPEND_CAP_USD"] ?? "0"));
 const VOICE_ID = value("voice", process.env["ELEVENLABS_VOICE_ID"]);
 const MODEL = value("model", "eleven_flash_v2_5");
 const KEY = process.env["ELEVENLABS_API_KEY"];
+/** Which languages of the coach note to render. See the D98 block above. */
+const COACH_LANGS = (value("langs", "en") ?? "en")
+  .split(",")
+  .map((l) => l.trim())
+  .filter(Boolean);
 
-function collectLines() {
+async function collectLines() {
   const lines = [];
   for (const stop of STOPS) {
     const p = join(REPO, `src/content/en/${stop}.json`);
@@ -120,8 +198,23 @@ function collectLines() {
       lines.push({ id: key, stop: "ui", field: key, text: text.trim() });
     }
   }
+
+  // Shadow's warp-break note, from both transports that can produce one.
+  const coach = await loadCoachNotes();
+  for (const note of coach.lines) {
+    // `lang: null` is the mock, whose templates are English at every lang.
+    if (note.lang !== null && !COACH_LANGS.includes(note.lang)) continue;
+    const text = note.note.trim();
+    if (text.length === 0) continue;
+    lines.push({ id: note.id, stop: "coach", field: note.source, text });
+  }
+  UNRENDERABLE = coach.unrenderable;
+
   return lines;
 }
+
+/** Notes the game can say that no file can hold. Printed with the plan. */
+let UNRENDERABLE = [];
 
 /** Rows of the manifest already on disk, by id. Empty on a first run. */
 function existingManifest() {
@@ -188,7 +281,7 @@ async function render(line) {
   return Buffer.from(await res.arrayBuffer());
 }
 
-const lines = collectLines();
+const lines = await collectLines();
 const chars = lines.reduce((n, l) => n + l.text.length, 0);
 const estUsd = chars * USD_PER_CHAR;
 
@@ -202,6 +295,14 @@ for (const l of lines) {
   console.log(`  ${l.id.padEnd(26)} ${String(l.text.length).padStart(4)}c  ${JSON.stringify(l.text.slice(0, 60))}`);
 }
 console.log(`\n  ${lines.length} lines · ${chars} characters · est. $${estUsd.toFixed(4)} at $${USD_PER_CHAR}/char`);
+
+if (UNRENDERABLE.length > 0) {
+  console.log(`\nNOT rendered, and not renderable (D98 says these are SILENT, never an OS voice):`);
+  for (const item of UNRENDERABLE) {
+    console.log(`  ${JSON.stringify(item.shape)}`);
+    console.log(`      ${item.reason}`);
+  }
+}
 
 if (!LIVE) {
   console.log(`\nDRY RUN - nothing was sent and nothing was spent (D87).`);
@@ -283,7 +384,16 @@ try {
   writeFileSync(
     join(OUT, "manifest.json"),
     JSON.stringify(
-      { renderedAt: new Date().toISOString(), model: MODEL, voiceId: VOICE_ID, lines: manifest },
+      {
+        renderedAt: new Date().toISOString(),
+        model: MODEL,
+        voiceId: VOICE_ID,
+        // The language these recordings are IN. `browserVoiceClips` refuses to
+        // serve them to a session reading another language, because the
+        // scripted ids carry no language of their own (D98, E-VOICE-1).
+        lang: "en",
+        lines: manifest,
+      },
       null,
       2,
     ) + "\n",

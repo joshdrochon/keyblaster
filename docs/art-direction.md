@@ -16,14 +16,52 @@ No raster art ships. World, debris, the Lantern, Shadow, briefing illustrations,
 
 ## 2. World construction (per stop)
 
+> **SUPERSEDED IN PART BY D97: the world is space, not terrain.**
+>
+> This section was written when the world was landforms — horizons, silhouette
+> bands, mesas standing on ground. It is no longer. The LAYER STACK, the SPEEDS,
+> the LIGHT rule and the value-step rule below are all unchanged and still
+> binding. What changed is what the silhouette planes are made OF.
+>
+> **Terrain grammar is withdrawn.** No horizon, no landform bands, no mesas. Two
+> passes were built and measured against them and both failed structurally, not
+> cosmetically: a plane that wraps every tile height can only be a partial fill,
+> and a partial fill repeated vertically is a band with sky above and below it
+> (the "brown ribbons" of three judge rounds). Near-black mass then had to be
+> lane-guarded out of the word column, and confined to the outer 40% of the frame
+> it read as a border on 56 of 64 rows — the edge bars a player reported four
+> times. Separately, four of the seven stops (Saturn's rings, Uranus, Neptune,
+> the Kuiper belt) can never have ground at all, so terrain would have meant
+> maintaining two grammars for one game.
+>
+> **What L2 and L3 carry instead** (`src/game/render/spaceForms.ts`):
+>
+> | Form | What it solves |
+> |---|---|
+> | Ring plane seen near edge-on | A broad shallow arc across the FULL width. Horizontal, so it belongs in the centre — this is how near-black mass finally reached the middle of the frame, which as terrain it never could. |
+> | Planet limb | A huge arc, body off-frame. Scale, and the only curved edge in the game. |
+> | Nebula bands and dust fields | Depth without silhouette. |
+> | Debris at distance | Already drawn well; unchanged. |
+>
+> **The reference is narrowed, not dropped.** `design-reference/refs/world-bar.png`
+> remains the bar for VALUE RANGE, LIGHT, HUE and RESTRAINT — 48.2% of its frame
+> below L*40, one placed light source, sparse high-contrast accents. It is no
+> longer the reference for SHAPE. Judge the value structure and the light, not
+> the mesas.
+>
+> One constraint outranks all of this and is not negotiable: a word-asteroid must
+> never share a value with what is behind it (AC-22.4). See
+> `BANDS_BEHIND_DEBRIS` in `render/palette.ts` — the debris fill is chosen, and
+> the value ladder phased, so every plane a rock is seen against clears it.
+
 Every stop's Flight scene is assembled from the same layer stack, parameterized by that stop's palette and debris set:
 
 | Layer (back→front) | Content | Scroll speed (× world) | Notes |
 |---|---|---|---|
 | L0 Sky | Vertical gradient, 3–4 stops, shifts across the stage (rubric 3) | 0.00 | Hue and value interpolate from `skyStart` to `skyEnd` over stage duration |
 | L1 Celestial | Sun/planet disc with soft radial glow; distant stars/moons | 0.05 | The planet of the stop is large and partially framed |
-| L2 Far field | Distant silhouette band (horizon, cloud deck, ring plane) | 0.15 | Silhouette only, one flat color from palette |
-| L3 Mid field | Second silhouette band; drifting dust/cloud shapes | 0.35 | Continuous drift even when not scrolling (rubric 2) |
+| L2 Far field | Far ring plane + planet limb (D97; was "horizon, cloud deck") | 0.15 | Silhouette only, one flat colour from palette |
+| L3 Mid field | Nearer ring plane, the near-black ring, drifting dust | 0.35 | Continuous drift even when not scrolling (rubric 2). The near-black ring rides this container so it stays BEHIND the light at L1.5 and behind word plates |
 | L4 Debris | The asteroids/ice chunks with word plates | 1.00 | Fall speed per D19; size per word length |
 | L5 Near field | Foreground particles (dust motes, ice glints) | 1.30 | Sparse, blurred by size not filter |
 | L6 Ship & FX | The Lantern, blaster beam, blast particles, strike spark | 1.00 | Ship fixed; camera micro-sway ±2 px on a 6 s sine (off when reduced-motion) |

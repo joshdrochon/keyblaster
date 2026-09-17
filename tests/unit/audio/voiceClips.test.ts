@@ -40,7 +40,18 @@ import {
 } from "../../../src/game/audio/voiceClips.js";
 import { buildAudioGraph } from "../../../src/game/audio/graph.js";
 import { NullAudioContext, NullNode, reaches } from "../../../src/game/audio/nullContext.js";
-import { fakeScheduler, fakeVoiceEnvironment, MAC_VOICES } from "./fakes.js";
+import { installAudio, type AudioService } from "../../../src/game/audio/wiring.js";
+import type { CoachNoteSpeechResult } from "../../../src/game/audio/voice.js";
+import {
+  DEFAULT_FALLBACK_BUNDLE,
+  FALLBACK_CLIP_PREFIX,
+  MOCK_CLIP_PREFIX,
+  coachNoteLines,
+  fallbackFor,
+  mockNoteLines,
+} from "../../../src/engine/coach/index.js";
+import { STOP_IDS } from "../../../src/engine/types.js";
+import { fakeScheduler, fakeVoiceEnvironment, FakeSpeechPort, MAC_VOICES } from "./fakes.js";
 
 const REPO = process.cwd();
 const VOICE_DIR = join(REPO, "src/content/audio/voice");
@@ -629,10 +640,191 @@ describe("the ids the game SPEAKS are the ids that were RENDERED", () => {
     expect(source).toMatch(/\$\{[^}]*stopId[^}]*\}\.preflightLine/);
   });
 
-  it("the runtime coach note is NOT expected to have a file, and never will", () => {
-    // It is written by an LLM during the warp break. Recording it is impossible
-    // by construction, and the transport must fall through for it forever.
+  it("the coach note's SITE id is NOT rendered, and never will be", () => {
+    // `warp.coachNote` names a SCREEN, not a sentence. There are eight possible
+    // sentences behind it (the shipped fallback bundle) plus whatever the LLM
+    // writes, so a file under this name could only ever be one of them played
+    // over the text of another. The lookup keys on the LINE instead - see
+    // `fallbackNoteClipId` - and this id stays permanently unrendered.
     expect(rendered.has("warp.coachNote")).toBe(false);
+  });
+
+  it("every rendered coach-fallback file is a line the game can still resolve", () => {
+    // The 28-file failure, in the one direction that catches it: a recording
+    // whose id nothing produces is money spent on silence. Edit a note in the
+    // bundle without re-rendering and this goes red rather than playing the old
+    // sentence over the new text.
+    const known = new Set(coachNoteLines().map((l) => l.id));
+    const orphans = [...rendered].filter(
+      (id) =>
+        (id.startsWith(`${FALLBACK_CLIP_PREFIX}.`) || id.startsWith(`${MOCK_CLIP_PREFIX}.`)) &&
+        !known.has(id),
+    );
+    expect(orphans).toEqual([]);
+  });
+
+  it("the render script collects the notes from the engine, never a copy", () => {
+    // Same reasoning as the BeaconScene scan above: the id space is a contract
+    // between the script and the runtime lookup, and a hand-written list in the
+    // script is how the two came apart the first time. Coverage of the ids
+    // themselves is `tests/unit/audio/spokenLines.test.ts` - the D98 guard.
+    const source = readFileSync(join(REPO, "scripts/render-voice.mjs"), "utf8");
+    expect(source).toContain("coachNoteLines");
+    expect(source).toContain("src/engine/coach/spokenNotes.ts");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. THE COACH PATH. The line Shadow says most often, and the one he did not.
+// ---------------------------------------------------------------------------
+
+/**
+ * ================== THE TEST THIS WHOLE CHANGE EXISTS FOR ==================
+ *
+ * 34 lines were rendered and three of the four speak sites used them. The
+ * fourth - the coach note, the line every warp break ends on - was excluded as
+ * "runtime LLM text, unrenderable by construction". It is not: `/api/coach` has
+ * a 1500 ms deadline with the SHIPPED FALLBACK BUNDLE behind it (D33), and with
+ * no proxy deployed that bundle is what plays every single time. A finite set
+ * was classified as infinite, so the most frequent line in the game was the one
+ * line in the system voice.
+ *
+ * Both halves are asserted here because only the pair is the requirement: a
+ * shipped note must come off disk, and a note the LLM actually wrote must still
+ * reach Web Speech. Without this test the coach path regresses in silence,
+ * which is precisely how the first 28 renders came to target ids nothing spoke.
+ */
+describe("AC-21.6 / D63: the coach path plays a CLIP for a shipped note and SPEAKS a novel one", () => {
+  /** Every fallback id is in the catalog; what varies is the NOTE, per test. */
+  const harness = (): {
+    audio: AudioService;
+    opened: Map<string, FakeMediaElement>;
+    speech: FakeSpeechPort;
+    scheduler: ReturnType<typeof fakeScheduler>;
+  } => {
+    const ctx = new NullAudioContext();
+    const { catalog, opened } = fakeCatalog(coachNoteLines().map((l) => l.id));
+    const { env, speech, scheduler } = fakeVoiceEnvironment(MAC_VOICES, "mac");
+    const graph = buildAudioGraph(ctx, { voiceEnv: env, voiceClips: catalog });
+    return { audio: installAudio({ graph }), opened, speech: speech as FakeSpeechPort, scheduler };
+  };
+
+  /** Exactly what `WarpScene.showNote` does, site id and all. */
+  const showNote = (
+    audio: AudioService,
+    note: string,
+  ): { rendered: string[]; result: CoachNoteSpeechResult } => {
+    const rendered: string[] = [];
+    const result = audio.speakNote({ note }, (d) => rendered.push(d.text), "warp.coachNote");
+    return { rendered, result };
+  };
+
+  it("a shipped fallback note is played from its file, not read by the platform", () => {
+    const { audio, opened, speech } = harness();
+    const note = fallbackFor(DEFAULT_FALLBACK_BUNDLE, "en", "mars").note;
+
+    const { rendered, result } = showNote(audio, note);
+
+    // AC-21.6 first, and unchanged: the text is up before anything sounds.
+    expect(rendered).toEqual([note]);
+    expect(result.order).toEqual(["text", "speech"]);
+    // The SITE said `warp.coachNote`; the LINE is what was looked up.
+    expect([...opened.keys()]).toEqual(["coach.fallback.en.mars"]);
+    expect(opened.get("coach.fallback.en.mars")?.plays).toBe(1);
+    expect(speech.requests).toEqual([]);
+
+    const snap = audio.snapshot();
+    expect(snap.spoken).toEqual([{ id: "coach.fallback.en.mars", kind: "coachNote" }]);
+    expect(snap.voiceClipsUsed).toEqual(["coach.fallback.en.mars"]);
+  });
+
+  it("a note the LLM really wrote reaches the OPT-IN system voice, never a clip", () => {
+    // D98: this harness has `allowSystemVoice` on (see `fakeVoiceEnvironment`).
+    // The shipped default is silence, and `spokenLines.test.ts` asserts that.
+    const { audio, opened, speech } = harness();
+    const note = "Good run, pilot. Those long words are yours now.";
+
+    const { rendered, result } = showNote(audio, note);
+
+    expect(rendered).toEqual([note]);
+    expect(result.order).toEqual(["text", "speech"]);
+    expect([...opened.keys()]).toEqual([]);
+    expect(speech.last?.text).toBe(note);
+
+    const snap = audio.snapshot();
+    // The site id is what a line with no recording is recorded under, exactly
+    // as before - nothing about the unrendered path moved.
+    expect(snap.spoken).toEqual([{ id: "warp.coachNote", kind: "coachNote" }]);
+    expect(snap.voiceClipsUsed).toEqual([]);
+  });
+
+  it("THE LINE THE PLAYER HEARD IN THE WRONG VOICE now comes off disk", () => {
+    // "That was a clean run, pilot." is `mock.ts` CLEAN[0], and the mock is the
+    // DEFAULT transport (`chooseTransport`: an unconfigured build is a mock
+    // build). It was excluded from the renders because the coach note was
+    // believed to be LLM text; it is authored, it is two sentences long, and it
+    // is what a child hears after a clean belt.
+    const { audio, opened, speech } = harness();
+    const note = mockNoteLines().find((l) => l.pool === "clean" && l.index === 0);
+    expect(note?.id).toBe("coach.mock.clean.0");
+
+    showNote(audio, note!.template);
+
+    expect([...opened.keys()]).toEqual(["coach.mock.clean.0"]);
+    expect(speech.requests).toEqual([]);
+  });
+
+  it("an interpolated mock note has no clip - it names a word we never recorded", () => {
+    // AC-15.5's whole point is that the note names the child's own missed word,
+    // so this template stands for as many sentences as the allowlist has words.
+    // Under D98 that is silence at runtime, and `spokenLines.test.ts` proves
+    // the guard accepts the excuse only because the string is a SHAPE.
+    const { audio, opened } = harness();
+    showNote(audio, 'Nice flying, pilot. Watch for "rivers" next time.');
+    expect([...opened.keys()]).toEqual([]);
+  });
+
+  it("every stop's shipped note resolves, not just the one that was checked", () => {
+    for (const stopId of STOP_IDS) {
+      const { audio, opened, speech } = harness();
+      showNote(audio, fallbackFor(DEFAULT_FALLBACK_BUNDLE, "en", stopId).note);
+      expect([...opened.keys()], stopId).toEqual([`coach.fallback.en.${stopId}`]);
+      expect(speech.requests, stopId).toEqual([]);
+    }
+  });
+
+  it("the language default resolves too, for a stop with no entry of its own", () => {
+    // es carries `base` only (the bundle's own comment says why), and
+    // `fallbackFor` degrades to it. The clip id must follow that degradation
+    // rather than asking for a file that was never authored.
+    const { audio, opened } = harness();
+    showNote(audio, fallbackFor(DEFAULT_FALLBACK_BUNDLE, "es", "mars").note);
+    expect([...opened.keys()]).toEqual(["coach.fallback.es.base"]);
+  });
+
+  it("A-21.5: a clip for the note does not widen what `transportId` means", () => {
+    // `transportId` is the SPEECH path and only the speech path. Which lines
+    // came off disk is `voiceClipIds` / `voiceClipsUsed`, on their own surface.
+    const { audio } = harness();
+    showNote(audio, fallbackFor(DEFAULT_FALLBACK_BUNDLE, "en", "pluto").note);
+    expect(audio.snapshot().voiceTransport).toBe("webspeech");
+  });
+
+  it("the note still queues behind a scripted line instead of cutting it", () => {
+    const { audio, opened, scheduler } = harness();
+    audio.speak({ id: "pluto.beaconFlavor", text: "The sun is a bright star here.", kind: "scripted" });
+    const { rendered } = showNote(audio, fallbackFor(DEFAULT_FALLBACK_BUNDLE, "en", "pluto").note);
+
+    // The TEXT is up immediately - that is AC-21.6 - and the clip waits.
+    expect(rendered).toHaveLength(1);
+    expect([...opened.keys()]).toEqual([]);
+    expect(audio.snapshot().voiceQueued).toBe(1);
+
+    // The scripted line has no file in this catalog, so the platform has it.
+    const { speech } = harness();
+    expect(speech).toBeDefined();
+    audio.graph.voice.cancel();
+    scheduler.runAll();
   });
 });
 

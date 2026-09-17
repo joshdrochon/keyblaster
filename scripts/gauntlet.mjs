@@ -26,6 +26,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { ATTEMPT_CAP, RUBRIC, SECTIONS, STATUS } from "../tests/gauntlet/rubric.mjs";
+import { srcHash, srcHashInputCount } from "./lib/srcHash.mjs";
 
 const execFileAsync = promisify(execFile);
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -230,6 +231,12 @@ function writeReport(results, startedAt) {
     `# Gauntlet report`,
     ``,
     `Generated ${new Date().toISOString()} · elapsed ${((Date.now() - startedAt) / 1000).toFixed(1)}s`,
+    ``,
+    // A CONTENT hash of the tree this report measured, so staleness is a fact
+    // rather than an mtime. `touch` cannot forge it and `git checkout` cannot
+    // disturb it. scripts/tickets.mjs re-derives it and refuses to call a
+    // ticket DONE on evidence whose hash no longer matches the tree.
+    `<!-- src-hash: ${srcHash()} over ${srcHashInputCount()} files -->`,
     ``,
     `| pass | fail | not implemented | escalated | total |`,
     `|---|---|---|---|---|`,

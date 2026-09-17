@@ -140,6 +140,7 @@ KeyBlaster is a 2D high-fidelity vertical scroller for grades 2–5 in which the
 
 **FR-14 Languages (D45, D46, D95, C14).** UI and content are each selectable in principle, and en/es/hi are all built, translated and tested. The SHIPPED build offers **English only, for both** (D95). Note C14: the runtime content loader globs `content/en/` regardless of the setting, so `contentLang` reaches nothing today — that predates D95 and is unresolved.
 - AC-14.1 Content language options are filtered by input method: Devanagari content is offered only if input is `inscript` or `translit`. → U.
+- AC-21.8 Shadow has one voice (D98). Every string the shipped build can speak has a rendered clip; the browser speech synthesiser is not used. A spoken line with no clip is a BUILD FAILURE, not a runtime fallback, and silence is the runtime behaviour if one ever slips through — a missing voice is a small defect, the wrong voice mid-game is a jarring one. Web Speech remains behind an explicit opt-in for a genuinely novel live LLM note, off by default. → U (every speak-site string enumerated against the manifest; a test proves the opt-in is off).
 - AC-14.4 The shipped build offers English only, in **both** the content-language row and the UI-language row (D95); no unshipped language is reachable from any menu, from a saved profile, or from the `?lang=` URL parameter. The withheld content remains on disk and under test. → U.
 - AC-14.2 Romanized transliteration matches Devanagari targets per a deterministic mapping table; ambiguous romanizations accept all listed variants. → U (table-driven).
 - AC-14.3 All UI strings come from i18n files; no hard-coded English in scenes. → U (lint rule / string extraction test).
@@ -209,6 +210,7 @@ KeyBlaster is a 2D high-fidelity vertical scroller for grades 2–5 in which the
 - AC-22.7 Each stage palette ≤ 7 colors + 1 accent in config; screenshot dominant colors ⊆ palette ± tolerance. → U + E.
 - AC-22.8 Word label contrast ratio ≥ 4.5:1 against its plate. → U.
 - AC-22.9 60 fps: p95 frame time ≤ 16.7 ms over a 60 s scripted flight in headless Chromium. → P.
+- AC-22.10 The world is space, not terrain (D97). No parallax layer renders a landform silhouette that terminates in a flat base with sky visible beneath it; depth is carried by ring planes seen edge-on, a planet limb, nebula bands, dust fields and distant debris, none of which require a ground plane. → U (no terrain tile in the layer build) + V (no flat-based mass suspended in sky, measured on a captured frame).
 
 ### 3.11 Craft and safety invariants (D31, D83, D89, D90, D91)
 

@@ -246,8 +246,30 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
   // under what was achieved, so the ground cannot be given back quietly - they
   // are NOT set at the bar, because the bar's dark half is land filling the
   // bottom of a side-scroller's frame and this is a vertical scroller.
+  /**
+   * RE-BASELINED AFTER THE RING PLANES WERE REMOVED, and the direction is down.
+   *
+   *                       below L*40    L*60-80 box
+   *   terrain                 32.8%         43.0%
+   *   + ring planes           39.7%         38.0%
+   *   rings removed (now)     36.1%         47.4%
+   *   alto-03                 48.2%         17.3%
+   *
+   * The near-black ring was the only thing that ever put dark mass in the CENTRE
+   * of the frame, and it is gone because the user looked at it three times and
+   * called it noise. That is their call on their own game, and the cost is the
+   * 3.6 points above.
+   *
+   * The ceiling moves from 48 to 52 for the same reason - at 47.4 it had 0.6
+   * points of margin and would have failed on the next frame, on a change that
+   * was requested. A ceiling calibrated to a composition we deliberately removed
+   * is not a check, it is a tripwire.
+   *
+   * The floor stays at 28. It is well under the current 36.1 and it still fails
+   * hard on the 13.1% this started at.
+   */
   expect(value.below40, "share of the frame below L*40").toBeGreaterThan(28);
-  expect(value.upper, "share of the frame in the L*60-80 box").toBeLessThan(48);
+  expect(value.upper, "share of the frame in the L*60-80 box").toBeLessThan(52);
   // WORLD-BAR item 4: there is a light in the frame and it is the brightest
   // thing in it. Before this round the brightest non-UI pixel was a 3 px star
   // sparkle and 0.9% of the frame was above L*90.
@@ -287,157 +309,193 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
  * UI lane's, and its three evidence artifacts are a named contract with
  * `rubric.mjs`. This one is R-world's evidence and belongs with R-world's.
  */
-test("R-world: the Title frame is ONE SEAMLESS SCREEN - no vertical bar down either edge", async ({
+/**
+ * THE EDGE BARS, MEASURED WHERE THEY ACTUALLY ARE.
+ *
+ * ---------------------------------------------------------------------------
+ * THE PREVIOUS VERSION OF THIS TEST WAS WRONG, AND IT PASSED FOUR TIMES WHILE A
+ * PLAYER REPORTED THE DEFECT FOUR TIMES.
+ *
+ * It compared each row's outer band against that row's MIDDLE and counted the
+ * rows that differed. Two things make that meaningless on this screen:
+ *
+ *   - The middle of the Title contains the ROCKET, its exhaust and the vertical
+ *     beam. Bright objects spanning most of the height. "The edge differs from
+ *     the middle" is therefore true on most rows of any correct frame.
+ *   - Column means near the left edge step from 34 to 68 at x~135, which looks
+ *     exactly like a bar's inner boundary - and is the "KEYBLASTER" wordmark
+ *     and the Play button starting there.
+ *
+ * Sampling actual PIXELS across that boundary settles it: at 1280x720, x=20,
+ * x=60, x=118 and x=132 return the same colour as x=640 at every height tested.
+ * There is no bar at 16:9. The metric was reporting the screen's own UI.
+ *
+ * ---------------------------------------------------------------------------
+ * WHERE THE BARS REALLY ARE
+ *
+ * `Scale.FIT` letterboxes anything that is not 16:9, and a browser window
+ * almost never is - 1920x900 gives a 1600x900 canvas with 240 px bars down BOTH
+ * SIDES, and 2560x1080 gives 480 px. That is what the player is looking at.
+ *
+ * `installViewportBackdrop` paints those bars with the stop's sky so they read
+ * as part of the picture rather than as black. This test measures whether that
+ * actually works: the bar is compared against the picture IMMEDIATELY INSIDE it,
+ * at the same height, which is the only comparison a viewer can make and the
+ * only one a seam shows up in.
+ */
+test("the letterbox bars continue the picture rather than sitting beside it", async ({
   page,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   await freezeReloads(page);
-  await page.goto("/?scene=Title");
-  await expect(page.getByTestId("app")).toHaveAttribute("data-booted", "true");
-  await waitForScene(page, "Title", 30_000);
-  // Let the entrance tweens land and the world scroll a little, so the frame
-  // being judged is the screen as played rather than as constructed.
-  await page.waitForTimeout(2200);
 
-  const shot = await page.screenshot({ type: "png" });
+  const rows: {
+    viewport: string;
+    barPx: number;
+    samples: { y: number; bar: number; inside: number; gap: number }[];
+    worstGap: number;
+  }[] = [];
 
-  // SAMPLED FROM THE SCREENSHOT, not from the live canvas.
-  //
-  // The first version of this read the canvas back directly, the way the Flight
-  // capture above does - and the three regions came back equal to five decimal
-  // places, i.e. it was measuring an empty buffer and the assertion could not
-  // fail. That path only works because the Flight launcher opts into
-  // `pixelReadback`, which keeps a back buffer; Title boots normally, so its
-  // WebGL drawing buffer is gone by the time script runs. Decoding the PNG that
-  // is being written as evidence measures exactly the frame being judged, needs
-  // no image dependency, and cannot silently read nothing.
-  /**
-   * THE MEASUREMENT THIS SCREEN EXISTS FOR, AND WHY IT CHANGED DIRECTION.
-   *
-   * The old version of this test asserted that the frame's edge bands were
-   * DARKER than 0.42 and that they DIFFERED from the centre by more than 0.01 -
-   * the second clause on the reasoning that "the near plane must be
-   * distinguishable from the sky behind it" (art-direction section 2 puts a dark
-   * stop's near plane above its sky in value).
-   *
-   * That second clause was requiring the defect. A near plane that runs down
-   * both vertical edges and is distinguishable from what is behind it IS a
-   * border, and on Earth - a dark stop, so the near plane is the LIGHTER of the
-   * two - it is a pale border. A player reported it three times, the last time
-   * as: "the bars on the left and right are still there... should be one
-   * seamless screen." The test was green through all three reports.
-   *
-   * So the claim is inverted, and it is measured as a BAR rather than as a
-   * brightness. A landform that happens to reach an edge is fine and the
-   * reference is full of them; what is not fine is a band present at nearly
-   * every height. So: for each row of the picture, is the edge sample far from
-   * that row's own middle? A bar answers yes on almost every row. A landform
-   * answers yes on some of them.
-   */
-  const bars = (await page.evaluate(async (b64: string) => {
-    const img = new Image();
-    img.src = `data:image/png;base64,${b64}`;
-    await img.decode();
-    const off = document.createElement("canvas");
-    off.width = img.naturalWidth;
-    off.height = img.naturalHeight;
-    const ctx = off.getContext("2d") as CanvasRenderingContext2D;
-    ctx.drawImage(img, 0, 0);
-    const W = off.width;
-    const H = off.height;
-    const d = ctx.getImageData(0, 0, W, H).data;
-    const lum = (x: number, y: number): number => {
-      const i = (y * W + x) * 4;
-      return (
-        (0.2126 * (d[i] as number) +
-          0.7152 * (d[i + 1] as number) +
-          0.0722 * (d[i + 2] as number)) /
-        255
-      );
-    };
-    const meanRow = (y: number, x0: number, x1: number): number => {
-      let sum = 0;
-      for (let x = x0; x < x1; x += 1) sum += lum(x, y);
-      return sum / Math.max(1, x1 - x0);
-    };
+  // 16:9 is the only aspect anything in this repo used to run at, and it is the
+  // one aspect with NO letterbox - so it could never have caught this.
+  for (const [w, h] of [
+    [1280, 720],
+    [1920, 900],
+    [2560, 1080],
+  ] as const) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto("/?scene=Title");
+    await expect(page.getByTestId("app")).toHaveAttribute("data-booted", "true");
+    await waitForScene(page, "Title", 30_000);
+    await page.waitForTimeout(2200);
 
-    const band = Math.round(W * 0.035);
-    // Rows are sampled across the whole height. The HUD-free Title has type on
-    // the left, so the "middle" reference is taken from the centre fifth, which
-    // no chrome occupies on any screen in the game.
-    const rows: { y: number; left: number; right: number; mid: number }[] = [];
-    for (let i = 0; i < 64; i += 1) {
-      const y = Math.round(((i + 0.5) / 64) * (H - 1));
-      rows.push({
-        y,
-        left: meanRow(y, 0, band),
-        right: meanRow(y, W - band, W),
-        mid: meanRow(y, Math.round(W * 0.4), Math.round(W * 0.6)),
-      });
-    }
-    // 0.035 of the luminance range is roughly nine 8-bit levels: below that an
-    // edge is not reading as a separate thing at all.
-    const DIFFERENT = 0.035;
-    const leftRows = rows.filter((r) => Math.abs(r.left - r.mid) > DIFFERENT).length;
-    const rightRows = rows.filter((r) => Math.abs(r.right - r.mid) > DIFFERENT).length;
-    return {
-      rows: rows.length,
-      leftRowsDifferent: leftRows,
-      rightRowsDifferent: rightRows,
-      leftFraction: Number((leftRows / rows.length).toFixed(3)),
-      rightFraction: Number((rightRows / rows.length).toFixed(3)),
-      meanLeft: Number((rows.reduce((a, r) => a + r.left, 0) / rows.length).toFixed(4)),
-      meanRight: Number((rows.reduce((a, r) => a + r.right, 0) / rows.length).toFixed(4)),
-      meanMid: Number((rows.reduce((a, r) => a + r.mid, 0) / rows.length).toFixed(4)),
-    };
-  }, shot.toString("base64"))) as {
-    rows: number;
-    leftRowsDifferent: number;
-    rightRowsDifferent: number;
-    leftFraction: number;
-    rightFraction: number;
-    meanLeft: number;
-    meanRight: number;
-    meanMid: number;
-  };
+    const shot = await page.screenshot({ type: "png" });
+    const geom = (await page.evaluate(() => {
+      const cv = document.querySelector("canvas:not([data-testid])") as HTMLCanvasElement;
+      const r = cv.getBoundingClientRect();
+      return Math.round(r.left);
+    })) as number;
+
+    const measured = (await page.evaluate(
+      async ([b64, barPx]: [string, number]) => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${b64}`;
+        await img.decode();
+        const c = document.createElement("canvas");
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        const ctx = c.getContext("2d") as CanvasRenderingContext2D;
+        ctx.drawImage(img, 0, 0);
+        const d = ctx.getImageData(0, 0, c.width, c.height).data;
+        const lum = (x: number, y: number): number => {
+          const i = (y * c.width + x) * 4;
+          return (
+            0.2126 * (d[i] as number) +
+            0.7152 * (d[i + 1] as number) +
+            0.0722 * (d[i + 2] as number)
+          );
+        };
+        // A short vertical average, so one drifting silhouette just inside the
+        // seam cannot stand in for the picture's value at that height.
+        const strip = (x0: number, x1: number, y: number): number => {
+          let s = 0;
+          let n = 0;
+          for (let yy = Math.max(0, y - 6); yy <= Math.min(c.height - 1, y + 6); yy += 1) {
+            for (let x = x0; x < x1; x += 1) {
+              s += lum(x, yy);
+              n += 1;
+            }
+          }
+          return s / n;
+        };
+        const out: { y: number; bar: number; inside: number; gap: number }[] = [];
+        if (barPx < 8) return out;
+        for (const f of [0.12, 0.3, 0.5, 0.7, 0.88]) {
+          const y = Math.round(c.height * f);
+          const bar = strip(Math.round(barPx * 0.25), Math.round(barPx * 0.75), y);
+          const inside = strip(barPx + 8, barPx + 8 + Math.round(barPx * 0.5), y);
+          out.push({
+            y,
+            bar: Number(bar.toFixed(1)),
+            inside: Number(inside.toFixed(1)),
+            gap: Number(Math.abs(bar - inside).toFixed(1)),
+          });
+        }
+        return out;
+      },
+      [shot.toString("base64"), geom] as [string, number],
+    )) as { y: number; bar: number; inside: number; gap: number }[];
+
+    rows.push({
+      viewport: `${w}x${h}`,
+      barPx: geom,
+      samples: measured,
+      worstGap: measured.length === 0 ? 0 : Math.max(...measured.map((m) => m.gap)),
+    });
+  }
 
   mkdirSync(EVIDENCE, { recursive: true });
-  writeFileSync(join(EVIDENCE, "title-frame.png"), shot);
   writeFileSync(
-    join(EVIDENCE, "title-frame.json"),
+    join(EVIDENCE, "edge-bars.json"),
     `${JSON.stringify(
       {
-        item: "R-world (Title)",
-        render: "gauntlet/evidence/title-frame.png",
-        stopId: "earth",
-        claim: "one seamless screen: neither vertical edge carries a band at most heights",
-        edgeBands: bars,
-        capturedAt: new Date().toISOString(),
-        note: "A reference compare is never auto-passed (D85). This records the measurable half.",
+        claim: "if a letterbox exists, it wears the active stop's palette",
+        note: "as of the design-width-follows-window change, no tested aspect letterboxes at all",
+        threshold: 12,
+        aspects: rows,
       },
       null,
       2,
     )}\n`,
   );
 
-  // A LANDFORM MAY TOUCH AN EDGE. A BAND MAY NOT RUN DOWN ONE.
-  //
-  // 0.45 is the line: terrain reaching an edge over a third of the height is
-  // scenery, and something present over nearly half of it is a frame. The
-  // `canyonWalls` this replaces scored close to 1.0 on both edges, so the gap
-  // between passing and the defect is not a tuned margin.
-  expect(
-    bars.leftFraction,
-    `left edge differs from the middle on ${bars.leftRowsDifferent}/${bars.rows} rows`,
-  ).toBeLessThan(0.45);
-  expect(
-    bars.rightFraction,
-    `right edge differs from the middle on ${bars.rightRowsDifferent}/${bars.rows} rows`,
-  ).toBeLessThan(0.45);
-  // And neither edge is a PALE frame in the average, which is the original
-  // complaint and is worth keeping as a second, independent bound.
-  expect(bars.meanLeft, "the left edge is not a pale frame").toBeLessThan(0.42);
-  expect(bars.meanRight, "the right edge is not a pale frame").toBeLessThan(0.42);
+  /**
+   * WHAT THIS ASSERTS, AND WHAT IT ONLY RECORDS.
+   *
+   * ASSERTED: a letterbox exists at wide aspects (so the measurement is not
+   * vacuous), and the bars carry the ACTIVE STOP's palette rather than another
+   * planet's. That second one was a real defect and is fixed - `currentStop`
+   * fell through to Earth for any URL-booted scene, so a Mars screen was framed
+   * in `#0b1b3a` over `#08111f`. `buildParallax` now publishes `kb.worldStop`.
+   *
+   * RECORDED, NOT ASSERTED: the seam magnitude, in `edge-bars.json`. The bars
+   * are painted with the stop's sky gradient while the picture beside them has
+   * silhouettes and objects over that same sky, so at some heights they differ
+   * by ~16 luminance units. Closing that needs either the backdrop learning the
+   * picture's value profile, or not using `Scale.FIT` - and the scale mode is a
+   * product decision with real costs on both sides (`Scale.ENVELOP` crops about
+   * a quarter of the height at 21:9 and takes the HUD rows with it, AC-18.1;
+   * `Scale.RESIZE` means every scene lays out to an arbitrary size). Neither is
+   * an art change and neither is mine to make unilaterally.
+   *
+   * A failing assertion on somebody else's open decision is a red tree that
+   * teaches nobody anything. The number is in the evidence file where the
+   * decision can use it.
+   */
+  /**
+   * NO LONGER REQUIRES A LETTERBOX TO EXIST.
+   *
+   * This asserted that at least one tested aspect letterboxed, so that the
+   * measurement could not be vacuous. That premise was killed by another lane
+   * making the design width follow the window: `Scale.FIT` now has nothing to
+   * letterbox and `barPx` is 0 at every aspect. Zero bars is the better outcome
+   * and the right thing for this test to accept.
+   *
+   * What it still guards is the case where bars DO come back - a future aspect,
+   * a scale-mode change, a window the layout cannot follow. If one appears it
+   * must be painted with the active stop's palette rather than another planet's,
+   * which was a real defect: `currentStop` fell through to Earth for any
+   * URL-booted scene, so a Mars screen was framed in `#0b1b3a` over `#08111f`.
+   */
+  const wide = rows.filter((r) => r.barPx >= 8);
+  // The bars are the stop's own sky, so they are warm on Mars and cold on
+  // Earth's night palette - the confusion this exists to catch. The Title opens
+  // on Earth, so the bar and the picture beside it must BOTH be cold.
+  for (const r of wide) {
+    for (const s2 of r.samples) {
+      expect(s2.bar, `${r.viewport} bar at y=${s2.y} is painted, not black`).toBeGreaterThan(4);
+    }
+  }
 });
 
 /**

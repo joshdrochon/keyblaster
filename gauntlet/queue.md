@@ -104,6 +104,45 @@ Invoke with the Agent tool, `subagent_type: "game-mechanics"`.
 | 2.6 | `L-6e.3` (`deadtime.json` quantised to its own 120ms tick, control asserts `<=2000` where it needed `>0`) and `L-6e.4` (`retention.json` trend is arithmetic from `0.72 ** hits`). | unassigned | Both measure the engine, not the harness. |
 | 2.7 | Systemic: `evidence.has()` is `existsSync`; 14 items pass on a JSON file of any age or provenance. | unassigned | Freshness + provenance gate, like `scripts/tickets.mjs` already does. |
 
+## P0-USER — everything the user reported by looking at the screen
+
+Tracked as first-class tickets in `gauntlet/user-reported.json` and rendered
+into `docs/tickets.md` with kind `user-reported`. **Their status is not
+computed.** A user-reported defect closes when the USER says it does, or when a
+blind critic accepts the evidence — not when a check we wrote goes green.
+
+That rule exists because of the night's actual record: the suite was green over
+an unplayable game, over asteroids invisible against open sky, over a voice
+pipeline that shipped no audio, and over six reports of the same bars. Every one
+of those was found by a person looking at the screen.
+
+| ticket | reports | state | owner |
+|---|---|---|---|
+| `UR-01` edge bars at any non-16:9 window | **6** | OPEN | letterbox lane |
+| `UR-04` system voice still speaking | 2 | OPEN | coach voice lane |
+| `UR-05` "That was a clean run pilot" in system voice | 1 | OPEN | coach voice lane |
+| `UR-06` asteroid drawn over the "B" in KEYBLASTER | 1 | OPEN | art lane |
+| `UR-07` world reads as stitched vertical strips sliding sideways | 1 | OPEN | art lane |
+| `UR-08` sun keep-out column visible as a bright band | 1 | OPEN | art lane |
+| `UR-09` parallax quality overall | 1 | OPEN | art lane |
+| `UR-02` floating landform bases | 1 | **DONE** (D97) | art lane |
+| `UR-03` tagline pointed the wrong way | 1 | **DONE** | lead |
+
+**What the parallax research says we get wrong** (UR-07/08/09), three
+requirements of standard practice and we fail all three:
+1. A tiled layer must loop **pixel-for-pixel** at its edges. Ours clips shapes
+   at the boundary.
+2. Layers should carry **no dominant point of interest**, so the repeat stays
+   invisible. Our ring planes and the keep-out column are precisely the features
+   that make the loop legible.
+3. Background elements should be **larger than the window** so the whole asset
+   is never on screen. Ours are window-sized, so the player sees the tile edges.
+
+Measured: 41 vertical luminance steps (0.35–2.4) across the upper sky at 1920x1080.
+Root causes: `wrapXY` duplicates sub-planes in BOTH axes for "sideways-drifting"
+layers in a game that scrolls VERTICALLY, and shapes are clipped rather than
+wrapped at tile edges.
+
 ## P0a — THE BELT IS STILL UNSURVIVABLE. The game never learns how fast the child types. (dispatched)
 
 An independent playthrough refuted last round's hull fix with measurements. A

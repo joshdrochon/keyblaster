@@ -3,36 +3,54 @@ import { hexToNum, mixHex, paletteAt, skyStops } from "@game/render/palette";
 import type { StopId } from "@engine/types";
 
 /**
- * THE LETTERBOX (AC-18.1, AC-22.9, FR-8).
+ * THE PIXELS BEHIND THE GAME CANVAS (AC-18.1, AC-22.9, FR-8, D99).
  *
- * The game is laid out at 1920x1080 and scaled with `Phaser.Scale.FIT`, so on
- * any window that is not 16:9 the canvas is letterboxed. On a 21:9 monitor that
- * is two black columns either side of the game, which reads as a broken page
- * rather than as a deliberate frame.
+ * ================== READ THIS FIRST: THERE IS NO LETTERBOX ==================
+ * This file was written to FILL a letterbox, and there is no longer one to
+ * fill. The game used to lay out at a fixed 1920x1080 and scale with
+ * `Phaser.Scale.FIT`, so any window that was not 16:9 got a gap. D99 removed
+ * the condition instead of the colour: `GAME_WIDTH` is now the window's own
+ * aspect at a pinned 1080 height (`sceneKeys`, which carries that reasoning),
+ * so `FIT` has nothing left to letterbox.
  *
- * ================== WHY FIT STAYED ==================
- * Three ways out, and only one of them is safe:
+ * What this file still does, and why it was not deleted:
  *
- *   Scale.RESIZE, laying every screen out from the real viewport. Correct in
- *   the abstract, and it breaks the two things the brief says must not move.
- *   The flight play-field would change size with the window, and FR-8's fall
- *   time is `len x keystrokeBudget + recognitionBudget` against a FIXED fall
- *   distance - a taller window would hand the player more seconds for the same
- *   word, so the budget would stop meaning one thing. Eight scenes also read
- *   `this.scale.width` meaning "1920", and `FlightScene` drives
- *   `cameras.main.setScroll` itself for the camera sway, which fights any
- *   centring the fitter would need to do.
+ *   - the design width is ROUNDED to an integer, which can leave up to about
+ *     one device-independent pixel of slack; this owns that pixel
+ *   - during a window drag there is a moment between the browser resizing the
+ *     canvas and `boot.followWindowSize`'s debounced relayout landing, and
+ *     this is what is behind the canvas in that moment
+ *   - it costs nothing per frame: it repaints on a stop change and on resize,
+ *     never on a tick (AC-22.9)
  *
+ * ================== THE FIVE FIXES THAT WERE NOT FIXES ==================
+ * Kept because the reasoning is what stopped the sixth attempt repeating them.
+ * The bars were reported six times. Each fix answered "what colour should the
+ * gap be", which is the wrong question:
+ *
+ *   1. the game was centred twice, so the bars were 3:1 - a real bug, fixed,
+ *      and the bars were then symmetric and still bars
+ *   2. the gap was painted with the stop's sky gradient (below) - a bright bar
+ *      beside a dark picture, rgb(16,41,80) against rgb(5,10,18) at y=300
+ *   3. the frame's outermost 1px column was stretched outward - the seam
+ *      closed to a delta of 1-2 and a 1px column stretched 100px wide is a
+ *      flat band next to a textured picture
+ *   4. the whole frame was drawn cover-scaled into the gap - the magnified
+ *      copy has its OWN boundary, so a new vertical edge appeared at the join
+ *   5. that copy was dimmed to 0.92 - the alpha step became the visible line
+ *
+ * ================== WHY NOT THE OTHER SCALE MODES ==================
  *   Scale.ENVELOP, accepting overscan. One line, and it CUTS THE HUD OFF. At
  *   21:9 it scales to width and crops about 24% of the height, top and bottom
  *   - which is exactly where the score, the hull marks and every screen's
  *   hint line live. AC-18.1 wants every control reachable; a control scrolled
- *   off the top of the screen is not.
+ *   off the top of the screen is not. This is why the world could not simply
+ *   be cropped to fill.
  *
- *   FIT, and put art where the bars are. The play-field is untouched, every
- *   scene's coordinates still mean what they meant, the HUD cannot be cropped
- *   because the whole design rect is always on screen - and the black columns
- *   become sky. That is this file.
+ *   A TALLER world would break FR-8: the fall time is
+ *   `len x keystrokeBudget + recognitionBudget` against a FIXED fall distance,
+ *   so a taller world hands the player more seconds for the same word. This is
+ *   why only the WIDTH flexes.
  *
  * ================== WHAT IT DRAWS ==================
  * A canvas behind the game canvas, filling the window, carrying the CURRENT
@@ -209,6 +227,23 @@ export function installViewportBackdrop(
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, w, h);
 
+    /**
+     * NO BLEED HERE ANY MORE, and the reason is worth keeping.
+     *
+     * Two versions were tried and both made it worse. Stretching the frame's
+     * outermost COLUMN closed the seam (delta 1-2) and still read as a bar,
+     * because a 1px column stretched 100px wide is a flat band next to a
+     * textured picture. Drawing the whole frame COVER-scaled fixed the flatness
+     * and introduced a new edge: the magnified copy has its own boundary where
+     * it meets the real canvas, visible as a vertical line at the letterbox
+     * join.
+     *
+     * Every one of those attempts — and the sky gradient below — answers the
+     * question "what colour should the bar be". That is the wrong question. The
+     * bar should not exist. See D99: the scale mode is what creates it, and
+     * decorating it is how this defect survived five reports.
+     */
+
     // Stars, tinted the way the `celestial` layer tints its own
     // (`mixHex(skyStops[0], white, 0.75)`), so the two fields are one field.
     // Seeded off the stop, so each planet's bars differ and a repaint is not a
@@ -229,12 +264,32 @@ export function installViewportBackdrop(
     ctx.globalAlpha = 1;
   };
 
+  /**
+   * Repaints, and then repaints again once the game has actually drawn.
+   *
+   * The edge bleed copies the game canvas's outermost column, so it needs a
+   * rendered frame to copy. A stop change fires the repaint BEFORE the new
+   * scene's first frame exists, so a single rAF hop copies a blank canvas and
+   * the bar falls back to plain sky — which is the defect, silently.
+   *
+   * `settleFrames` follow-up repaints cover the scene's own fade-in as well:
+   * the edge column is still changing while a screen arrives, and the bar
+   * should end up matching where it settles, not where it started.
+   */
+  const SETTLE_FRAMES = 6;
+  let settle = 0;
   const schedule = (): void => {
+    settle = SETTLE_FRAMES;
     if (frame !== 0) return;
-    frame = requestAnimationFrame(() => {
+    const step = (): void => {
       frame = 0;
       paint();
-    });
+      if (settle > 0) {
+        settle -= 1;
+        frame = requestAnimationFrame(step);
+      }
+    };
+    frame = requestAnimationFrame(step);
   };
 
   const onResize = (): void => schedule();

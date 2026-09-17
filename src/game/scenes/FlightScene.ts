@@ -1159,7 +1159,7 @@ export class FlightScene extends Phaser.Scene {
     const fallMs = fallTimeMs({
       word,
       ease: record.ease,
-      calibration: this.calibration,
+      calibration: this.fallTimeCalibration(),
     });
     const clearEstimateMs = expectedClearMs({
       length: letters,
@@ -1264,6 +1264,43 @@ export class FlightScene extends Phaser.Scene {
    * cautious one with a three-stage half-life, and the fast-moving value lives
    * and dies with this belt.
    */
+  /**
+   * The baseline FALL TIME is allowed to use: the measured one, but never
+   * faster than FR-8's shipped default.
+   *
+   * WHY THIS IS NOT SYMMETRIC, WHICH IS A DELIBERATE DEVIATION FROM FR-8.
+   *
+   * The formula reads `len * 1.5 * ikiMs + 1200 * ease` and scales both ways,
+   * and measuring a quick child does make the belt quicker. Measured on the real
+   * scene, that is a regression: the keyboard-only playthrough cleared a whole
+   * Mars belt with no stall on the shipped 350 ms, and stalled once when the
+   * same run was flown at the 180 ms it was actually typing at. The reason is
+   * that `ikiMs` is the gap BETWEEN KEYS INSIDE A WORD, and it is not the
+   * player's cost per rock: finding the next word, moving attention to it and
+   * committing all sit outside it, and none of them get quicker just because the
+   * fingers do. Scaling the whole budget by the fastest component of it squeezes
+   * the parts that did not move.
+   *
+   * So calibration is a LOOSENING knob here and nothing else. It exists because
+   * a child who types at 600 ms was being flown as if they typed at 350 and
+   * could not clear a single word; it was never asked to make the game harder
+   * for anyone, and D31 is explicit that the player should always feel like the
+   * best typer in the world. Difficulty for a strong player is FR-10's job and
+   * FR-10 has ample tightening authority through `maxLive` and `lengthBias` -
+   * see the AC-10.2 escalation, which says in as many words that the knob the
+   * controller was missing is a LOOSENING one, and that fall time is it.
+   *
+   * Everything else still reads the true measurement: `@engine/pacing` estimates
+   * what a rock will cost this player, and `slowWords` asks what is slow FOR
+   * THEM. Those want the truth; only the deadline is floored.
+   */
+  private fallTimeCalibration(): Calibration {
+    return {
+      ...this.calibration,
+      ikiMs: Math.max(this.calibration.ikiMs, DEFAULT_CALIBRATION.ikiMs),
+    };
+  }
+
   private learnFromPlay(): void {
     this.calibration = refineCalibration(this.calibration, {
       ikiMs: this.liveIkiMs,

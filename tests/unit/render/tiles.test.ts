@@ -6,7 +6,6 @@ import {
   accentTile,
   driftTile,
   dustTile,
-  massifTile,
   moteTile,
   planeMaterialColor,
   starTile,
@@ -22,13 +21,7 @@ import {
   paletteFor,
   skyStops,
 } from "../../../src/game/render/palette.js";
-import {
-  MASS_PROFILES,
-  heightOf,
-  place,
-  profileById,
-  profilesFor,
-} from "../../../src/game/render/profiles.js";
+
 
 /**
  * THE WRAP SEAM.
@@ -79,54 +72,12 @@ const MATERIALS = [
   },
 ];
 
-/** The far plane's massif options, as `parallax.ts` actually calls them. */
-const FAR_MASSIF = (rand: () => number) => ({
-  fill: "#A0846F",
-  rimColor: "#B49A88",
-  detailColor: "#B49A88",
-  light: -2,
-  rand,
-  depth: 0,
-  count: 2,
-  minH: 0.16,
-  maxH: 0.3,
-  rim: false,
-  dots: false,
-  fronds: false,
-  clearColumn: { x: 500, halfWidth: 190 },
-});
-
-/** The mid plane's, ditto. */
-const MID_MASSIF = (rand: () => number) => ({
-  fill: "#875F4E",
-  rimColor: "#A0796A",
-  detailColor: "#96705F",
-  light: -2,
-  rand,
-  depth: 0.5,
-  count: 2,
-  minH: 0.26,
-  maxH: 0.46,
-  rim: true,
-  dots: true,
-  fronds: true,
-  clearColumn: null,
-});
-
 /**
  * Every generator that produces WRAPPING content, with a fresh seed each time.
  * Adding a generator to `tiles.ts` without adding it here is the one gap left,
  * so the list is deliberately exhaustive and named after the module's exports.
  */
 const GENERATORS: readonly { name: string; build: (rand: () => number) => TileOp[] }[] = [
-  {
-    name: "massifTile (far: no rim, no detail)",
-    build: (rand) => massifTile(W, H, FAR_MASSIF(rand)),
-  },
-  {
-    name: "massifTile (mid: rim + dots + fronds)",
-    build: (rand) => massifTile(W, H, MID_MASSIF(rand)),
-  },
   { name: "dustTile", build: (rand) => dustTile(W, H, "#C0A28C", rand) },
   { name: "starTile", build: (rand) => starTile(W, H, "#F7E6D0", 90, rand) },
   { name: "moteTile", build: (rand) => moteTile(W, H, "#39140B", "#FF6B4A", rand) },
@@ -225,12 +176,25 @@ describe("the wrap seam: the two copies of a tile are the SAME content", () => {
   }
 
   it("the old bug reproduces: re-rolling per copy is NOT a translation", () => {
-    // The guard that makes this suite mean something. If `massifTile` were ever
-    // rewritten to generate each copy from a live rand() again, the two tiles
-    // would differ - this asserts that such a difference is actually detectable
-    // by the comparison above, rather than the comparison being vacuous.
+    // The guard that makes this suite mean something. If a generator were ever
+    // rewritten to build each copy from a live rand() again, the two tiles would
+    // differ - this asserts that such a difference is actually detectable by the
+    // comparison above, rather than the comparison being vacuous.
+    //
+    // Uses `driftTile` because it is now the generator that carries the depth
+    // planes; it used to use the silhouette-mass generator, which no longer
+    // exists.
     const rand = rng(SEED);
-    const build = (): TileOp[] => massifTile(W, H, MID_MASSIF(rand));
+    const build = (): TileOp[] =>
+      driftTile(W, H, {
+        materials: MATERIALS,
+        count: 6,
+        minPx: 30,
+        maxPx: 90,
+        light: -2,
+        laneGuard: 0,
+        rand,
+      });
     const a = build();
     const b = translateOps(build(), 0, -H);
     expect(JSON.stringify(a)).not.toBe(JSON.stringify(translateOps(b, 0, H)));
@@ -279,8 +243,6 @@ describe("the wrap seam: the two copies of a tile are the SAME content", () => {
 describe("a plane composites to ONE opaque silhouette", () => {
   /** The generators that draw silhouettes. Air (dust, motes, the veil) is not one. */
   const SILHOUETTE = [
-    { name: "massifTile (far)", ops: massifTile(W, H, FAR_MASSIF(rng(SEED))) },
-    { name: "massifTile (mid)", ops: massifTile(W, H, MID_MASSIF(rng(SEED))) },
     {
       name: "driftTile",
       ops: driftTile(W, H, {
@@ -305,104 +267,26 @@ describe("a plane composites to ONE opaque silhouette", () => {
     });
   }
 
-  it("rims are emitted BEFORE fills, so no lit edge lands inside the silhouette", () => {
-    // The second half of the rule. With rims and fills interleaved, a mass in
-    // front of another draws its lighter rim over that mass's body and the plane
-    // grows an internal outline - the same pale join by a different route.
-    const ops = massifTile(W, H, MID_MASSIF(rng(SEED)));
-    const rimColor = MID_MASSIF(rng(SEED)).rimColor;
-    const fillColor = MID_MASSIF(rng(SEED)).fill;
-    const lastRim = ops.reduce((acc, op, i) => (op.color === rimColor ? i : acc), -1);
-    const firstFill = ops.findIndex((op) => op.color === fillColor);
-    expect(lastRim, "the mid plane draws rims").toBeGreaterThanOrEqual(0);
-    expect(firstFill, "the mid plane draws fills").toBeGreaterThanOrEqual(0);
-    expect(lastRim, "every rim precedes every fill").toBeLessThan(firstFill);
-  });
 });
 
 /**
- * THE AUTHORED SILHOUETTES (brief: "we are generating shapes from parameters,
- * they drew theirs").
+ * NO SILHOUETTE-MASS TESTS REMAIN, AND THAT IS THE POINT.
  *
- * These assert the properties that make a shape DESIGNED rather than sampled,
- * so the next person to reach for a random range has to argue with a test.
+ * Three generations of them have been deleted from this file: generated massif
+ * blobs, authored terrain profiles (aspect spread, summit/base contract,
+ * mirroring, shared base lines), and ring planes and planet limbs (full-width
+ * span, varying thickness, arcs closed through an off-frame centre). Every one
+ * of those suites was green while the thing it guarded was a defect.
+ *
+ * The depth planes now carry DEBRIS at their ramp value and nothing else. What
+ * is still tested here is what still exists and still matters: the wrap seam,
+ * the opaque-compositing rule, the lane guard that keeps foreground objects off
+ * word plates, and the sourcing of the veils.
+ *
+ * The value ladder itself is tested in `depth.test.ts`, including the debris
+ * clearance that AC-22.4 turns on. That is the part a child's ability to play
+ * depends on, and it is unchanged by any of these removals.
  */
-describe("silhouette character comes from authored profiles, not from noise", () => {
-  it("every profile is a closed angular outline with real incident on it", () => {
-    for (const profile of MASS_PROFILES) {
-      expect(profile.points.length, `${profile.id} point count`).toBeGreaterThanOrEqual(8);
-      // A summit at y = 0 and a base at y = 1: the contract `place()` relies on.
-      expect(Math.min(...profile.points.map((p) => p.y)), `${profile.id} summit`).toBe(0);
-      expect(Math.max(...profile.points.map((p) => p.y)), `${profile.id} base`).toBe(1);
-      // It uses its full width, so `aspect` means what it says.
-      expect(Math.min(...profile.points.map((p) => p.x)), `${profile.id} left`).toBe(-1);
-      expect(Math.max(...profile.points.map((p) => p.x)), `${profile.id} right`).toBe(1);
-      // TERRACED. A chamfered box has four corners; a landform has many more.
-      const pts = profile.points;
-      const corners = pts.filter((p, i) => {
-        const a = pts[(i + pts.length - 1) % pts.length] as { x: number; y: number };
-        const b = pts[(i + 1) % pts.length] as { x: number; y: number };
-        const cross = (p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x);
-        return Math.abs(cross) > 1e-6;
-      });
-      expect(corners.length, `${profile.id}: a rounded rectangle has four`).toBeGreaterThan(6);
-    }
-  });
-
-  it("the catalogue spans EXTREME proportions, not an average one repeated", () => {
-    // What made the generated field read as one shape at three sizes: a random
-    // range clusters near its mean. The reference puts a 2.4:1 tower beside a
-    // 0.45:1 dune, and that contrast is the depth cue.
-    const aspects = MASS_PROFILES.map((p) => p.aspect);
-    expect(Math.max(...aspects) / Math.min(...aspects)).toBeGreaterThan(5);
-    expect(new Set(MASS_PROFILES.map((p) => p.kind)).size).toBeGreaterThanOrEqual(4);
-    expect(new Set(MASS_PROFILES.map((p) => p.id)).size).toBe(MASS_PROFILES.length);
-  });
-
-  it("a far plane draws from a different, quieter set than a near one", () => {
-    const far = profilesFor(0).map((p) => p.id);
-    const near = profilesFor(1).map((p) => p.id);
-    expect(far).not.toEqual(near);
-    // The loudest shape in the catalogue never goes to the back of the frame.
-    expect(far).not.toContain("monolith");
-    expect(near).toContain("monolith");
-  });
-
-  it("place() puts the BASE on baseY and grows the mass upward", () => {
-    const profile = profileById("monolith");
-    const pts = place(profile, 500, 900, 60, false);
-    expect(Math.max(...pts.map((p) => p.y))).toBeCloseTo(900, 6);
-    expect(Math.min(...pts.map((p) => p.y))).toBeCloseTo(900 - heightOf(profile, 60), 6);
-    // ...and mirroring is a reflection about the mass's own axis, nothing else.
-    const flipped = place(profile, 500, 900, 60, true);
-    const asc = (a: number, b: number): number => a - b;
-    const reflected = flipped.map((p) => 1000 - p.x).sort(asc);
-    const original = pts.map((p) => p.x).sort(asc);
-    expect(reflected).toHaveLength(original.length);
-    for (const [i, x] of original.entries()) expect(reflected[i]).toBeCloseTo(x, 6);
-  });
-
-  it("a massif plane places its masses on SHARED base lines, so it reads as ground", () => {
-    // Judge note 4 of round 1, "the masses read as slabs floating in soup". A
-    // landform group is 2-3 authored masses whose bases are the same y; a plane
-    // of independent floating shapes is what that note was describing.
-    const fill = MID_MASSIF(rng(SEED)).fill;
-    // Masses only: every authored profile has 8 or more points, while a frond
-    // blade has 3 and a lattice diamond has 4.
-    const ops = massifTile(W, H, MID_MASSIF(rng(SEED))).filter(
-      (op) => op.kind === "poly" && op.color === fill && op.points.length >= 8,
-    );
-    const bases = ops.map((op) =>
-      op.kind === "poly" ? Math.round(Math.max(...op.points.map((p) => p.y))) : 0,
-    );
-    const distinct = new Set(bases);
-    // Two groups, three or four masses in each, and exactly two base lines.
-    expect(ops.length, "the plane drew masses").toBeGreaterThan(5);
-    expect(distinct.size, `bases ${[...distinct].join(", ")}`).toBe(
-      MID_MASSIF(rng(SEED)).count,
-    );
-  });
-});
 
 /**
  * THE NEAR FRAME IS GONE, AND SO ARE ITS TESTS.

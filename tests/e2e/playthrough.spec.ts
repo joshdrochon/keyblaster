@@ -48,11 +48,32 @@ async function press(page: import("@playwright/test").Page, key: string): Promis
   await page.waitForTimeout(120);
 }
 
+/**
+ * HOW FAST THIS SPEC'S "CHILD" TYPES, in ms between keys.
+ *
+ * It used to be whatever `page.keyboard` could manage - about 5 ms - and that
+ * did not matter, because the game flew every belt at FR-8's 350 ms default
+ * whoever was at the keyboard. It matters now. The pre-flight ritual measures
+ * the pilot and the belt keeps refining that measurement from play (D51), so
+ * the speed this spec types at IS the speed the game tunes itself to. Typing at
+ * machine speed tells it a child types at 5 ms, the belief is floored at
+ * `MIN_IKI_MS` (40), every fall time lands on its 2.5 s clamp - and the belt is
+ * then correctly tuned for hands that do not exist and impossible for a player
+ * whose real cost per word is a CDP round trip.
+ *
+ * 180 ms is a confident child at roughly 65 wpm: comfortably inside
+ * `@engine/calibration`'s [40, 3000] bounds and slower than the ritual is meant
+ * to catch. The number is not tuned to make anything pass - what it does is
+ * make the player CONSISTENT, so the game is measuring one person rather than a
+ * ritual typed by a machine and a belt flown by a round trip.
+ */
+const KEY_DELAY_MS = 180;
+
 /** Type a word one key at a time, as a child would. */
 async function typeWord(
   page: import("@playwright/test").Page,
   word: string,
-  delayMs = 45,
+  delayMs = KEY_DELAY_MS,
 ): Promise<void> {
   for (const ch of word) {
     await page.keyboard.press(ch === " " ? "Space" : ch);
@@ -158,7 +179,10 @@ async function clearTheBelt(
     // roughly one per word - which is what stops this measuring the harness.
     last.rocks.sort((a, b) => b.y - a.y);
     for (const rock of last.rocks) {
-      await page.keyboard.type(rock.word);
+      // At the same pace the ritual was typed at - see KEY_DELAY_MS. A belt
+      // typed at machine speed and a ritual typed at a child's is two different
+      // players, and the game now believes whichever one it measured last.
+      await page.keyboard.type(rock.word, { delay: KEY_DELAY_MS });
     }
     await page.waitForTimeout(40);
   }
@@ -183,27 +207,10 @@ async function clearTheBelt(
  * A returning pilot shows the same sequence with nothing to type
  * (`calibrating: false`), and the loop simply waits it out.
  *
- * AND IT IS TYPED AT A HUMAN PACE, WHICH IS LOAD-BEARING. This is the one place
- * in the game where the machine measures the person, and everywhere else in
- * this spec the "person" is `page.keyboard.type` at full speed. Typing the
- * ritual that way tells the game a child types at 25 ms between keys - below
- * `MIN_IKI_MS`, so it is floored at 40 - and the belt is then correctly tuned
- * for hands no child has, with every fall time on its 2.5 s clamp. That belt is
- * survivable for a human typing at 40 ms and is not survivable for an automated
- * player whose real cost per word is a CDP round trip. The mismatch is the
- * harness's, not the game's, and it belongs here rather than in a looser
- * assertion about stalls.
+ * It is typed at `KEY_DELAY_MS`, like everything else this spec types. See that
+ * constant: the ritual is where the game meets the pilot, and a pilot who types
+ * the ritual at one speed and the belt at another is two different pilots.
  */
-/**
- * Gap between keys while the ritual is measuring, ms.
- *
- * A grade 3-5 typist sits around FR-8's 350 ms; this is deliberately a little
- * quicker than that and well inside `@engine/calibration`'s [40, 3000] bounds,
- * so the ritual measures a plausible child rather than the automation driving
- * the keyboard.
- */
-const PREFLIGHT_KEY_DELAY_MS = 220;
-
 async function runPreflight(
   page: import("@playwright/test").Page,
   where: () => string,
@@ -220,7 +227,7 @@ async function runPreflight(
     });
     if (snap?.phase === "typing" && snap.currentWord !== null && !typed.has(snap.currentWord)) {
       typed.add(snap.currentWord);
-      await typeWord(page, snap.currentWord, PREFLIGHT_KEY_DELAY_MS);
+      await typeWord(page, snap.currentWord);
     }
     await page.waitForTimeout(200);
   }

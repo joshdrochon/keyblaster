@@ -38,6 +38,7 @@
  */
 
 import { isStopId, type StopId } from "../../engine/types.js";
+import { coachNoteClipId } from "../../engine/coach/spokenNotes.js";
 import { clamp } from "./context.js";
 import { NullAudioContext } from "./nullContext.js";
 import { AMBIENT_CROSSFADE_MS } from "./ambient.js";
@@ -495,10 +496,25 @@ export function installAudio(options: InstallAudioOptions): AudioService {
       graph.voice.interrupt(usable ? line : undefined);
     },
 
+    /**
+     * THE LOOKUP KEYS ON THE LINE, NOT ON THE CALL SITE (D63, D98).
+     *
+     * `lineId` names a SCREEN - `WarpScene` passes `warp.coachNote` - and there
+     * are ten fixed sentences behind that one name (D33's fallback bundle and
+     * the mock's slot-free notes), so a file called `warp.coachNote.mp3` could
+     * only ever be one of them played over the text of another. The id is
+     * therefore resolved from the NOTE, by `coachNoteClipId`, which is the same
+     * enumeration `scripts/render-voice.mjs` renders and the D98 guard checks.
+     *
+     * Null - an interpolated mock note (AC-15.5) or genuine model text - keeps
+     * the call site's id, which has no clip and, under D98, is silent rather
+     * than read by an OS voice.
+     */
     speakNote(note, render, lineId): CoachNoteSpeechResult {
-      const result = speakCoachNote(note, render, graph.voice, lineId);
+      const id = coachNoteClipId(note?.note ?? "") ?? lineId ?? "coach.note";
+      const result = speakCoachNote(note, render, graph.voice, id);
       coachNoteOrder = result.order;
-      if (result.spoke) push(spoken, { id: lineId ?? "coach.note", kind: "coachNote" });
+      if (result.spoke) push(spoken, { id, kind: "coachNote" });
       return result;
     },
 

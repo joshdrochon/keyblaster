@@ -1,7 +1,8 @@
 {
-  "renderedAt": "2026-09-17T01:29:21.052Z",
+  "renderedAt": "2026-09-17T03:33:04.613Z",
   "model": "eleven_flash_v2_5",
   "voiceId": "TX3LPaxmHKxFdv7VOQHJ",
+  "lang": "en",
   "lines": [
     {
       "id": "earth.preflightLine",
@@ -206,6 +207,66 @@
       "file": "preflight.line.returning.mp3",
       "chars": 48,
       "bytes": 36824
+    },
+    {
+      "id": "coach.fallback.en.base",
+      "file": "coach.fallback.en.base.mp3",
+      "chars": 70,
+      "bytes": 53960
+    },
+    {
+      "id": "coach.fallback.en.earth",
+      "file": "coach.fallback.en.earth.mp3",
+      "chars": 67,
+      "bytes": 60648
+    },
+    {
+      "id": "coach.fallback.en.mars",
+      "file": "coach.fallback.en.mars.mp3",
+      "chars": 70,
+      "bytes": 53124
+    },
+    {
+      "id": "coach.fallback.en.jupiter",
+      "file": "coach.fallback.en.jupiter.mp3",
+      "chars": 60,
+      "bytes": 60648
+    },
+    {
+      "id": "coach.fallback.en.saturn",
+      "file": "coach.fallback.en.saturn.mp3",
+      "chars": 64,
+      "bytes": 63573
+    },
+    {
+      "id": "coach.fallback.en.uranus",
+      "file": "coach.fallback.en.uranus.mp3",
+      "chars": 68,
+      "bytes": 66499
+    },
+    {
+      "id": "coach.fallback.en.neptune",
+      "file": "coach.fallback.en.neptune.mp3",
+      "chars": 62,
+      "bytes": 50199
+    },
+    {
+      "id": "coach.fallback.en.pluto",
+      "file": "coach.fallback.en.pluto.mp3",
+      "chars": 64,
+      "bytes": 65663
+    },
+    {
+      "id": "coach.mock.clean.0",
+      "file": "coach.mock.clean.0.mp3",
+      "chars": 57,
+      "bytes": 44765
+    },
+    {
+      "id": "coach.mock.clean.1",
+      "file": "coach.mock.clean.1.mp3",
+      "chars": 52,
+      "bytes": 51453
     }
   ]
 }

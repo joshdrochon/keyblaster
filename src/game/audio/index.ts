@@ -137,6 +137,19 @@ export function manifestClipIds(manifest: unknown = Object.values(CLIP_MANIFEST)
   return ids;
 }
 
+/**
+ * The language the shipped clips were RENDERED IN. Absent on an older manifest,
+ * which is English, so that is the default.
+ */
+export function manifestLang(manifest: unknown = Object.values(CLIP_MANIFEST)[0]): string {
+  if (typeof manifest !== "object" || manifest === null) return "en";
+  const lang = (manifest as { lang?: unknown }).lang;
+  return typeof lang === "string" && lang.length > 0 ? lang.toLowerCase() : "en";
+}
+
+/** "en-US" -> "en". Same rule `selectVoice` uses for a BCP-47 tag. */
+const baseLangOf = (tag: string): string => (tag.split("-")[0] ?? tag).toLowerCase();
+
 /** Line id from a clip path: ".../mars.beaconFlavor.mp3" -> "mars.beaconFlavor". */
 function clipIdOf(path: string): string | null {
   const file = path.split("/").pop();
@@ -184,10 +197,22 @@ function adaptMediaElement(element: unknown): VoiceMediaElement {
  * shipped no renders. Every one of those is a game that speaks through the
  * platform voice, which is D88's stand-in and still a complete game.
  */
-export function browserVoiceClips(scope: unknown = globalThis): VoiceClipCatalog | null {
+export function browserVoiceClips(
+  scope: unknown = globalThis,
+  contentLang = "en",
+): VoiceClipCatalog | null {
   if (typeof scope !== "object" || scope === null) return null;
   const Ctor = (scope as Record<string, unknown>)["Audio"];
   if (typeof Ctor !== "function") return null;
+  // ================== THE CLIPS ARE IN ONE LANGUAGE ==================
+  // The scripted ids carry no language - `mars.beaconFlavor` is the same id
+  // whatever the child is reading - so a Spanish session would look up an
+  // ENGLISH recording and play it over Spanish text. That is precisely the
+  // "wrong voice" D98 cuts, and it is worse than the system voice was, because
+  // it is not even the right words. A session whose language is not the one
+  // that was rendered gets NO clips, which under D98 means silence.
+  // See gauntlet/escalations.md E-VOICE-1.
+  if (baseLangOf(contentLang) !== manifestLang()) return null;
 
   const rendered = new Set(manifestClipIds());
   const byId = new Map<string, string>();
@@ -230,10 +255,18 @@ export interface AudioSystemOptions {
   /** The scope globals are read from. Injected so the adapter is testable. */
   readonly scope?: unknown;
   /**
-   * Shadow's rendered lines (D63). `null` forces the platform voice for every
-   * line, which is how a test asserts the stand-in still works end to end.
+   * Shadow's rendered lines (D63). `null` ships no clips at all, which under
+   * D98 means a silent Shadow - the state a build guard is supposed to prevent.
    */
   readonly voiceClips?: VoiceClipCatalog | null;
+  /**
+   * D98: bind the browser's speech synthesiser and let it read lines that have
+   * no rendered clip. OFF unless explicitly passed, and `boot.ts` does not pass
+   * it. The one case it is for is a live `/api/coach` note, which is genuinely
+   * unrenderable; everything else that would use it is a missing render, and a
+   * missing render is a build failure rather than a runtime fallback.
+   */
+  readonly allowSystemVoice?: boolean;
 }
 
 /**
@@ -243,13 +276,30 @@ export interface AudioSystemOptions {
 export function createAudioSystem(options: AudioSystemOptions = {}): AudioGraph {
   const scope = options.scope ?? globalThis;
   const ctx = options.ctx ?? browserAudioContext(scope) ?? new NullAudioContext();
-  const speech = options.speech !== undefined ? options.speech : browserSpeechPort(scope);
+  // D98. Two locks rather than one: the environment flag below is what
+  // `adaptiveTransport` reads, and the port is not even BOUND without the
+  // opt-in, so a future edit that forgets the flag still cannot reach the
+  // platform's voice from the shipped composition root.
+  const allowSystemVoice = options.allowSystemVoice === true;
+  const speech = !allowSystemVoice
+    ? null
+    : options.speech !== undefined
+      ? options.speech
+      : browserSpeechPort(scope);
   const schedule = options.schedule ?? browserScheduler(scope);
   const platform = options.platform ?? detectPlatformFrom(scope);
-  const clips = options.voiceClips !== undefined ? options.voiceClips : browserVoiceClips(scope);
+  const lang = options.lang ?? "en-US";
+  const clips =
+    options.voiceClips !== undefined ? options.voiceClips : browserVoiceClips(scope, lang);
 
   const graphOptions = {
-    voiceEnv: { speech, platform, lang: options.lang ?? "en-US", schedule },
+    voiceEnv: {
+      speech,
+      platform,
+      lang,
+      schedule,
+      allowSystemVoice,
+    },
     ...(clips !== null ? { voiceClips: clips } : {}),
     ...(options.rand ? { rand: options.rand } : {}),
     ...(options.masterGain !== undefined ? { masterGain: options.masterGain } : {}),

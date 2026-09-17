@@ -116,7 +116,6 @@ import {
   accentTile,
   driftTile,
   dustTile,
-  massifTile,
   moteTile,
   planeMaterialColor,
   starTile,
@@ -235,19 +234,32 @@ const LANE_GUARD = 0.2;
  * The light's on-screen radius, and the column around it the world keeps clear.
  *
  * Both halves live here so they cannot drift apart: `sunDisc` draws at
- * `sunRadius`, and `massifTile` is told to keep `sunRadius * SUN_CLEARANCE`
- * either side of it free of far- and mid-plane geometry.
+ * `sunRadius`, and the space forms are told where it is so they can be placed
+ * away from it.
  */
 function sunRadius(pal: StopPalette): number {
   return isBrightStop(pal) ? 86 : 48;
 }
 
 /**
- * Judge note 2, round 2: "the sun is now occluded by a ridge and reads as an
- * accident rather than a composition." 1.9 radii leaves the disc and the bright
- * inner part of its halo in open sky at every scroll offset.
+ * UR-08: THE KEEP-OUT COLUMN IS GONE, and it had already gone before the report.
+ *
+ * `SUN_CLEARANCE` used to widen a vertical strip around the light in which far
+ * and mid TERRAIN was forbidden, so a mesa could not crop the disc. It worked,
+ * and it carved a visible band into the sky - that strip was the only place the
+ * dark shapes were not, so it read brighter than everything either side of it. A
+ * user zoomed in and asked what the brighter shape on the right was. A fix for
+ * one visual bug had drawn a new one.
+ *
+ * D97 removed it as a side effect: there is no terrain to exclude, the light is
+ * drawn at its own depth in front of the far and mid planes, and the two space
+ * forms avoid it by construction instead - a limb is placed on the far side of
+ * the light (`lightX`), and a ring band crosses the half of the tile the light
+ * is not in (`lightY`). Neither is a hard edge anywhere.
+ *
+ * The constant is deleted rather than left at a value nothing reads: a keep-out
+ * width that no longer keeps anything out is the next person's red herring.
  */
-const SUN_CLEARANCE = 1.9;
 
 export interface ParallaxOptions {
   readonly palette: StopPalette;
@@ -467,10 +479,6 @@ function materialsFor(
  */
 export const WORLD_STOP_KEY = "kb.worldStop";
 
-/** TEMPORARY ablation switch, removed before hand-back. */
-const OFF = (k: string): boolean =>
-  ((globalThis as unknown as { __kbAblate?: string[] }).__kbAblate ?? []).includes(k);
-
 export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Parallax {
   ensureTextures(scene);
 
@@ -497,12 +505,6 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   const objectInk = foregroundObjectInk(pal);
   const sky = skyStops(pal)[1];
   const light = lightAngleOf(pal);
-  /** WORLD-BAR item 4. See `SUN_CLEARANCE`: a column, not a circle. */
-  const SUN_COLUMN = {
-    x: W * lightPositionOf(pal).x,
-    halfWidth: sunRadius(pal) * SUN_CLEARANCE,
-  };
-
   const layers: ParallaxLayer[] = LAYERS.map((spec) => {
     const container = scene.add.container(0, 0).setDepth(spec.depth);
     return { spec, container, offsetX: 0, offsetY: 0 };
@@ -520,7 +522,6 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
 
   /** Add a wrapped, sideways-drifting sub-plane to a layer. */
   const addDrift = (id: LayerId, ops: readonly TileOp[]): void => {
-    if (OFF(`drift:${id}`)) return;
     const cfg = DRIFT_X[id];
     if (cfg === undefined || ops.length === 0) return;
     const sub = scene.add.container(0, 0);
@@ -568,35 +569,20 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   // roughly half sky, and four carefully separated values need somewhere to be
   // seen against each other. Two masses per plane, far smaller than near.
   if (decorate.has("farField")) {
-    const f = layerOf("farField").container;
-    f.add(
-      drawOps(
-        scene,
-        wrapY(
-          massifTile(W, H, {
-            fill: farFill,
-            rimColor: rimOf(farFill),
-            detailColor: rimOf(farFill),
-            light,
-            rand,
-            depth: 0,
-            // MORE, SMALLER. A far plane in the reference is a row of low
-            // quiet silhouettes, not two big ones; two large masses at the back
-            // read as mid-field objects that happen to be pale.
-            count: 3,
-            minH: 0.09,
-            maxH: 0.17,
-            // A far shape has no rim: a lit edge out there reads as a near
-            // object and destroys the depth it is meant to build.
-            rim: false,
-            dots: false,
-            fronds: false,
-            clearColumn: SUN_COLUMN,
-          }),
-          H,
-        ),
-      ),
-    );
+    /**
+     * NO SILHOUETTE GEOMETRY ON THIS PLANE, by the user's call.
+     *
+     * It carried terrain, then ring planes and a planet limb. All three are
+     * gone. The terrain removal was structural (D97: a landform needs ground and
+     * this game has none). The space forms went for a plainer reason - the user
+     * looked at them three times and said "remove it, and remove those
+     * horizontal shapes, they just look noisy".
+     *
+     * What is left here is decorative debris at distance, coloured by this
+     * plane's ramp value. The ramp is still what makes the planes read as
+     * different depths; it now does it through the debris rather than through
+     * masses, which is why `depthRamp` and `BANDS_BEHIND_DEBRIS` are unchanged.
+     */
     addDrift(
       "farField",
       driftTile(W, H, {
@@ -612,29 +598,6 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   }
   if (decorate.has("midField")) {
     const m = layerOf("midField").container;
-    m.add(
-      drawOps(
-        scene,
-        wrapY(
-          massifTile(W, H, {
-            fill: midFill,
-            rimColor: rimOf(midFill),
-            detailColor: mixHex(midFill, rimOf(midFill), 0.75),
-            light,
-            rand,
-            depth: 0.5,
-            count: 2,
-            minH: 0.17,
-            maxH: 0.3,
-            rim: true,
-            dots: true,
-            fronds: true,
-            clearColumn: SUN_COLUMN,
-          }),
-          H,
-        ),
-      ),
-    );
     m.add(
       drawOps(scene, wrapY(dustTile(W, H, mixHex(midFill, "#FFFFFF", 0.22), rand), H)),
     );
@@ -745,7 +708,7 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
     // `worldAccent`, not `accent`: in colourblind mode these two are different
     // colours on purpose. See the long note in palette.ts - the world wants the
     // value separated from the sky, the plate wants the one a child can read.
-    if (!OFF("motes")) n.add(drawOps(scene, wrapY(moteTile(W, H, nearFill, pal.worldAccent, rand), H)));
+    n.add(drawOps(scene, wrapY(moteTile(W, H, nearFill, pal.worldAccent, rand), H)));
     // WORLD-BAR item 7. Three of them. Tiny, high contrast, enormous effect.
     n.add(
       drawOps(scene, wrapY(accentTile(W, H, mixHex(pal.worldAccent, "#FFFFFF", 0.2), rand), H)),
@@ -831,7 +794,6 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
         : mixHex(skyStops(pal)[0], "#FFFFFF", 0.7);
       const vc = scene.add.container(0, 0);
       veilContainer = vc;
-      if (!OFF("veil")) {
       vc.add(
         drawOps(
           scene,
@@ -840,7 +802,6 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
       );
       vc.setAlpha(reducedMotion ? VEIL_ALPHA_REDUCED : VEIL_ALPHA);
       fv.add(vc);
-      }
       const cfg = DRIFT_X["foreVeil"] as { rate: number; base: number };
       driftPlanes.push({
         container: veilContainer,
@@ -855,7 +816,7 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
 
   // --- Pinned framing and weather ----------------------------------------
   if (wantsFraming) {
-    if (!OFF("vignette")) extras.push(vignette(scene, pal, W, H).setDepth(VIGNETTE_DEPTH));
+    extras.push(vignette(scene, pal, W, H).setDepth(VIGNETTE_DEPTH));
   }
   const kind = wantsAtmosphere ? atmosphereFor(pal.id) : null;
   let weather: Phaser.GameObjects.TileSprite | null = null;
@@ -898,7 +859,11 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
         // than on any one layer's: a touch faster than the near field, with a
         // slow sideways drift that keeps it alive on a still screen (rubric 2).
         weather.tilePositionY -= (worldSpeed * 1.45 + 26) * (dt / 1000);
-        weather.tilePositionX += Math.sin(elapsedMs / 5200) * 0.22;
+        // NO SIDEWAYS DRIFT. This world scrolls vertically; a weather pass
+        // sliding horizontally across it is motion in an axis nothing else
+        // moves in, and it is what made the texture's repeats legible - a player
+        // described the world as strips "sliding from left to right". The pass
+        // is meant to tie the planes together, not to be tracked across them.
       }
     },
 
@@ -1224,31 +1189,69 @@ function atmospherePass(
   h: number,
 ): Phaser.GameObjects.TileSprite {
   const key = `kb/tex/atmos/${kind}`;
-  const size = 256;
+  // LARGER THAN 256. Standard parallax practice is that a tiled element should
+  // be bigger than the window so the player never sees a whole repeat at once;
+  // at 256 a 1920-wide frame showed 7.5 of them, and the user counted "about 8"
+  // vertical strips. Seamlessness is the real fix and it is below, but fewer
+  // joins is free.
+  //
+  // Not derived from the stage width on purpose: the letterbox lane is making
+  // the design width follow the window, so anything that hard-codes 1920 - or
+  // scales off a width captured at construction - is about to be wrong.
+  const size = 512;
   if (!scene.textures.exists(key)) {
     const g = scene.make.graphics({ x: 0, y: 0 }, false);
     const r = rng(0xa17105 + kind.length);
     if (kind === "streaks" || kind === "dust") {
-      const lines = kind === "streaks" ? 16 : 26;
+      const lines = kind === "streaks" ? 24 : 40;
       for (let i = 0; i < lines; i++) {
         const x = r() * size;
-        const len = kind === "streaks" ? 110 + r() * 120 : 26 + r() * 54;
+        const y = r() * size;
+        const len = kind === "streaks" ? 150 + r() * 160 : 34 + r() * 72;
+        const lean = len * 0.28;
         g.lineStyle(kind === "streaks" ? 2 : 1.2, 0xffffff, 0.12 + r() * 0.2);
-        // A shallow lean, wrapped: the pass has to tile in both axes or the
-        // seam is a diagonal line across the sky.
+        /**
+         * THE COPIES ARE TRANSLATIONS. This is the whole of UR-07.
+         *
+         * The previous version looped `for (const dx of [-size, 0, size])` and
+         * called `r()` for the endpoints INSIDE that loop, so the three copies
+         * of each streak had different y values. They were not copies at all,
+         * and the comment claiming the pass "has to tile in both axes" was
+         * describing an intention rather than the code. Every 256 px boundary
+         * therefore carried a hard discontinuity, which at 1920 wide is the
+         * seven-and-a-half vertical joins a player described as "a bunch of
+         * vertical strips... stitched together".
+         *
+         * The y wrap was missing outright: a streak starting near the bottom ran
+         * off the texture and reappeared nowhere.
+         */
         for (const dx of [-size, 0, size]) {
-          g.lineBetween(x + dx, r() * size, x + dx + len * 0.28, r() * size + len);
+          for (const dy of [-size, 0, size]) {
+            g.lineBetween(x + dx, y + dy, x + dx + lean, y + dy + len);
+          }
         }
       }
     } else if (kind === "glitter") {
-      for (let i = 0; i < 70; i++) {
+      for (let i = 0; i < 140; i++) {
+        const x = r() * size;
+        const y = r() * size;
+        const rad = 0.7 + r() * 1.5;
         g.fillStyle(0xffffff, 0.14 + r() * 0.5);
-        g.fillCircle(r() * size, r() * size, 0.7 + r() * 1.5);
+        // Same rule: a dot near an edge has to exist on the opposite edge too.
+        for (const dx of [-size, 0, size]) {
+          for (const dy of [-size, 0, size]) g.fillCircle(x + dx, y + dy, rad);
+        }
       }
     } else {
-      for (let i = 0; i < 14; i++) {
+      for (let i = 0; i < 26; i++) {
+        const x = r() * size;
+        const y = r() * size;
+        const ew = 90 + r() * 150;
+        const eh = 24 + r() * 40;
         g.fillStyle(0xffffff, 0.035 + r() * 0.05);
-        g.fillEllipse(r() * size, r() * size, 90 + r() * 150, 24 + r() * 40);
+        for (const dx of [-size, 0, size]) {
+          for (const dy of [-size, 0, size]) g.fillEllipse(x + dx, y + dy, ew, eh);
+        }
       }
     }
     g.generateTexture(key, size, size);

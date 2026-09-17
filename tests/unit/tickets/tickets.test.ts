@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 // @ts-expect-error - .mjs tooling module, no type declarations by design
 import { STATE, buildTickets, citationStrength, rubricState, tally } from "../../../scripts/tickets.mjs";
+// @ts-expect-error - .mjs tooling module, no type declarations by design
+import { srcHash } from "../../../scripts/lib/srcHash.mjs";
 
 /**
  * Tests for the ticket generator (scripts/tickets.mjs).
@@ -117,8 +119,12 @@ it("AC-949 unrelated", () => {});` },
 });
 
 describe("the board's shape holds", () => {
-  it("produces a ticket per atomic commitment across all seven sources", () => {
+  it("produces a ticket per atomic commitment across all eight sources", () => {
     const kinds = new Set(tickets.map((t: { kind: string }) => t.kind));
+    // The eighth is `user-reported`: defects the USER saw by looking at the
+    // game. They earned a source of their own because they are the only
+    // requirements here verified by the one test that has never been wrong —
+    // a person looking at the screen.
     expect([...kinds].sort()).toEqual([
       "ac",
       "collision",
@@ -127,10 +133,11 @@ describe("the board's shape holds", () => {
       "fr",
       "rubric",
       "screen",
+      "user-reported",
     ]);
     // The PRD's own counts. If an AC is added to the PRD and the board does not
     // grow, the parser has silently stopped matching a line shape.
-    expect(tickets.filter((t: { kind: string }) => t.kind === "ac")).toHaveLength(106);
+    expect(tickets.filter((t: { kind: string }) => t.kind === "ac")).toHaveLength(108);
     expect(tickets.filter((t: { kind: string }) => t.kind === "rubric")).toHaveLength(33);
   });
 
@@ -302,7 +309,10 @@ describe("rubricState: the staleness branch can actually be exercised", () => {
     // this returns DONE and fails here.
     const r = rubricState({ result: pass, stale: true, ageMs: 3600e3 });
     expect(r.state).toBe(STATE.UNVERIFIED);
-    expect(r.why).toMatch(/predates/);
+    // The wording moved from "predates" to naming the tree, when staleness
+    // became a content hash rather than a timestamp (D-17). The property being
+    // asserted is unchanged: a stale PASS is not DONE.
+    expect(r.why).toMatch(/no longer this one/);
   });
 
   it("a false-pass entry outranks a green report", () => {
@@ -492,5 +502,52 @@ describe("P2b: the board's own critic findings, closed", () => {
   it("NEGATIVE CONTROL: not every AC is blocked by an escalation", () => {
     const acs = all.filter((t) => t.kind === "ac");
     expect(acs.some((t) => t.state === STATE.DONE)).toBe(true);
+  });
+});
+
+describe("D-17: staleness is content, not a timestamp", () => {
+  /**
+   * The critic's demonstration: `touch gauntlet/report.md` converted 21
+   * UNVERIFIED rubric tickets to DONE. No code changed and no check ran — the
+   * board simply believed a newer mtime. And `git checkout` rewrites every
+   * mtime under `src/`, so the verdict depended on checkout ORDER rather than
+   * on content.
+   *
+   * mtime is the only free signal and coarse would be fine IF it failed safe.
+   * It fails open, so the artifact now carries a hash of the tree it measured.
+   */
+  it("the hash is stable for an unchanged tree", () => {
+    expect(srcHash()).toBe(srcHash());
+    expect(srcHash()).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("NEGATIVE CONTROL: a stamp that does not match the tree reads as stale", () => {
+    // The whole point. A report claiming PASS against a different tree is not
+    // evidence about this one.
+    const fresh = rubricState({
+      result: { status: "PASS", measurement: "measured" },
+      stale: false,
+    });
+    expect(fresh.state).toBe(STATE.DONE);
+
+    const stale = rubricState({
+      result: { status: "PASS", measurement: "measured" },
+      stale: true,
+      staleReason: "src-hash deadbeefdeadbeef != " + srcHash(),
+    });
+    expect(stale.state).toBe(STATE.UNVERIFIED);
+    expect(stale.why).toMatch(/no longer this one/);
+    expect(stale.why).toMatch(/src-hash/);
+  });
+
+  it("the reason says which signal was used, because one of them is weaker", () => {
+    // An artifact with no stamp still falls back to mtime, and the board says
+    // so out loud rather than presenting both as equally trustworthy.
+    const noStamp = rubricState({
+      result: { status: "PASS" },
+      stale: true,
+      staleReason: "no src-hash stamp; fell back to mtime, which touch can forge",
+    });
+    expect(noStamp.why).toMatch(/touch can forge/);
   });
 });

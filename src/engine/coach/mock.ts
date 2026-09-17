@@ -64,6 +64,89 @@ const CLEAN: readonly string[] = [
 ];
 
 /**
+ * ============ WHAT SHADOW CAN SAY FROM THIS TRANSPORT (D63, D98) ============
+ *
+ * The mock is the DEFAULT transport (see `chooseTransport`: an unconfigured
+ * build is a mock build), so these four tables are the notes a child actually
+ * hears today - not the fallback bundle, and certainly not a live model. The
+ * user heard "That was a clean run, pilot." in the system voice, and it came
+ * from `CLEAN` below.
+ *
+ * TWO OF THE FOUR TABLES CANNOT BE RECORDED. `TWO_MISSED`, `ONE_MISSED` and
+ * `ONE_SLOW` interpolate the child's own missed words (AC-15.5 is the reason
+ * they exist), so each template stands for as many sentences as the allowlist
+ * has words. `CLEAN` has no slots and is therefore a fixed, finite, renderable
+ * pair. `mockNoteLines` states that split as data instead of leaving it to
+ * whoever next writes a render script to notice - which is the mistake this
+ * whole area keeps repeating.
+ *
+ * The pools are exported as a FROZEN TABLE rather than copied into the render
+ * script, so an added template is an added render (or an added build failure
+ * under D98) with nothing to keep in sync by hand.
+ */
+export const MOCK_NOTE_POOLS = Object.freeze({
+  twoMissed: TWO_MISSED,
+  oneMissed: ONE_MISSED,
+  oneSlow: ONE_SLOW,
+  clean: CLEAN,
+});
+
+export type MockNotePool = keyof typeof MOCK_NOTE_POOLS;
+
+/** Clip ids for the mock's notes: `coach.mock.<pool>.<index>`. */
+export const MOCK_CLIP_PREFIX = "coach.mock";
+
+export interface MockNoteLine {
+  /** `coach.mock.clean.0`. Null when the template has slots - see below. */
+  readonly id: string | null;
+  readonly pool: MockNotePool;
+  readonly index: number;
+  /** The template, verbatim. `{a}` / `{b}` are the missed-word slots. */
+  readonly template: string;
+  /** False when the template interpolates a word, which no file can hold. */
+  readonly renderable: boolean;
+}
+
+/** True when a template is a whole sentence rather than a shape for one. */
+const isRenderable = (template: string): boolean => !template.includes("{");
+
+/**
+ * Every note this transport can produce, with an id for the ones that are
+ * fixed strings and `null` for the ones that are shapes. Both halves are
+ * returned on purpose: D98's guard has to be able to say WHY a sentence the
+ * game can speak has no recording, and "it names a word the child missed" is a
+ * different answer from "nobody rendered it".
+ */
+export function mockNoteLines(): MockNoteLine[] {
+  const lines: MockNoteLine[] = [];
+  for (const pool of Object.keys(MOCK_NOTE_POOLS) as MockNotePool[]) {
+    MOCK_NOTE_POOLS[pool].forEach((template, index) => {
+      const renderable = isRenderable(template);
+      lines.push({
+        id: renderable ? `${MOCK_CLIP_PREFIX}.${pool}.${index}` : null,
+        pool,
+        index,
+        template,
+        renderable,
+      });
+    });
+  }
+  return lines;
+}
+
+/** The clip id for a mock note, or null when it was interpolated (or not ours). */
+export function mockNoteClipId(note: string): string | null {
+  if (typeof note !== "string") return null;
+  const wanted = note.trim().replace(/\s+/g, " ");
+  if (wanted.length === 0) return null;
+  for (const line of mockNoteLines()) {
+    if (!line.renderable) continue;
+    if (line.template.trim().replace(/\s+/g, " ") === wanted) return line.id;
+  }
+  return null;
+}
+
+/**
  * FNV-1a, 32-bit. Small, dependency-free, and stable across engines - the
  * three things a deterministic fixture hash has to be.
  */

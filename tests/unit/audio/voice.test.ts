@@ -926,6 +926,9 @@ describe("AC-21.5: the transport is chosen per line, not once at boot", () => {
       platform: "mac",
       lang: "en-US",
       schedule: scheduler.schedule,
+      // D98: this test is ABOUT the platform voice, so it opts in. The shipped
+      // default is off; `spokenLines.test.ts` is what holds that.
+      allowSystemVoice: true,
     });
 
     // Boot: no voices yet. Silence is the honest answer, and a line still
@@ -967,6 +970,7 @@ describe("AC-21.5: the transport is chosen per line, not once at boot", () => {
       lang: "en-US",
       schedule: scheduler.schedule,
       chirp: () => (chirps += 1),
+      allowSystemVoice: true,
     });
 
     expect(transport.id).toBe("silent");

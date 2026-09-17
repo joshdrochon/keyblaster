@@ -150,7 +150,15 @@ describe("the audio evidence artifact is derived from the real graph", () => {
   it("reports zero TTS calls even when no probe was injected at all", () => {
     const { speech, scheduler } = fakeVoiceEnvironment();
     const withoutProbe = buildAudioEvidence(
-      { speech, platform: "mac", lang: "en-US", schedule: scheduler.schedule },
+      {
+        speech,
+        platform: "mac",
+        lang: "en-US",
+        schedule: scheduler.schedule,
+        // D98: the platform voice is opt-in now. This test is about the fetch
+        // probe being absent, so it keeps the speech path it was written for.
+        allowSystemVoice: true,
+      },
       { rotationsPerEvent: 12 },
     );
     expect(withoutProbe.runtimeTtsNetworkCalls).toBe(0);

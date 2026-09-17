@@ -21,6 +21,7 @@ import {
 } from "./lib/kit";
 import { litCount, routeView, type StopView } from "@engine/progress/index.js";
 import { hasStageBundle, stageBundle } from "./lib/content";
+import { hasPersonalBest, mapBoardLine } from "./support/mapBoard";
 import {
   goTo,
   progressFor,
@@ -54,9 +55,26 @@ import {
  */
 const ROUTE_Y = 430;
 const ROUTE_X0 = 210;
-const ROUTE_X1 = GAME_WIDTH - 210;
+/**
+ * The route's right end and the board's box, READ AT DRAW TIME.
+ *
+ * These were module-level `const`s off `GAME_WIDTH`, which was right while the
+ * world was a fixed 1920 wide. `GAME_WIDTH` is now the window's own aspect at
+ * 1080 (D99, `sceneKeys` header) and a top-level `const` captures the live
+ * binding at import time - i.e. freezes it at 1920 before `bootGame` has
+ * measured anything, which would pin Pluto and the right edge of the board
+ * 320 px inside a 21:9 window and leave a strip of empty sky beside them.
+ * Functions, called from the method that draws.
+ */
+const routeX1 = (): number => GAME_WIDTH - 210;
 const NODE_R = 46;
-const PANEL = { x: 200, y: 700, w: GAME_WIDTH - 400, h: 250 };
+interface PanelBox {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+const panelBox = (): PanelBox => ({ x: 200, y: 700, w: GAME_WIDTH - 400, h: 250 });
 const CHIP = { w: 262, h: 66, y: 74, gap: 22 };
 const BLINK_PERIOD_MS = 2600;
 const BLINK_STAGGER = 0.085;
@@ -186,6 +204,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     this.buildNodes();
 
     // --- the personal-best board (D43) -----------------------------------
+    const PANEL = panelBox();
     plate(this, PANEL.x, PANEL.y, PANEL.w, PANEL.h, { alpha: 0.92 }).setDepth(9);
     this.panelTitle = label(this, PANEL.x + 40, PANEL.y + 34, "", {
       size: TYPE.heading,
@@ -293,7 +312,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
 
   private buildNodes(): void {
     const { progress, ctx } = this.story;
-    const step = (ROUTE_X1 - ROUTE_X0) / (STOP_IDS.length - 1);
+    const step = (routeX1() - ROUTE_X0) / (STOP_IDS.length - 1);
 
     this.view.forEach((stop, i) => {
       const { stopId, charted, locked } = stop;
@@ -430,18 +449,21 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     this.panelChapter.setText(bundle?.chapterTitle ?? "");
 
     // Earth has no flight, so it has no WPM and no accuracy to be best at.
-    const hasRun = entry.cleared && isBeltStop(stop);
-    const board = hasRun
-      ? `${text.text("map.personalBest")}  ·  ${text.text("map.bestWpm", {
-          wpm: Math.round(entry.bestWpm),
-        })}  ·  ${text.text("map.bestAccuracy", {
-          accuracy: Math.round(entry.bestAccuracy),
-        })}`
-      : text.text("map.noRunYet");
-    this.panelBoard.setText(board);
+    //
+    // The line moved to `support/mapBoard.ts` so it can be driven with the
+    // values the STORE holds. `bestAccuracy` is a 0..1 fraction everywhere it
+    // is produced and the schema clamps it to [0, 1] on load, but this line
+    // used to render `Math.round(entry.bestAccuracy)` — so a 97% run read
+    // "1% accurate". It stayed green because every map fixture injects
+    // percent-scale progress as scene data (`story-lane.charted` passes 96)
+    // and the one store-level seed helper leaves the rates at zero, so no test
+    // in the repo had ever put a real accuracy on this screen.
+    const hasRun = hasPersonalBest(entry, stop);
+    this.panelBoard.setText(mapBoardLine(entry, stop, text));
 
     this.panelStars.clear();
     if (hasRun) {
+      const PANEL = panelBox();
       this.drawStars(
         this.panelStars,
         PANEL.x + PANEL.w - 140,
@@ -580,5 +602,22 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   }
 }
 
-/** Focus-ring geometry, exported so the e2e can assert it is on screen. */
-export const MAP_GEOMETRY = { ROUTE_Y, ROUTE_X0, ROUTE_X1, NODE_R, PANEL, SPACE };
+/**
+ * Focus-ring geometry, exported so the e2e can assert it is on screen.
+ *
+ * Getters for the two members that depend on the world's width (D99): a plain
+ * object literal here would snapshot 1920 at import time and the e2e would be
+ * asserting against a map the game is not drawing.
+ */
+export const MAP_GEOMETRY = {
+  ROUTE_Y,
+  ROUTE_X0,
+  get ROUTE_X1(): number {
+    return routeX1();
+  },
+  NODE_R,
+  get PANEL(): PanelBox {
+    return panelBox();
+  },
+  SPACE,
+};

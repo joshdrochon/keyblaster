@@ -78,6 +78,23 @@ import {
   maySpawnCanister,
 } from "@game/flight/shield.js";
 
+/**
+ * The baseline FALL TIME may use - `FlightScene.fallTimeCalibration`.
+ *
+ * Calibration is a LOOSENING knob and nothing else: it may lengthen a fall for
+ * a child the default is too quick for, and it may never shorten one. See the
+ * scene for why that is not symmetric, and the AC-10.2 escalation for why the
+ * loosening direction is the one the controller was missing. Modelled here
+ * because a harness that scales fall time both ways would report a belt the game
+ * does not fly - which is the whole reason this file was rewritten.
+ */
+function fallCalibration(calibration: Calibration): Calibration {
+  return {
+    ...calibration,
+    ikiMs: Math.max(calibration.ikiMs, DEFAULT_CALIBRATION.ikiMs),
+  };
+}
+
 /** Deterministic PRNG. Never Math.random, in the module or the test. */
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -243,7 +260,7 @@ export function simulateStage(
         const fall = fallTimeMs({
           word,
           ease: record.ease,
-          calibration: cfg.calibration ?? DEFAULT_CALIBRATION,
+          calibration: fallCalibration(cfg.calibration ?? DEFAULT_CALIBRATION),
         });
         const fk = recognitionMs(player, record);
         const type = typingMs(player, word, rng);
@@ -645,7 +662,11 @@ export function simulateBelt(
       selection = outcome.state;
       const word = outcome.word;
       const record = nextBook[word] ?? blankRecord();
-      const fall = fallTimeMs({ word, ease: record.ease, calibration });
+      const fall = fallTimeMs({
+        word,
+        ease: record.ease,
+        calibration: fallCalibration(calibration),
+      });
       const isCanister =
         (cfg.canisters ?? false) && maySpawnCanister(hull, maxHull, canisterLive) && rng() < 0.5;
       if (isCanister) canisterLive = true;

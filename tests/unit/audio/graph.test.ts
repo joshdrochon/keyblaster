@@ -254,7 +254,10 @@ describe("createAudioSystem binds the platform", () => {
       },
       clearTimeout: () => undefined,
     };
-    const graph = createAudioSystem({ scope });
+    // D98: `allowSystemVoice` is what binds the platform's voice at all; the
+    // assertion below is unchanged, and the default-off case is covered by
+    // `spokenLines.test.ts`.
+    const graph = createAudioSystem({ scope, allowSystemVoice: true });
     expect(constructed).toBe(1);
     expect(graph.voice.transportId).toBe("webspeech");
   });
@@ -320,6 +323,7 @@ describe("createAudioSystem binds the platform", () => {
       lang: "es-ES",
       rand: seededRandom(1),
       masterGain: 0.5,
+      allowSystemVoice: true,
     });
     expect(graph.ctx).toBe(ctx);
     expect(graph.buses.master.gain.value).toBeCloseTo(0.5, 9);

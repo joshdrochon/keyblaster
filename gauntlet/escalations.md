@@ -1266,6 +1266,8 @@ the next audit to find.
 
 ## E-world-5 — Two independent critics say shape vocabulary is not the gap. The direction question is yours.
 
+**Resolved:** D97 — the user chose space grammar. Terrain is dropped entirely; depth comes from ring planes, planet limb, nebula bands and dust fields. See docs/decision-log.md D97.
+
 ### What happened
 
 Eight silhouette reference sheets were generated (`design-reference/refs/generated/`, $0.32)
@@ -1405,7 +1407,15 @@ Critic B measured the bar. Any future visual critique must sample BOTH sides.
 - **Attempts:** n/a — this is a decision, not a fix-and-retry item. The measurement is correct; what to do about the eleven is a call about what the submission claims.
 - **Evidence:** `node scripts/trace-check.mjs --strict` (exit 1); `tests/unit/gauntlet/traceAndScenes.test.ts`.
 
-<!-- G-trace-strict-unlinked: 1 -->
+<!-- G-trace-strict-unlinked: 2 -->
+
+**Update (D97):** the count went 1 → 2 because **AC-22.10** was added when the
+user chose space grammar over terrain. It is deliberately uncovered right now:
+the criterion describes a world the art lane is currently building, and writing
+its test before the world exists would either pin today's terrain or assert
+nothing. The art lane ships the test with the change. If AC-22.10 is still
+uncovered when that lane hands back, it is a real gap rather than work in
+flight.
 <!-- The marker above is read by tests/unit/gauntlet/traceAndScenes.test.ts. It may
      never be LOWER than the live count: a new AC arriving with no test turns that
      test red. It may be higher after a lane closes one. Update it when you close
@@ -1971,6 +1981,8 @@ leave it, revisit if the notice is ever captured.
 
 ## E-world-5b — The horizon decision is now the ONLY thing between us and the visual bar. Two passes proved it.
 
+**Resolved:** D97 — the user chose space grammar. Terrain is dropped entirely; depth comes from ring planes, planet limb, nebula bands and dust fields. See docs/decision-log.md D97.
+
 This supersedes nothing in E-world-5; it adds the measurements that turn a
 judgement call into an arithmetic one. **Read this one first.**
 
@@ -2183,6 +2195,47 @@ hull comparison would be crediting two changes to one.
 | unmeasured, in-stage fold (existing profiles) | 0 | 0.911 | 598 ms |
 | ritual ran (new profiles) | 0 | 0.960 | 600 ms |
 
+### CALIBRATION IS A LOOSENING KNOB ONLY — a deliberate deviation from FR-8
+
+FR-8's formula is `len * 1.5 * ikiMs + 1200 * ease` and it scales BOTH ways, so
+measuring a quick child shortens their falls as surely as measuring a slow one
+lengthens them. Symmetric is what shipped first, and it is wrong. Measured
+against the real scene, `playthrough.spec.ts` cleared a whole Mars belt with no
+stall on the shipped 350 ms and stalled once when the identical run was flown at
+the 180 ms it was actually typing at. A controlled pair, one variable, same
+spec, same machine: calibration off 4.9 min and green, calibration on 8.5 min
+and a stall.
+
+The reason is that `ikiMs` is the gap between keys INSIDE a word, and it is not
+the player's cost per rock. Finding the next word, moving attention to it and
+committing sit outside it, and none of them get faster because the fingers do.
+Scaling the whole budget by its fastest component squeezes the parts that never
+moved.
+
+So fall time now takes `max(measured, 350)`. Calibration may lengthen a fall and
+may never shorten one. Everything else reads the true measurement -
+`@engine/pacing` still estimates what a rock will cost THIS player, and
+`slowWords` still asks what is slow for them; only the deadline is floored.
+
+**This is a real deviation and it should be reviewed.** Two things argue for it.
+Calibration was asked to rescue a child who could not clear one word; it was
+never asked to make the game harder for anybody, and D31 says the player should
+always feel like the best typer in the world. And the AC-10.2 escalation already
+on this page says, in as many words, that the knob the difficulty controller is
+missing is a LOOSENING one and that fall time is it — tightening authority via
+`maxLive` and `lengthBias` is ample. The cost is that a genuinely quick child
+keeps the median child's fall times; FR-10 is what is supposed to make the game
+harder for them, and it can.
+
+**It also corrected a figure already on record.** `belt.test.ts`'s 850 ms
+regression control asserted that the old spawn constant stalled every seed for
+every player. That was only true because the harness handed a 260 ms typist
+falls a third shorter than the shipped game ever gave anybody. Flown on the
+baseline the game actually holds, the old constant is catastrophic for the
+median and slow child (40/40 stalls, hit rate 0.27 and 0.18) and merely bad for
+the fast one (5/40, hit rate 0.84 against 1.00 on the shipped pacing). The test
+now says that, per player.
+
 ### What protects a badly measured ritual
 
 Worth recording because the ritual is now load-bearing. If a child mashes keys
@@ -2191,11 +2244,25 @@ belt is tuned for hands nobody has. Two things catch it. `FALL_TIME_MIN_MS`
 floors every fall at 2.5 s whatever the baseline says, and the in-stage fold
 corrects the belief upward from real play within the first handful of words -
 the same mechanism that rescues an unmeasured pilot, running in the other
-direction. The e2e route found this the hard way: `playthrough.spec.ts` typed
-the ritual at `page.keyboard`'s full speed, the game correctly concluded the
-pilot types at 40 ms, and the belt stalled once. The spec now types the ritual
-at a human pace, because it is the one place in the game where the machine
-measures the person and an automated player there measures the automation.
+direction.
+
+The e2e route found this the hard way, twice, and the second time is the
+interesting one. `playthrough.spec.ts` typed everything at `page.keyboard`'s
+full speed - about 5 ms between keys. The game correctly concluded that the
+pilot types at 40 ms (the floor), every fall time landed on its 2.5 s clamp, and
+the belt stalled. Slowing only the ritual did not fix it, because the in-stage
+fold then pulled the belief straight back down from the belt's own machine-speed
+keystrokes. The spec now types at ONE pace throughout (180 ms, a confident child
+at roughly 65 wpm), which is the actual fix: a pilot who types the ritual at one
+speed and the belt at another is two different pilots, and the game believes
+whichever it measured last.
+
+**This is a new property of the suite and worth knowing.** Before this round the
+speed a test typed at could not affect anything, because the game flew every
+belt at 350 ms regardless. It can now. Any spec that drives the keyboard is
+describing a player, and the game will tune itself to the player it is
+described. That is the feature working; it also means a spec that types at
+machine speed is asking for a belt no human could fly.
 
 ### STILL OPEN — two things this fix does not settle
 
@@ -2356,3 +2423,217 @@ stop drawing a selector that decides nothing.
 cause, not the missing wire, and (A) leaves both tables alive to drift again.
 (C) is the honest fallback if no lane can take the render change tonight — a
 selector that changes nothing is worse than no selector.
+
+### Fixed in this lane
+
+**Director map rendered "1% accurate" for a 97% run.** `DirectorMapScene:438`
+formatted `Math.round(entry.bestAccuracy)` where every producer and the schema
+treat the field as a 0..1 fraction (`persistence/schema` clamps it to [0,1]);
+`ResultsScene:579` formats the same field as `accuracy * 100`. Any cleared belt
+stop read "1% accurate" — or "0%" below 0.5 — on the map. The line moved to
+`scenes/support/mapBoard.ts` and is driven end to end by
+`tests/unit/scenes/mapBoard.test.ts` (12 tests; 7 red against the shipped
+expression before the fix).
+
+*Why it was invisible:* every map fixture injects percent-scale progress as
+`Scene.init` data — `story-lane.charted` defaults `bestAccuracy = 96`,
+`pointer.spec` and `default-focus.spec` pass 95 — which never touches the
+schema. The one helper that goes through the real store (`lib/menus.seed`) sets
+`cleared: true` and leaves the rates at their blank zero, so it renders no rates
+at all. Two fixture styles, neither of which can produce the bug, and no unit
+test for `DirectorMapScene` at all.
+
+**The game was centred twice, so the letterbox was 3:1.**
+`autoCenter: CENTER_BOTH` set a margin and `#app { place-items:center }` centred
+the margin box again. Measured before the fix: **144 px above the game and 48
+below at 1024x768; 375 left against 125 right at 2100x900; 75/25 at 16:10.**
+`viewportBackdrop.designRect` paints the sky at `(w - rw) / 2`, so the letterbox
+gradient was being drawn for a rect the game had been pushed half a bar out of.
+`boot.ts` now uses `NO_CENTER` and lets the CSS grid centre it once.
+
+*Why it was invisible:* 27 of 30 e2e specs run at 1280x720 — exactly 16:9, no
+bar. And `aspect.spec.ts`'s existing checks could not catch it: containment is
+unfalsifiable here (with a bar `b` and an offset `b/2` the right edge lands at
+`W - b/2`, inside the window for any offset up to a full bar). The spec now
+asserts the two bars are equal, and 4:3 was added to its list — it is the shape
+a school laptop or a classroom projector actually is, and the one it omitted.
+
+### NOT fixed — confirmed, with the file they live in
+
+**1. Typed letters at 1.02:1 on the flight screen. Gauntlet 2.1 is not fixed.**
+There are two palette functions. `render/palette.ts:262` was corrected to read
+`colorblind.plateAccent`. `flight/stage.ts:55-62` `paletteFor()` still returns
+`{ ...base, accent: base.colorblind.accent }`, and **that is the one
+`FlightScene` imports** (`FlightScene:87,506` → `plateStyle` → `wordPlate`
+`letter.setColor(style.accent)`). Driven through `@engine/contrast`:
+
+| stop | mode | accent the belt uses | via `paletteAt` | typed letter |
+|---|---|---|---|---|
+| saturn | colourblind | `#111318` | `#BFE6F7` | **1.02:1** |
+| pluto | colourblind | `#111318` | `#FFC9D8` | **1.02:1** |
+
+`StallScene:72,77,141` shares the import: the restart button fills `#111318` and
+labels it `#0E1116` — a 1.02:1 button on the card a stalled child has to press.
+The unit test and the evidence generator both measure `paletteAt`, which the
+flight plate never calls. **The fix added a second module instead of changing
+the one the belt reads.** `src/game/flight/*` is this lane's forbidden ground,
+so this is handed over rather than touched. It is the highest-severity item in
+the sweep: a colourblind child cannot see what they have typed.
+
+**2. The flight screen is outside the contrast inventory entirely.**
+`grep -c skyText` on `FlightScene` and `HudScene` is **0**;
+`rubric.mjs:613 REQUIRED_SCREENS = ["beacon","ending","map","results","warp"]`
+omits the one screen a child spends two minutes on. The unmeasured thing on it:
+`FlightScene:1542-1548` draws the `+points` floater with `this.add.text` in
+`palette.accent`, **no plate**, over the sky, on every blast. 11 of 14
+(stop, mode) pairs fall below 4.5:1 against the top sky band; worst are jupiter
+normal at **1.00:1** and pluto colourblind at **1.02:1**. Belongs with P0c,
+which already owns widening the rubric.
+
+**3. `aspect.spec.ts`'s seam assertion cannot fail.** `sampleBar` reads
+`getImageData` from `[data-testid="viewport-backdrop"]` for BOTH the inside and
+the outside sample, so it measures the backdrop's own gradient slope and never
+the bar-to-game boundary. It computes 0.00–0.88 against a tolerance of 12 while
+the real boundary seam is 35–68 on menu screens. Add it to the P2 false-pass
+list. Left alone here because fixing it turns the suite red on item 4.
+
+**4. Menu screens break "the bar continues the sky" by 3–19x.**
+`ui/chrome.ts:74-77` paints the menu sky `INK.bgDeep → colors[5]`;
+`viewportBackdrop:196-203` paints the bars `skyStops(palette)`. Two gradients,
+so the edge is a step. Measured seams: Settings at 2560x1080 **68**, at 1024x768
+**40/35**. Worse on the real Pause→Settings path, where the leaked `worldStop`
+stays `mars`: a **226** seam, a bright Mars sky framing a near-black settings
+panel — the same shape as the letterbox bug that shipped. No `MenuScene` writes
+`WORLD_STOP_KEY` (only `buildParallax` does), so `worldStop` is `null` on
+`?scene=Settings`, `?scene=BeaconLog` and `?scene=ProfilePicker`. The queue's
+note that "the registry answer shadows it for every world screen, so the picture
+is right" holds only for `buildParallax` scenes; for these five it does not.
+
+**5. `ProfileCreateScene:206` leaks the active pilot's unlocks into a new
+pilot.** `profile?.unlockedShips ?? [...]` reads `store.activeProfile()`, and
+"New pilot" is reached from the picker's list variant while pilot A is active —
+so the new pilot's ship step renders pilot A's ships, contradicting the D79
+comment two lines above it. Masked today only because nothing writes
+`unlockedShips`; it goes live the day orphan 2 is fixed. **Lean: fix both in one
+change**, since fixing unlocks alone turns this from latent into live.
+
+**6. Every flight-lane e2e measures a boot path the player never runs.**
+`src/game/flight/boot.ts` has zero production callers (`main.ts` does not reach
+it) and ~25 e2e call sites. It builds a second `Phaser.Game` with `type: AUTO`
+rather than WEBGL, `backgroundColor: "#08111f"` hard-coded, no
+`viewportBackdrop`, no services and no audio — so at any non-16:9 window it has
+literal Earth-coloured bars, which is the original letterbox bug preserved in
+the harness that certifies the fix. Its own header says it is "not a test
+fixture". Forbidden ground for this lane.
+
+### Candidates investigated and CLEARED
+
+| candidate | why it is not a defect |
+|---|---|
+| Layout at other viewports | `Scale.FIT` pins the surface to 1920x1080. The only window read in all of `src/` is `viewportBackdrop.ts:140-144`; `layout.ts`, `resultsLayout.ts`, `endingLayout.ts`, `chrome.ts`, `focus.ts`, `layers.ts`, `skyTextRegistry.ts` are design-space only and return identical numbers at every window. |
+| Pointer mapping under letterbox | Measured `activePointer.worldX/Y` against design targets: ≤1.3 px error at 1280x720 / 2560x1080 / 1024x768, ≤3.8 px at 375x667. |
+| Colourblind palette leaving stale bars | `skyStops(paletteAt(id,true))` is byte-identical to the normal palette for all 7 stops. |
+| One typing speed, outside the belt | No typing-gated timer exists anywhere else. `WARP_DURATION_MS` and `EarthActivation`'s 1100 ms are animations, not deadlines. |
+| One RNG seed | The unit suite sweeps seeds hard — 4000, 60, 40, 30, 20 in `selection/`, `controller/convergence`, `persistence/fuzz` (600 mutations × 4). |
+| One storage that always works | `store.test.ts` and `load.test.ts` drive `QuotaExceededError` on both `getItem` and `setItem` and assert the degraded path. |
+| Empty `unlockedShips` reaching a screen | `schema.ts:512` repairs it: `decodeProfile({shipId:"ship-3", unlockedShips: []})` → `["ship-3"]`. No rendered state has zero ships. |
+| Empty-state crashes on Title / ProfilePicker / BeaconLog / Ending / Results / `resultsLayout` / `ui/layout` | Driven at 0, 1 and 7/7 beacons and 0/12 trophies. No `Math.max(...[])`, no unguarded division, no seedless `reduce`. `DirectorMapScene:246`'s `Math.max(0, findIndex(...))` handles the 7/7 `-1`. |
+| A short or missing content bundle crashing flight | Missing bundle would throw `EmptyStagePoolError` through a `FlightScene` with no `try` in 2310 lines — but all 7 `content/en` bundles exist and validate, and Earth (the only short pool) is routed to `earthActivation`, never to flight. Pools are 26–32 against `stageWordCount: 58`; cycling is by design and `stageLength.test.ts:89` asserts ≥20. |
+| `contentLang` (C14) | Already logged, still true, and dead rather than dangerous: `contentLang` never reaches `FlightScene` (neither `PreflightScene:461-468` nor `ResultsScene:1111-1117` passes the key), and `uiLang` is gated to `SHIPPED_LANGS`. Not re-escalated. |
+| `story.newProfile` never set | Superseded. `PreflightScene:167` now reads `newProfile \|\| profileNeedsCalibration(this)`, so the ritual has a live path. The flag itself is vestigial. |
+| `currentStop` returning Earth for a URL-booted non-world scene | Real, but only reachable via `?scene=`, which is a test affordance. A player always enters through the Title. Subsumed by item 4 above, which is the player-reachable version. |
+| Settings fields that reach nothing | All 11 are read in `src/game`. This axis was measured as a possible second detector and **rejected**: it does not flag `contentLang`, which is named in four files and still reaches nothing, so "is it read" is too weak to be a check. |
+
+## E-VOICE-1 — D98 makes three things decisions, and I took the documented one
+
+- **Escalated:** 2026-09-16 (voice lane, D98)
+- **Source:** D98, D63, D33, D45, D88; PRD AC-15.5, AC-21.5
+- **Attempts:** n/a — none of these is a fix-and-retry item; each is a product choice with a live tradeoff.
+- **Evidence:** `tests/unit/audio/spokenLines.test.ts` (the D98 guard), `node scripts/render-voice.mjs` (the plan and the unrenderable list).
+
+### 1. The mock's interpolating notes can never have a clip — so most warp breaks are silent
+
+`chooseTransport` gives an unconfigured build the MOCK, and three of its four
+note pools interpolate the child's own missed word (AC-15.5 is why they exist):
+
+| pool | templates | renderable |
+|---|---|---|
+| `clean` | 2 | yes — rendered as `coach.mock.clean.{0,1}` |
+| `oneMissed` / `twoMissed` / `oneSlow` | 7 | no — each stands for as many sentences as the allowlist has words |
+
+Under D98 those seven are shown as text and **not spoken**. A child who missed a
+word — the common case, and the case AC-15.5 exists for — now gets a silent
+Shadow at the break. That is D98's own stated preference (silence over the wrong
+voice) and it is still a product regression worth seeing before it ships.
+
+| option | what it costs |
+|---|---|
+| A. Ship as-is: interpolated notes are silent | the most common break has no voice |
+| B. Make the shipped default the fallback bundle (fixed text, always spoken) | loses AC-15.5's "names the words you missed" in the shipped build; mock stays for the demo |
+| C. Render one clip per (template × allowlist word) | thousands of clips; not defensible at any cap |
+| D. Split the note: a rendered fixed sentence + the named word unspoken on screen | two-voice seam in one sentence; needs new copy |
+
+**Lean: A now, B if the silence reads badly in play.** A is D98 applied
+literally and costs nothing to reverse; B is a one-line change in
+`transport.ts` and makes Shadow speak at every break, and the word-naming is
+still on screen either way. C is out. D is new content work, not a switch.
+
+### 2. es / hi get no voice at all, because the clip ids carry no language
+
+`mars.beaconFlavor` is one id for all three content languages, so a Spanish
+session was looking up the **English** recording and would have played it over
+Spanish text — not a degraded voice, the wrong words. `browserVoiceClips` now
+refuses to serve clips to a session whose language is not the manifest's
+(`lang: "en"`), so es/hi are silent rather than wrong. The render script takes
+`--langs` and defaults to `en`.
+
+| option | what it costs |
+|---|---|
+| A. es/hi silent (shipped) | those players get no Shadow voice at all |
+| B. Render es/hi with Liam | ~$0.01; Liam reads Devanagari with an English accent, which is the "wrong voice" D98 cuts |
+| C. Per-language voices + per-language ids | a real content pass: 3× the renders, ids gain a lang segment, scenes unchanged |
+
+**Lean: A, C when the content pipeline ships es/hi properly.** B is cheap and
+sounds wrong, which is the thing D98 was recorded to stop.
+
+### 3. `preflight.line.opening` is rendered and never spoken
+
+`PreflightScene:195` draws it as the initial label and `say()` is never called
+with it, so the file exists and no call site reaches it — the 28-file defect,
+one line of it, still live. It is the FIRST line of the ritual. Fix is one
+`say()` call in `PreflightScene`, which is the sweep lane's file, not mine.
+
+### 4. AC-21.5's evidence now reports `silent`, by design
+
+`voiceTransport` in `gauntlet/evidence/audio-wiring.json` will read `"silent"`
+on the next e2e run, because D98 turned the system voice off. AC-21.5's wording
+("system voice with a per-platform preference list and fallback") is now
+describing an opt-in path. The rubric item needs re-reading against D98 before
+it is judged — I did not touch the rubric.
+
+### E-VOICE-1.5 — D98's opt-in has no runtime surface, and three e2e tests assert the cut behaviour
+
+`allowSystemVoice` is an option on `createAudioSystem` and `boot.ts` does not
+pass it, so today the opt-in is reachable only from code. That satisfies "off by
+default" completely and satisfies "available for a genuinely novel live note"
+only in principle.
+
+**Lean: add `?voice=system` to `boot.ts`** (same seam `?coach=proxy` already
+uses), because the one case D98 keeps Web Speech for - a live `/api/coach` note -
+is exactly the case someone needs to switch on from a browser. Whoever adds it
+must also flip the assertion in `tests/unit/audio/spokenLines.test.ts` from "boot
+never mentions it" to "boot only passes it when the URL asks", and re-run
+Playwright.
+
+**Playwright was not run for this change** (live lanes, no free port claimed).
+Three e2e assertions encode the pre-D98 default and will be red until someone
+with a port updates them:
+
+| file | assertion | what D98 makes it |
+|---|---|---|
+| `tests/e2e/shadow-voice.spec.ts:194` | `transportId === "webspeech"` after voices load | `"silent"` unless the spec opts in |
+| `tests/e2e/shadow-clips.spec.ts:158` | "a line with no rendered file falls through to the platform voice" | falls through to SILENCE; the line is still queued and the text still renders |
+| `tests/e2e/audio-wiring.spec.ts:230` | records `voiceTransport` into the evidence artifact | will read `"silent"`; AC-21.5's rubric item needs re-reading against D98 |
+
+I did not edit them blind: they are browser assertions and changing them without
+executing them is how a green suite stops meaning anything.

@@ -40,7 +40,17 @@ import { audioFrom } from "@game/audio/wiring";
  * The dark beacon is never drawn as broken: no red, no cross, no alarm (D31,
  * AC-22b.1). It is a lamp that is off, in a palette where off reads as waiting.
  */
-const BEACON_X = GAME_WIDTH * 0.5;
+/**
+ * The beacon's x, READ AT DRAW TIME.
+ *
+ * This was `const BEACON_X = GAME_WIDTH * 0.5` at module top level. `GAME_WIDTH`
+ * is now the window's own aspect at 1080 (D99, `sceneKeys` header), so a
+ * top-level `const` captures the live binding at import time and freezes it at
+ * 960 - which on a 21:9 window would put the mast, the lamp, its rings and its
+ * column of light 320 px left of centre while the text above them stayed
+ * centred. A function, called from the three methods that draw it.
+ */
+const beaconX = (): number => GAME_WIDTH * 0.5;
 const BEACON_Y = GAME_HEIGHT * 0.46;
 const BUTTON_W = 420;
 const BUTTON_H = 88;
@@ -209,7 +219,7 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
   /** The launchpad mast. Drawn once; lighting the beacon never re-tints it. */
   private drawMast(accent: string): void {
     const g = this.add.graphics().setDepth(6);
-    const x = BEACON_X;
+    const x = beaconX();
     const y = BEACON_Y;
     const baseY = y + 330;
     g.fillStyle(hexToNum(INK.bgDeep), 1);
@@ -234,6 +244,7 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
 
   /** `strength` 0 = dark, 1 = fully lit. The same drawing either way. */
   private paintLamp(accent: string, strength: number): void {
+    const BEACON_X = beaconX();
     const g = this.lampG;
     const c = hexToNum(accent);
     g.clear();
@@ -338,6 +349,7 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
     const pal = paletteAt("earth", this.story.ctx.colorblindPalette);
     const elapsed = time - this.litAtMs;
 
+    const BEACON_X = beaconX();
     // Rings expanding from the lamp: slow, confident, earned.
     this.ringsG.clear();
     for (let i = 0; i < 3; i += 1) {

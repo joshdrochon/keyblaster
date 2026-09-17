@@ -74,9 +74,9 @@
     "id": "KB-SEC-3.10",
     "kind": "fr",
     "title": "Visual rubric (D60) — all V unless noted",
-    "source": "docs/prd.md:201",
+    "source": "docs/prd.md:202",
     "state": "FALSE-PASS",
-    "why": "rolled up from 9 AC(s); worst is FALSE-PASS",
+    "why": "rolled up from 10 AC(s); worst is FALSE-PASS",
     "evidence": [],
     "refs": [
       "KB-AC-22.1",
@@ -87,7 +87,8 @@
       "KB-AC-22.6",
       "KB-AC-22.7",
       "KB-AC-22.8",
-      "KB-AC-22.9"
+      "KB-AC-22.9",
+      "KB-AC-22.10"
     ]
   },
   {
@@ -285,7 +286,7 @@
     "id": "KB-C10",
     "kind": "collision",
     "title": "AC-3.3 \"ignored\" vs typo",
-    "source": "docs/decision-log.md:161",
+    "source": "docs/decision-log.md:165",
     "state": "BLOCKED",
     "why": "unresolved — two decisions conflict and the user picks",
     "evidence": [],
@@ -295,7 +296,7 @@
     "id": "KB-C11",
     "kind": "collision",
     "title": "D92 coach model ID string",
-    "source": "docs/decision-log.md:159",
+    "source": "docs/decision-log.md:163",
     "state": "BLOCKED",
     "why": "unresolved — two decisions conflict and the user picks",
     "evidence": [],
@@ -305,7 +306,7 @@
     "id": "KB-C12",
     "kind": "collision",
     "title": "Ambient beds: pre-rendered files vs procedural",
-    "source": "docs/decision-log.md:157",
+    "source": "docs/decision-log.md:161",
     "state": "BLOCKED",
     "why": "unresolved — two decisions conflict and the user picks",
     "evidence": [],
@@ -315,7 +316,7 @@
     "id": "KB-C13",
     "kind": "collision",
     "title": "Planet names in the asteroid pool",
-    "source": "docs/decision-log.md:155",
+    "source": "docs/decision-log.md:159",
     "state": "BLOCKED",
     "why": "unresolved — two decisions conflict and the user picks",
     "evidence": [],
@@ -325,7 +326,7 @@
     "id": "KB-C14",
     "kind": "collision",
     "title": "`contentLang` is a setting that reaches nothing",
-    "source": "docs/decision-log.md:152",
+    "source": "docs/decision-log.md:156",
     "state": "BLOCKED",
     "why": "unresolved — two decisions conflict and the user picks",
     "evidence": [],
@@ -372,7 +373,7 @@
     "id": "KB-ESC-ac-6e-5-the-playtest-targets-were-never-chos",
     "kind": "escalation",
     "title": "AC-6e.5 — the playtest targets were never chosen, so the criterion cannot be tested",
-    "source": "gauntlet/escalations.md:1690",
+    "source": "gauntlet/escalations.md:1700",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -457,7 +458,7 @@
     "id": "KB-ESC-case-convention-across-the-whole-ui-critic-p",
     "kind": "escalation",
     "title": "Case convention across the whole UI (critic P2: \"typography is inconsistent\")",
-    "source": "gauntlet/escalations.md:1826",
+    "source": "gauntlet/escalations.md:1836",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -507,7 +508,7 @@
     "id": "KB-ESC-d51-the-calibration-ritual-never-ran-so-the-",
     "kind": "escalation",
     "title": "D51 — the calibration ritual never ran, so the belt was flown for a child who was not there",
-    "source": "gauntlet/escalations.md:2095",
+    "source": "gauntlet/escalations.md:2107",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -573,17 +574,29 @@
     "id": "KB-ESC-e-results-title-1-results-title-lane-stage-r",
     "kind": "escalation",
     "title": "E-results-title-1 — RESULTS + TITLE lane (stage report, wordmark)",
-    "source": "gauntlet/escalations.md:2040",
+    "source": "gauntlet/escalations.md:2052",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
     "refs": []
   },
   {
+    "id": "KB-ESC-e-voice-1-d98-makes-three-things-decisions-a",
+    "kind": "escalation",
+    "title": "E-VOICE-1 — D98 makes three things decisions, and I took the documented one",
+    "source": "gauntlet/escalations.md:2547",
+    "state": "BLOCKED",
+    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
+    "evidence": [],
+    "refs": [
+      "D98"
+    ]
+  },
+  {
     "id": "KB-ESC-e-voice-2-six-rendered-files-are-still-unrea",
     "kind": "escalation",
     "title": "E-voice-2 — Six rendered files are still unreachable, and the fix is a design call",
-    "source": "gauntlet/escalations.md:1640",
+    "source": "gauntlet/escalations.md:1650",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -593,7 +606,7 @@
     "id": "KB-ESC-e-voice-3-two-guardrails-that-did-not-need-c",
     "kind": "escalation",
     "title": "E-voice-3 — Two guardrails that did NOT need changing (recorded so nobody changes them)",
-    "source": "gauntlet/escalations.md:1664",
+    "source": "gauntlet/escalations.md:1674",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -622,30 +635,10 @@
     ]
   },
   {
-    "id": "KB-ESC-e-world-5-two-independent-critics-say-shape-",
-    "kind": "escalation",
-    "title": "E-world-5 — Two independent critics say shape vocabulary is not the gap.",
-    "source": "gauntlet/escalations.md:1267",
-    "state": "BLOCKED",
-    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
-    "evidence": [],
-    "refs": []
-  },
-  {
-    "id": "KB-ESC-e-world-5b-the-horizon-decision-is-now-the-o",
-    "kind": "escalation",
-    "title": "E-world-5b — The horizon decision is now the ONLY thing between us and the visual bar.",
-    "source": "gauntlet/escalations.md:1972",
-    "state": "BLOCKED",
-    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
-    "evidence": [],
-    "refs": []
-  },
-  {
     "id": "KB-ESC-e-world-6-two-critics-disagree-about-hue-the",
     "kind": "escalation",
     "title": "E-world-6 — Two critics disagree about hue.",
-    "source": "gauntlet/escalations.md:1360",
+    "source": "gauntlet/escalations.md:1362",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -655,7 +648,7 @@
     "id": "KB-ESC-ending-lane-screen-12-the-closing-line-is-no",
     "kind": "escalation",
     "title": "Ending lane (screen 12) — the closing line is no longer held behind a timer",
-    "source": "gauntlet/escalations.md:1895",
+    "source": "gauntlet/escalations.md:1905",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -675,7 +668,7 @@
     "id": "KB-ESC-g-trace-turning-on-strict-makes-the-board-re",
     "kind": "escalation",
     "title": "G-trace — turning on `--strict` makes the board red: 11 ACs have no test that asserts them",
-    "source": "gauntlet/escalations.md:1401",
+    "source": "gauntlet/escalations.md:1403",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -685,7 +678,7 @@
     "id": "KB-ESC-gauntlet-known-false-passes-json-five-entrie",
     "kind": "escalation",
     "title": "gauntlet/known-false-passes.json — five entries are discharged but cannot be deleted yet",
-    "source": "gauntlet/escalations.md:1566",
+    "source": "gauntlet/escalations.md:1576",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -707,7 +700,7 @@
     "id": "KB-ESC-menu-scene-family-lane-beacon-log-pause-layo",
     "kind": "escalation",
     "title": "Menu-scene family lane (Beacon Log + Pause) — layout decisions",
-    "source": "gauntlet/escalations.md:1928",
+    "source": "gauntlet/escalations.md:1938",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -729,7 +722,7 @@
     "id": "KB-ESC-p2-trophies-are-awarded-silently-and-earth-s",
     "kind": "escalation",
     "title": "P2 — trophies are awarded silently, and Earth shows 0 stars on a full map",
-    "source": "gauntlet/escalations.md:2223",
+    "source": "gauntlet/escalations.md:2290",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -741,7 +734,7 @@
     "id": "KB-ESC-p2d-sweep-single-value-assumptions-the-suite",
     "kind": "escalation",
     "title": "P2d sweep — single-value assumptions the suite bakes in",
-    "source": "gauntlet/escalations.md:2247",
+    "source": "gauntlet/escalations.md:2314",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -753,7 +746,7 @@
     "id": "KB-ESC-the-bar-for-sky-borne-text-4-5-1-not-wcag-s-",
     "kind": "escalation",
     "title": "The bar for sky-borne text: 4.5:1, not WCAG's 3:1 for large text",
-    "source": "gauntlet/escalations.md:1867",
+    "source": "gauntlet/escalations.md:1877",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -783,7 +776,7 @@
     "id": "KB-ESC-u-ships-four-ships-and-four-skins-exist-and-",
     "kind": "escalation",
     "title": "U-ships — four ships and four skins exist, and not one of them can ever be unlocked",
-    "source": "gauntlet/escalations.md:1738",
+    "source": "gauntlet/escalations.md:1748",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -793,7 +786,7 @@
     "id": "KB-ESC-v-22-4-the-check-now-measures-what-it-names-",
     "kind": "escalation",
     "title": "V-22.4 — the check now measures what it names, and the art fails it: a rock reads 0.0002 in the near-terrain band",
-    "source": "gauntlet/escalations.md:1505",
+    "source": "gauntlet/escalations.md:1515",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -876,7 +869,7 @@
     "id": "KB-SEC-3.8",
     "kind": "fr",
     "title": "Results and learning evidence (D50)",
-    "source": "docs/prd.md:184",
+    "source": "docs/prd.md:185",
     "state": "BLOCKED",
     "why": "rolled up from 4 AC(s); worst is BLOCKED",
     "evidence": [],
@@ -950,6 +943,20 @@
     ]
   },
   {
+    "id": "KB-AC-22.10",
+    "kind": "ac",
+    "title": "The world is space, not terrain (D97).",
+    "source": "docs/prd.md",
+    "state": "OPEN",
+    "why": "no test names this AC",
+    "testTypes": [
+      "U",
+      "V"
+    ],
+    "evidence": [],
+    "refs": []
+  },
+  {
     "id": "KB-AC-24.2",
     "kind": "ac",
     "title": "The rendered vector Lantern matches `design-reference/refs/lantern-topdown.png` in silhouette, orientation, p…",
@@ -1002,7 +1009,7 @@
     "id": "KB-FR-24",
     "kind": "fr",
     "title": "The Lantern (D89, D90)",
-    "source": "docs/prd.md:225",
+    "source": "docs/prd.md:227",
     "state": "OPEN",
     "why": "rolled up from 3 AC(s); worst is OPEN",
     "evidence": [],
@@ -1016,7 +1023,7 @@
     "id": "KB-FR-25",
     "kind": "fr",
     "title": "Shadow (D91, D66)",
-    "source": "docs/prd.md:230",
+    "source": "docs/prd.md:232",
     "state": "OPEN",
     "why": "rolled up from 3 AC(s); worst is OPEN",
     "evidence": [],
@@ -1040,7 +1047,7 @@
     "id": "KB-SEC-3.9",
     "kind": "fr",
     "title": "Audio (D62, D63, D88)",
-    "source": "docs/prd.md:191",
+    "source": "docs/prd.md:192",
     "state": "OPEN",
     "why": "rolled up from 7 AC(s); worst is OPEN",
     "evidence": [],
@@ -1125,6 +1132,66 @@
       "D59",
       "D60"
     ]
+  },
+  {
+    "id": "KB-UR-04-system-voice",
+    "kind": "user-reported",
+    "title": "Shadow speaks the warp-break coach note in the browser's speech synthesiser, not the rendered ElevenLabs voic…",
+    "source": "gauntlet/user-reported.json",
+    "state": "OPEN",
+    "why": "reported 2x by the user: \"If its done then why am i still hearing system audio? ...\"",
+    "evidence": [
+      "D98 recorded: Web Speech is cut; an unrendered spoken line is a BUILD FAILURE, not a runtime fallback. AC-21.8 added."
+    ],
+    "refs": []
+  },
+  {
+    "id": "KB-UR-05-clean-run-line",
+    "kind": "user-reported",
+    "title": "A specific coach line heard in the system voice.",
+    "source": "gauntlet/user-reported.json",
+    "state": "OPEN",
+    "why": "reported 1x by the user: \"\"That was a clean run pilot\" was just spoken by the system voice\"",
+    "evidence": [
+      "Lane told to enumerate every speak site rather than trust a list, and to build a guard that fails when any speakable string has no clip."
+    ],
+    "refs": []
+  },
+  {
+    "id": "KB-UR-06-asteroid-over-wordmark",
+    "kind": "user-reported",
+    "title": "A black asteroid is drawn on top of the 'B' in KEYBLASTER, and a moon disc sits inside the wordmark.",
+    "source": "gauntlet/user-reported.json",
+    "state": "OPEN",
+    "why": "reported 1x by the user: \"(visible in the Title screenshot)\"",
+    "evidence": [
+      "Title capture at 2000x1010. Previously noted by the 17-screen critic as 'white moon disc sits INSIDE the wordmark at x~300-360, eating the tail of KEY and the bowl of B'."
+    ],
+    "refs": []
+  },
+  {
+    "id": "KB-UR-08-sun-keepout-column",
+    "kind": "user-reported",
+    "title": "A bright vertical band / light region on the right of the frame.",
+    "source": "gauntlet/user-reported.json",
+    "state": "OPEN",
+    "why": "reported 2x by the user: \"what is this thing on the right, its like a brighter portion shape.\"",
+    "evidence": [
+      "No, it is not supposed to be anything. It is an artifact of the occlusion fix."
+    ],
+    "refs": []
+  },
+  {
+    "id": "KB-UR-09-parallax-quality",
+    "kind": "user-reported",
+    "title": "Overall parallax quality.",
+    "source": "gauntlet/user-reported.json",
+    "state": "OPEN",
+    "why": "reported 1x by the user: \"Can you do some research on how paralex should behave.\"",
+    "evidence": [
+      "Research gathered; the gap between our implementation and standard practice is written up in the queue under UR-07/UR-08."
+    ],
+    "refs": []
   },
   {
     "id": "KB-AC-18.2",
@@ -1267,6 +1334,7 @@
       "tests/e2e/audio-wiring.spec.ts",
       "tests/e2e/shadow-voice.spec.ts",
       "tests/unit/audio/voice.test.ts",
+      "tests/unit/audio/voiceClips.test.ts",
       "tests/unit/audio/wiring.test.ts"
     ],
     "refs": [
@@ -1569,7 +1637,7 @@
     "id": "KB-D39",
     "kind": "decision",
     "title": "Full menu system; must feel like a complete, shipped experience.",
-    "source": "docs/decision-log.md:139",
+    "source": "docs/decision-log.md:143",
     "state": "UNVERIFIED",
     "why": "mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation",
     "evidence": [],
@@ -1579,7 +1647,7 @@
     "id": "KB-D40",
     "kind": "decision",
     "title": "Flow: Title → Profile pick → Director map → Briefing → Play → Warp break → Results → back to map.",
-    "source": "docs/decision-log.md:140",
+    "source": "docs/decision-log.md:144",
     "state": "UNVERIFIED",
     "why": "mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation",
     "evidence": [],
@@ -1589,7 +1657,7 @@
     "id": "KB-D41",
     "kind": "decision",
     "title": "Settings: music volume, SFX volume, keyboard layout (QWERTY/AZERTY/QWERTZ/Dvorak), UI language, letter case (…",
-    "source": "docs/decision-log.md:141",
+    "source": "docs/decision-log.md:145",
     "state": "UNVERIFIED",
     "why": "mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation",
     "evidence": [],
@@ -1599,7 +1667,7 @@
     "id": "KB-D43",
     "kind": "decision",
     "title": "Profiles, not accounts: name + avatar, no email, no PII, local storage.",
-    "source": "docs/decision-log.md:145",
+    "source": "docs/decision-log.md:149",
     "state": "UNVERIFIED",
     "why": "mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation",
     "evidence": [],
@@ -1609,7 +1677,7 @@
     "id": "KB-D50",
     "kind": "decision",
     "title": "Results screen shows: WPM and accuracy this stage vs last; per-word faster-than-before markers; and a retenti…",
-    "source": "docs/decision-log.md:132",
+    "source": "docs/decision-log.md:136",
     "state": "UNVERIFIED",
     "why": "mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation",
     "evidence": [],
@@ -1619,7 +1687,7 @@
     "id": "KB-D52",
     "kind": "decision",
     "title": "Demo video: user plays and narrates.",
-    "source": "docs/decision-log.md:134",
+    "source": "docs/decision-log.md:138",
     "state": "UNVERIFIED",
     "why": "mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation",
     "evidence": [],
@@ -1669,7 +1737,7 @@
     "id": "KB-D63",
     "kind": "decision",
     "title": "Audio sourcing.",
-    "source": "docs/decision-log.md:125",
+    "source": "docs/decision-log.md:129",
     "state": "UNVERIFIED",
     "why": "mentioned in the PRD but not on any acceptance-criterion line — a heading or a non-goal is not a realisation",
     "evidence": [],
@@ -1699,7 +1767,7 @@
     "id": "KB-FR-18",
     "kind": "fr",
     "title": "Flow",
-    "source": "docs/prd.md:171",
+    "source": "docs/prd.md:172",
     "state": "UNVERIFIED",
     "why": "rolled up from 4 AC(s); worst is UNVERIFIED",
     "evidence": [],
@@ -1714,7 +1782,7 @@
     "id": "KB-FR-22",
     "kind": "fr",
     "title": "Nothing reads as punishment (D31, D28)",
-    "source": "docs/prd.md:218",
+    "source": "docs/prd.md:220",
     "state": "UNVERIFIED",
     "why": "rolled up from 2 AC(s); worst is UNVERIFIED",
     "evidence": [],
@@ -1727,7 +1795,7 @@
     "id": "KB-FR-23",
     "kind": "fr",
     "title": "All art is vector drawn in code (D83, D84)",
-    "source": "docs/prd.md:222",
+    "source": "docs/prd.md:224",
     "state": "UNVERIFIED",
     "why": "rolled up from 1 AC(s); worst is UNVERIFIED",
     "evidence": [],
@@ -1739,7 +1807,7 @@
     "id": "KB-SEC-3.7",
     "kind": "fr",
     "title": "Settings (D41)",
-    "source": "docs/prd.md:177",
+    "source": "docs/prd.md:178",
     "state": "UNVERIFIED",
     "why": "rolled up from 4 AC(s); worst is UNVERIFIED",
     "evidence": [],
@@ -1756,7 +1824,7 @@
     "title": "Per-planet ambient bed exists, crossfades, and follows the running game",
     "source": "tests/gauntlet/rubric.mjs (D62 / AC-21.1)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1771,7 +1839,7 @@
     "title": "All ten events have >= 3 SFX variants, rotate, and are reached by game code",
     "source": "tests/gauntlet/rubric.mjs (D62 / AC-21.3)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1786,7 +1854,7 @@
     "title": "Music ducks by >= 6 dB while Shadow speaks, on the live graph",
     "source": "tests/gauntlet/rubric.mjs (D62 / AC-21.4)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1801,7 +1869,7 @@
     "title": "Shadow speaks via Web Speech system voice; zero network TTS at runtime",
     "source": "tests/gauntlet/rubric.mjs (D88 / AC-21.5)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1816,7 +1884,7 @@
     "title": "Coach notes are spoken after the text renders, display identical either way",
     "source": "tests/gauntlet/rubric.mjs (D88 / AC-21.6)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1831,7 +1899,7 @@
     "title": "The game is audible: cues reach the bus, sliders move it, silence never crashes",
     "source": "tests/gauntlet/rubric.mjs (audit.md 1.2 / AC-19.1 / AC-6e.2)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1846,7 +1914,7 @@
     "title": "Engine coverage >= 95% lines/branches/functions/statements",
     "source": "tests/gauntlet/rubric.mjs (D55 / CLAUDE.md)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1860,7 +1928,7 @@
     "title": "src/engine imports neither Phaser nor the DOM",
     "source": "tests/gauntlet/rubric.mjs (CLAUDE.md HARD RULES / architecture section 2)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1872,7 +1940,7 @@
     "title": "No red failure state, lives counter, or 'wrong' sound",
     "source": "tests/gauntlet/rubric.mjs (D28 / D31 / design brief 'Do not')",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1887,7 +1955,7 @@
     "title": "Exactly one drawShadow and one drawLantern implementation",
     "source": "tests/gauntlet/rubric.mjs (D91 / AC-25.1 / D83)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1903,7 +1971,7 @@
     "title": "No PII field and no analytics SDK anywhere in src/",
     "source": "tests/gauntlet/rubric.mjs (D43 / AC-18.2 / NFR-3)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1918,7 +1986,7 @@
     "title": "No raster asset referenced from src/ (all art is vector in code)",
     "source": "tests/gauntlet/rubric.mjs (D83 / D84 / CLAUDE.md)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1933,7 +2001,7 @@
     "title": "No API-key-shaped string in the client bundle",
     "source": "tests/gauntlet/rubric.mjs (NFR-4 / CLAUDE.md)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1945,7 +2013,7 @@
     "title": "At least 5 parallax layers at distinct scroll speeds",
     "source": "tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (config half))",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1960,7 +2028,7 @@
     "title": "Layer-debug overlay shows the five speeds actually moving",
     "source": "tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (visual half))",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1975,7 +2043,7 @@
     "title": "Idle frame is never still (two Title shots 1s apart differ > 2%)",
     "source": "tests/gauntlet/rubric.mjs (D60#2 / AC-22.2)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1990,7 +2058,7 @@
     "title": "Sky gradient shifts across a stage (deltaE > 10)",
     "source": "tests/gauntlet/rubric.mjs (D60#3 / AC-22.3)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -2005,7 +2073,7 @@
     "title": "Zero Linear easing anywhere in tween configs",
     "source": "tests/gauntlet/rubric.mjs (D60#5 / AC-22.5)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -2020,7 +2088,7 @@
     "title": "Blast, hit and warp have distinct particle signatures",
     "source": "tests/gauntlet/rubric.mjs (D60#6 / AC-22.6)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -2035,7 +2103,7 @@
     "title": "Each stage palette is 5-7 colours plus exactly one accent",
     "source": "tests/gauntlet/rubric.mjs (D60#7 / AC-22.7)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -2050,7 +2118,7 @@
     "title": "Every piece of text a child reads is >= 4.5:1 - plate AND sky",
     "source": "tests/gauntlet/rubric.mjs (D60#8 / AC-22.8)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 3.3h",
+    "why": "reported PASS on a tree that is no longer this one (no src-hash stamp; fell back to mtime, which touch can forge)",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -2143,7 +2211,7 @@
     "id": "KB-D35",
     "kind": "decision",
     "title": "2D, Phaser 3 with WebGL renderer, high fidelity: parallax depth, particles, lighting, screen-space effects.",
-    "source": "docs/decision-log.md:126",
+    "source": "docs/decision-log.md:130",
     "state": "EXEMPT",
     "why": "stack choice (Phaser 3 WebGL); architecture section 1",
     "evidence": [],
@@ -2153,7 +2221,7 @@
     "id": "KB-D36",
     "kind": "decision",
     "title": "TypeScript + Vite + Phaser 3.",
-    "source": "docs/decision-log.md:127",
+    "source": "docs/decision-log.md:131",
     "state": "EXEMPT",
     "why": "stack choice (TS + Vite + Phaser); architecture section 1",
     "evidence": [],
@@ -2163,7 +2231,7 @@
     "id": "KB-D37",
     "kind": "decision",
     "title": "Web, desktop, keyboard only.",
-    "source": "docs/decision-log.md:128",
+    "source": "docs/decision-log.md:132",
     "state": "EXEMPT",
     "why": "platform scope (web, desktop, keyboard); NFR and non-goals",
     "evidence": [],
@@ -2173,7 +2241,7 @@
     "id": "KB-D38",
     "kind": "decision",
     "title": "Solo build.",
-    "source": "docs/decision-log.md:129",
+    "source": "docs/decision-log.md:133",
     "state": "EXEMPT",
     "why": "process: solo build",
     "evidence": [],
@@ -2183,7 +2251,7 @@
     "id": "KB-D47",
     "kind": "decision",
     "title": "API key lives in a serverless function proxying to Anthropic.",
-    "source": "docs/decision-log.md:120",
+    "source": "docs/decision-log.md:124",
     "state": "EXEMPT",
     "why": "infrastructure posture; AC-15.4 and NFR-4 carry the checks",
     "evidence": [],
@@ -2193,7 +2261,7 @@
     "id": "KB-D54",
     "kind": "decision",
     "title": "Host on **Vercel** (account confirmed active via Gmail: sign-ins May 2026, domain registered via Vercel, rece…",
-    "source": "docs/decision-log.md:122",
+    "source": "docs/decision-log.md:126",
     "state": "EXEMPT",
     "why": "hosting choice; deploy is run by the user, architecture section 9",
     "evidence": [],
@@ -2203,7 +2271,7 @@
     "id": "KB-D55",
     "kind": "decision",
     "title": "Strict unit tests for everything built.",
-    "source": "docs/decision-log.md:123",
+    "source": "docs/decision-log.md:127",
     "state": "EXEMPT",
     "why": "test policy; enforced by the coverage gate, not by an AC",
     "evidence": [],
@@ -3225,6 +3293,21 @@
     "refs": []
   },
   {
+    "id": "KB-AC-21.8",
+    "kind": "ac",
+    "title": "Shadow has one voice (D98).",
+    "source": "docs/prd.md",
+    "state": "DONE",
+    "why": "named by an assertion in 1 test file(s)",
+    "testTypes": [
+      "U"
+    ],
+    "evidence": [
+      "tests/unit/audio/spokenLines.test.ts"
+    ],
+    "refs": []
+  },
+  {
     "id": "KB-AC-22b.2",
     "kind": "ac",
     "title": "A hull strike renders as shake + spark with no full-screen red flash (restates AC-4.2 as a rendering invarian…",
@@ -3716,7 +3799,7 @@
     "id": "KB-C01",
     "kind": "collision",
     "title": "Weapons",
-    "source": "docs/decision-log.md:172",
+    "source": "docs/decision-log.md:176",
     "state": "DONE",
     "why": "resolved in the log",
     "evidence": [],
@@ -3726,7 +3809,7 @@
     "id": "KB-C02",
     "kind": "collision",
     "title": "Accounts",
-    "source": "docs/decision-log.md:173",
+    "source": "docs/decision-log.md:177",
     "state": "DONE",
     "why": "resolved in the log",
     "evidence": [],
@@ -3736,7 +3819,7 @@
     "id": "KB-C03",
     "kind": "collision",
     "title": "Fall speed",
-    "source": "docs/decision-log.md:174",
+    "source": "docs/decision-log.md:178",
     "state": "DONE",
     "why": "resolved in the log",
     "evidence": [],
@@ -3746,7 +3829,7 @@
     "id": "KB-C04",
     "kind": "collision",
     "title": "Scope language",
-    "source": "docs/decision-log.md:175",
+    "source": "docs/decision-log.md:179",
     "state": "DONE",
     "why": "resolved in the log",
     "evidence": [],
@@ -3756,7 +3839,7 @@
     "id": "KB-C05",
     "kind": "collision",
     "title": "Route",
-    "source": "docs/decision-log.md:170",
+    "source": "docs/decision-log.md:174",
     "state": "DONE",
     "why": "resolved in the log",
     "evidence": [],
@@ -3766,7 +3849,7 @@
     "id": "KB-C06",
     "kind": "collision",
     "title": "Audio source",
-    "source": "docs/decision-log.md:168",
+    "source": "docs/decision-log.md:172",
     "state": "DONE",
     "why": "resolved in the log",
     "evidence": [],
@@ -3776,7 +3859,7 @@
     "id": "KB-C07",
     "kind": "collision",
     "title": "Ship name",
-    "source": "docs/decision-log.md:165",
+    "source": "docs/decision-log.md:169",
     "state": "DONE",
     "why": "resolved in the log",
     "evidence": [],
@@ -3786,7 +3869,7 @@
     "id": "KB-C08",
     "kind": "collision",
     "title": "Skins vs D08",
-    "source": "docs/decision-log.md:166",
+    "source": "docs/decision-log.md:170",
     "state": "DONE",
     "why": "resolved in the log",
     "evidence": [],
@@ -3796,7 +3879,7 @@
     "id": "KB-C09",
     "kind": "collision",
     "title": "Voice source",
-    "source": "docs/decision-log.md:163",
+    "source": "docs/decision-log.md:167",
     "state": "DONE",
     "why": "resolved in the log",
     "evidence": [],
@@ -3936,7 +4019,7 @@
     "id": "KB-D44",
     "kind": "decision",
     "title": "Per-word history and map progress persist locally so the learning engine has memory across sessions.",
-    "source": "docs/decision-log.md:146",
+    "source": "docs/decision-log.md:150",
     "state": "DONE",
     "why": "named on an acceptance-criterion or requirement line in the PRD",
     "evidence": [],
@@ -3946,7 +4029,7 @@
     "id": "KB-D45",
     "kind": "decision",
     "title": "All three languages (English, Spanish, Hindi) for all three markets (US, LatAm, India), for both UI and typed…",
-    "source": "docs/decision-log.md:143",
+    "source": "docs/decision-log.md:147",
     "state": "DONE",
     "why": "named on an acceptance-criterion or requirement line in the PRD",
     "evidence": [],
@@ -3956,7 +4039,7 @@
     "id": "KB-D46",
     "kind": "decision",
     "title": "Hindi typed content uses romanized transliteration by default (type `ghar` to match घर; matches how most Indi…",
-    "source": "docs/decision-log.md:144",
+    "source": "docs/decision-log.md:148",
     "state": "DONE",
     "why": "named on an acceptance-criterion or requirement line in the PRD",
     "evidence": [],
@@ -3966,7 +4049,7 @@
     "id": "KB-D51",
     "kind": "decision",
     "title": "Calibration: ~20 s pre-flight checks on a new profile only, framed as the ship's narrative startup sequence, …",
-    "source": "docs/decision-log.md:133",
+    "source": "docs/decision-log.md:137",
     "state": "DONE",
     "why": "named on an acceptance-criterion or requirement line in the PRD",
     "evidence": [],
@@ -3976,7 +4059,7 @@
     "id": "KB-D53",
     "kind": "decision",
     "title": "Controller mapping: HIT RATE (asteroids blasted ÷ spawned) drives simultaneous asteroid count and spawn densi…",
-    "source": "docs/decision-log.md:135",
+    "source": "docs/decision-log.md:139",
     "state": "DONE",
     "why": "named on an acceptance-criterion or requirement line in the PRD",
     "evidence": [],
@@ -4113,10 +4196,50 @@
     "refs": []
   },
   {
+    "id": "KB-D97",
+    "kind": "decision",
+    "title": "The parallax world drops terrain grammar entirely.",
+    "source": "docs/decision-log.md:120",
+    "state": "DONE",
+    "why": "named on an acceptance-criterion or requirement line in the PRD",
+    "evidence": [],
+    "refs": []
+  },
+  {
+    "id": "KB-D98",
+    "kind": "decision",
+    "title": "Web Speech is removed from the shipped build.",
+    "source": "docs/decision-log.md:122",
+    "state": "DONE",
+    "why": "named on an acceptance-criterion or requirement line in the PRD",
+    "evidence": [],
+    "refs": []
+  },
+  {
     "id": "KB-ESC-e-voice-1-six-lines-the-game-speaks-still-ha",
     "kind": "escalation",
     "title": "E-voice-1 — Six lines the game speaks still have no render, and I cannot make one",
-    "source": "gauntlet/escalations.md:1590",
+    "source": "gauntlet/escalations.md:1600",
+    "state": "DONE",
+    "why": "marked resolved in gauntlet/escalations.md",
+    "evidence": [],
+    "refs": []
+  },
+  {
+    "id": "KB-ESC-e-world-5-two-independent-critics-say-shape-",
+    "kind": "escalation",
+    "title": "E-world-5 — Two independent critics say shape vocabulary is not the gap.",
+    "source": "gauntlet/escalations.md:1267",
+    "state": "DONE",
+    "why": "marked resolved in gauntlet/escalations.md",
+    "evidence": [],
+    "refs": []
+  },
+  {
+    "id": "KB-ESC-e-world-5b-the-horizon-decision-is-now-the-o",
+    "kind": "escalation",
+    "title": "E-world-5b — The horizon decision is now the ONLY thing between us and the visual bar.",
+    "source": "gauntlet/escalations.md:1982",
     "state": "DONE",
     "why": "marked resolved in gauntlet/escalations.md",
     "evidence": [],
@@ -4193,10 +4316,11 @@
     "title": "Languages (D45, D46, D95, C14)",
     "source": "docs/prd.md:141",
     "state": "DONE",
-    "why": "rolled up from 4 AC(s); worst is DONE",
+    "why": "rolled up from 5 AC(s); worst is DONE",
     "evidence": [],
     "refs": [
       "KB-AC-14.1",
+      "KB-AC-21.8",
       "KB-AC-14.4",
       "KB-AC-14.2",
       "KB-AC-14.3"
@@ -4206,7 +4330,7 @@
     "id": "KB-FR-15",
     "kind": "fr",
     "title": "One call per warp break",
-    "source": "docs/prd.md:149",
+    "source": "docs/prd.md:150",
     "state": "DONE",
     "why": "rolled up from 5 AC(s); worst is DONE",
     "evidence": [],
@@ -4222,7 +4346,7 @@
     "id": "KB-FR-16",
     "kind": "fr",
     "title": "Warp sentence",
-    "source": "docs/prd.md:158",
+    "source": "docs/prd.md:159",
     "state": "DONE",
     "why": "rolled up from 3 AC(s); worst is DONE",
     "evidence": [],
@@ -4236,7 +4360,7 @@
     "id": "KB-FR-17",
     "kind": "fr",
     "title": "Beacon",
-    "source": "docs/prd.md:163",
+    "source": "docs/prd.md:164",
     "state": "DONE",
     "why": "rolled up from 4 AC(s); worst is DONE",
     "evidence": [],
@@ -4347,8 +4471,9 @@
     "title": "Beacon Log",
     "source": "docs/design-brief-v2.md (screen inventory)",
     "state": "DONE",
-    "why": "driven by 2 e2e spec(s): tests/e2e/beaconlog.spec.ts, tests/e2e/pause.spec.ts",
+    "why": "driven by 3 e2e spec(s): tests/e2e/aspect.spec.ts, tests/e2e/beaconlog.spec.ts",
     "evidence": [
+      "tests/e2e/aspect.spec.ts",
       "tests/e2e/beaconlog.spec.ts",
       "tests/e2e/pause.spec.ts"
     ],
@@ -4362,8 +4487,9 @@
     "title": "Beacon placement",
     "source": "docs/design-brief-v2.md (screen inventory)",
     "state": "DONE",
-    "why": "driven by 9 e2e spec(s): tests/e2e/audio-wiring.spec.ts, tests/e2e/beacon-persist-blink.spec.ts",
+    "why": "driven by 10 e2e spec(s): tests/e2e/aspect.spec.ts, tests/e2e/audio-wiring.spec.ts",
     "evidence": [
+      "tests/e2e/aspect.spec.ts",
       "tests/e2e/audio-wiring.spec.ts",
       "tests/e2e/beacon-persist-blink.spec.ts",
       "tests/e2e/beacon.spec.ts",
@@ -4384,8 +4510,9 @@
     "title": "Briefing",
     "source": "docs/design-brief-v2.md (screen inventory)",
     "state": "DONE",
-    "why": "driven by 6 e2e spec(s): tests/e2e/briefing.spec.ts, tests/e2e/default-focus.spec.ts",
+    "why": "driven by 7 e2e spec(s): tests/e2e/aspect.spec.ts, tests/e2e/briefing.spec.ts",
     "evidence": [
+      "tests/e2e/aspect.spec.ts",
       "tests/e2e/briefing.spec.ts",
       "tests/e2e/default-focus.spec.ts",
       "tests/e2e/map.spec.ts",
@@ -4403,8 +4530,9 @@
     "title": "Director map",
     "source": "docs/design-brief-v2.md (screen inventory)",
     "state": "DONE",
-    "why": "driven by 7 e2e spec(s): tests/e2e/beacon-persist-blink.spec.ts, tests/e2e/beaconlog.spec.ts",
+    "why": "driven by 8 e2e spec(s): tests/e2e/aspect.spec.ts, tests/e2e/beacon-persist-blink.spec.ts",
     "evidence": [
+      "tests/e2e/aspect.spec.ts",
       "tests/e2e/beacon-persist-blink.spec.ts",
       "tests/e2e/beaconlog.spec.ts",
       "tests/e2e/briefing.spec.ts",
@@ -4524,8 +4652,9 @@
     "title": "Profile picker",
     "source": "docs/design-brief-v2.md (screen inventory)",
     "state": "DONE",
-    "why": "driven by 2 e2e spec(s): tests/e2e/playthrough.spec.ts, tests/e2e/profile.spec.ts",
+    "why": "driven by 3 e2e spec(s): tests/e2e/aspect.spec.ts, tests/e2e/playthrough.spec.ts",
     "evidence": [
+      "tests/e2e/aspect.spec.ts",
       "tests/e2e/playthrough.spec.ts",
       "tests/e2e/profile.spec.ts"
     ],
@@ -4539,8 +4668,9 @@
     "title": "Results",
     "source": "docs/design-brief-v2.md (screen inventory)",
     "state": "DONE",
-    "why": "driven by 6 e2e spec(s): tests/e2e/beacon.spec.ts, tests/e2e/default-focus.spec.ts",
+    "why": "driven by 7 e2e spec(s): tests/e2e/aspect.spec.ts, tests/e2e/beacon.spec.ts",
     "evidence": [
+      "tests/e2e/aspect.spec.ts",
       "tests/e2e/beacon.spec.ts",
       "tests/e2e/default-focus.spec.ts",
       "tests/e2e/playthrough.spec.ts",
@@ -4558,8 +4688,9 @@
     "title": "Settings",
     "source": "docs/design-brief-v2.md (screen inventory)",
     "state": "DONE",
-    "why": "driven by 6 e2e spec(s): tests/e2e/audio-wiring.spec.ts, tests/e2e/map.spec.ts",
+    "why": "driven by 7 e2e spec(s): tests/e2e/aspect.spec.ts, tests/e2e/audio-wiring.spec.ts",
     "evidence": [
+      "tests/e2e/aspect.spec.ts",
       "tests/e2e/audio-wiring.spec.ts",
       "tests/e2e/map.spec.ts",
       "tests/e2e/pause.spec.ts",
@@ -4627,5 +4758,53 @@
     "refs": [
       "Warp"
     ]
+  },
+  {
+    "id": "KB-UR-01-edge-bars",
+    "kind": "user-reported",
+    "title": "Vertical bars flank the picture at any window that is not 16:9.",
+    "source": "gauntlet/user-reported.json",
+    "state": "DONE",
+    "why": "Canvas now fills the window at every tested shape: gap L0 R0 at 2000x1010, 2560x1080 and 1440x900, verified by measuring the canvas rect and by looking at the capture. Root cause was an over-constrained design WIDTH: FR-8 needs a fixed fall DISTANCE, which is vertical, so height stays 1080 — the width was pinned at 1920 alongside it for no independent reason. Five earlier fixes all answered 'what colour should the gap be'.",
+    "evidence": [
+      "Canvas now fills the window at every tested shape: gap L0 R0 at 2000x1010, 2560x1080 and 1440x900, verified by measuring the canvas rect and by looking at the capture. Root cause was an over-constrained design WIDTH: FR-8 needs a fixed fall DISTANCE, which is vertical, so height stays 1080 — the width was pinned at 1920 alongside it for no independent reason. Five earlier fixes all answered 'what colour should the gap be'."
+    ],
+    "refs": []
+  },
+  {
+    "id": "KB-UR-02-floating-bases",
+    "kind": "user-reported",
+    "title": "Landform masses ended in a dead-flat horizontal edge suspended in mid-air with sky visible underneath, scroll…",
+    "source": "gauntlet/user-reported.json",
+    "state": "DONE",
+    "why": "D97: terrain grammar dropped entirely for space grammar. Below-L*40 32.8% -> 39.7%.",
+    "evidence": [
+      "D97: terrain grammar dropped entirely for space grammar. Below-L*40 32.8% -> 39.7%."
+    ],
+    "refs": []
+  },
+  {
+    "id": "KB-UR-03-tagline",
+    "kind": "user-reported",
+    "title": "Tagline pointed the wrong direction on a game whose arc is Earth OUTWARD to Pluto.",
+    "source": "gauntlet/user-reported.json",
+    "state": "DONE",
+    "why": "Changed in en/es/hi. Lengthening it FIXED a Spanish copy-budget violation, because a sentence expands ~25% where a short label expands 50-90%.",
+    "evidence": [
+      "Changed in en/es/hi. Lengthening it FIXED a Spanish copy-budget violation, because a sentence expands ~25% where a short label expands 50-90%."
+    ],
+    "refs": []
+  },
+  {
+    "id": "KB-UR-07-parallax-strips",
+    "kind": "user-reported",
+    "title": "Visible vertical seams across the sky; the world reads as stitched panels drifting sideways.",
+    "source": "gauntlet/user-reported.json",
+    "state": "DONE",
+    "why": "atmospherePass called the RNG inside the wrap loop, so the three 'wrapped' copies of each streak had different y values — they were never copies. Every 256px carried a hard discontinuity: 7.5 joins at 1920 wide, and the user counted 'about 8'. Endpoints are now computed once, copies are pure translations wrapped in both axes, texture 256->512, and the sideways drift is gone — a weather pass sliding horizontally in a vertically-scrolling world was motion in an axis nothing else moves in.",
+    "evidence": [
+      "atmospherePass called the RNG inside the wrap loop, so the three 'wrapped' copies of each streak had different y values — they were never copies. Every 256px carried a hard discontinuity: 7.5 joins at 1920 wide, and the user counted 'about 8'. Endpoints are now computed once, copies are pure translations wrapped in both axes, texture 256->512, and the sideways drift is gone — a weather pass sliding horizontally in a vertically-scrolling world was motion in an axis nothing else moves in."
+    ],
+    "refs": []
   }
 ]

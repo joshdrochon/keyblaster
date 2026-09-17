@@ -78,9 +78,15 @@ export {
 
 export {
   DEFAULT_FALLBACK_BUNDLE,
+  FALLBACK_CLIP_BASE_KEY,
+  FALLBACK_CLIP_PREFIX,
+  fallbackClipId,
   fallbackFor,
   fallbackIssues,
+  fallbackNoteClipId,
+  fallbackNoteLines,
   type FallbackBundle,
+  type FallbackNoteLine,
   type LangFallback,
 } from "./fallback.js";
 
@@ -94,13 +100,33 @@ export {
 } from "./proxy.js";
 
 export {
+  MOCK_CLIP_PREFIX,
+  MOCK_NOTE_POOLS,
   createMockCoach,
   hashRequest,
   mockNote,
+  mockNoteClipId,
+  mockNoteLines,
   templateTablesAreUsable,
   type MockCoachOptions,
+  type MockNoteLine,
+  type MockNotePool,
   type MockVariantSource,
 } from "./mock.js";
+
+/**
+ * D63 / D98: every sentence Shadow can say at a warp break, enumerated from the
+ * code that produces it. The render script, the runtime clip lookup and the
+ * build guard all read this and nothing else.
+ */
+export {
+  coachNoteClipId,
+  coachNoteLines,
+  unrenderableCoachNotes,
+  type CoachNoteSource,
+  type SpokenCoachNote,
+  type UnrenderableCoachNote,
+} from "./spokenNotes.js";
 
 export {
   createCoachGate,

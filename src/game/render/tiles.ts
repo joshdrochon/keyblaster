@@ -39,15 +39,6 @@ import {
   mixHex,
   relativeLuminance,
 } from "./palette.js";
-import {
-  type Profile,
-  MASS_PROFILES,
-  dotLattice,
-  frondBlades,
-  heightOf,
-  place,
-  profilesFor,
-} from "./profiles.js";
 
 // ---------------------------------------------------------------------------
 // Ops
@@ -148,18 +139,6 @@ export function wrapXY(ops: readonly TileOp[], w: number, h: number): TileOp[] {
 /** Alpha for anything that is part of a silhouette. There is only one value. */
 const SOLID = 1;
 
-/**
- * Plinth height as a fraction of the group's lead mass. Low enough to read as
- * the ground the group stands on rather than as a fourth mass in the group.
- */
-const PLINTH_HEIGHT = 0.3;
-
-/**
- * And its half-width, as a fraction of the stage. 0.34 means a landform group
- * covers at most about two thirds of the frame, so there is always sky beside
- * it and its base is never a line from edge to edge.
- */
-const PLINTH_MAX_SPAN = 0.28;
 
 interface Layered {
   readonly rims: TileOp[];
@@ -169,51 +148,6 @@ interface Layered {
 
 const layered = (): Layered => ({ rims: [], fills: [], detail: [] });
 const flatten = (l: Layered): TileOp[] => [...l.rims, ...l.fills, ...l.detail];
-
-/**
- * Break a placed mass's flat BASE into a shallow stepped edge.
- *
- * Every authored profile closes with one straight segment along its base,
- * because that is what the silhouette sheet draws and what a mass standing on
- * ground looks like. In this game nothing stands on ground: the planes wrap
- * vertically, so a group's base hangs in open sky and that single straight
- * segment renders as a RULED HORIZONTAL LINE across most of the frame.
- *
- * That is the same defect as the vertical bars a player reported three times,
- * turned ninety degrees, and it appeared the moment those bars were removed and
- * stopped hiding it. So the plinth - the one mass whose base is actually visible
- * - gets its base replaced by a few shallow steps in the profile's own language:
- * flat runs and short risers, nothing curved, nothing translucent.
- *
- * It does not manufacture a horizon. It stops the absence of one from reading as
- * a line somebody drew.
- */
-function steppedBase(points: readonly Vec[], amp: number, rand: () => number): Vec[] {
-  const maxY = Math.max(...points.map((p) => p.y));
-  const eps = 0.5;
-  // The base segment: two adjacent points both on the bottom edge.
-  const i = points.findIndex(
-    (p, k) =>
-      Math.abs(p.y - maxY) < eps &&
-      Math.abs((points[(k + 1) % points.length] as Vec).y - maxY) < eps,
-  );
-  if (i < 0) return [...points];
-  const a = points[i] as Vec;
-  const b = points[(i + 1) % points.length] as Vec;
-  const steps = 4;
-  const inserted: Vec[] = [];
-  let prevY = a.y;
-  for (let k = 1; k < steps; k += 1) {
-    const x = a.x + ((b.x - a.x) * k) / steps;
-    const y = maxY - rand() * amp;
-    // A riser at the step's x, then the flat run to the next one.
-    inserted.push({ x, y: prevY });
-    inserted.push({ x, y });
-    prevY = y;
-  }
-  inserted.push({ x: b.x, y: prevY });
-  return [...points.slice(0, i + 1), ...inserted, ...points.slice(i + 1)];
-}
 
 /** Offset a point list toward the light, for the rim copy drawn behind a mass. */
 function towardLight(points: readonly Vec[], light: number, px: number): Vec[] {
@@ -226,190 +160,31 @@ function towardLight(points: readonly Vec[], light: number, px: number): Vec[] {
 // Plane tiles
 // ---------------------------------------------------------------------------
 
-export interface MassifTileOptions {
-  readonly fill: string;
-  readonly rimColor: string;
-  /** Opaque colour for the dot lattice and fronds. Never a blend - see above. */
-  readonly detailColor: string;
-  /** Radians. The stop's one light, so the rim lands on the lit side only. */
-  readonly light: number;
-  /** 0 is the furthest plane, 1 the nearest. Picks the authored profile subset. */
-  readonly depth: number;
-  /** Landform GROUPS per tile, not shapes: each group is 2-3 masses on one base. */
-  readonly count: number;
-  /** Lead-mass height as a fraction of the tile height. */
-  readonly minH: number;
-  readonly maxH: number;
-  readonly rim: boolean;
-  readonly dots: boolean;
-  readonly fronds: boolean;
-  /**
-   * A column of the frame that must stay EMPTY on this plane, in pixels.
-   *
-   * WORLD-BAR item 4 and judge note 2 of round 2: "the sun is now occluded by a
-   * ridge and reads as an accident rather than a composition. On Mars the light
-   * source is the one thing the whole frame's rim lighting derives from."
-   *
-   * It has to be a COLUMN rather than a circle. The light and the silhouette
-   * planes scroll at different speeds, so any keep-out region that is bounded in
-   * y is only respected at the scroll offset it was computed for - the mass
-   * simply arrives over the sun a few seconds later. A column is respected at
-   * every offset, forever, because scrolling never changes x.
-   */
-  readonly clearColumn: { readonly x: number; readonly halfWidth: number } | null;
-  readonly rand: () => number;
-}
-
 /**
- * ONE tile of one silhouette plane: authored landforms, procedurally PLACED.
+ * THE SILHOUETTE PLANES CARRY NO MASSES AT ALL NOW.
  *
- * WHAT CHANGED AND WHY (see `profiles.ts` for the long version). This used to
- * call `massifPoints(cx, cy, halfW, halfH, rand)` - a shape generated from noise
- * and eight tuning constants - and then lay a generated `ridgePoints` strip
- * across the frame to connect them. Three judge rounds called the output what it
- * was: rounded rectangles, and then rounded rectangles plus a brown pipe.
+ * This file has held three generations of them: generated `massifPoints` blobs,
+ * authored terrain profiles traced from silhouette sheets, and then `spaceTile`
+ * - ring planes seen edge-on and a planet limb, under D97.
  *
- * Now every outline is a hand-drawn point list from `profiles.ts`, and this
- * function chooses only WHICH one, WHERE, HOW BIG, and MIRRORED or not.
+ * The first two failed structurally. A plane that wraps every tile height can
+ * only be a partial fill, and a partial fill repeated vertically is a band with
+ * sky above and below it; and near-black mass lane-guarded out of the word
+ * column collapses onto the frame's edges and reads as a border. Six user
+ * reports came out of those two facts.
  *
- * THE RIDGELINE IS GONE, and not replaced. A ridgeline is a horizon device, and
- * a horizon does not survive the trip into a vertical scroller: a plane that
- * wraps every tile-height can only be a partial fill, and a partial fill
- * repeated vertically IS a band with sky above and below it. That is the ribbon,
- * arrived at from first principles rather than from tuning, and it is why the
- * three attempts at it all failed. What connects a plane here instead is what
- * connects one in `alto-03`: masses that share a BASE LINE, so a group reads as
- * ground seen at one distance rather than as slabs at separate depths.
+ * The third failed on taste, which is the user's to call and they called it
+ * after looking three times: "still trying to understand what this light portion
+ * is on the right of the screen. At this point just remove it, and remove those
+ * horizontal shapes (which are supposed to be?) they just look noisy."
+ *
+ * The depth planes are not empty - they carry DEBRIS at their own ramp value,
+ * which is why `depthRamp` and `BANDS_BEHIND_DEBRIS` survive untouched. What
+ * they no longer carry is anything the eye reads as a landform or a structure.
+ *
+ * Anyone adding mass back: the two structural results above are not opinions,
+ * and the third is the user's. Read them before drawing.
  */
-export function massifTile(w: number, h: number, o: MassifTileOptions): TileOp[] {
-  const out = layered();
-  const catalogue = profilesFor(o.depth);
-
-  const push = (points: readonly Vec[]): void => {
-    if (o.rim) {
-      out.rims.push({
-        kind: "poly",
-        color: o.rimColor,
-        alpha: SOLID,
-        points: towardLight(points, o.light, 4),
-      });
-    }
-    out.fills.push({ kind: "poly", color: o.fill, alpha: SOLID, points });
-  };
-
-  for (let i = 0; i < o.count; i++) {
-    const leadH = h * (o.minH + o.rand() * (o.maxH - o.minH));
-    // ONE BASE LINE PER GROUP. This is the whole of "reads as terrain".
-    //
-    // The base is kept at least one mass-height down the tile, so a group is
-    // never mostly above y = 0. It still scrolls through the top of the frame -
-    // that is what a scrolling plane does - but the TILE contains it, so any
-    // given still has whole landforms in it rather than the bottom edges of
-    // things. The first render of this had a group at baseY = 54 with a 216 px
-    // mass on it, i.e. three quarters of a landform off the top of the world.
-    const baseY = leadH + ((i + 0.15 + o.rand() * 0.7) / o.count) * Math.max(0, h - leadH);
-    const lead = catalogue[Math.floor(o.rand() * catalogue.length) % catalogue.length] as Profile;
-    const leadHalfW = leadH / (2 * lead.aspect);
-    const mirror = o.rand() < 0.5;
-
-    // BANDED IN X, not free. With a free x the two groups land wherever the
-    // seed puts them, and the first render of this had both of them on the
-    // right-hand third with two-thirds of the frame as empty sky. One band per
-    // group spreads them without making them regular - the jitter inside the
-    // band is still the whole band.
-    const band = w / o.count;
-    let cx = band * (i + 0.15 + o.rand() * 0.7);
-
-    // Companions on the same base line, to one side, overlapping the lead.
-    const companionCount = 1 + (o.rand() < 0.55 ? 1 : 0);
-    const side = o.rand() < 0.5 ? -1 : 1;
-    const companions: { profile: Profile; halfW: number; dx: number; mirror: boolean }[] = [];
-    let reach = leadHalfW;
-    for (let c = 0; c < companionCount; c++) {
-      const p = catalogue[Math.floor(o.rand() * catalogue.length) % catalogue.length] as Profile;
-      const scale = 0.32 + o.rand() * 0.28;
-      const halfW = leadHalfW * scale;
-      // Overlapping on purpose: adjacent masses that touch read as one landform,
-      // masses with a gap read as two objects. The reference does both, but the
-      // touching case is what makes a plane look like ground.
-      const dx = side * (reach + halfW * (0.55 + o.rand() * 0.3));
-      companions.push({ profile: p, halfW, dx, mirror: o.rand() < 0.5 });
-      reach += halfW * 1.5;
-    }
-
-    // A wide, LOW plinth under the group, so the group's bases are not a row of
-    // flat rectangle bottoms hanging in the sky.
-    //
-    // The squash is load-bearing. Placed at its own aspect, a plinth wide enough
-    // to span the group comes out taller than the group it is supporting - the
-    // first render of this had a 1000 px dune as the biggest object in frame,
-    // with the lead mass perched on it like a wart. A plinth is ground, and
-    // ground is foreshortened.
-    //
-    // CAPPED, and the cap is the whole reason the groups read as landforms.
-    // Uncapped, `(leadHalfW + reach) * 0.92` reached 1788 px on a 1280 px stage:
-    // the plinth spanned the frame and its flat base drew a ruled horizontal
-    // line from edge to edge. Having just removed two vertical bars, that is the
-    // same defect turned ninety degrees, and a player would report it the same
-    // way. A group is a landform, and a landform does not span the world.
-    const plinthHalfW = Math.min((leadHalfW + reach) * 0.92, w * PLINTH_MAX_SPAN);
-    const plinth = MASS_PROFILES[0] as Profile;
-    const plinthSquash = (leadH * PLINTH_HEIGHT) / Math.max(1, heightOf(plinth, plinthHalfW));
-
-    // The keep-out column for the one light.
-    if (o.clearColumn !== null) {
-      const groupLeft = cx + Math.min(0, side * reach) - plinthHalfW;
-      const groupRight = cx + Math.max(0, side * reach) + plinthHalfW;
-      const lo = o.clearColumn.x - o.clearColumn.halfWidth;
-      const hi = o.clearColumn.x + o.clearColumn.halfWidth;
-      if (groupRight > lo && groupLeft < hi) {
-        // Slide the whole group to whichever side it is already nearer, rather
-        // than re-rolling: a retry loop consumes a variable number of rand()
-        // calls and the tile stops being reproducible from its seed.
-        const halfSpan = (groupRight - groupLeft) / 2;
-        const centre = (groupLeft + groupRight) / 2;
-        cx += centre < o.clearColumn.x ? lo - halfSpan - centre : hi + halfSpan - centre;
-      }
-    }
-
-    push(
-      steppedBase(
-        place(plinth, cx + (side * reach) / 2, baseY, plinthHalfW, mirror, plinthSquash),
-        leadH * 0.16,
-        o.rand,
-      ),
-    );
-    for (const c of companions) {
-      push(place(c.profile, cx + c.dx, baseY, c.halfW, c.mirror));
-    }
-    push(place(lead, cx, baseY, leadHalfW, mirror));
-
-    // WORLD-BAR item 5's internal detail, drawn OPAQUE over the finished
-    // silhouette: the reference's temple face is a flat lighter lattice, not a
-    // translucent one.
-    if (o.dots && o.rand() < 0.62) {
-      const dotHalfW = leadHalfW * 0.5;
-      const dotHalfH = leadH * 0.3;
-      for (const quad of dotLattice(
-        cx,
-        baseY - leadH * 0.44,
-        dotHalfW,
-        dotHalfH,
-        Math.max(16, leadHalfW * 0.2),
-        Math.max(2.5, leadHalfW * 0.03),
-      )) {
-        out.detail.push({ kind: "poly", color: o.detailColor, alpha: SOLID, points: quad });
-      }
-    }
-    if (o.fronds && o.rand() < 0.55) {
-      const fx = cx + (mirror ? -1 : 1) * leadHalfW * 0.42;
-      for (const blade of frondBlades(fx, baseY - leadH * 0.98, leadHalfW * 0.34)) {
-        out.detail.push({ kind: "poly", color: o.fill, alpha: SOLID, points: blade });
-      }
-    }
-  }
-  return flatten(out);
-}
 
 /** Mid-field dust: bigger, softer, lower-contrast than the near field. */
 export function dustTile(w: number, h: number, fill: string, rand: () => number): TileOp[] {

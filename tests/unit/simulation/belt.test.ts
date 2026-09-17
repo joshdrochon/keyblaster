@@ -167,13 +167,31 @@ describe("AC-4.3 / FR-6: a Mars belt is completable without the hull reaching ze
     }
   });
 
-  it("AC-4.3: THE REGRESSION - the 850 ms constant stalls the same belt, every seed", () => {
+  it("AC-4.3: THE REGRESSION - the 850 ms constant still wrecks the same belt", () => {
     // The control. Without it, "no stalls" is a claim about a simulation that
     // might simply be unable to produce one.
+    //
+    // THE FAST CHILD'S FIGURE MOVED, AND THAT IS A CORRECTION, NOT A RELAXATION.
+    // This read "every seed, every player" while the harness computed fall time
+    // from the PLAYER's `ikiMs` - so it gave a child who types at 260 ms falls a
+    // third shorter than the shipped game ever gave anybody, and then reported
+    // how badly the old spawn constant treated them. Flown on the baseline the
+    // game actually holds, the 850 ms constant is catastrophic for the median
+    // and the slow child and merely bad for the fast one: it still produces
+    // stalls where the shipped pacing produces none, and still costs them a
+    // sixth of their hit rate. Asserting 40 of 40 for that player would be
+    // asserting the measurement bug.
     for (const [name, player] of PLAYERS) {
-      const s = flyMany(player, { fixedGapMs: 850 });
-      expect(s.stalls, `${name} at the old constant`).toBe(SEEDS);
-      expect(s.meanHitRate, name).toBeLessThan(0.6);
+      const old = flyMany(player, { fixedGapMs: 850 });
+      const shipped = flyMany(player);
+      expect(shipped.stalls, `${name}, shipped pacing`).toBe(0);
+      if (player === FAST) {
+        expect(old.stalls, `${name} at the old constant`).toBeGreaterThan(0);
+        expect(old.meanHitRate, name).toBeLessThan(shipped.meanHitRate - 0.1);
+        continue;
+      }
+      expect(old.stalls, `${name} at the old constant`).toBe(SEEDS);
+      expect(old.meanHitRate, name).toBeLessThan(0.6);
     }
   });
 

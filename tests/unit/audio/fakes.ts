@@ -119,7 +119,18 @@ export function fakeVoiceEnvironment(
   const scheduler = fakeScheduler();
   const probe = countingFetchProbe();
   return {
-    env: { speech, platform, lang, schedule: scheduler.schedule, fetch: probe },
+    env: {
+      speech,
+      platform,
+      lang,
+      schedule: scheduler.schedule,
+      fetch: probe,
+      // D98: the platform voice is OFF by default now, so a test that wants to
+      // exercise the opt-in path has to say so. It is stated here rather than
+      // in thirty tests because `fakeVoiceEnvironment` IS the "this session
+      // opted in" fixture; `spokenLines.test.ts` covers the default.
+      allowSystemVoice: true,
+    },
     speech,
     scheduler,
     probe,

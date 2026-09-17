@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { lightPositionOf, paletteAt } from "@game/render/palette";
 import { STOP_IDS } from "@engine/types";
 import {
+  HEADING_PLATE_BOTTOM,
   BOARD_W,
   BOARD_X,
   BUTTON_Y_MAX,
@@ -249,7 +250,23 @@ describe("resultsLayout: the sun never leaks out from behind a panel", () => {
         const inColumn =
           disc.cx - disc.r >= panel.x && disc.cx + disc.r <= panel.x + panel.w;
         if (!inColumn) continue;
-        expect(panel.y, `${stop} top`).toBeLessThanOrEqual(disc.cy - disc.r);
+
+        // THE REQUIREMENT IS "NO CRESCENT OF SUN IS VISIBLE", not "the panel
+        // covers the disc". Those were the same thing until the art lane lifted
+        // the light out of the KEYBLASTER wordmark (UR-06) and Earth's disc rose
+        // to y=140.7..312.7 — its top now sits behind the HEADING PLATE and only
+        // its body behind the panel. The old assertion demanded one surface do
+        // the whole job, which is a sufficient condition, not the real one.
+        //
+        // What must hold is that the two surfaces leave NO BAND between them,
+        // and that together they span the disc.
+        const covered = (y: number): boolean =>
+          y <= HEADING_PLATE_BOTTOM || (y >= panel.y && y <= panel.y + panel.h);
+        expect(panel.y, `${stop}: a band is exposed above the panel`).toBeLessThanOrEqual(
+          HEADING_PLATE_BOTTOM,
+        );
+        expect(covered(disc.cy - disc.r), `${stop} disc top exposed`).toBe(true);
+        expect(covered(disc.cy + disc.r), `${stop} disc bottom exposed`).toBe(true);
         expect(panel.y + panel.h, `${stop} bottom`).toBeGreaterThanOrEqual(
           disc.cy + disc.r,
         );

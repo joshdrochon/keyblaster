@@ -989,7 +989,12 @@ export function lightAngleOf(p: StopPalette): number {
  */
 export function lightPositionOf(p: StopPalette): { x: number; y: number } {
   const a = lightAngleOf(p);
-  return { x: 0.5 + Math.cos(a) * 0.42, y: 0.42 + Math.sin(a) * 0.14 };
+  // LIFTED (UR-06). At `0.42 + sin(a) * 0.14` the light sat at y 0.28-0.42 of
+  // the frame, which on the Title is exactly where the wordmark is - the disc
+  // rendered inside "KEYBLASTER", eating the tail of KEY and the bowl of the B.
+  // 0.30 +/- 0.11 puts it at 0.19-0.30: clear of a headline band, and still
+  // below the top eighth that AC-22.3 samples the sky along.
+  return { x: 0.5 + Math.cos(a) * 0.42, y: 0.3 + Math.sin(a) * 0.11 };
 }
 
 /**

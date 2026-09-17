@@ -75,8 +75,29 @@ export const PANEL_TOP = 236;
  * The highest a panel may be pushed to hide the sun. Above this it would eat
  * the heading and the stop name, which sit on their own contrast plates from
  * y=52 to y=181 in the widest script the game ships (Devanagari, D45).
+ *
+ * FLUSH WITH THE HEADING PLATE, not 15px below it. This was 196, which left a
+ * 15px band at y=181..196 covered by neither. It did not matter until the art
+ * lane lifted the sun to get it out of the KEYBLASTER wordmark (UR-06), which
+ * moved Earth's disc up to y=140.7..312.7 — its top now sits behind the heading
+ * plate, its body behind the panel, and that 15px strip showed a crescent of
+ * sun between them.
+ *
+ * 181 is the heading plate's own bottom edge, so the two surfaces MEET rather
+ * than overlap: the panel still never eats the heading. The alternative was
+ * moving the light back down, which would put the sun inside the wordmark
+ * again — trading a reported defect for a reported defect.
  */
-export const PANEL_TOP_MIN = 196;
+export const PANEL_TOP_MIN = 181;
+
+/**
+ * The bottom edge of the heading/stop-name contrast plates. Exported because
+ * it is the OTHER surface that hides the sun: the disc is covered by the
+ * heading plate above and the panel below, and what matters is that the two
+ * leave no band between them. It was previously a number in a comment, which
+ * is how the 15px gap at y=181..196 survived.
+ */
+export const HEADING_PLATE_BOTTOM = 181;
 
 export const PANEL_PAD_X = 48;
 export const PANEL_PAD_Y = 44;

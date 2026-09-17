@@ -1,0 +1,89 @@
+[
+  {
+    "id": "UR-01-edge-bars",
+    "said": "the bars to the left are right, why are there there still... please fix these bars, for the love of god... The bars are still there",
+    "reports": 6,
+    "what": "Vertical bars flank the picture at any window that is not 16:9. Scale.FIT maps a fixed 1920x1080 design into a differently-shaped window; the remainder is a gap. Five fixes all answered 'what colour should the gap be' rather than removing it.",
+    "rootCause": "Width was over-constrained. FR-8's fall time needs a fixed fall DISTANCE, which is vertical, so height must stay 1080 — but the width was pinned at 1920 alongside it for no independent reason.",
+    "state": "DONE",
+    "owner": "letterbox lane",
+    "evidence": "Canvas now fills the window at every tested shape: gap L0 R0 at 2000x1010, 2560x1080 and 1440x900, verified by measuring the canvas rect and by looking at the capture. Root cause was an over-constrained design WIDTH: FR-8 needs a fixed fall DISTANCE, which is vertical, so height stays 1080 — the width was pinned at 1920 alongside it for no independent reason. Five earlier fixes all answered 'what colour should the gap be'."
+  },
+  {
+    "id": "UR-02-floating-bases",
+    "said": "do we know why the base of this structure whatever it is just floating, and then moving? Like what is happening here, is this a logical?",
+    "reports": 1,
+    "what": "Landform masses ended in a dead-flat horizontal edge suspended in mid-air with sky visible underneath, scrolling as a parallax layer.",
+    "rootCause": "No ground plane. 81.4% of our upper-frame sky sat in one narrow brightness box vs alto-03's 30.9%, because their sky is a third of the picture and land fills the rest.",
+    "state": "DONE",
+    "owner": "art lane",
+    "evidence": "D97: terrain grammar dropped entirely for space grammar. Below-L*40 32.8% -> 39.7%."
+  },
+  {
+    "id": "UR-03-tagline",
+    "said": "light the way home should probably be light the way through the solar system",
+    "reports": 1,
+    "what": "Tagline pointed the wrong direction on a game whose arc is Earth OUTWARD to Pluto. Earth's own beacon line, 'Every map starts with a home', established Earth as home — the tagline argued with the story.",
+    "state": "DONE",
+    "owner": "lead",
+    "evidence": "Changed in en/es/hi. Lengthening it FIXED a Spanish copy-budget violation, because a sentence expands ~25% where a short label expands 50-90%."
+  },
+  {
+    "id": "UR-04-system-voice",
+    "said": "If its done then why am i still hearing system audio? ... system voice needs to be cut out",
+    "reports": 2,
+    "what": "Shadow speaks the warp-break coach note in the browser's speech synthesiser, not the rendered ElevenLabs voice.",
+    "rootCause": "The coach note was excluded as 'runtime LLM text, unrenderable by construction'. False in the case that happens: with no /api/coach deployed, D33's shipped fallback AND the mock transport's canned notes play every time. Both are finite, fixed strings.",
+    "state": "OPEN",
+    "owner": "coach voice lane",
+    "evidence": "D98 recorded: Web Speech is cut; an unrendered spoken line is a BUILD FAILURE, not a runtime fallback. AC-21.8 added."
+  },
+  {
+    "id": "UR-05-clean-run-line",
+    "said": "\"That was a clean run pilot\" was just spoken by the system voice",
+    "reports": 1,
+    "what": "A specific coach line heard in the system voice.",
+    "rootCause": "src/engine/coach/mock.ts:62 — a SECOND source of spoken strings the render brief did not cover. Found only because the user quoted the line back.",
+    "state": "OPEN",
+    "owner": "coach voice lane",
+    "evidence": "Lane told to enumerate every speak site rather than trust a list, and to build a guard that fails when any speakable string has no clip."
+  },
+  {
+    "id": "UR-06-asteroid-over-wordmark",
+    "said": "(visible in the Title screenshot)",
+    "reports": 1,
+    "what": "A black asteroid is drawn on top of the 'B' in KEYBLASTER, and a moon disc sits inside the wordmark.",
+    "state": "OPEN",
+    "owner": "unassigned",
+    "evidence": "Title capture at 2000x1010. Previously noted by the 17-screen critic as 'white moon disc sits INSIDE the wordmark at x~300-360, eating the tail of KEY and the bowl of B'."
+  },
+  {
+    "id": "UR-07-parallax-strips",
+    "said": "is there a reason why the world is made up of a bunch of vertical strips, it looks like about 8 and the just looked stitched together, and sliding from left to right, why was it built this way?",
+    "reports": 1,
+    "what": "Visible vertical seams across the sky; the world reads as stitched panels drifting sideways.",
+    "rootCause": "Measured 41 vertical luminance steps (0.35-2.4) across the upper sky at irregular spacing. Two contributors: wrapXY duplicates sub-planes in BOTH axes for 'sideways-drifting' layers, in a game that scrolls VERTICALLY; and shapes clipped at tile edges leave hard boundaries.",
+    "state": "DONE",
+    "owner": "unassigned",
+    "evidence": "atmospherePass called the RNG inside the wrap loop, so the three 'wrapped' copies of each streak had different y values — they were never copies. Every 256px carried a hard discontinuity: 7.5 joins at 1920 wide, and the user counted 'about 8'. Endpoints are now computed once, copies are pure translations wrapped in both axes, texture 256->512, and the sideways drift is gone — a weather pass sliding horizontally in a vertically-scrolling world was motion in an axis nothing else moves in."
+  },
+  {
+    "id": "UR-08-sun-keepout-column",
+    "said": "what is this thing on the right, its like a brighter portion shape. Is it supposed to be anything? ... At this point just remove it, and remove those horizontal shapes (which are supposed to be?) they just look noisy",
+    "reports": 2,
+    "what": "A bright vertical band / light region on the right of the frame.",
+    "rootCause": "NOT the sun keep-out column — SUN_CLEARANCE/SUN_COLUMN were already dead, left computing a width that kept nothing out after D97 removed massifTile, and have been deleted. The remaining light region is the PLANET LIMB, a legitimate object that reads as an artefact. User: 'At this point just remove it.' Being removed along with the ring bands.",
+    "state": "OPEN",
+    "owner": "unassigned",
+    "evidence": "No, it is not supposed to be anything. It is an artifact of the occlusion fix."
+  },
+  {
+    "id": "UR-09-parallax-quality",
+    "said": "Can you do some research on how paralex should behave. This just looks terrible",
+    "reports": 1,
+    "what": "Overall parallax quality.",
+    "state": "OPEN",
+    "owner": "unassigned",
+    "evidence": "Research gathered; the gap between our implementation and standard practice is written up in the queue under UR-07/UR-08."
+  }
+]
