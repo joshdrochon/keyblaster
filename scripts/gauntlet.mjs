@@ -159,14 +159,21 @@ async function runPass() {
   const results = new Map();
 
   for (const item of RUBRIC) {
-    if (state.escalated[item.id]) {
-      results.set(item.id, {
-        status: STATUS.ESCALATED,
-        detail: `escalated after ${state.attempts[item.id] ?? ATTEMPT_CAP} attempts; see gauntlet/escalations.md`,
-        evidence: "gauntlet/escalations.md",
-      });
-      continue;
-    }
+    // AN ESCALATED ITEM IS STILL MEASURED.
+    //
+    // This used to `continue` here, so once `state.escalated[id]` was set the
+    // item never ran again — the check stopped checking. The board then
+    // permanently understated reality: G-e2e-whole sat ESCALATED while its own
+    // artifact recorded 274 passed and 0 failed, because nothing re-read it.
+    //
+    // An escalation means A HUMAN NEEDS TO DECIDE SOMETHING. It does not mean
+    // the world stopped moving. If the condition has since been met, the
+    // escalation has been overtaken by events and saying so is the honest
+    // report; if it has not, the item stays escalated exactly as before.
+    //
+    // This is the same defect this rubric spends its time catching elsewhere,
+    // aimed at the rubric: a check bound to a fact it no longer verifies.
+    const wasEscalated = state.escalated[item.id] === true;
 
     let result;
     try {
@@ -184,6 +191,28 @@ async function runPass() {
         detail: `claimed pass without an evidence artifact — rejected (D85). ${result.detail}`,
         evidence: null,
       };
+    }
+
+    if (wasEscalated) {
+      // Re-measured above. Only a genuine PASS discharges an escalation, and
+      // the discharge is announced rather than silent, so a reader can go and
+      // close the write-up in gauntlet/escalations.md.
+      if (result.status === STATUS.PASS) {
+        delete state.escalated[item.id];
+        state.attempts[item.id] = 0;
+        result = {
+          ...result,
+          detail: `${result.detail} — passes now; the escalation is discharged, close it in gauntlet/escalations.md`,
+        };
+      } else {
+        result = {
+          status: STATUS.ESCALATED,
+          detail: `still failing, escalated: ${result.detail}`,
+          evidence: result.evidence ?? "gauntlet/escalations.md",
+        };
+      }
+      results.set(item.id, result);
+      continue;
     }
 
     if (result.status === STATUS.FAIL) {

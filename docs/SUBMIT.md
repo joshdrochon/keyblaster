@@ -10,37 +10,23 @@ This is the only document you need to read first. Everything else is backlog.
 
 ---
 
-## 0. Where the board stands, 07:02
+## 0. Where the board stands, 10:20
 
-`node scripts/gauntlet.mjs` — **24 pass · 3 fail · 6 escalated**, of 33.
+`node scripts/gauntlet.mjs` — **25 pass · 0 fail · 8 escalated**, of 33.
 
-Every visual item passes. Every guardrail passes, including `G-secrets` (no
-API-key-shaped string in the client bundle) and `G-coverage` at
-99.92 / 99.14 / 100 / 99.92 against a 95% gate.
+**Zero failures.** Every visual item, every guardrail, every audio item that
+can pass does. `G-coverage` 99.92 / 99.14 / 100 / 99.92 against a 95% gate.
+The full e2e suite is **274 passed, 0 failed in one run**.
 
-**The game is completable, and that was measured rather than assumed.** The
-one spec that makes the survivability claim about the scene a child actually
-flies — Title to a placed beacon, keyboard only — stalled once during a
-3-worker run, then passed **three times out of three** when run on its own.
-Cause, by inspection: the spec types on a wall clock through a browser round
-trip, so under contention the simulated child slows down while the rocks keep
-falling. That makes the check **harsher than reality, never kinder** — it can
-raise a false alarm, it cannot hide a real stall. Recorded, not patched, two
-days from a deadline. The real number is unchanged: 3 stalls in 240 belts for
-a grade-2 pilot, all at Jupiter.
+**All eight escalations need a human, and five of them need YOU:**
 
-**The three failures are all honest, and none is a product defect:**
-
-| item | why it is red |
+| item | what it needs |
 |---|---|
-| `G-trace` | One acceptance criterion has no test and **cannot have one** — `AC-6e.5`, whose thresholds were never chosen. Your ruling, see housekeeping |
-| `A-21.2` | Music intensity wiring is fine and proven; the evidence artifact needs one clean full e2e to be rewritten |
-| `A-21.5` | **Deliberately red.** It used to pass against a voice environment we do not ship. Making it honest was the right call and it now reports the truth (C16) |
-
-**The six escalations split two ways.** Three need a machine we do not have —
-`P-22.9` and `L-6e.1` want a headed 60fps capture, `G-e2e-whole` wants a run
-where nothing clobbers the report. Three need **your eyes**: `R-world`,
-`R-lantern`, `R-shadow`, and D85 forbids a machine ever passing those.
+| `R-world` · `R-lantern` · `R-shadow` | **Your eyes.** D85 forbids a machine ever passing a reference compare. `R-world` was never judgeable before last night — the frame it compares was a screenshot of the Title screen |
+| `A-21.2` | **Your call on what the music means.** The third layer is mathematically unreachable at one asteroid; see §3 |
+| `G-trace` | **Your one-line ruling** on `AC-6e.5`, which cannot have a test |
+| `P-22.9` · `L-6e.1` | A headed 60fps capture on your GPU. Headless Chromium is software-rendered, so every frame-time number here describes SwiftShader |
+| `A-21.5` | Nothing. It is red **on purpose** — it used to pass against a voice environment we do not ship |
 
 ---
 

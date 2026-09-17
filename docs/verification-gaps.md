@@ -1,6 +1,6 @@
-# The check and the thing: twenty-one ways this codebase lied to itself
+# The check and the thing: twenty-two ways this codebase lied to itself
 
-Written 2026-09-17, after a night in which twenty-one separate defects
+Written 2026-09-17, after a night in which twenty-two separate defects
 turned out to be the same defect.
 
 Nine had a green test, two had a red one, and one was a picture a person judged. None of the tests
@@ -29,7 +29,7 @@ that binding.
 
 ---
 
-## The twenty-one
+## The twenty-two
 
 | # | What was green | What shipped | Found by |
 |---|---|---|---|
@@ -141,6 +141,14 @@ real timeout — and observing that only one of them matched the failure
 byte-for-byte. Two causes that produce identical output need two controls, not
 one.
 
+| 22 | **The gauntlet itself.** `G-e2e-whole` reported ESCALATED while its own artifact recorded 274 passed and 0 failed | Once `state.escalated[id]` was set, `runPass` hit a `continue` **before ever calling `item.run()`**. The check stopped checking. An escalated item could never come back green however thoroughly the underlying problem was fixed, so the board permanently understated reality — and the longer a project ran, the more items froze into a status nobody was re-measuring | The lead, noticing a clean 274/0 artifact sitting under an ESCALATED row |
+
+Instance 22 is the rubric doing the thing the rubric exists to catch. An
+escalation means **a human needs to decide something**. It never meant the
+world stopped moving. Escalated items are now re-measured every pass; a genuine
+pass discharges the escalation and says so, so a reader knows to go and close
+the write-up. Anything still failing stays escalated exactly as before.
+
 Instance 11 is the worst thing in this document. The other ten are checks that
 measured the wrong thing; this one is a **human** looking at the wrong thing,
 carefully, repeatedly, and reaching conclusions about art they were never
@@ -223,6 +231,6 @@ All of that machinery verifies **internal consistency**. None of it verifies
 that the thing being checked is the thing being shipped. That binding is
 maintained by attention, and attention is exactly what a green suite spends.
 
-Every one of the twenty-one was ultimately found the same way: by someone looking at
+Every one of the twenty-two was ultimately found the same way: by someone looking at
 the actual artifact — a screen, a waveform, a route, a rendered page — rather
 than at a result. That is the cheapest available guard and the easiest to skip.
