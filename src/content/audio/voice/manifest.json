@@ -1,5 +1,5 @@
 {
-  "renderedAt": "2026-09-17T00:42:42.787Z",
+  "renderedAt": "2026-09-17T01:29:21.052Z",
   "model": "eleven_flash_v2_5",
   "voiceId": "TX3LPaxmHKxFdv7VOQHJ",
   "lines": [
@@ -170,6 +170,42 @@
       "file": "pluto.beaconFlavor.mp3",
       "chars": 67,
       "bytes": 76948
+    },
+    {
+      "id": "preflight.line.opening",
+      "file": "preflight.line.opening.mp3",
+      "chars": 32,
+      "bytes": 30973
+    },
+    {
+      "id": "preflight.line.hull",
+      "file": "preflight.line.hull.mp3",
+      "chars": 12,
+      "bytes": 18852
+    },
+    {
+      "id": "preflight.line.systems",
+      "file": "preflight.line.systems.mp3",
+      "chars": 15,
+      "bytes": 20524
+    },
+    {
+      "id": "preflight.line.engines",
+      "file": "preflight.line.engines.mp3",
+      "chars": 14,
+      "bytes": 18852
+    },
+    {
+      "id": "preflight.line.done",
+      "file": "preflight.line.done.mp3",
+      "chars": 20,
+      "bytes": 24285
+    },
+    {
+      "id": "preflight.line.returning",
+      "file": "preflight.line.returning.mp3",
+      "chars": 48,
+      "bytes": 36824
     }
   ]
 }

@@ -417,6 +417,26 @@
     ]
   },
   {
+    "id": "KB-ESC-e-voice-2-six-rendered-files-are-still-unrea",
+    "kind": "escalation",
+    "title": "E-voice-2 — Six rendered files are still unreachable, and the fix is a design call",
+    "source": "gauntlet/escalations.md:1614",
+    "state": "BLOCKED",
+    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
+    "evidence": [],
+    "refs": []
+  },
+  {
+    "id": "KB-ESC-e-voice-3-two-guardrails-that-did-not-need-c",
+    "kind": "escalation",
+    "title": "E-voice-3 — Two guardrails that did NOT need changing (recorded so nobody changes them)",
+    "source": "gauntlet/escalations.md:1638",
+    "state": "BLOCKED",
+    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
+    "evidence": [],
+    "refs": []
+  },
+  {
     "id": "KB-ESC-e-world-3-the-near-plane-on-a-night-stop-can",
     "kind": "escalation",
     "title": "E-world-3 · The near plane on a night stop cannot have the reference's value range",
@@ -1315,7 +1335,7 @@
     "title": "Per-planet ambient bed exists, crossfades, and follows the running game",
     "source": "tests/gauntlet/rubric.mjs (D62 / AC-21.1)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1330,7 +1350,7 @@
     "title": "All ten events have >= 3 SFX variants, rotate, and are reached by game code",
     "source": "tests/gauntlet/rubric.mjs (D62 / AC-21.3)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1345,7 +1365,7 @@
     "title": "Music ducks by >= 6 dB while Shadow speaks, on the live graph",
     "source": "tests/gauntlet/rubric.mjs (D62 / AC-21.4)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1360,7 +1380,7 @@
     "title": "Shadow speaks via Web Speech system voice; zero network TTS at runtime",
     "source": "tests/gauntlet/rubric.mjs (D88 / AC-21.5)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1375,7 +1395,7 @@
     "title": "Coach notes are spoken after the text renders, display identical either way",
     "source": "tests/gauntlet/rubric.mjs (D88 / AC-21.6)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1390,7 +1410,7 @@
     "title": "The game is audible: cues reach the bus, sliders move it, silence never crashes",
     "source": "tests/gauntlet/rubric.mjs (audit.md 1.2 / AC-19.1 / AC-6e.2)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1405,7 +1425,7 @@
     "title": "Engine coverage >= 95% lines/branches/functions/statements",
     "source": "tests/gauntlet/rubric.mjs (D55 / CLAUDE.md)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1419,7 +1439,7 @@
     "title": "src/engine imports neither Phaser nor the DOM",
     "source": "tests/gauntlet/rubric.mjs (CLAUDE.md HARD RULES / architecture section 2)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1431,7 +1451,7 @@
     "title": "No red failure state, lives counter, or 'wrong' sound",
     "source": "tests/gauntlet/rubric.mjs (D28 / D31 / design brief 'Do not')",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1446,7 +1466,7 @@
     "title": "Exactly one drawShadow and one drawLantern implementation",
     "source": "tests/gauntlet/rubric.mjs (D91 / AC-25.1 / D83)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1462,7 +1482,7 @@
     "title": "No PII field and no analytics SDK anywhere in src/",
     "source": "tests/gauntlet/rubric.mjs (D43 / AC-18.2 / NFR-3)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1477,7 +1497,7 @@
     "title": "No raster asset referenced from src/ (all art is vector in code)",
     "source": "tests/gauntlet/rubric.mjs (D83 / D84 / CLAUDE.md)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1492,7 +1512,7 @@
     "title": "No API-key-shaped string in the client bundle",
     "source": "tests/gauntlet/rubric.mjs (NFR-4 / CLAUDE.md)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1504,7 +1524,7 @@
     "title": "At least 5 parallax layers at distinct scroll speeds",
     "source": "tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (config half))",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1519,7 +1539,7 @@
     "title": "Layer-debug overlay shows the five speeds actually moving",
     "source": "tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (visual half))",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1534,7 +1554,7 @@
     "title": "Idle frame is never still (two Title shots 1s apart differ > 2%)",
     "source": "tests/gauntlet/rubric.mjs (D60#2 / AC-22.2)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1549,7 +1569,7 @@
     "title": "Sky gradient shifts across a stage (deltaE > 10)",
     "source": "tests/gauntlet/rubric.mjs (D60#3 / AC-22.3)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1564,7 +1584,7 @@
     "title": "Zero Linear easing anywhere in tween configs",
     "source": "tests/gauntlet/rubric.mjs (D60#5 / AC-22.5)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1579,7 +1599,7 @@
     "title": "Blast, hit and warp have distinct particle signatures",
     "source": "tests/gauntlet/rubric.mjs (D60#6 / AC-22.6)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1594,7 +1614,7 @@
     "title": "Each stage palette is 5-7 colours plus exactly one accent",
     "source": "tests/gauntlet/rubric.mjs (D60#7 / AC-22.7)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1609,7 +1629,7 @@
     "title": "Word plate text contrast >= 4.5:1",
     "source": "tests/gauntlet/rubric.mjs (D60#8 / AC-22.8)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.8h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -3912,6 +3932,16 @@
     "source": "docs/decision-log.md:116",
     "state": "DONE",
     "why": "cited by at least one acceptance criterion in the PRD",
+    "evidence": [],
+    "refs": []
+  },
+  {
+    "id": "KB-ESC-e-voice-1-six-lines-the-game-speaks-still-ha",
+    "kind": "escalation",
+    "title": "E-voice-1 — Six lines the game speaks still have no render, and I cannot make one",
+    "source": "gauntlet/escalations.md:1564",
+    "state": "DONE",
+    "why": "marked resolved in gauntlet/escalations.md",
     "evidence": [],
     "refs": []
   },

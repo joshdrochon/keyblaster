@@ -1558,3 +1558,103 @@ All five entries (`V-22.4`, `G-scenes`, `G-trace`, `L-6e.3`, `L-6e.4`) now have 
 | C | Delete now and leave the two tests red. | Free. | A red merge. Rejected. |
 
 **Action for the lead:** run `npm run test:e2e` then `npm run gauntlet`, then empty this file and take option B in the same change.
+
+---
+
+## E-voice-1 — Six lines the game speaks still have no render, and I cannot make one
+
+**Resolved:** rendered 2026-09-16 by the lead, which can read `.env` where a
+subagent cannot (D87 denies subagent `.env` reads — that restriction is correct
+and stays). All six `preflight.line.*` lines are on disk with the same voice and
+settings as the other 28: Liam `TX3LPaxmHKxFdv7VOQHJ`, stability 0.92, style 0.
+The manifest now carries 34 lines. Incremental spend **$0.0042**, because
+`render-voice.mjs` is resumable and skipped the 28 already present.
+
+**State after this lane:** the file transport is built, wired and proven in a real
+browser (`tests/e2e/shadow-clips.spec.ts`). 28 of the 34 lines Shadow says now come
+off disk. The remaining 6 fall through to the system voice, which is correct
+behaviour and audibly a different character mid-scene.
+
+The 6 are the pre-flight ritual's lines, which live in `ui.json` rather than in a
+stage bundle because they are the same at every planet:
+
+| id | text |
+|---|---|
+| `preflight.line.opening` | "Starting the ship. Stay with me." |
+| `preflight.line.hull` | "Hull, check." |
+| `preflight.line.systems` | "Systems, check." |
+| `preflight.line.engines` | "Engines, warm." |
+| `preflight.line.done` | "Pilot... that's you." |
+| `preflight.line.returning` | "You know the drill. Let's go and light one more." |
+
+`scripts/render-voice.mjs` now collects them — `node scripts/render-voice.mjs`
+lists 34 lines, 1135 characters, **$0.0341** for a full run. The script is now
+resumable, so a re-run with the 28 existing files in place pays only for these six:
+**~$0.004**.
+
+**I did not render them.** D87 denies `.env` reads and there is no key in this
+environment, so `--live` is not available to this lane. This is a one-command job
+for whoever holds the key:
+
+```
+node scripts/render-voice.mjs --live --voice TX3LPaxmHKxFdv7VOQHJ --cap-usd 0.10
+```
+
+(Same voice id and `--stability 0.92` as the first pass, so the six match the 28.)
+
+| option | consequence |
+|---|---|
+| A. render the six | every scripted line in the game is Shadow's real voice. ~$0.004. |
+| B. ship as is | the pre-flight ritual is system-voice, the beacon is Shadow. The switch is mid-chapter and audible. |
+| C. drop the files entirely | wastes the 28 that now work. |
+
+**Lean: A.** It is four tenths of a cent and it is the difference between one
+character and two. Nothing blocks on it — the fallback is tested and graceful.
+
+## E-voice-2 — Six rendered files are still unreachable, and the fix is a design call
+
+`mars/jupiter/saturn/uranus/neptune/pluto.preflightLine` are rendered, ship in
+`dist/`, and no scene ever displays or speaks them. Only `earth.preflightLine` has
+a call site (`EarthActivationScene`), because Earth uses the activation screen and
+the other six stops use `PreflightScene` — which says the generic ritual lines
+instead.
+
+So the stage bundles carry a written, rendered, per-planet line for six planets
+that no child will ever see or hear. Sample (`mars.json`): *"Two moons, Phobos and
+Deimos. Neither of them is going to help. It's you and me."*
+
+| option | consequence |
+|---|---|
+| A. `PreflightScene` says the stop's own `preflightLine` after the ritual | six good lines become real; six existing renders come alive; one new speak site. Costs nothing. |
+| B. leave them | six dead files, and the per-planet writing in the story draft goes unused. |
+| C. delete the field from the bundles | honest, but throws away written content. |
+
+**Lean: A.** The writing already exists and is already paid for, and per-planet
+flavour in Shadow's own voice is the cheapest character the game can buy. I did not
+do it because `PreflightScene.ts` is outside this lane's file list and the ritual's
+pacing is a design decision, not a wiring one — the line needs a beat to land in
+and I would be guessing where.
+
+## E-voice-3 — Two guardrails that did NOT need changing (recorded so nobody changes them)
+
+Both were predicted to break by wiring a file transport. Neither did, and the
+reasons are worth keeping.
+
+**`G-raster` / D83 is not in conflict with D63.** The rule at `rubric.mjs:959`
+matches `\.(png|jpe?g|gif|webp|bmp|tiff?)` only. mp3 is not a raster asset and the
+check does not look at audio. Re-ran the rule's own logic over all 144 source
+files: zero hits. D83's subject is art — "all art is vector in code" — and an
+audio file is not art in that sense. **No escalation needed, no rule change.**
+
+**`A-21.5`'s `voiceTransport === "webspeech"` assertion is still correct and must
+not be widened.** The obvious implementation makes `transportId` report
+"prerendered" once files ship, which turns that item red and would have invited a
+quiet widening to `webspeech|prerendered`. That would have destroyed the item: the
+question A-21.5 asks is *"can this machine speak a line that has no recording, and
+does it refuse cloud voices while doing so"*, and a machine with no local voice
+reports "silent" — a signal that a widened assertion could no longer see. Three
+e2e tests in `shadow-voice.spec.ts` depend on the same distinction.
+
+So `transportId` still means the SPEECH path only, and the rendered-file capability
+got its own surface: `graph.voiceClipIds` and `WiringSnapshot.voiceClipsUsed`.
+`A-21.5` stays green unmodified and the evidence is strictly richer than before.
