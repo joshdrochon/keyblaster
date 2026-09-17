@@ -366,7 +366,52 @@ export interface DriftTileOptions {
   readonly light: number;
   /** Keep out of [lane, 1-lane] in x. 0 allows the whole width. */
   readonly laneGuard: number;
+  /**
+   * Rectangles no decorative rock may overlap, in tile coordinates.
+   *
+   * `laneGuard` keeps debris out of the SHIP'S lane, which is the centre. It
+   * cannot help a screen whose text is somewhere else: on the Title the
+   * wordmark sits in the LEFT band, which is exactly where the guard sends
+   * rocks, so KEYBLASTER had an asteroid across its K. A scene knows where its
+   * own text is and the parallax cannot, so the scene passes it in.
+   */
+  readonly keepClear?: readonly Rect[];
   readonly rand: () => number;
+}
+
+/** A rectangle in tile coordinates. */
+export interface Rect {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+/**
+ * Does a rock at (cx, cy) with this radius touch any keep-clear rectangle?
+ *
+ * Measured to the shape's EDGE, for the same reason the lane guard is: a
+ * centre-based test silently inverts once the radius outgrows the margin, and
+ * that is precisely how 67px of rock ended up inside the word lane.
+ */
+function hitsKeepClear(
+  cx: number,
+  cy: number,
+  radius: number,
+  rects: readonly Rect[] | undefined,
+): boolean {
+  if (rects === undefined) return false;
+  for (const r of rects) {
+    if (
+      cx + radius > r.x &&
+      cx - radius < r.x + r.w &&
+      cy + radius > r.y &&
+      cy - radius < r.y + r.h
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -426,6 +471,13 @@ export function driftTile(w: number, h: number, o: DriftTileOptions): TileOp[] {
           ? -radius * 0.35 + u * 2 * (reach + radius * 0.35)
           : w + radius * 0.35 - (u - 0.5) * 2 * (reach + radius * 0.35);
     // (both branches are symmetric about the frame's centre line)
+    // A rock that would land on the scene's own text is DROPPED, not nudged.
+    // Nudging would bias the whole field away from the text and read as a hole
+    // in the debris; dropping one of nine costs nothing and keeps the
+    // distribution honest. `rand()` has already been consumed either way, so
+    // the field stays deterministic for the pixel-diff tests.
+    if (hitsKeepClear(cx, cy, radius, o.keepClear)) continue;
+
     const spin = o.rand() * Math.PI * 2;
     const shape = driftOutline(m.radii, cx, cy, radius, spin);
 

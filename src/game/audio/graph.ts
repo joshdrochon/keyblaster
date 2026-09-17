@@ -30,6 +30,7 @@ import {
   gainToDb,
   seededRandom,
   type AudioContextLike,
+  type AudioBufferLike,
   type AudioNodeLike,
   type GainNodeLike,
 } from "./context.js";
@@ -205,6 +206,20 @@ export interface AudioGraphOptions {
    * AC-21.7's boundary test stays honest.
    */
   readonly voiceClips?: VoiceClipCatalog;
+  /**
+   * The composed music (E-MUSIC-1, UR-12), if this build ships any. Absent in
+   * Node, in the evidence emitter, and in a build with no assets - all of which
+   * get the synthesised layer stack instead. See `MusicBusOptions.tracks`.
+   */
+  readonly musicTracks?: MusicTrackCatalog;
+  /**
+   * Decoder for those tracks. Left out in the browser, where the context's own
+   * `decodeAudioData` is used; a test injects one because `NullAudioContext`
+   * has no decoder and must not grow a fake one - "this machine cannot decode"
+   * is a real state the bus has to handle, and a null context is how it is
+   * reached.
+   */
+  readonly musicDecode?: (data: ArrayBuffer) => Promise<AudioBufferLike>;
   /** Injected so variant rotation is reproducible in a test. */
   readonly rand?: () => number;
   /** Overall level, 0..1. Settings will drive this. */
@@ -267,7 +282,10 @@ export function buildAudioGraph(ctx: AudioContextLike, options: AudioGraphOption
     DUCK_DB,
   );
 
-  const music = new MusicBus(ctx, buses.music);
+  const music = new MusicBus(ctx, buses.music, {
+    ...(options.musicTracks !== undefined ? { tracks: options.musicTracks } : {}),
+    ...(options.musicDecode !== undefined ? { decode: options.musicDecode } : {}),
+  });
   const ambient = new AmbientBus(ctx, buses.ambient);
   const sfx = new SfxBus(ctx, buses.sfx, rand);
   // D75's pitched layer rides the SFX bus with the rest of the keystroke sound.

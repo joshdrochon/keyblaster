@@ -417,3 +417,74 @@ describe("the foreground veil is sourced, not invented (PRD section 6 / FR-12b)"
     }
   });
 });
+
+describe("UR-06: decorative debris keeps off the scene's own text", () => {
+  /**
+   * The user's report: an asteroid drawn across the "K" of KEYBLASTER.
+   *
+   * `laneGuard` keeps rocks out of the SHIP'S lane, which is the centre of the
+   * frame. The Title's entire left column of type sits in the LEFT band — which
+   * is exactly where the guard sends them. So the guard was working perfectly
+   * and putting rocks on the wordmark.
+   *
+   * A scene knows where its own text is and `parallax.ts` cannot, so the scene
+   * passes a keep-clear rectangle in.
+   */
+  const material = {
+    fill: "#202830",
+    rim: null,
+    facet: "#303840",
+    facets: [] as const,
+    radii: [1, 0.9, 1.05, 0.95, 1, 0.92] as const,
+  };
+  const opts = (keepClear?: readonly { x: number; y: number; w: number; h: number }[]) => ({
+    materials: [material],
+    count: 40,
+    minPx: 40,
+    maxPx: 120,
+    light: 0,
+    laneGuard: 0.26,
+    keepClear,
+    rand: rng(0xbeef),
+  });
+
+  /** Every drawn point's bounding box, so the test measures EDGES not centres. */
+  const boxesOf = (ops: ReturnType<typeof driftTile>) =>
+    ops
+      .filter((o): o is Extract<typeof o, { kind: "poly" }> => o.kind === "poly")
+      .map((o) => {
+        const xs = o.points.map((p) => p.x);
+        const ys = o.points.map((p) => p.y);
+        return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+      });
+
+  const RECT = { x: 172, y: 222, w: 666, h: 806 };
+  const overlaps = (b: { x0: number; x1: number; y0: number; y1: number }): boolean =>
+    b.x1 > RECT.x && b.x0 < RECT.x + RECT.w && b.y1 > RECT.y && b.y0 < RECT.y + RECT.h;
+
+  it("NEGATIVE CONTROL: without a keep-clear, rocks DO land on the text", () => {
+    // Without this the test below could pass because the seed happens to place
+    // nothing there, which would make it evidence of nothing.
+    const hits = boxesOf(driftTile(1920, 1080, opts())).filter(overlaps);
+    expect(hits.length, "no rock landed on the text even without a guard").toBeGreaterThan(0);
+  });
+
+  it("with a keep-clear, not one rock touches the rectangle", () => {
+    const hits = boxesOf(driftTile(1920, 1080, opts([RECT]))).filter(overlaps);
+    expect(hits, `${hits.length} rock(s) overlap the text`).toEqual([]);
+  });
+
+  it("the test measures edges, not centres", () => {
+    // The lane-guard defect that produced "acon" was exactly this: a centre-based
+    // check silently inverts once the radius outgrows the margin. A rock whose
+    // CENTRE is outside the rectangle but whose EDGE crosses it must still be
+    // dropped.
+    const big = driftTile(1920, 1080, { ...opts([RECT]), minPx: 300, maxPx: 320 });
+    expect(boxesOf(big).filter(overlaps)).toEqual([]);
+  });
+
+  it("the field is still populated — the guard drops, it does not empty", () => {
+    const kept = boxesOf(driftTile(1920, 1080, opts([RECT])));
+    expect(kept.length).toBeGreaterThan(5);
+  });
+});

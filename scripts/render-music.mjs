@@ -4,6 +4,7 @@
  *
  *   node scripts/render-music.mjs                  dry run; prints the plan, spends nothing
  *   node scripts/render-music.mjs --live --cap-usd 2
+ *   node scripts/render-music.mjs --check-loops    measures every track's seam; spends nothing
  *
  * WHY ONE TRACK PER STOP AND NOT THREE.
  *
@@ -25,9 +26,14 @@
  * requirement — three layers, index a pure function of live state — is
  * unchanged.
  *
- * LOOPING. Every piece is asked to be loopable, and the seam is checked by the
- * same offline discontinuity test the audio lane built for the wind bed: a
- * loop that does not join is a defect however good the music is.
+ * LOOPING. Every piece is asked to be loopable, and ASKING IS NOT EVIDENCE, so
+ * `--check-loops` measures it. It decodes each mp3 with ffmpeg and runs the
+ * SHIPPING code over the PCM - `src/game/audio/musicLoop.ts`, through
+ * vite-node, not a copy of its maths - so what this reports is what a player
+ * hears, and the two can never drift apart. The measurement is the same
+ * discontinuity test the audio lane built for the wind bed, plus a level test
+ * for the defect the seven tracks ACTUALLY had (a hole at the wrap, not a
+ * click; see that module's header for the numbers).
  *
  * SPEND. Dry run is the default and prints the plan. `--live` needs an explicit
  * `--cap-usd` (D87), and the script refuses if the estimate exceeds it. It is
@@ -35,7 +41,8 @@
  * halfway does not re-pay for the half that worked.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -97,6 +104,125 @@ async function render(item) {
   });
   if (!res.ok) throw new Error(`${item.id}: ${res.status} ${await res.text()}`);
   return Buffer.from(await res.arrayBuffer());
+}
+
+// ---------------------------------------------------------------------------
+// --check-loops: measure the seam of every track that is on disk
+// ---------------------------------------------------------------------------
+
+/**
+ * The bars. Both are read off the SIGNAL rather than chosen:
+ *
+ *   seam ratio    the wrap's sample-to-sample step divided by the largest step
+ *                 the music takes anywhere else in the buffer. >1 is an edge
+ *                 the music itself never makes, i.e. a click.
+ *   end level     RMS of the first and last second, over the track's own median
+ *                 window level. Well under 1 means the loop dies away and comes
+ *                 back - the defect all three faded tracks actually had.
+ */
+const SEAM_RATIO_MAX = 1;
+const END_LEVEL_MIN = 0.75;
+
+/**
+ * Generated because it has to run under vite-node to import the TypeScript, and
+ * a permanent .ts entry point under scripts/ would be a second thing to keep in
+ * step with the module it measures. It imports; it does not reimplement.
+ */
+const CHECK_ENTRY = `
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import {
+  findLoopRegion,
+  buildLoopChannels,
+  loopSeamStats,
+  loopLevelStats,
+  levelTrimFor,
+  bufferRms,
+} from ${JSON.stringify(join(REPO, "src/game/audio/musicLoop.ts"))};
+
+const OUT = ${JSON.stringify(OUT)};
+const STOPS = ${JSON.stringify(STOPS.map((s) => s.id))};
+const SR = 48000;
+const SEAM_RATIO_MAX = ${SEAM_RATIO_MAX};
+const END_LEVEL_MIN = ${END_LEVEL_MIN};
+
+const decode = (file) => {
+  const raw = execFileSync(
+    "ffmpeg",
+    ["-v", "quiet", "-i", file, "-f", "f32le", "-ac", "1", "-ar", String(SR), "-"],
+    { maxBuffer: 1 << 30 },
+  );
+  return new Float32Array(raw.buffer, raw.byteOffset, Math.floor(raw.byteLength / 4));
+};
+
+const pad = (s, n) => String(s).padEnd(n);
+const num = (v, d = 5) => v.toFixed(d).padStart(d + 3);
+
+console.log("");
+console.log("  stop      | raw seam  ratio | raw head/tail | loop seam ratio | loop head/tail | kept   | trim");
+console.log("  ----------+-----------------+---------------+-----------------+----------------+--------+------");
+
+let failed = 0;
+for (const id of STOPS) {
+  const file = join(OUT, id + ".mp3");
+  if (!existsSync(file)) {
+    console.log("  " + pad(id, 9) + " | not on disk");
+    continue;
+  }
+  const x = decode(file);
+  const raw = loopSeamStats(x);
+  const rawLevel = loopLevelStats(x, SR, 1000);
+  const region = findLoopRegion(x, SR);
+  const loop = buildLoopChannels([x], region)[0];
+  const cut = loopSeamStats(loop);
+  const cutLevel = loopLevelStats(loop, SR, 1000);
+
+  const rawRatio = raw.maxInteriorStep > 0 ? raw.seamStep / raw.maxInteriorStep : 0;
+  const cutRatio = cut.maxInteriorStep > 0 ? cut.seamStep / cut.maxInteriorStep : 0;
+  const kept = loop.length / x.length;
+  // The playback level correction this piece will get, from the same code the
+  // bus uses. A one-channel stand-in for the AudioBuffer it reads.
+  const trim = levelTrimFor({
+    length: loop.length,
+    sampleRate: SR,
+    numberOfChannels: 1,
+    getChannelData: () => loop,
+  });
+  const bad = cutRatio > SEAM_RATIO_MAX || cutLevel.head < END_LEVEL_MIN || cutLevel.tail < END_LEVEL_MIN;
+  if (bad) failed += 1;
+
+  console.log(
+    "  " + pad(id, 9) + " | " + num(raw.seamStep) + " " + num(rawRatio, 3) +
+    " | " + num(rawLevel.head, 2) + "/" + num(rawLevel.tail, 2) +
+    " | " + num(cut.seamStep) + " " + num(cutRatio, 3) +
+    " | " + num(cutLevel.head, 2) + "/" + num(cutLevel.tail, 2) +
+    " | " + (kept * 100).toFixed(1).padStart(5) + "% | " + trim.toFixed(2) + "x" +
+    (bad ? "   <-- AUDIBLE" : ""),
+  );
+}
+
+console.log("");
+console.log("  raw    = the file as rendered, looped naively");
+console.log("  loop   = what prepareLoopBuffer actually plays (trimmed + folded)");
+console.log("  ratio  = seam step / largest step the music takes on its own; > " + SEAM_RATIO_MAX + " is a click");
+console.log("  level  = RMS of the first/last second over the track's median; < " + END_LEVEL_MIN + " is a hole");
+console.log("  trim   = playback level correction, so seven independent renders arrive at one level");
+console.log("");
+if (failed > 0) {
+  console.error("  " + failed + " track(s) still audible at the wrap.");
+  process.exit(1);
+}
+`;
+
+if (flag("check-loops")) {
+  // Inside the repo, NOT under node_modules: vite-node externalises anything in
+  // node_modules and hands it to plain node, which cannot import a .ts file.
+  const entry = join(REPO, "scripts/.music-loop-check.generated.mjs");
+  writeFileSync(entry, CHECK_ENTRY);
+  const run = spawnSync("npx", ["vite-node", entry], { cwd: REPO, stdio: "inherit" });
+  rmSync(entry, { force: true });
+  process.exit(run.status ?? 1);
 }
 
 // ---------------------------------------------------------------------------

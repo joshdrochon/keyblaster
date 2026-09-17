@@ -123,6 +123,7 @@ import {
   veilTile,
   wrapXY,
   wrapY,
+  type Rect,
 } from "./tiles.js";
 import { debrisTypesFor } from "./asteroid.js";
 import { TEX, ensureTextures } from "./textures.js";
@@ -280,6 +281,16 @@ export interface ParallaxOptions {
    */
   readonly framing?: boolean;
   readonly atmosphere?: boolean;
+  /**
+   * Rectangles decorative debris must not overlap, in design coordinates.
+   *
+   * `LANE_GUARD` keeps rocks out of the SHIP'S lane, which is the centre. It
+   * cannot help a screen whose text is elsewhere: the Title's wordmark sits in
+   * the LEFT band, which is exactly where the guard sends rocks, so KEYBLASTER
+   * had an asteroid across its K (UR-06). The scene knows where its text is and
+   * this file cannot, so the scene passes it in.
+   */
+  readonly keepClear?: readonly Rect[];
 }
 
 export interface ParallaxLayer {
@@ -505,6 +516,8 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   const objectInk = foregroundObjectInk(pal);
   const sky = skyStops(pal)[1];
   const light = lightAngleOf(pal);
+  const keepClear = options.keepClear;
+
   const layers: ParallaxLayer[] = LAYERS.map((spec) => {
     const container = scene.add.container(0, 0).setDepth(spec.depth);
     return { spec, container, offsetX: 0, offsetY: 0 };
@@ -724,6 +737,7 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
         maxPx: 132,
         light,
         laneGuard: LANE_GUARD,
+            keepClear,
         rand,
       }),
     );
@@ -785,6 +799,7 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
         maxPx: 230,
         light,
         laneGuard: LANE_GUARD * 0.8,
+            keepClear,
         rand,
       }),
     );

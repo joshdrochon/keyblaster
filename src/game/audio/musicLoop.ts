@@ -83,10 +83,26 @@ export const LOOP_WINDOW_MS = 50;
 
 /**
  * A window counts as "the piece playing" at this fraction of the track's own
- * MEDIAN window level. Half is well under any sustained passage and well over
- * the tail of a fade, which is where every one of the seven sits.
+ * MEDIAN window level. Relative to the track's OWN median, never an absolute
+ * dB, so a quiet piece is not mistaken for a fade.
+ *
+ * 0.8 CHOSEN BY SWEEP, not by taste. Run over the seven real tracks
+ * (`node scripts/render-music.mjs --check-loops`), the prepared loop's head and
+ * tail levels come out:
+ *
+ *   fraction   tracks below the 0.75 bar   worst        least of a piece kept
+ *   0.5        earth 0.67, pluto 0.73      0.67         92.5%
+ *   0.6        pluto 0.73                  0.73         91.1%
+ *   0.7        pluto 0.73                  0.73         89.8%
+ *   0.8        pluto 0.74                  0.74         89.8%
+ *   0.9        pluto 0.73                  0.73         89.7%
+ *
+ * Above 0.8 nothing further improves and more music is thrown away. Pluto does
+ * not move at any setting because its quiet end is not a fade - the piece
+ * genuinely finishes at a lower dynamic - so no trim can raise it. See the
+ * escalation E-MUSIC-1 for that one.
  */
-export const LOOP_LEVEL_FRACTION = 0.5;
+export const LOOP_LEVEL_FRACTION = 0.8;
 
 /**
  * Crossfade across the join. 400 ms: long enough that a cut mid-phrase reads as
@@ -321,6 +337,63 @@ export function buildLoopChannels(
     }
     return out;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Level
+// ---------------------------------------------------------------------------
+
+/**
+ * The level every piece is brought to, as RMS of the prepared loop.
+ *
+ * WHY THIS EXISTS. The seven were generated independently and they do not
+ * arrive at one level. Measured with ffmpeg's EBU R128 meter:
+ *
+ *   saturn  -12.3 LUFS   jupiter -14.0   mars    -15.2   neptune -16.5
+ *   pluto   -16.6        uranus  -16.7   earth   -17.0
+ *
+ * 4.7 LU between the loudest and the quietest. Unnormalised, warping from
+ * Earth to Saturn is a jump in volume that has nothing to do with the game, and
+ * a child reaches for the volume knob. Three of them (saturn, jupiter, mars)
+ * also decode ABOVE full scale - true peaks of -1.0, -1.3 and -1.4 dBFS with
+ * samples over 1.0 - so bringing them down removes a clipping risk too.
+ *
+ * 0.13 is near the quiet end of the seven, so the correction mostly attenuates:
+ * measured trims run 0.59x (saturn) to 1.11x (earth). Boosting a quiet piece
+ * would raise its noise floor with it.
+ *
+ * MEASURED FROM THE BUFFER, NOT READ FROM A MANIFEST. A regenerated track is
+ * corrected the moment it is dropped in, with nothing to update by hand.
+ */
+export const MUSIC_REFERENCE_RMS = 0.13;
+
+/** Widest correction allowed. Past this something is wrong with the file. */
+export const MUSIC_LEVEL_TRIM_RANGE = Object.freeze({ min: 0.25, max: 2 });
+
+/** RMS across every channel of a buffer. */
+export function bufferRms(buffer: AudioBufferLike): number {
+  let sq = 0;
+  let count = 0;
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i] as number;
+      sq += v * v;
+    }
+    count += data.length;
+  }
+  return count > 0 ? Math.sqrt(sq / count) : 0;
+}
+
+/**
+ * Gain that brings a piece to `MUSIC_REFERENCE_RMS`. 1 for a silent buffer -
+ * there is nothing to normalise and dividing by zero would send Infinity to a
+ * gain node, which silences the whole bus in some browsers.
+ */
+export function levelTrimFor(buffer: AudioBufferLike, reference = MUSIC_REFERENCE_RMS): number {
+  const rms = bufferRms(buffer);
+  if (!(rms > 0) || !Number.isFinite(rms)) return 1;
+  return clamp(reference / rms, MUSIC_LEVEL_TRIM_RANGE.min, MUSIC_LEVEL_TRIM_RANGE.max);
 }
 
 /** Every channel of a decoded buffer, as plain arrays. */

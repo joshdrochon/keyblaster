@@ -54,7 +54,7 @@ import {
   type OscillatorWave,
 } from "./context.js";
 import { label } from "./nullContext.js";
-import { prepareLoopBuffer, type LoopRegionOptions } from "./musicLoop.js";
+import { levelTrimFor, prepareLoopBuffer, type LoopRegionOptions } from "./musicLoop.js";
 
 export type MusicLayerId = "bed" | "pulse" | "drive";
 
@@ -485,11 +485,18 @@ export class MusicBus {
     const source = label(this.ctx.createBufferSource(), `music.source.${stopId}`);
     source.buffer = buffer;
     source.loop = true;
+    // Every piece is brought to one level before anything else touches it. The
+    // seven were generated independently and span 4.7 LU; see
+    // `MUSIC_REFERENCE_RMS`. Measured from the buffer, so a regenerated track
+    // needs nothing updated by hand.
+    const level = label(this.ctx.createGain(), `music.level.${stopId}`);
+    level.gain.value = levelTrimFor(buffer);
     const trackGain = label(this.ctx.createGain(), `music.track.${stopId}`);
     trackGain.gain.value = 0;
-    source.connect(trackGain);
+    source.connect(level);
+    level.connect(trackGain);
 
-    const nodes: AudioNodeLike[] = [source, trackGain];
+    const nodes: AudioNodeLike[] = [source, level, trackGain];
     this.voices.forEach((voice) => {
       const spec = voice.spec;
       const band = label(this.ctx.createBiquadFilter(), `music.band.${spec.id}`);

@@ -139,11 +139,43 @@ export class TitleScene extends Phaser.Scene {
     const pal = paletteAt(furthest ?? "earth", context.colorblindPalette);
     this.accent = pal.accent;
 
+    /**
+     * UR-06: KEEP THE DEBRIS OFF OUR OWN TYPE.
+     *
+     * `LANE_GUARD` keeps decorative rocks out of the SHIP'S lane, which is the
+     * centre of the frame — and this screen's whole left column of type sits in
+     * the left band, which is exactly where the guard sends them. A rock landed
+     * across the "K" of KEYBLASTER.
+     *
+     * The moon note above solved the same class of problem the other way round:
+     * the sun is another lane's object so our TYPE moved. Decorative debris is
+     * ours to place, so here the DEBRIS moves. `parallax.ts` cannot know where a
+     * scene's text is; the scene can, so it says.
+     *
+     * One rectangle over the whole lockup and the controls beneath it, with a
+     * margin — a rock touching the edge of a letter is as bad as one on it.
+     */
+    const KEEP_CLEAR_PAD = 28;
+    // Bounded by the LAYOUT CONSTANTS, not by the measured lockup: the parallax
+    // is built before the type is, and a keep-clear that depends on the thing it
+    // protects would have to be recomputed after the fact. These are the same
+    // constants the lockup is placed from, so the rectangle cannot drift from
+    // what it is covering. LANG_Y_MAX is the lowest any control goes.
+    const textKeepClear = [
+      {
+        x: WORDMARK_X - KEEP_CLEAR_PAD,
+        y: WORDMARK_Y - KEEP_CLEAR_PAD,
+        w: W * 0.52,
+        h: LANG_Y_MAX - WORDMARK_Y + KEEP_CLEAR_PAD * 2,
+      },
+    ];
+
     this.parallax = buildParallax(this, {
       palette: pal,
       reducedMotion: context.reducedMotion,
       worldSpeed: TITLE_WORLD_SPEED,
       seed: 0x1a17e,
+      keepClear: textKeepClear,
     });
 
     // --- the Lantern, idling in the ship plane ---------------------------

@@ -5,7 +5,7 @@ import type {
   Lang,
   StopId,
 } from "@engine/types.js";
-import { DEFAULT_CALIBRATION, DEFAULT_SETTINGS } from "@engine/types.js";
+import { DEFAULT_CALIBRATION, DEFAULT_SETTINGS, stageIndexOf } from "@engine/types.js";
 import type { Knobs } from "@engine/controller/index.js";
 import type { WordBook } from "@engine/words/index.js";
 import { hasStageBundle, stageBundle } from "@game/scenes/lib/content.js";
@@ -329,8 +329,30 @@ export const DEFAULT_FLIGHT_CONFIG: FlightConfig = {
   debug: false,
 };
 
+/**
+ * `stage` is DERIVED from `stopId` unless a caller states it.
+ *
+ * WHY THIS MATTERS NOW AND DID NOT BEFORE. `stage` is the clock D23's spacing
+ * runs on: `nextEligibleStage` is written as "current stage + 1, 2 or 4", and
+ * `isEligible` refuses a word until the route has moved that far. Nothing on
+ * the real path ever set it - `PreflightScene` hands Flight a `StoryInit`, which
+ * has no `stage` field - so every belt in the shipped game was stage 1.
+ *
+ * That was harmless only because the word book was thrown away at stage end:
+ * `nextEligibleStage` never survived to be compared against anything. The
+ * moment the book persists, a pinned stage index is a bug with teeth - a word
+ * answered well at Mars writes `nextEligibleStage: 3`, and a permanently
+ * stage-1 belt would then refuse it at Jupiter, at Saturn and for ever.
+ *
+ * The stage index is a pure function of the stop (`types.stageIndexOf`), so
+ * this derives it rather than adding a seventh field to the hand-off chain that
+ * a screen can forget. `DEFAULT_FLIGHT_CONFIG.stopId` is Mars and
+ * `stageIndexOf("mars")` is 1, so every existing caller gets what it had.
+ */
 export function flightConfigFrom(partial: Partial<FlightConfig> = {}): FlightConfig {
-  return { ...DEFAULT_FLIGHT_CONFIG, ...partial };
+  const merged = { ...DEFAULT_FLIGHT_CONFIG, ...partial };
+  if (partial.stage !== undefined) return merged;
+  return { ...merged, stage: stageIndexOf(merged.stopId) };
 }
 
 /** Deterministic RNG; the engine never calls Math.random, and neither do we. */

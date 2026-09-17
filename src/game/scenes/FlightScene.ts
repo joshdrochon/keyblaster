@@ -107,7 +107,12 @@ import {
 } from "@game/flight/shield.js";
 import { type LaneSpec, isOnShipLane, spawnX } from "@engine/spawn/index.js";
 import { refineCalibration } from "@engine/calibration/index.js";
-import { refineStoredCalibration, storedCalibration } from "./lib/init.js";
+import {
+  persistStageBook,
+  refineStoredCalibration,
+  storedBook,
+  storedCalibration,
+} from "./lib/init.js";
 import { HudScene } from "./HudScene.js";
 import { StallScene } from "./StallScene.js";
 import { audioFrom } from "@game/audio/wiring.js";
@@ -506,7 +511,17 @@ export class FlightScene extends Phaser.Scene {
     this.palette = paletteFor(this.cfg.stopId, this.cfg.colorblindPalette);
     this.copy = createFlightCopy(this.cfg.uiLang, { shipName: this.cfg.shipName });
     this.rng = mulberry32(this.cfg.seed);
-    this.book = { ...this.cfg.book };
+    // FR-7. The book the PROFILE holds is where a stage starts, not an empty
+    // object - `book: {}` was the shipped default and nothing ever replaced it,
+    // so every launch re-met every word for the first time.
+    //
+    // The payload's book wins PER WORD rather than wholesale, and that is what
+    // makes AC-4.3's restart work: `onRestartRequested` hands this scene back
+    // `this.book`, which was itself seeded from the store, so it is a superset
+    // of what is persisted and the merge keeps the samples from the attempt
+    // that just stalled. On a fresh entry `cfg.book` is `{}` and the stored
+    // book is the whole answer.
+    this.book = { ...(storedBook(this, this.cfg.contentLang) ?? {}), ...this.cfg.book };
     // The baseline the PROFILE holds beats the one the payload carried. Every
     // screen between Pre-flight and here forwards `calibration` by hand, and a
     // screen that forgets to (or that was mounted standalone) hands the belt
@@ -1837,6 +1852,12 @@ export class FlightScene extends Phaser.Scene {
     if (this.stalled) return;
     this.stalled = true;
     this.cue("stall");
+    // A stall is the OTHER way a belt ends, and the child it happens to is
+    // precisely the one whose per-word evidence is worth keeping: D23 brings a
+    // missed word back sooner, and that only happens if the miss was recorded
+    // somewhere that outlives the attempt. Writing only at `checkStageEnd`
+    // would throw away every stalled run's book.
+    persistStageBook(this, this.cfg.contentLang, this.book);
     this.game.events.emit(FLIGHT_EVENTS.stall, { stopId: this.cfg.stopId });
 
     this.tweens.add({
@@ -1931,6 +1952,14 @@ export class FlightScene extends Phaser.Scene {
     // time a year later - and a profile that predates the ritual running at all
     // would never be measured by anything.
     refineStoredCalibration(this, observedTimings(this.history));
+    // FR-7, the half that survives the stage. Every blast, miss and typo has
+    // been folded into `this.book` by `applyToBook`; this is the line that
+    // makes any of it mean anything next session. Without it the belt below
+    // re-meets every word cold at every launch, FR-8 gives every word
+    // `EASE_NEW`, FR-9 weights a pool it knows nothing about, AC-20.3 has no
+    // first exposure to compare against, and `calibrationFromHistory` - whose
+    // only input is this field - can never rebuild a baseline.
+    persistStageBook(this, this.cfg.contentLang, this.book);
 
     this.game.events.emit(FLIGHT_EVENTS.stageComplete, {
       stopId: this.cfg.stopId,

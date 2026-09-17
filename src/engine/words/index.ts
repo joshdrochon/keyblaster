@@ -1,6 +1,7 @@
 import {
   EASE_NEW,
   type Lang,
+  type Profile,
   type WordRecord,
 } from "../types.js";
 import { easeAfterHit, easeAfterMiss, easeAfterTypo } from "./ease.js";
@@ -135,4 +136,40 @@ export function bookOf(
   lang: Lang,
 ): WordBook {
   return words?.[lang] ?? {};
+}
+
+/**
+ * Write a whole language's book back onto a profile. Pure; the caller persists.
+ *
+ * ==========================================================================
+ * THE DEFECT THIS FUNCTION EXISTS FOR
+ *
+ * `FlightScene` built a `WordBook` with `applyToBook` on every blast, miss and
+ * typo, carried it through the stage, handed it to the warp break - and then
+ * dropped it. `book: {}` was the shipped default in `src/game/flight/stage.ts`
+ * and nothing in `src/` ever read `profile.words` or wrote it back, so the
+ * whole spaced-repetition system restarted from nothing at every launch.
+ *
+ * What that broke, all of it silently: FR-7 per-word memory, FR-8's ease-based
+ * fall time, FR-9's selection weighting, AC-20.3's retention-vs-first-exposure
+ * line, and `calibrationFromHistory`, whose entire input is this field - which
+ * is why `blastHistory.ts` already carried the note "nothing in `src/` ever
+ * writes `profile.words`".
+ *
+ * `applyToBook` folds one event into a book. This is the one line that makes
+ * that book outlive the belt.
+ * ==========================================================================
+ *
+ * SIZE. One record holds two sample lists capped at `SAMPLE_CAP` (20) plus
+ * eight scalars: ~250 bytes of JSON. The shipped English content is 176 pooled
+ * words across the six belt stops, so a profile that has met every word in the
+ * game stores ~45 KB - and `persistence/schema.decodeWords` caps a language at
+ * `MAX_COLLECTION * 8` records regardless, so a fuzzed or migrated payload
+ * cannot grow this without bound either.
+ */
+export function withProfileBook(profile: Profile, lang: Lang, book: WordBook): Profile {
+  return {
+    ...profile,
+    words: { ...profile.words, [lang]: book },
+  };
 }

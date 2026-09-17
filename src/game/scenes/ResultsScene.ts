@@ -7,14 +7,14 @@ import {
   type WordExposure,
 } from "@engine/scoring";
 import { awardTrophies, newTrophies, type StageAward } from "@engine/awards";
+import { applyUnlocks, newUnlocks } from "@engine/unlocks/index.js";
 import { WORST_CASE_SKY, compositeOver } from "@engine/contrast/index.js";
 import {
-  DEFAULT_CALIBRATION,
-  DEFAULT_SETTINGS,
   type Profile,
   type StopId,
   type StopProgress,
 } from "@engine/types";
+import { blankProfile } from "@engine/persistence/index.js";
 import { SCENE_KEYS } from "@game/sceneKeys";
 import { layer } from "@game/render/layers";
 import { buildParallax, EASE, type Parallax } from "@game/render/parallax";
@@ -319,6 +319,13 @@ export class ResultsScene extends Phaser.Scene {
       //
       // `@engine/awards` owns which ones; this line owns when.
       this.persistTrophies();
+      // AND THE SHIPS AND SKINS, which were the same defect one table over:
+      // four hulls and four trims drawn on the create screen, catalogued with
+      // the sentence that earns each one, and nothing in `src/` ever added an
+      // id to either list. After the clear for the same reason the trophies
+      // are - three of the four hulls are questions about how many beacons are
+      // lit, and this stop's has only just been recorded.
+      this.persistUnlocks();
     }
 
     this.parallax = buildParallax(this, {
@@ -385,20 +392,17 @@ export class ResultsScene extends Phaser.Scene {
     if (this.initData?.profile) return this.initData.profile;
     const active = this.lane.services?.store.activeProfile();
     if (active) return active;
+    // `blankProfile`, not a hand-written literal. This object is what a screen
+    // opened on its own gets, and it used to disagree with the engine's own
+    // idea of a new pilot on exactly the fields that had no writer: it said
+    // `trophies: []` while twelve trophies were unearnable, and then
+    // `unlockedShips: []` while `blankProfile` grants the starting hull. A
+    // fixture that is wrong in the same direction as the bug is how the bug
+    // stayed invisible, so the fixture is now the engine's.
     return {
-      id: "local",
-      name: this.lane.shipName,
-      avatar: "avatar-1",
-      shipId: "ship-1",
+      ...blankProfile({ id: "local", createdAt: 0, name: this.lane.shipName }),
       shipName: this.lane.shipName,
-      createdAt: 0,
-      calibration: { ...DEFAULT_CALIBRATION },
-      settings: { ...DEFAULT_SETTINGS },
       progress: [...this.lane.progress],
-      trophies: [],
-      unlockedShips: [],
-      unlockedSkins: [],
-      words: {},
     };
   }
 
@@ -421,6 +425,29 @@ export class ResultsScene extends Phaser.Scene {
     this.earnedTrophies = newTrophies(profile, award);
     if (this.earnedTrophies.length === 0) return;
     store.updateProfile(profile.id, (p: Profile) => awardTrophies(p, award));
+    store.flush();
+  }
+
+  /**
+   * Fold this run's ship and skin unlocks into the live profile (D73, D79;
+   * AC-6d.1, AC-6d.1b).
+   *
+   * Quiet here for the same reason the trophies are (D74): the unlock is
+   * informational, the trim shows up on the pilot's own card the next time they
+   * look at it (`catalog.liveryFor`, drawn by `ProfilePickerScene`), and a
+   * results screen that announces a prize is a results screen that has become a
+   * reward ceremony.
+   *
+   * Nothing is equipped. `@engine/unlocks` owns which ones; this line owns when.
+   */
+  private persistUnlocks(): void {
+    const store = this.lane.services?.store;
+    const profile = store?.activeProfile();
+    if (!store || !profile) return;
+    const award = this.initData?.award ?? null;
+    const opened = newUnlocks(profile, award);
+    if (opened.ships.length === 0 && opened.skins.length === 0) return;
+    store.updateProfile(profile.id, (p: Profile) => applyUnlocks(p, award));
     store.flush();
   }
 

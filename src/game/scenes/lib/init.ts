@@ -9,6 +9,7 @@ import {
   refineCalibration,
   type ObservedTimings,
 } from "@engine/calibration/index.js";
+import { bookOf, withProfileBook, type WordBook } from "@engine/words/index.js";
 import { services } from "@game/boot";
 import Phaser from "phaser";
 import { DEFAULT_SCENE_CONTEXT, SCENE_KEYS, type SceneContext } from "@game/sceneKeys";
@@ -336,6 +337,64 @@ export function refineStoredCalibration(
   if (store === null || profile === null) return null;
   const next = refineCalibration(profile.calibration, observed);
   return persistCalibration(scene, next);
+}
+
+// ---------------------------------------------------------------------------
+// The word book: the seam between `@engine/words` and the profile (FR-7)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE DEFECT THIS SECTION EXISTS FOR.
+ *
+ * `FlightScene` built a `WordBook` and threw it away at stage end. `book: {}`
+ * was the shipped default in `src/game/flight/stage.ts`, nothing read
+ * `profile.words` and nothing wrote it, so FR-7's per-word memory, FR-8's
+ * ease-based fall time, FR-9's selection weighting, AC-20.3's
+ * retention-vs-first-exposure line and `calibrationFromHistory` all ran every
+ * session on a book that was empty at launch.
+ *
+ * Same shape as the calibration seam above it, and for the same reason: the
+ * ENGINE owns the rule (`applyToBook`, `withProfileBook`), this file owns the
+ * two moments - stage start and stage end - and the scene owns neither.
+ */
+
+/**
+ * The stored book for one content language, or null in a standalone mount.
+ *
+ * Returns `{}` rather than null for a profile that has one but has never met a
+ * word in this language: that is an empty book, which is a real answer, and it
+ * is different from "there is no profile".
+ */
+export function storedBook(scene: Phaser.Scene, lang: Lang): WordBook | null {
+  const profile = activeProfile(scene);
+  if (profile === null) return null;
+  return bookOf(profile.words, lang);
+}
+
+/**
+ * Write a stage's book through to the stored profile.
+ *
+ * `flush` rather than the 250 ms debounce, for the same reason the calibration
+ * write flushes: what happens immediately after a belt is a warp break, a
+ * beacon and a results screen, any of which a child may close the tab on, and
+ * the belt they just flew is the only place those samples exist.
+ *
+ * Returns null with no store - a harness mount must not be able to write into a
+ * real child's save.
+ */
+export function persistStageBook(
+  scene: Phaser.Scene,
+  lang: Lang,
+  book: WordBook,
+): WordBook | null {
+  const store = storeOf(scene);
+  const profile = store?.activeProfile() ?? null;
+  if (store === null || profile === null) return null;
+  const updated = store.updateProfile(profile.id, (p: Profile) =>
+    withProfileBook(p, lang, book),
+  );
+  store.flush();
+  return updated === null ? null : bookOf(updated.words, lang);
 }
 
 // ---------------------------------------------------------------------------

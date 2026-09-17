@@ -9,9 +9,10 @@
  *   trophies never earned          nothing wrote `profile.trophies`
  *   StopProgress.cleared never set nothing wrote `profile.progress`
  *   calibration never ran          nothing wrote `profile.calibration`
- *   no ship or skin unlockable     nothing writes `profile.unlockedShips/Skins`
+ *   no ship or skin unlockable     nothing wrote `profile.unlockedShips/Skins`
+ *   the word book never persisted  nothing wrote `profile.words`
  *
- * Four of the five are the SAME invariant violated four times:
+ * Five of the six are the SAME invariant violated five times:
  *
  *      every field of the persisted Profile must have a live writer in src/game
  *
@@ -26,7 +27,9 @@
  *     flagged (67%). Most are constants, types and helpers a barrel re-exports
  *     on purpose. A check with 67% noise is not a check.
  *
- * The field-level check flags 3 of 13 fields and all 3 are real defects.
+ * The field-level check flagged 3 of 13 fields and all 3 were real defects. All
+ * three are now closed and the allowlist is empty; what the check does from here
+ * is keep it that way.
  *
  * WHY A WRITER, NOT A READ. `blankProfile` and `resetProfileProgress` assign
  * every field, so "is this field ever assigned" is always true and always
@@ -45,21 +48,26 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.
  * Fields with no live writer TODAY, each with the reason it is still here.
  * This list may only ever shrink. The second test in this file fails if an
  * entry is stale, so a fix cannot leave the allowlist lying.
+ *
+ * IT IS EMPTY. Every field of the persisted Profile now has a live writer in
+ * the shipped game. The last three entries were:
+ *
+ *   unlockedShips  four ships drawn, catalogued, and unreachable. Closed by
+ *   unlockedSkins  `@engine/unlocks.applyUnlocks`, called from ResultsScene
+ *                  after the clear is written. The same file's standalone
+ *                  profile, which hardcoded both arrays to [] exactly as it
+ *                  once hardcoded `trophies: []`, is now `blankProfile`.
+ *   words          FlightScene built a WordBook on every blast and dropped it
+ *                  at stage end; `book: {}` was the shipped default and the
+ *                  whole spaced-repetition system restarted every session.
+ *                  Closed by `@engine/words.withProfileBook`, loaded at stage
+ *                  start and written back at stage end AND at a stall.
+ *
+ * Adding an entry back is allowed - a field can legitimately arrive before its
+ * writer - but it is a claim that has to be made in writing, with the ticket
+ * that owns the fix, and the stale check below will not let it rot.
  */
-const KNOWN_ORPHANS: Readonly<Record<string, string>> = {
-  // P2d / U-ships: four ships and four skins are drawn and catalogued.
-  // `ResultsScene.ts` hardcodes both arrays to [] on its standalone profile and
-  // no code path ever adds to them. Fix is owned by the Results lane.
-  unlockedShips: "P2d U-ships — no code path adds to unlockedShips",
-  unlockedSkins: "P2d U-ships — no code path adds to unlockedSkins",
-  // Found by this sweep. `FlightScene` builds a WordBook with @engine/words
-  // (applyToBook) and throws it away at stage end: `book: {}` is the shipped
-  // default in src/game/flight/stage.ts and nothing reads profile.words or
-  // writes it back. FR-7 per-word memory, FR-8 ease-based fall time, FR-9
-  // selection weighting and AC-20.3 retention-vs-first-exposure all run on a
-  // book that is empty at every launch. Fix is owned by the gameplay lane.
-  words: "P2d — FlightScene's WordBook is never loaded from or saved to the profile",
-};
+const KNOWN_ORPHANS: Readonly<Record<string, string>> = {};
 
 // ---------------------------------------------------------------------------
 // Static analysis
@@ -225,10 +233,17 @@ describe("every persisted Profile field has a live writer in src/game (P2d)", ()
   });
 
   it("the fields that WERE this defect stay covered", () => {
-    // trophies, progress and calibration were each the bug once. Naming them
-    // explicitly means a revert is caught by a test that says so, rather than
-    // by the generic orphan test months later.
-    for (const field of ["trophies", "progress", "calibration"]) {
+    // Every one of these was the bug once. Naming them explicitly means a
+    // revert is caught by a test that says so, rather than by the generic
+    // orphan test months later.
+    for (const field of [
+      "trophies",
+      "progress",
+      "calibration",
+      "unlockedShips",
+      "unlockedSkins",
+      "words",
+    ]) {
       expect(cover.get(field), `${field} lost its writer — this was a shipped defect once`)
         .not.toEqual([]);
     }
@@ -245,6 +260,9 @@ describe("negative control: the detector can be made to fail", () => {
     ["awardTrophies", "trophies"],
     ["clearStopOnProfile", "progress"],
     ["applyCalibration", "calibration"],
+    ["applyUnlocks", "unlockedShips"],
+    ["applyUnlocks", "unlockedSkins"],
+    ["withProfileBook", "words"],
   ])("without %s, %s is reported as an orphan", (fn, field) => {
     const sabotaged = gameSource().replaceAll(`${fn}(`, "__removed__(");
     expect(writersByField(sabotaged, fields).get(field)).toEqual([]);

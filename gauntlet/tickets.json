@@ -182,6 +182,26 @@
     "refs": []
   },
   {
+    "id": "KB-AC-15.1",
+    "kind": "ac",
+    "title": "Timeout 1500 ms; on timeout/error/invalid JSON, fallback bundle is used and UI is identical.",
+    "source": "docs/prd.md",
+    "state": "BLOCKED",
+    "why": "escalated: E-AI-2 - the honesty marker contradicts AC-15.1's \"the UI is identical\"",
+    "testTypes": [
+      "U",
+      "E"
+    ],
+    "evidence": [
+      "tests/e2e/warp-composed.spec.ts",
+      "tests/unit/coach/direct.test.ts",
+      "tests/unit/coach/fallback.test.ts",
+      "tests/unit/coach/proxy.test.ts",
+      "tests/unit/coach/surface.test.ts"
+    ],
+    "refs": []
+  },
+  {
     "id": "KB-AC-20.1",
     "kind": "ac",
     "title": "Shows WPM and accuracy for this stage and delta vs previous stage of the same profile.",
@@ -520,7 +540,7 @@
     "id": "KB-ESC-d99-the-letterbox-is-gone-two-residuals-need",
     "kind": "escalation",
     "title": "D99 — the letterbox is gone; two residuals need a call",
-    "source": "gauntlet/escalations.md:2723",
+    "source": "gauntlet/escalations.md:2837",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -559,6 +579,28 @@
     "refs": []
   },
   {
+    "id": "KB-ESC-e-ai-2-the-honesty-marker-contradicts-ac-15-",
+    "kind": "escalation",
+    "title": "E-AI-2 - the honesty marker contradicts AC-15.1's \"the UI is identical\"",
+    "source": "gauntlet/escalations.md:2753",
+    "state": "BLOCKED",
+    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
+    "evidence": [],
+    "refs": [
+      "AC-15.1"
+    ]
+  },
+  {
+    "id": "KB-ESC-e-ai-3-when-a-composed-sentence-is-allowed-t",
+    "kind": "escalation",
+    "title": "E-AI-3 - when a composed sentence is allowed to replace the static one",
+    "source": "gauntlet/escalations.md:2801",
+    "state": "BLOCKED",
+    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
+    "evidence": [],
+    "refs": []
+  },
+  {
     "id": "KB-ESC-e-fail-state-does-a-hard-fail-state-d29-belo",
     "kind": "escalation",
     "title": "E-fail-state · Does a hard fail state (D29) belong in this game at all?",
@@ -574,7 +616,7 @@
     "id": "KB-ESC-e-music-1-there-is-no-music-the-structure-is",
     "kind": "escalation",
     "title": "E-MUSIC-1 — There is no music.",
-    "source": "gauntlet/escalations.md:2869",
+    "source": "gauntlet/escalations.md:2983",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -818,7 +860,7 @@
     "id": "KB-ESC-ur-10-follow-on-an-interrupted-ambient-cross",
     "kind": "escalation",
     "title": "UR-10 follow-on — an interrupted AMBIENT crossfade cuts a bed dead",
-    "source": "gauntlet/escalations.md:2930",
+    "source": "gauntlet/escalations.md:3044",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -828,7 +870,7 @@
     "id": "KB-ESC-ur-11-cockpit-settings-four-calls-taken-per-",
     "kind": "escalation",
     "title": "UR-11 cockpit settings — four calls taken, per D94",
-    "source": "gauntlet/escalations.md:2805",
+    "source": "gauntlet/escalations.md:2919",
     "state": "BLOCKED",
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
@@ -871,6 +913,22 @@
       "KB-AC-10.2",
       "KB-AC-10.3",
       "KB-AC-10.4"
+    ]
+  },
+  {
+    "id": "KB-FR-15",
+    "kind": "fr",
+    "title": "One call per warp break",
+    "source": "docs/prd.md:150",
+    "state": "BLOCKED",
+    "why": "rolled up from 5 AC(s); worst is BLOCKED",
+    "evidence": [],
+    "refs": [
+      "KB-AC-15.1",
+      "KB-AC-15.2",
+      "KB-AC-15.3",
+      "KB-AC-15.4",
+      "KB-AC-15.5"
     ]
   },
   {
@@ -990,6 +1048,7 @@
       "tests/unit/audio/evidence.test.ts",
       "tests/unit/audio/graph.test.ts",
       "tests/unit/audio/music.test.ts",
+      "tests/unit/audio/musicTracks.test.ts",
       "tests/unit/audio/wiring.test.ts"
     ],
     "refs": [
@@ -1208,18 +1267,6 @@
     "why": "reported 1x by the user: \"\"That was a clean run pilot\" was just spoken by the system voice\"",
     "evidence": [
       "Lane told to enumerate every speak site rather than trust a list, and to build a guard that fails when any speakable string has no clip."
-    ],
-    "refs": []
-  },
-  {
-    "id": "KB-UR-06-asteroid-over-wordmark",
-    "kind": "user-reported",
-    "title": "A black asteroid is drawn on top of the 'B' in KEYBLASTER, and a moon disc sits inside the wordmark.",
-    "source": "gauntlet/user-reported.json",
-    "state": "OPEN",
-    "why": "reported 1x by the user: \"(visible in the Title screenshot)\"",
-    "evidence": [
-      "Title capture at 2000x1010. Previously noted by the 17-screen critic as 'white moon disc sits INSIDE the wordmark at x~300-360, eating the tail of KEY and the bowl of B'."
     ],
     "refs": []
   },
@@ -2934,26 +2981,6 @@
     "refs": []
   },
   {
-    "id": "KB-AC-15.1",
-    "kind": "ac",
-    "title": "Timeout 1500 ms; on timeout/error/invalid JSON, fallback bundle is used and UI is identical.",
-    "source": "docs/prd.md",
-    "state": "DONE",
-    "why": "named by an assertion in 5 test file(s)",
-    "testTypes": [
-      "U",
-      "E"
-    ],
-    "evidence": [
-      "tests/e2e/warp-composed.spec.ts",
-      "tests/unit/coach/direct.test.ts",
-      "tests/unit/coach/fallback.test.ts",
-      "tests/unit/coach/proxy.test.ts",
-      "tests/unit/coach/surface.test.ts"
-    ],
-    "refs": []
-  },
-  {
     "id": "KB-AC-15.2",
     "kind": "ac",
     "title": "Output is validated: schema, allowlist, word count, banned-term scan.",
@@ -3066,11 +3093,12 @@
     "title": "Charge meter reaches 100% exactly on final character.",
     "source": "docs/prd.md",
     "state": "DONE",
-    "why": "named by an assertion in 1 test file(s)",
+    "why": "named by an assertion in 2 test file(s)",
     "testTypes": [
       "U"
     ],
     "evidence": [
+      "tests/e2e/warp-composed.spec.ts",
       "tests/e2e/warp.spec.ts"
     ],
     "refs": []
@@ -3676,12 +3704,13 @@
     "title": "Skins unlock only from mastery milestones defined in config; no time/purchase path exists.",
     "source": "docs/prd.md",
     "state": "DONE",
-    "why": "named by an assertion in 1 test file(s)",
+    "why": "named by an assertion in 2 test file(s)",
     "testTypes": [
       "U"
     ],
     "evidence": [
-      "tests/unit/catalog/unlocks.test.ts"
+      "tests/unit/catalog/unlocks.test.ts",
+      "tests/unit/unlocks/unlocks.test.ts"
     ],
     "refs": []
   },
@@ -3691,12 +3720,13 @@
     "title": "Ships/skins per D79: 4 ships (unlock at 1/3/5/7 beacons), 1 skin each (unlock: first 3★ stop, 25-combo, 50-co…",
     "source": "docs/prd.md",
     "state": "DONE",
-    "why": "named by an assertion in 1 test file(s)",
+    "why": "named by an assertion in 2 test file(s)",
     "testTypes": [
       "U"
     ],
     "evidence": [
-      "tests/unit/catalog/unlocks.test.ts"
+      "tests/unit/catalog/unlocks.test.ts",
+      "tests/unit/unlocks/unlocks.test.ts"
     ],
     "refs": []
   },
@@ -3723,13 +3753,14 @@
     "title": "Trophy definitions are config; each is awarded exactly once per profile; Beacon Log renders them.",
     "source": "docs/prd.md",
     "state": "DONE",
-    "why": "named by an assertion in 1 test file(s)",
+    "why": "named by an assertion in 2 test file(s)",
     "testTypes": [
       "U",
       "E"
     ],
     "evidence": [
-      "tests/unit/awards/awards.test.ts"
+      "tests/unit/awards/awards.test.ts",
+      "tests/unit/unlocks/unlocks.test.ts"
     ],
     "refs": []
   },
@@ -4411,22 +4442,6 @@
     ]
   },
   {
-    "id": "KB-FR-15",
-    "kind": "fr",
-    "title": "One call per warp break",
-    "source": "docs/prd.md:150",
-    "state": "DONE",
-    "why": "rolled up from 5 AC(s); worst is DONE",
-    "evidence": [],
-    "refs": [
-      "KB-AC-15.1",
-      "KB-AC-15.2",
-      "KB-AC-15.3",
-      "KB-AC-15.4",
-      "KB-AC-15.5"
-    ]
-  },
-  {
     "id": "KB-FR-16",
     "kind": "fr",
     "title": "Warp sentence",
@@ -4877,6 +4892,18 @@
     "why": "Changed in en/es/hi. Lengthening it FIXED a Spanish copy-budget violation, because a sentence expands ~25% where a short label expands 50-90%.",
     "evidence": [
       "Changed in en/es/hi. Lengthening it FIXED a Spanish copy-budget violation, because a sentence expands ~25% where a short label expands 50-90%."
+    ],
+    "refs": []
+  },
+  {
+    "id": "KB-UR-06-asteroid-over-wordmark",
+    "kind": "user-reported",
+    "title": "A black asteroid is drawn on top of the 'B' in KEYBLASTER, and a moon disc sits inside the wordmark.",
+    "source": "gauntlet/user-reported.json",
+    "state": "DONE",
+    "why": "driftTile takes a `keepClear` rect list; a rock whose EDGE touches one is dropped rather than nudged (nudging biases the field and reads as a hole). TitleScene declares its own text rectangle from the same layout constants the lockup is placed from, so the two cannot drift. Measured to edges, not centres — the centre-based version of this check is what produced 'acon'. Four tests including a NEGATIVE CONTROL proving rocks do land there without the guard, so the fix cannot pass for free. Verified by looking at the capture.",
+    "evidence": [
+      "driftTile takes a `keepClear` rect list; a rock whose EDGE touches one is dropped rather than nudged (nudging biases the field and reads as a hole). TitleScene declares its own text rectangle from the same layout constants the lockup is placed from, so the two cannot drift. Measured to edges, not centres — the centre-based version of this check is what produced 'acon'. Four tests including a NEGATIVE CONTROL proving rocks do land there without the guard, so the fix cannot pass for free. Verified by looking at the capture."
     ],
     "refs": []
   },

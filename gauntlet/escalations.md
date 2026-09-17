@@ -2714,11 +2714,125 @@ written for this child, just now.
 
 ### Status
 
-**Awaiting the user.** I offered to build it and they have not said go. Not
-starting unilaterally: it is a scope decision on the submission's central claim
-with ~51 hours left, and that is theirs. Lean: **build it** — without it the
-claim does not hold, and with it there is a real answer to "where is the AI"
-plus a child-safety story that plays well to engineer judges.
+**APPROVED AND BUILT** (2026-09-16). The user said go. What shipped:
+
+| | where |
+|---|---|
+| six gates over a composed sentence | `src/engine/coach/sentence.ts` |
+| the second prompt shape, one endpoint | `api/coach.ts` (`mode: "warp"`) |
+| what the break asks for, and when it cannot | `src/game/scenes/support/composeRequest.ts` |
+| note and sentence gated independently | `src/engine/coach/pipeline.ts` |
+| the swap and the honesty marker | `WarpScene.useComposedSentence` |
+| gate unit tests + shipped-path tests + 6 browser tests | `tests/unit/coach/sentence.test.ts`, `warpSentenceLive.test.ts`, `warpPrompt.test.ts`, `tests/e2e/warp-composed.spec.ts` |
+
+**AC-12.3 SURVIVES A GENERATED SENTENCE, so it was not weakened and no exemption
+was taken.** The AC says every content word of a warp sentence is in that
+stage's asteroid pool. For six hand-authored strings that is a build-time
+check; for a generated one it is gate 4, run on every reply against
+`stageBundle(stop).pool` - the same array the belt spawns from - with sight
+words exempt exactly as `tests/unit/content/allowlist.test.ts` defines
+"content word". A sentence that fails it never reaches a letter on screen.
+C13 is untouched: the planet's own name is a pool word, its moons are not.
+
+**IT IS STILL ONE CALL** (D33, AC-15.3). The sentence rides on the note's
+existing `/api/coach` call as a second prompt shape, inside the same 1500 ms
+deadline and behind the same gate. `tests/unit/coach/warpSentenceLive.test.ts`
+asserts the call count is 1.
+
+**TO TURN IT ON, THE USER MUST DEPLOY** (D87 - deploy is theirs, always):
+`ANTHROPIC_API_KEY` in the serverless env, and `VITE_COACH_ENDPOINT=/api/coach`
+at build time. No code change; `chooseTransport` already prefers the proxy when
+an endpoint is configured. Without both, every build is a MockCoach build,
+every child types the shipped static sentence, and the marker never appears -
+which is the correct behaviour, not a bug.
+
+Two decisions came out of building it and are below: **E-AI-2** (the marker vs
+AC-15.1's "UI is identical") and **E-AI-3** (when the sentence is allowed to
+swap in).
+
+## E-AI-2 - the honesty marker contradicts AC-15.1's "the UI is identical"
+
+- **Escalated:** 2026-09-16
+- **Source:** E-AI-1's "one demo risk worth naming"; the user's build brief
+- **Evidence:** `gauntlet/evidence/warp-composed-marker.png` (marker present),
+  `warp-composed-offline.png` (endpoint down, no marker),
+  `tests/e2e/warp-composed.spec.ts` (both directions),
+  `tests/e2e/warp.spec.ts` "AC-33 ... IDENTICAL" (still green, 0% pixel diff)
+
+### The tension, stated plainly
+
+AC-15.1 says that on timeout or error "the fallback bundle is used and UI is
+identical", and `coach/index.ts` says "nothing about the screen tells them
+which one they got". The brief for this feature says the opposite for the
+sentence: make it visible whether this one was written for this child just now,
+because a judge otherwise cannot tell whether the model ever ran.
+
+Both are right about different things. AC-15.1 protects a CHILD from being told
+they got the cheap version of Shadow. The marker serves a JUDGE who has to be
+able to falsify an "AI-powered" claim. What shipped tries to serve both:
+
+- **The coach note area is untouched.** Same plate, same avatar, same Text, same
+  geometry, and AC-33's byte-identical screenshot pair still passes at 0%.
+- **The marker is on the SENTENCE panel**, outside AC-33's region, and reads
+  "shadow wrote this one from your words, just now". Blank otherwise - no
+  "offline" badge, no greyed-out state, nothing that marks the fallback as
+  lesser. A child who never sees the marker sees exactly today's screen.
+
+### Options
+
+| | what it costs |
+|---|---|
+| A. Marker on the sentence panel, note area untouched (shipped) | AC-15.1's letter is about the note and holds; its spirit is narrowed - a returning child could notice the line is sometimes there |
+| B. No visible marker; provenance only in the debug bag | AC-15.1 fully intact, and the demo problem is back untouched: a judge watching a slow endpoint sees canned text and cannot tell |
+| C. Marker on a separate judge/demo surface (a `?debug` overlay) | honest and invisible to children, but a judge has to be told to turn it on, which is exactly the kind of thing that does not happen live |
+| D. Reword AC-15.1 to scope "identical" to the coach note | cleanest long-term; a PRD edit is the user's call, not a lane's |
+
+**Lean: A now, D as the doc fix.** A is the only option that answers the demo
+problem in the demo. B forfeits the thing the feature was built for. C is a
+feature nobody will use under pressure. D is what the code already assumes and
+should be written down - but rewriting an AC to match an implementation is a
+decision the user makes, not a lane.
+
+**The marker is never false.** It is set on one line, in one method, on the one
+path where a live model's sentence passed all six gates. An unconfigured build,
+a timeout, an offline demo, a refused sentence and the mock transport all leave
+it blank, and there are browser tests for each direction.
+
+## E-AI-3 - when a composed sentence is allowed to replace the static one
+
+- **Escalated:** 2026-09-16
+- **Evidence:** `WarpScene.useComposedSentence`,
+  `tests/e2e/warp-composed.spec.ts` "AC-16.3 ... typing it charges the drive"
+
+### The problem
+
+The panel is laid out in `create()`, and the coach call settles up to 1500 ms
+later. Something has to give, because the child can start typing in between.
+
+What shipped: the composed sentence replaces the static one only if the child
+has typed **nothing** - no accepted character and no typo. A child fast enough
+to beat the call types the shipped sentence, with no marker, and never knows
+anything was on its way.
+
+### Options
+
+| | what it costs |
+|---|---|
+| A. Swap only if untouched (shipped) | a fast child gets the static sentence; on a slow endpoint that could be most children |
+| B. Hold the panel blank until the call settles | up to 1500 ms of spinner on what the brief calls "the most important five seconds in the game", every break, including every break where the answer turns out to be the fallback |
+| C. Swap mid-type, preserving the typed prefix where it matches | the letters a child already typed change under them; D31 forbids anything that reads as the game taking something away, and this is that |
+| D. Fire the call at the END of the belt, before the panel opens | removes the race almost entirely - but the gate is armed on entering "warp-break", and moving it means moving AC-15.3's phase boundary |
+
+**Lean: A now, D as the real fix.** A is safe and never costs the child
+anything they can see. C is out on D31. B trades a certain cost for an
+uncertain benefit. D is right and is a change to the coach gate's phase
+contract, which is a bigger blast radius than this lane should open at this
+hour; it should be its own ticket.
+
+**Measured:** against an intercepted endpoint the call settles well inside the
+panel slide, so the swap lands before a human has finished reading the line.
+The exposure is a fast typist on a slow network, and for them the static
+sentence is still a good sentence.
 
 ## D99 — the letterbox is gone; two residuals need a call
 

@@ -199,6 +199,19 @@ export interface WiringSnapshot {
   readonly hudSamples: number;
   /** The live graph's current music index. */
   readonly musicIndex: number;
+  /** Stops the running game asked for a composed piece for, in order (UR-12). */
+  readonly musicStops: readonly string[];
+  /**
+   * Stops this build shipped a composed piece for. Empty means the synthesised
+   * layers are the music, which is a different situation from a track that
+   * failed to load - and telling them apart is the whole reason this is here
+   * next to `musicTrack`.
+   */
+  readonly musicTrackIds: readonly string[];
+  /** The piece actually playing right now, or null. */
+  readonly musicTrack: string | null;
+  /** "synth" | "track" | "silent". `silent` means a track did not load. */
+  readonly musicSource: string;
   readonly frames: number;
   readonly advancedMs: number;
   /** Voice lines the running game handed to the voice bus. */
@@ -357,6 +370,7 @@ export function installAudio(options: InstallAudioOptions): AudioService {
   const cuesRouted: string[] = [];
   const recent: RoutedPlay[] = [];
   const ambientStops: string[] = [];
+  const musicStops: string[] = [];
   const musicIndices: number[] = [];
   const spoken: { id: string; kind: string }[] = [];
 
@@ -442,6 +456,26 @@ export function installAudio(options: InstallAudioOptions): AudioService {
 
     ambientFor(stopId, crossfadeMs = AMBIENT_CROSSFADE_MS): void {
       if (!isStopId(stopId)) return;
+      // THE COMPOSED PIECE RIDES THE SAME SIGNAL (E-MUSIC-1, UR-12). The bed
+      // and the music are two answers to one question - "which stop is the
+      // player at" - and every caller that knows the stop already calls this.
+      // Giving music its own entry point would mean a second call site that a
+      // scene can forget, which is precisely how the audio ended up
+      // unreachable the first time (see this file's header).
+      //
+      // BEFORE the early return below, not after: the bed is already playing
+      // for this stop on a re-entry, but the music may never have loaded - the
+      // fetch can fail, and asking again on the next scene is the only retry
+      // there is. `setStop` is idempotent per stop, so the extra call costs a
+      // resolved promise.
+      const music = graph.music.setStop(stopId);
+      if (!musicStops.includes(stopId)) musicStops.push(stopId);
+      // The load is deliberately not awaited: music arrives when it arrives and
+      // nothing in the scene waits for it. `catch` because an unhandled
+      // rejection is a console error in front of a child, and `setStop`
+      // promises not to reject anyway.
+      void music.catch(() => undefined);
+
       const active = graph.ambient.activeStop;
       if (active === stopId) return;
       if (active === null) {
@@ -548,6 +582,10 @@ export function installAudio(options: InstallAudioOptions): AudioService {
         musicIndices: [...musicIndices].sort((a, b) => a - b),
         hudSamples,
         musicIndex: graph.music.index,
+        musicStops: [...musicStops],
+        musicTrackIds: [...graph.music.trackIds()],
+        musicTrack: graph.music.trackId,
+        musicSource: graph.music.sourceKind,
         frames,
         advancedMs,
         spoken: [...spoken],

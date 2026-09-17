@@ -53,9 +53,10 @@
     "said": "(visible in the Title screenshot)",
     "reports": 1,
     "what": "A black asteroid is drawn on top of the 'B' in KEYBLASTER, and a moon disc sits inside the wordmark.",
-    "state": "OPEN",
+    "state": "DONE",
     "owner": "unassigned",
-    "evidence": "Title capture at 2000x1010. Previously noted by the 17-screen critic as 'white moon disc sits INSIDE the wordmark at x~300-360, eating the tail of KEY and the bowl of B'."
+    "evidence": "driftTile takes a `keepClear` rect list; a rock whose EDGE touches one is dropped rather than nudged (nudging biases the field and reads as a hole). TitleScene declares its own text rectangle from the same layout constants the lockup is placed from, so the two cannot drift. Measured to edges, not centres — the centre-based version of this check is what produced 'acon'. Four tests including a NEGATIVE CONTROL proving rocks do land there without the guard, so the fix cannot pass for free. Verified by looking at the capture.",
+    "rootCause": "`laneGuard` keeps decorative rocks out of the SHIP'S lane, which is the CENTRE of the frame. The Title's whole left column of type sits in the LEFT band — exactly where the guard sends them. The guard was working perfectly and putting rocks on the wordmark."
   },
   {
     "id": "UR-07-parallax-strips",

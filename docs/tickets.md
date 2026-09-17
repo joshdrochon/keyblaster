@@ -4,19 +4,19 @@
      computed from evidence on each run, and a hand-typed status is the
      exact failure this board exists to prevent. -->
 
-Generated: 2026-09-17T04:53:19.439Z
-Tickets: **361**
+Generated: 2026-09-17T05:02:08.844Z
+Tickets: **363**
 
 | DONE | OPEN | UNVERIFIED | FALSE-PASS | BLOCKED | EXEMPT |
 |---|---|---|---|---|---|
-| 158 | 22 | 65 | 10 | 66 | 40 |
+| 157 | 21 | 65 | 10 | 70 | 40 |
 
 **DONE** means an assertion names it and the evidence is fresher than the
 code. **UNVERIFIED** means something claims it but the binding is weak or
 the evidence is stale. **FALSE-PASS** means a check is green and does not
 measure its claim — read those first.
 
-## ac (108) — 76 DONE · 5 OPEN · 17 UNVERIFIED · 3 FALSE-PASS · 7 BLOCKED
+## ac (108) — 75 DONE · 5 OPEN · 17 UNVERIFIED · 3 FALSE-PASS · 8 BLOCKED
 
 | state | id | title | why | source |
 |---|---|---|---|---|
@@ -24,6 +24,7 @@ measure its claim — read those first.
 | FALSE-PASS | `KB-AC-6e.3` | During flight, no interval > 2 s with zero live asteroids and no pending spawn. | the rubric item covering it (L-6e.3) does not measure its claim | docs/prd.md |
 | FALSE-PASS | `KB-AC-6e.4` | Retention line trends upward across a full Earth | the rubric item covering it (L-6e.4) does not measure its claim | docs/prd.md |
 | BLOCKED | `KB-AC-10.2` | Given a simulated player with fixed true accuracy p, long-run measured hit rate converges to [0.80, 0.90] for… | escalated: AC-10.2 — controller cannot reach the 85% band for weak typists | docs/prd.md |
+| BLOCKED | `KB-AC-15.1` | Timeout 1500 ms; on timeout/error/invalid JSON, fallback bundle is used and UI is identical. | escalated: E-AI-2 - the honesty marker contradicts AC-15.1's "the UI is identical" | docs/prd.md |
 | BLOCKED | `KB-AC-20.1` | Shows WPM and accuracy for this stage and delta vs previous stage of the same profile. | escalated: AC-20.1 / FR-15 — `accuracy` mixes words and keystrokes | docs/prd.md |
 | BLOCKED | `KB-AC-22.9` | 60 fps: p95 frame time ≤ 16.7 ms over a 60 s scripted flight in headless Chromium. | escalated: AC-22.9 — the PRD names an instrument that cannot measure the claim | docs/prd.md |
 | BLOCKED | `KB-AC-3.3` | No switching: keystrokes matching other asteroids are ignored while locked. | escalated: C10 — AC-3.3 "ignored" vs typo (collision, user decision) | docs/prd.md |
@@ -72,14 +73,13 @@ measure its claim — read those first.
 | DONE | `KB-AC-14.2` | Romanized transliteration matches Devanagari targets per a deterministic mapping table; ambiguous romanizatio… | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-14.3` | All UI strings come from i18n files; no hard-coded English in scenes. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-14.4` | The shipped build offers English only, in **both** the content-language row and the UI-language row (D95); no… | named by an assertion in 3 test file(s) | docs/prd.md |
-| DONE | `KB-AC-15.1` | Timeout 1500 ms; on timeout/error/invalid JSON, fallback bundle is used and UI is identical. | named by an assertion in 5 test file(s) | docs/prd.md |
 | DONE | `KB-AC-15.2` | Output is validated: schema, allowlist, word count, banned-term scan. | named by an assertion in 8 test file(s) | docs/prd.md |
 | DONE | `KB-AC-15.3` | No AI call during flight; exactly one per warp break; zero on Earth. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-15.4` | Three transport paths behind one interface: serverless proxy, local mock, direct-with-dev-flag; direct path i… | named by an assertion in 6 test file(s) | docs/prd.md |
 | DONE | `KB-AC-15.5` | Demo: two scripted misses produce a coach note that names those words. | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-16.1` | No asteroids spawn or move during the break. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-16.2` | Typo does not reset the sentence; the current letter re-highlights. | named by an assertion in 1 test file(s) | docs/prd.md |
-| DONE | `KB-AC-16.3` | Charge meter reaches 100% exactly on final character. | named by an assertion in 1 test file(s) | docs/prd.md |
+| DONE | `KB-AC-16.3` | Charge meter reaches 100% exactly on final character. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-17.0` | Display format: "λ 214.6° β −1.2° r 1.52 AU" + one pulsar-fix line (D81). | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-17.1` | Coordinates computed from Keplerian elements (JPL approximate elements, J2000) for the stop's planet on the c… | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-17.2` | Pluto uses the 1800–2050 element set. | named by an assertion in 1 test file(s) | docs/prd.md |
@@ -115,10 +115,10 @@ measure its claim — read those first.
 | DONE | `KB-AC-6b.1` | Ship name is stored on profile and substituted into story text via `{shipName}`, default "Lantern" (C07 resol… | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-6c.1` | Score multiplier = min(combo, 10); combo resets on typo or hull hit; HUD shows "×N". | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-6c.2` | Keystroke tone steps up a fixed scale (e.g., pentatonic) per successful keystroke, resets on typo; pitch inde… | named by an assertion in 1 test file(s) | docs/prd.md |
-| DONE | `KB-AC-6d.1` | Skins unlock only from mastery milestones defined in config; no time/purchase path exists. | named by an assertion in 1 test file(s) | docs/prd.md |
-| DONE | `KB-AC-6d.1b` | Ships/skins per D79: 4 ships (unlock at 1/3/5/7 beacons), 1 skin each (unlock: first 3★ stop, 25-combo, 50-co… | named by an assertion in 1 test file(s) | docs/prd.md |
+| DONE | `KB-AC-6d.1` | Skins unlock only from mastery milestones defined in config; no time/purchase path exists. | named by an assertion in 2 test file(s) | docs/prd.md |
+| DONE | `KB-AC-6d.1b` | Ships/skins per D79: 4 ships (unlock at 1/3/5/7 beacons), 1 skin each (unlock: first 3★ stop, 25-combo, 50-co… | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-6d.1c` | Trophies per D80: First Light (Earth lit), Pathfinder (first beacon), Belt Runner (main-belt stage 0 hits), R… | named by an assertion in 3 test file(s) | docs/prd.md |
-| DONE | `KB-AC-6d.2` | Trophy definitions are config; each is awarded exactly once per profile; Beacon Log renders them. | named by an assertion in 1 test file(s) | docs/prd.md |
+| DONE | `KB-AC-6d.2` | Trophy definitions are config; each is awarded exactly once per profile; Beacon Log renders them. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-6e.1` | Input-to-visual latency ≤ 16.7 ms measured keydown | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-7.1` | Every blast/miss/typo updates the record deterministically. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-7.2` | Records persist across sessions (D44). | named by an assertion in 2 test file(s) | docs/prd.md |
@@ -244,7 +244,7 @@ measure its claim — read those first.
 | DONE | `KB-D97` | The parallax world drops terrain grammar entirely. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:120 |
 | DONE | `KB-D98` | Web Speech is removed from the shipped build. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:122 |
 
-## escalation (51) — 4 DONE · 47 BLOCKED
+## escalation (53) — 4 DONE · 49 BLOCKED
 
 | state | id | title | why | source |
 |---|---|---|---|---|
@@ -263,12 +263,14 @@ measure its claim — read those first.
 | BLOCKED | `KB-ESC-d25-s-parked-word-tier-is-unreachable-at-thr` | D25's parked-word tier is unreachable at three of six belts | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:672 |
 | BLOCKED | `KB-ESC-d27-vs-d17-hull-3-and-the-80-90-band-cannot-` | D27 vs D17 — hull 3 and the 80-90% band cannot both hold at 58 words | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:925 |
 | BLOCKED | `KB-ESC-d51-the-calibration-ritual-never-ran-so-the-` | D51 — the calibration ritual never ran, so the belt was flown for a child who was not there | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2107 |
-| BLOCKED | `KB-ESC-d99-the-letterbox-is-gone-two-residuals-need` | D99 — the letterbox is gone; two residuals need a call | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2723 |
+| BLOCKED | `KB-ESC-d99-the-letterbox-is-gone-two-residuals-need` | D99 — the letterbox is gone; two residuals need a call | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2837 |
 | BLOCKED | `KB-ESC-design-brief-s-flat-25-spanish-is-wrong-for-` | Design brief's flat "+25% Spanish" is wrong for short labels | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:249 |
 | BLOCKED | `KB-ESC-devanagari-word-plate-progress-has-no-glyph-` | Devanagari word-plate progress has no glyph index (open seam, not a blocker) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:511 |
 | BLOCKED | `KB-ESC-e-ai-1-the-hackathon-is-build-and-demo-an-ai` | E-AI-1 — The hackathon is "Build and demo an AI-powered learning tool". | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2643 |
+| BLOCKED | `KB-ESC-e-ai-2-the-honesty-marker-contradicts-ac-15-` | E-AI-2 - the honesty marker contradicts AC-15.1's "the UI is identical" | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2753 |
+| BLOCKED | `KB-ESC-e-ai-3-when-a-composed-sentence-is-allowed-t` | E-AI-3 - when a composed sentence is allowed to replace the static one | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2801 |
 | BLOCKED | `KB-ESC-e-fail-state-does-a-hard-fail-state-d29-belo` | E-fail-state · Does a hard fail state (D29) belong in this game at all? | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1073 |
-| BLOCKED | `KB-ESC-e-music-1-there-is-no-music-the-structure-is` | E-MUSIC-1 — There is no music. | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2869 |
+| BLOCKED | `KB-ESC-e-music-1-there-is-no-music-the-structure-is` | E-MUSIC-1 — There is no music. | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2983 |
 | BLOCKED | `KB-ESC-e-playable-path-four-decisions-taken-on-the-` | E-playable-path · Four decisions taken on the `fix/playable-path` lane | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:856 |
 | BLOCKED | `KB-ESC-e-practice-trajectory-a-repeat-rock-now-miss` | E-practice-trajectory · A repeat rock now misses the ship, which bends AC-4.2 | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1203 |
 | BLOCKED | `KB-ESC-e-results-title-1-results-title-lane-stage-r` | E-results-title-1 — RESULTS + TITLE lane (stage report, wordmark) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2052 |
@@ -291,8 +293,8 @@ measure its claim — read those first.
 | BLOCKED | `KB-ESC-the-e2e-suite-s-verdict-is-load-dependent-at` | The e2e suite's verdict is load-dependent at three workers | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:795 |
 | BLOCKED | `KB-ESC-two-shadows-the-reference-compare-pass-did-n` | Two Shadows — the reference-compare pass did not cover what menus draw | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:559 |
 | BLOCKED | `KB-ESC-u-ships-four-ships-and-four-skins-exist-and-` | U-ships — four ships and four skins exist, and not one of them can ever be unlocked | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1748 |
-| BLOCKED | `KB-ESC-ur-10-follow-on-an-interrupted-ambient-cross` | UR-10 follow-on — an interrupted AMBIENT crossfade cuts a bed dead | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2930 |
-| BLOCKED | `KB-ESC-ur-11-cockpit-settings-four-calls-taken-per-` | UR-11 cockpit settings — four calls taken, per D94 | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2805 |
+| BLOCKED | `KB-ESC-ur-10-follow-on-an-interrupted-ambient-cross` | UR-10 follow-on — an interrupted AMBIENT crossfade cuts a bed dead | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:3044 |
+| BLOCKED | `KB-ESC-ur-11-cockpit-settings-four-calls-taken-per-` | UR-11 cockpit settings — four calls taken, per D94 | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2919 |
 | BLOCKED | `KB-ESC-v-22-4-the-check-now-measures-what-it-names-` | V-22.4 — the check now measures what it names, and the art fails it: a rock reads 0.0002 in the near-terrain band | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1515 |
 | BLOCKED | `KB-ESC-warp-beacon-results-ending-lane-four-decisio` | Warp / Beacon / Results / Ending lane — four decisions and one measurement | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:331 |
 | DONE | `KB-ESC-e-voice-1-six-lines-the-game-speaks-still-ha` | E-voice-1 — Six lines the game speaks still have no render, and I cannot make one | marked resolved in gauntlet/escalations.md | gauntlet/escalations.md:1600 |
@@ -300,13 +302,14 @@ measure its claim — read those first.
 | DONE | `KB-ESC-e-world-5b-the-horizon-decision-is-now-the-o` | E-world-5b — The horizon decision is now the ONLY thing between us and the visual bar. | marked resolved in gauntlet/escalations.md | gauntlet/escalations.md:1982 |
 | DONE | `KB-ESC-process-the-loop-asked-the-user-a-blocking-q` | PROCESS — the loop asked the user a blocking question (fixed) | marked resolved in gauntlet/escalations.md | gauntlet/escalations.md:108 |
 
-## fr (31) — 15 DONE · 5 OPEN · 4 UNVERIFIED · 2 FALSE-PASS · 5 BLOCKED
+## fr (31) — 14 DONE · 5 OPEN · 4 UNVERIFIED · 2 FALSE-PASS · 6 BLOCKED
 
 | state | id | title | why | source |
 |---|---|---|---|---|
 | FALSE-PASS | `KB-FR-6e` | Core loop qualities (D77) | rolled up from 5 AC(s); worst is FALSE-PASS | docs/prd.md:74 |
 | FALSE-PASS | `KB-SEC-3.10` | Visual rubric (D60) — all V unless noted | rolled up from 10 AC(s); worst is FALSE-PASS | docs/prd.md:202 |
 | BLOCKED | `KB-FR-10` | Controller (D53) | rolled up from 4 AC(s); worst is BLOCKED | docs/prd.md:101 |
+| BLOCKED | `KB-FR-15` | One call per warp break | rolled up from 5 AC(s); worst is BLOCKED | docs/prd.md:150 |
 | BLOCKED | `KB-FR-3` | Input and lock | rolled up from 5 AC(s); worst is BLOCKED | docs/prd.md:40 |
 | BLOCKED | `KB-FR-4` | Hull | rolled up from 4 AC(s); worst is BLOCKED | docs/prd.md:47 |
 | BLOCKED | `KB-FR-9` | Word selection (D21, D22) | rolled up from 4 AC(s); worst is BLOCKED | docs/prd.md:95 |
@@ -325,7 +328,6 @@ measure its claim — read those first.
 | DONE | `KB-FR-12` | Stops | rolled up from 3 AC(s); worst is DONE | docs/prd.md:131 |
 | DONE | `KB-FR-13` | Allowlist (D34) | rolled up from 3 AC(s); worst is DONE | docs/prd.md:136 |
 | DONE | `KB-FR-14` | Languages (D45, D46, D95, C14) | rolled up from 5 AC(s); worst is DONE | docs/prd.md:141 |
-| DONE | `KB-FR-15` | One call per warp break | rolled up from 5 AC(s); worst is DONE | docs/prd.md:150 |
 | DONE | `KB-FR-16` | Warp sentence | rolled up from 3 AC(s); worst is DONE | docs/prd.md:159 |
 | DONE | `KB-FR-17` | Beacon | rolled up from 4 AC(s); worst is DONE | docs/prd.md:164 |
 | DONE | `KB-FR-2` | Asteroids | rolled up from 3 AC(s); worst is DONE | docs/prd.md:35 |
@@ -400,13 +402,12 @@ measure its claim — read those first.
 | DONE | `KB-SCREEN-title` | Title | driven by 9 e2e spec(s): tests/e2e/aspect.spec.ts, tests/e2e/audio-wiring.spec.ts | docs/design-brief-v2.md (screen inventory) |
 | DONE | `KB-SCREEN-warp-break` | Warp break | driven by 6 e2e spec(s): tests/e2e/audio-wiring.spec.ts, tests/e2e/blast-history.spec.ts | docs/design-brief-v2.md (screen inventory) |
 
-## user-reported (12) — 5 DONE · 7 OPEN
+## user-reported (12) — 6 DONE · 6 OPEN
 
 | state | id | title | why | source |
 |---|---|---|---|---|
 | OPEN | `KB-UR-04-system-voice` | Shadow speaks the warp-break coach note in the browser's speech synthesiser, not the rendered ElevenLabs voic… | reported 2x by the user: "If its done then why am i still hearing system audio? ..." | gauntlet/user-reported.json |
 | OPEN | `KB-UR-05-clean-run-line` | A specific coach line heard in the system voice. | reported 1x by the user: ""That was a clean run pilot" was just spoken by the system voice" | gauntlet/user-reported.json |
-| OPEN | `KB-UR-06-asteroid-over-wordmark` | A black asteroid is drawn on top of the 'B' in KEYBLASTER, and a moon disc sits inside the wordmark. | reported 1x by the user: "(visible in the Title screenshot)" | gauntlet/user-reported.json |
 | OPEN | `KB-UR-08-sun-keepout-column` | A bright vertical band / light region on the right of the frame. | reported 2x by the user: "what is this thing on the right, its like a brighter portion shape." | gauntlet/user-reported.json |
 | OPEN | `KB-UR-09-parallax-quality` | Overall parallax quality. | reported 1x by the user: "Can you do some research on how paralex should behave." | gauntlet/user-reported.json |
 | OPEN | `KB-UR-11-cockpit-settings` | Settings reads as a generic web form — flat rows, a pill slider, a percentage readout. | reported 1x by the user: "in the settings, the menu should look like the inside of a space ship." | gauntlet/user-reported.json |
@@ -414,6 +415,7 @@ measure its claim — read those first.
 | DONE | `KB-UR-01-edge-bars` | Vertical bars flank the picture at any window that is not 16:9. | FIXED AT THE SOURCE. | gauntlet/user-reported.json |
 | DONE | `KB-UR-02-floating-bases` | Landform masses ended in a dead-flat horizontal edge suspended in mid-air with sky visible underneath, scroll… | D97: terrain grammar dropped entirely for space grammar. | gauntlet/user-reported.json |
 | DONE | `KB-UR-03-tagline` | Tagline pointed the wrong direction on a game whose arc is Earth OUTWARD to Pluto. | Changed in en/es/hi. | gauntlet/user-reported.json |
+| DONE | `KB-UR-06-asteroid-over-wordmark` | A black asteroid is drawn on top of the 'B' in KEYBLASTER, and a moon disc sits inside the wordmark. | driftTile takes a `keepClear` rect list; a rock whose EDGE touches one is dropped rather than nudged (nudging biases the field and reads as… | gauntlet/user-reported.json |
 | DONE | `KB-UR-07-parallax-strips` | Visible vertical seams across the sky; the world reads as stitched panels drifting sideways. | atmospherePass called the RNG inside the wrap loop, so the three 'wrapped' copies of each streak had different y values — they were never c… | gauntlet/user-reported.json |
 | DONE | `KB-UR-10-audio-pop` | An audible pop/click recurs during play. | Two renders of the real MusicBus layer trajectory, differenced (identical oscillators, so the difference IS the artifact): 1.49e-8 in the 2… | gauntlet/user-reported.json |
 

@@ -19,7 +19,13 @@ import { NullAudioContext } from "../../../src/game/audio/nullContext.js";
 import { buildAudioGraph, DUCK_ATTACK_MS } from "../../../src/game/audio/graph.js";
 import { seededRandom, dbToGain } from "../../../src/game/audio/context.js";
 import { SFX_EVENTS, GENTLE_LIMITS, pitchDirectionOf } from "../../../src/game/audio/sfx.js";
-import { MAX_INTENSITY_INDEX, intensityIndex } from "../../../src/game/audio/music.js";
+import {
+  MAX_INTENSITY_INDEX,
+  intensityIndex,
+  type MusicTrackCatalog,
+} from "../../../src/game/audio/music.js";
+import type { AudioBufferLike } from "../../../src/game/audio/context.js";
+import { DEFAULT_SETTINGS } from "../../../src/engine/types.js";
 import { AMBIENT_CROSSFADE_MS } from "../../../src/game/audio/ambient.js";
 import {
   AUDIO_REGISTRY_KEY,
@@ -91,10 +97,32 @@ interface Harness {
   tick(): void;
 }
 
-function harness(volumes?: { music?: number; sfx?: number }): Harness {
+function harness(
+  volumes?: { music?: number; sfx?: number },
+  musicTracks?: MusicTrackCatalog,
+): Harness {
   const ctx = new NullAudioContext();
   const { env, speech, scheduler } = fakeVoiceEnvironment();
-  const graph = buildAudioGraph(ctx, { voiceEnv: env, rand: seededRandom(0xbeef) });
+  const graph = buildAudioGraph(ctx, {
+    voiceEnv: env,
+    rand: seededRandom(0xbeef),
+    ...(musicTracks
+      ? {
+          musicTracks,
+          // Two seconds of a tone stands in for a decoded 40 s piece: what these
+          // tests assert is WHICH track was asked for and what happens when one
+          // is missing, never what it sounds like.
+          musicDecode: async (): Promise<AudioBufferLike> => {
+            const buffer = ctx.createBuffer(1, 16000, 8000);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < data.length; i++) {
+              data[i] = Math.sin((2 * Math.PI * 220 * i) / 8000) * 0.4;
+            }
+            return buffer;
+          },
+        }
+      : {}),
+  });
   const channel = new FakeChannel();
   const registry = new FakeRegistry();
   const audio = installAudio({
@@ -711,3 +739,140 @@ describe("AC-21.4: the voice bus serialises across the whole game", () => {
     expect(h.channel.count(TRANSITION_EVENT)).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// E-MUSIC-1 / UR-12: the composed pieces reach the player
+// ---------------------------------------------------------------------------
+
+describe("E-MUSIC-1: the stop's composed piece plays when the game says which stop", () => {
+  /**
+   * Let the load settle WITHOUT touching `setStop` ourselves. Awaiting
+   * `music.setStop(stop)` would start the load if the wiring never did, and
+   * the test would pass against a disconnected music bus - which is the exact
+   * class of green-but-inert this file exists to prevent.
+   */
+  const settle = async (): Promise<void> => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  };
+
+  /** A catalog for every stop. `open` can be made to fail per call. */
+  const catalog = (failing = false): { tracks: MusicTrackCatalog; asked: string[] } => {
+    const asked: string[] = [];
+    return {
+      asked,
+      tracks: {
+        ids: () => [...STOP_IDS].sort(),
+        open: async (id) => {
+          asked.push(id);
+          return failing ? null : new ArrayBuffer(8);
+        },
+      },
+    };
+  };
+
+  it("UR-12: ambientFor is also what starts the music for that stop", async () => {
+    const { tracks, asked } = catalog();
+    const { audio } = harness(undefined, tracks);
+
+    audio.ambientFor("mars");
+    // The same signal the bed rides. A second entry point is a second thing a
+    // scene can forget to call, which is how the audio was unreachable before.
+    expect(asked).toEqual(["mars"]);
+    await settle();
+
+    expect(audio.graph.music.trackId).toBe("mars");
+    expect(audio.graph.music.sourceKind).toBe("track");
+    const snap = audio.snapshot();
+    expect(snap.musicStops).toEqual(["mars"]);
+    expect(snap.musicTrack).toBe("mars");
+    expect(snap.musicSource).toBe("track");
+    expect(snap.musicTrackIds).toEqual([...STOP_IDS].sort());
+  });
+
+  it("UR-12: a warp moves the music to the new stop's piece", async () => {
+    const { tracks } = catalog();
+    const { audio } = harness(undefined, tracks);
+    audio.ambientFor("earth");
+    await settle();
+    audio.advance(2000);
+
+    audio.ambientFor("jupiter");
+    await settle();
+    audio.advance(2000);
+    expect(audio.graph.music.trackId).toBe("jupiter");
+    expect(audio.snapshot().musicStops).toEqual(["earth", "jupiter"]);
+  });
+
+  it("a track that will not load leaves the game running and quiet", async () => {
+    const { tracks } = catalog(true);
+    const { audio } = harness(undefined, tracks);
+
+    audio.ambientFor("saturn");
+    await settle();
+
+    expect(audio.snapshot().musicSource).toBe("silent");
+    expect(audio.snapshot().musicTrack).toBeNull();
+    // The bed still started, the frame loop still runs, the intensity index
+    // still tracks the belt. The game shipped without music once; it still runs.
+    expect(audio.graph.ambient.activeStop).toBe("saturn");
+    audio.advance(16.7);
+    expect(audio.snapshot().musicIndex).toBe(0);
+    expect(audio.snapshot().frames).toBe(1);
+  });
+
+  it("re-entering a stop retries a load that failed - the only retry there is", async () => {
+    let failing = true;
+    const asked: string[] = [];
+    const tracks: MusicTrackCatalog = {
+      ids: () => [...STOP_IDS].sort(),
+      open: async (id) => {
+        asked.push(id);
+        return failing ? null : new ArrayBuffer(8);
+      },
+    };
+    const { audio } = harness(undefined, tracks);
+
+    audio.ambientFor("pluto");
+    await settle();
+    expect(audio.snapshot().musicSource).toBe("silent");
+
+    failing = false;
+    audio.ambientFor("neptune");
+    await settle();
+    audio.ambientFor("pluto");
+    await settle();
+    expect(asked).toEqual(["pluto", "neptune", "pluto"]);
+    expect(audio.graph.music.trackId).toBe("pluto");
+  });
+
+  it("a build with no music files gets the synthesised layers, not silence", () => {
+    const { audio } = harness();
+    expect(audio.snapshot().musicSource).toBe("synth");
+    expect(audio.snapshot().musicTrackIds).toEqual([]);
+    // "No files were shipped" and "a file would not load" are different
+    // situations and they get different answers on purpose.
+    expect(audio.snapshot().musicTrack).toBeNull();
+  });
+
+  it("AC-19.1 / AC-21.4: the shipped music volume survives a duck under Shadow", async () => {
+    const { tracks } = catalog();
+    const { audio, finishSpeech } = harness({ music: DEFAULT_SETTINGS.musicVolume }, tracks);
+    audio.ambientFor("earth");
+    await settle();
+
+    // The default is the setting's own, not a number retyped here.
+    expect(DEFAULT_SETTINGS.musicVolume).toBe(0.7);
+    expect(audio.graph.buses.music.gain.value).toBeCloseTo(0.7, 9);
+
+    audio.speak({ id: "x", kind: "scripted", text: "Ready?" });
+    audio.advance(DUCK_ATTACK_MS);
+    // D62: the music ducks under Shadow, with real audio underneath it.
+    expect(audio.graph.buses.music.gain.value).toBeCloseTo(0.7 * dbToGain(-6), 5);
+
+    finishSpeech();
+    audio.advance(DUCK_ATTACK_MS * 8);
+    // ...and comes back to the CHILD'S level, not to the shipped one.
+    expect(audio.graph.buses.music.gain.value).toBeCloseTo(0.7, 5);
+    expect(audio.graph.music.trackId).toBe("earth");
+  });
+})

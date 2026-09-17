@@ -18,6 +18,7 @@ export * from "./context.js";
 export * from "./nullContext.js";
 export * from "./graph.js";
 export * from "./music.js";
+export * from "./musicLoop.js";
 export * from "./ambient.js";
 export * from "./sfx.js";
 export * from "./keystrokeTone.js";
@@ -39,6 +40,7 @@ import {
   type SpeechPort,
 } from "./voice.js";
 import type { VoiceClipCatalog, VoiceMediaElement } from "./voiceClips.js";
+import type { MusicTrackCatalog } from "./music.js";
 
 /**
  * Construct the platform's AudioContext, or null if there is not one.
@@ -241,6 +243,109 @@ export function browserVoiceClips(
   };
 }
 
+// ---------------------------------------------------------------------------
+// The composed music (E-MUSIC-1, UR-12)
+// ---------------------------------------------------------------------------
+
+/**
+ * The seven pieces, as URLs the bundler owns.
+ *
+ * SAME GLOB, SAME REASON, AND IT IS NOT A STYLE CHOICE. Vite emits an asset
+ * only if something imports it. Before the voice glob above existed, `vite
+ * build` put ZERO mp3 into `dist/` while every line of the voice path looked
+ * perfectly wired; a feature that ships inert has already happened twice on
+ * this project. This glob is the import that makes the music files real, and
+ * `tests/unit/audio/musicTracks.test.ts` pins the glob pattern against the
+ * directory the render script writes to, because a typo here is invisible until
+ * a child hears nothing.
+ *
+ * `?url` keeps 4.5 MB of mp3 out of the JS bundle: what lands here is a hashed
+ * path and the bytes are fetched when a stop is actually entered.
+ */
+const MUSIC_URLS = import.meta.glob("../../content/audio/music/*.mp3", {
+  query: "?url",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+/** What the render script says it rendered. The authority, as for the voice. */
+const MUSIC_MANIFEST = import.meta.glob("../../content/audio/music/manifest.json", {
+  import: "default",
+  eager: true,
+}) as Record<string, unknown>;
+
+/** `{ stopId, file }` rows from the music manifest, narrowed by hand. */
+export function manifestMusicStops(manifest: unknown = Object.values(MUSIC_MANIFEST)[0]): string[] {
+  if (typeof manifest !== "object" || manifest === null) return [];
+  const tracks = (manifest as { tracks?: unknown }).tracks;
+  if (!Array.isArray(tracks)) return [];
+  const ids: string[] = [];
+  for (const row of tracks) {
+    if (typeof row !== "object" || row === null) continue;
+    const id = (row as { stopId?: unknown }).stopId;
+    if (typeof id === "string" && id.length > 0) ids.push(id);
+  }
+  return ids;
+}
+
+/** Stop id from a track path: ".../neptune.mp3" -> "neptune". */
+function trackIdOf(path: string): string | null {
+  const file = path.split("/").pop();
+  if (file === undefined || !file.endsWith(".mp3")) return null;
+  const id = file.slice(0, -".mp3".length);
+  return id.length > 0 ? id : null;
+}
+
+/**
+ * The composed pieces this build can play, or null.
+ *
+ * Null in Node, in a browser with no `fetch`, and in a build that shipped no
+ * tracks. All three mean the synthesised layers play, which is a complete game
+ * - see `MusicBusOptions.tracks` for why a FAILED fetch is treated differently
+ * from a build with no files at all.
+ *
+ * `open` swallows everything. A 404, an offline machine, a truncated body: all
+ * of them are "no music for this stop", and none of them is an exception a
+ * scene should ever have to catch.
+ */
+export function browserMusicTracks(
+  scope: unknown = globalThis,
+  urls: Record<string, string> = MUSIC_URLS,
+  stops: readonly string[] = manifestMusicStops(),
+): MusicTrackCatalog | null {
+  if (typeof scope !== "object" || scope === null) return null;
+  const fetcher = (scope as Record<string, unknown>)["fetch"];
+  if (typeof fetcher !== "function") return null;
+
+  const rendered = new Set(stops);
+  const byId = new Map<string, string>();
+  for (const [path, url] of Object.entries(urls)) {
+    const id = trackIdOf(path);
+    // Both, or neither - same rule as the voice clips. An EMPTY manifest means
+    // "no manifest shipped", not "nothing was rendered", so a build that
+    // dropped the json still plays the files it has.
+    if (id !== null && (rendered.size === 0 || rendered.has(id))) byId.set(id, url);
+  }
+  if (byId.size === 0) return null;
+
+  const ids = [...byId.keys()].sort();
+  const get = fetcher as (input: string) => Promise<{ ok: boolean; arrayBuffer(): Promise<ArrayBuffer> }>;
+  return {
+    ids: () => ids,
+    async open(id: string): Promise<ArrayBuffer | null> {
+      const url = byId.get(id);
+      if (url === undefined) return null;
+      try {
+        const response = await get(url);
+        if (!response.ok) return null;
+        return await response.arrayBuffer();
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
 export interface AudioSystemOptions {
   /** Override the context. Tests pass a `NullAudioContext`. */
   readonly ctx?: AudioContextLike | null;
@@ -259,6 +364,11 @@ export interface AudioSystemOptions {
    * D98 means a silent Shadow - the state a build guard is supposed to prevent.
    */
   readonly voiceClips?: VoiceClipCatalog | null;
+  /**
+   * The composed music (E-MUSIC-1). `null` forces the synthesised layers, which
+   * is what every unit test and the evidence emitter want.
+   */
+  readonly musicTracks?: MusicTrackCatalog | null;
   /**
    * D98: bind the browser's speech synthesiser and let it read lines that have
    * no rendered clip. OFF unless explicitly passed, and `boot.ts` does not pass
@@ -291,6 +401,8 @@ export function createAudioSystem(options: AudioSystemOptions = {}): AudioGraph 
   const lang = options.lang ?? "en-US";
   const clips =
     options.voiceClips !== undefined ? options.voiceClips : browserVoiceClips(scope, lang);
+  const musicTracks =
+    options.musicTracks !== undefined ? options.musicTracks : browserMusicTracks(scope);
 
   const graphOptions = {
     voiceEnv: {
@@ -301,6 +413,7 @@ export function createAudioSystem(options: AudioSystemOptions = {}): AudioGraph 
       allowSystemVoice,
     },
     ...(clips !== null ? { voiceClips: clips } : {}),
+    ...(musicTracks !== null ? { musicTracks } : {}),
     ...(options.rand ? { rand: options.rand } : {}),
     ...(options.masterGain !== undefined ? { masterGain: options.masterGain } : {}),
   };
