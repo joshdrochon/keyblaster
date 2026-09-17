@@ -10,6 +10,29 @@ This is the only document you need to read first. Everything else is backlog.
 
 ---
 
+## 0. Where the board stands, 07:02
+
+`node scripts/gauntlet.mjs` — **24 pass · 3 fail · 6 escalated**, of 33.
+
+Every visual item passes. Every guardrail passes, including `G-secrets` (no
+API-key-shaped string in the client bundle) and `G-coverage` at
+99.92 / 99.14 / 100 / 99.92 against a 95% gate.
+
+**The three failures are all honest, and none is a product defect:**
+
+| item | why it is red |
+|---|---|
+| `G-trace` | One acceptance criterion has no test and **cannot have one** — `AC-6e.5`, whose thresholds were never chosen. Your ruling, see housekeeping |
+| `A-21.2` | Music intensity wiring is fine and proven; the evidence artifact needs one clean full e2e to be rewritten |
+| `A-21.5` | **Deliberately red.** It used to pass against a voice environment we do not ship. Making it honest was the right call and it now reports the truth (C16) |
+
+**The six escalations split two ways.** Three need a machine we do not have —
+`P-22.9` and `L-6e.1` want a headed 60fps capture, `G-e2e-whole` wants a run
+where nothing clobbers the report. Three need **your eyes**: `R-world`,
+`R-lantern`, `R-shadow`, and D85 forbids a machine ever passing those.
+
+---
+
 ## 1. DEPLOY. It decides eligibility and nothing else can substitute for it.
 
 The hackathon asks for an AI-powered learning tool. The AI is built and
