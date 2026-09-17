@@ -85,5 +85,25 @@
     "state": "OPEN",
     "owner": "unassigned",
     "evidence": "Research gathered; the gap between our implementation and standard practice is written up in the queue under UR-07/UR-08."
+  },
+  {
+    "id": "UR-10-audio-pop",
+    "said": "theres a pop every so often in the game like its being looped. Should be continous.",
+    "reports": 1,
+    "what": "An audible pop/click recurs during play, characteristic of a loop seam in the ambient bed.",
+    "rootCause": "Unconfirmed. Prime suspect is the procedural ambient bed (C12): the beds are synthesised in Web Audio because no ELEVENLABS_API_KEY existed at the time, and a loop whose waveform does not cross zero at the boundary clicks audibly on every repeat. There is a key now, so pre-rendered seamless beds are also an option.",
+    "state": "OPEN",
+    "owner": "audio lane",
+    "evidence": ""
+  },
+  {
+    "id": "UR-11-cockpit-settings",
+    "said": "in the settings, the menu should look like the inside of a space ship. For instance, maybe a knob instead of this as an example. Find pcitures do research to make it look immersive",
+    "reports": 1,
+    "what": "Settings reads as a generic web form — flat rows, a pill slider, a percentage readout. It should read as the Lantern's own console: physical controls a pilot would touch.",
+    "rootCause": "Settings was built as a UI screen, not as part of the world. The 17-screen critic called it 'the cleanest UI in the build', which is true and is also the problem: it is clean web UI in a game about flying a ship.",
+    "state": "OPEN",
+    "owner": "unassigned",
+    "evidence": "User supplied a screenshot of the music slider as the example of what to replace."
   }
 ]

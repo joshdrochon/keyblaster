@@ -2637,3 +2637,85 @@ with a port updates them:
 
 I did not edit them blind: they are browser assertions and changing them without
 executing them is how a green suite stops meaning anything.
+
+---
+
+## E-AI-1 — The hackathon is "Build and demo an AI-powered learning tool". Ours is not one yet.
+
+**This is the escalation that decides whether there is a submission.** Everything
+else on this list is quality; this one is eligibility.
+
+### What the user established, and they are right
+
+> "Then its not a-powered"
+
+They reached that by asking the right question: **could the coach note be done
+without AI?** Yes. It already is — `MockCoach` interpolates the child's missed
+word into a template and a judge could not tell the two apart. The model adds
+phrasing variety, not insight.
+
+### The honest inventory
+
+| | genuinely needs a model? | built? | running? |
+|---|---|---|---|
+| Coach note after each belt | **No** — a template matches it | yes | **no** (mock; endpoint undeployed) |
+| Shadow's voice | Yes, but it is an ASSET PIPELINE — AI made 44 mp3s at build time; the running game plays files | yes | yes |
+| Safety validator (4 gates over model output) | N/A — it is the guardrail that makes generation shippable | yes | yes |
+| **Warp sentence built from the words THAT child just typed** | **Yes** | **no — static per stop** | **no** |
+
+### The finding that matters
+
+**The project's founding differentiator was never implemented.** Decision log,
+line 18:
+
+> Type Storm has a good loop but **the end-of-level sentence doesn't reuse the
+> words just typed**, and the narrative is disjointed. **We fix both.**
+
+We did not. `warpSentence` is hardcoded per stop — `"Mars is the red planet."` is
+the same sentence for every child, every run, whatever they typed or struggled
+with.
+
+### Why the warp sentence is the right AI feature, on the merits
+
+- **A template provably cannot do it.** Composing a grammatical,
+  age-appropriate, thematically coherent sentence from an arbitrary subset of
+  words a specific child just practised is the exact shape of task templates
+  fail at and language models are good at. Every child reaches the warp break
+  having practised a different subset.
+- **It is pedagogically stronger than the coach note.** Re-encountering your own
+  hard words inside a meaningful sentence is retrieval practice in context. A
+  coach note saying "that 'jupiter' one was tricky" is feedback; reading a
+  sentence built from the words you just fought for is *practice*.
+- **It sits at the emotional peak of the loop**, not in a side panel.
+- **It reuses everything that exists**: same `/api/coach` endpoint, same
+  four-gate validator, same allowlist, same 1500ms budget, same fallback
+  discipline. The current static sentence becomes the fallback, so a slow or
+  failed call degrades to exactly what ships today.
+
+### Two things must BOTH be true or the claim fails
+
+1. **Build it** — the warp sentence generated from the session's words.
+2. **Deploy it** — `ANTHROPIC_API_KEY` in the serverless env and
+   `VITE_COACH_ENDPOINT=/api/coach` at build time. The transport logic already
+   prefers the proxy when an endpoint is configured, so deploying switches the
+   AI on with no code change. **Deploy is the user's, always (D87).**
+
+C11 is resolved on the way: `claude-haiku-4-5-20251001` is the correct Haiku 4.5
+id, so the silent-400-into-fallback trap that collision worried about does not
+exist.
+
+### One demo risk worth naming
+
+**The fallback is indistinguishable from the real thing on screen.** If the
+endpoint is slow or down during the demo, a judge sees canned text and cannot
+tell the AI never ran. For a submission whose whole premise is "AI-powered",
+that should be made visible — some honest indication that this sentence was
+written for this child, just now.
+
+### Status
+
+**Awaiting the user.** I offered to build it and they have not said go. Not
+starting unilaterally: it is a scope decision on the submission's central claim
+with ~51 hours left, and that is theirs. Lean: **build it** — without it the
+claim does not hold, and with it there is a real answer to "where is the AI"
+plus a child-safety story that plays well to engineer judges.

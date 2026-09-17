@@ -4,12 +4,12 @@
      computed from evidence on each run, and a hand-typed status is the
      exact failure this board exists to prevent. -->
 
-Generated: 2026-09-17T03:56:01.098Z
-Tickets: **353**
+Generated: 2026-09-17T04:01:36.384Z
+Tickets: **356**
 
 | DONE | OPEN | UNVERIFIED | FALSE-PASS | BLOCKED | EXEMPT |
 |---|---|---|---|---|---|
-| 157 | 20 | 65 | 10 | 61 | 40 |
+| 157 | 22 | 65 | 10 | 62 | 40 |
 
 **DONE** means an assertion names it and the evidence is fresher than the
 code. **UNVERIFIED** means something claims it but the binding is weak or
@@ -244,7 +244,7 @@ measure its claim — read those first.
 | DONE | `KB-D97` | The parallax world drops terrain grammar entirely. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:120 |
 | DONE | `KB-D98` | Web Speech is removed from the shipped build. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:122 |
 
-## escalation (46) — 4 DONE · 42 BLOCKED
+## escalation (47) — 4 DONE · 43 BLOCKED
 
 | state | id | title | why | source |
 |---|---|---|---|---|
@@ -265,6 +265,7 @@ measure its claim — read those first.
 | BLOCKED | `KB-ESC-d51-the-calibration-ritual-never-ran-so-the-` | D51 — the calibration ritual never ran, so the belt was flown for a child who was not there | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2107 |
 | BLOCKED | `KB-ESC-design-brief-s-flat-25-spanish-is-wrong-for-` | Design brief's flat "+25% Spanish" is wrong for short labels | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:249 |
 | BLOCKED | `KB-ESC-devanagari-word-plate-progress-has-no-glyph-` | Devanagari word-plate progress has no glyph index (open seam, not a blocker) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:511 |
+| BLOCKED | `KB-ESC-e-ai-1-the-hackathon-is-build-and-demo-an-ai` | E-AI-1 — The hackathon is "Build and demo an AI-powered learning tool". | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2643 |
 | BLOCKED | `KB-ESC-e-fail-state-does-a-hard-fail-state-d29-belo` | E-fail-state · Does a hard fail state (D29) belong in this game at all? | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1073 |
 | BLOCKED | `KB-ESC-e-playable-path-four-decisions-taken-on-the-` | E-playable-path · Four decisions taken on the `fix/playable-path` lane | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:856 |
 | BLOCKED | `KB-ESC-e-practice-trajectory-a-repeat-rock-now-miss` | E-practice-trajectory · A repeat rock now misses the ship, which bends AC-4.2 | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1203 |
@@ -395,7 +396,7 @@ measure its claim — read those first.
 | DONE | `KB-SCREEN-title` | Title | driven by 9 e2e spec(s): tests/e2e/aspect.spec.ts, tests/e2e/audio-wiring.spec.ts | docs/design-brief-v2.md (screen inventory) |
 | DONE | `KB-SCREEN-warp-break` | Warp break | driven by 5 e2e spec(s): tests/e2e/audio-wiring.spec.ts, tests/e2e/blast-history.spec.ts | docs/design-brief-v2.md (screen inventory) |
 
-## user-reported (9) — 4 DONE · 5 OPEN
+## user-reported (11) — 4 DONE · 7 OPEN
 
 | state | id | title | why | source |
 |---|---|---|---|---|
@@ -404,6 +405,8 @@ measure its claim — read those first.
 | OPEN | `KB-UR-06-asteroid-over-wordmark` | A black asteroid is drawn on top of the 'B' in KEYBLASTER, and a moon disc sits inside the wordmark. | reported 1x by the user: "(visible in the Title screenshot)" | gauntlet/user-reported.json |
 | OPEN | `KB-UR-08-sun-keepout-column` | A bright vertical band / light region on the right of the frame. | reported 2x by the user: "what is this thing on the right, its like a brighter portion shape." | gauntlet/user-reported.json |
 | OPEN | `KB-UR-09-parallax-quality` | Overall parallax quality. | reported 1x by the user: "Can you do some research on how paralex should behave." | gauntlet/user-reported.json |
+| OPEN | `KB-UR-10-audio-pop` | An audible pop/click recurs during play, characteristic of a loop seam in the ambient bed. | reported 1x by the user: "theres a pop every so often in the game like its being looped." | gauntlet/user-reported.json |
+| OPEN | `KB-UR-11-cockpit-settings` | Settings reads as a generic web form — flat rows, a pill slider, a percentage readout. | reported 1x by the user: "in the settings, the menu should look like the inside of a space ship." | gauntlet/user-reported.json |
 | DONE | `KB-UR-01-edge-bars` | Vertical bars flank the picture at any window that is not 16:9. | Canvas now fills the window at every tested shape: gap L0 R0 at 2000x1010, 2560x1080 and 1440x900, verified by measuring the canvas rect an… | gauntlet/user-reported.json |
 | DONE | `KB-UR-02-floating-bases` | Landform masses ended in a dead-flat horizontal edge suspended in mid-air with sky visible underneath, scroll… | D97: terrain grammar dropped entirely for space grammar. | gauntlet/user-reported.json |
 | DONE | `KB-UR-03-tagline` | Tagline pointed the wrong direction on a game whose arc is Earth OUTWARD to Pluto. | Changed in en/es/hi. | gauntlet/user-reported.json |

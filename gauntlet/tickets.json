@@ -537,6 +537,16 @@
     "refs": []
   },
   {
+    "id": "KB-ESC-e-ai-1-the-hackathon-is-build-and-demo-an-ai",
+    "kind": "escalation",
+    "title": "E-AI-1 — The hackathon is \"Build and demo an AI-powered learning tool\".",
+    "source": "gauntlet/escalations.md:2643",
+    "state": "BLOCKED",
+    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
+    "evidence": [],
+    "refs": []
+  },
+  {
     "id": "KB-ESC-e-fail-state-does-a-hard-fail-state-d29-belo",
     "kind": "escalation",
     "title": "E-fail-state · Does a hard fail state (D29) belong in this game at all?",
@@ -1190,6 +1200,28 @@
     "why": "reported 1x by the user: \"Can you do some research on how paralex should behave.\"",
     "evidence": [
       "Research gathered; the gap between our implementation and standard practice is written up in the queue under UR-07/UR-08."
+    ],
+    "refs": []
+  },
+  {
+    "id": "KB-UR-10-audio-pop",
+    "kind": "user-reported",
+    "title": "An audible pop/click recurs during play, characteristic of a loop seam in the ambient bed.",
+    "source": "gauntlet/user-reported.json",
+    "state": "OPEN",
+    "why": "reported 1x by the user: \"theres a pop every so often in the game like its being looped.\"",
+    "evidence": [],
+    "refs": []
+  },
+  {
+    "id": "KB-UR-11-cockpit-settings",
+    "kind": "user-reported",
+    "title": "Settings reads as a generic web form — flat rows, a pill slider, a percentage readout.",
+    "source": "gauntlet/user-reported.json",
+    "state": "OPEN",
+    "why": "reported 1x by the user: \"in the settings, the menu should look like the inside of a space ship.\"",
+    "evidence": [
+      "User supplied a screenshot of the music slider as the example of what to replace."
     ],
     "refs": []
   },
