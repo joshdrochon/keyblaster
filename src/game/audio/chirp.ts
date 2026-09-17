@@ -7,11 +7,19 @@
  * WITHOUT a recording - which includes all seven coach templates at the warp
  * break, the screen a child sees most - made no sound at all.
  *
- * A chirp hook already existed in `VoiceEnvironment`, but it was reachable only
- * on a machine that HAD a speech API and had been declined (a cloud-only voice
- * list). D98 then turned the platform voice off by default, so `web` is null in
- * every shipped session and the hook could never fire. The feature was wired
- * and unreachable - the same failure mode this package's own header warns about.
+ * WHAT IT WAS. A chirp hook already existed in `VoiceEnvironment`, but it was
+ * reachable only on a machine that HAD a speech API and had been declined (a
+ * cloud-only voice list). D98 then turned the platform voice off by default, so
+ * `web` was null in every shipped session and the hook could never fire. The
+ * feature was wired and unreachable - the same failure mode this package's own
+ * header warns about.
+ *
+ * WHAT IT IS NOW. `adaptiveTransport` chirps whenever the line it is about to
+ * play will make no sound, whatever the reason, and the sound is this recipe on
+ * the VOICE bus rather than a borrowed `uiNav` on the SFX bus. `AudioGraph`
+ * counts them (`chirpCount`), because nothing else can see a chirp happen -
+ * this module touches no history, and an e2e was still counting SFX plays for
+ * a sound that had stopped making one.
  *
  * WHAT A CHIRP IS FOR. It is not an error sound and it is not a notification.
  * D31: nothing in this game reads as failure. It is "he said something" - a

@@ -1041,3 +1041,237 @@ export function atmosphereFor(id: string): AtmosphereKind {
       return "haze";
   }
 }
+
+// ---------------------------------------------------------------------------
+// UR-47: a word-asteroid is visible against OPEN SKY, at every height
+// ---------------------------------------------------------------------------
+
+/**
+ * THE DEFECT THIS BLOCK EXISTS FOR, AND WHY EVERYTHING ABOVE IT MISSED IT.
+ *
+ * `pickDebris` and `DEBRIS_SEPARATION` above choose `StopPalette.debris` so that
+ * it clears the sky and the silhouette planes. Two things were wrong with that
+ * as a guarantee, and the second one is the reason UR-47 - word-asteroids not
+ * visible against open sky - was recorded as fixed twice and was not.
+ *
+ * 1. NOTHING DRAWS `StopPalette.debris` ON A GAMEPLAY ROCK. `FlightScene`
+ *    (`spawnRock`) draws each rock from the FR-12b material table in
+ *    `render/asteroid.ts` - `DebrisType.fill` - and passes `fillOverride: null`
+ *    unless the colourblind palette is on. `StopPalette.debris` is read only by
+ *    `depthRamp` (as the value the band ladder is phased AWAY from) and as a
+ *    fallback inside `parallax.ts`. It is a field with a writer, a rule, a unit
+ *    test and no consumer on the path it claims to protect -
+ *    `docs/verification-gaps.md` instance 5, exactly.
+ *
+ * 2. CLEARING THE THREE SKY STOPS IS NOT CLEARING THE SKY. The sky is a
+ *    CONTINUOUS vertical gradient and a rock traverses it. If a fill's luminance
+ *    lies anywhere strictly between two neighbouring stop luminances, then by
+ *    the intermediate value theorem there is exactly one height at which the sky
+ *    behind the rock has the rock's own value, and at that height the rock is
+ *    not dim - it is absent. Measuring the three stops cannot see this: on Mars
+ *    the old fill sat 23.7 from the nearest stop and 0.0 from the gradient.
+ *
+ * MEASURED ON THE SHIPPING GAME, 2026-09-17. Six stops, seven rocks each placed
+ * at a known height on a FROZEN scene so the pixels and the coordinates come
+ * from one frame, position-anchored separation per `tests/gauntlet/silhouette.mjs`
+ * against a bar of 0.06:
+ *
+ *   saturn   0.0062 at y=158,  0.0127 at y=259,  0.0457 and 0.0503 at y~58
+ *   neptune  0.0435 at y=29,   0.0542 at y=58
+ *   pluto    0.0574 at y=50
+ *   jupiter  0.0558 at y=461
+ *   mars     0.0556 at y=461,  0.0607 at y=562
+ *   uranus   0.0905 at y=562  (thin, but clear)
+ *
+ * Five of the six stops with a belt failed, and the worst of them failed HIGH in
+ * the frame where the sky is brightest, which is the region UR-47 names.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THE ANSWER IS NOT "PICK A BETTER VALUE" AND NOT "MAKE EVERY ROCK DARKER"
+ *
+ * There is no value strictly inside the sky's sweep that survives, for any
+ * material, at any stop: the sweep is continuous, so every interior value is
+ * crossed. The only values that clear the whole fall are OUTSIDE the sweep, and
+ * which side is available is decided by the stop:
+ *
+ *   bright stop (Mars, Jupiter, Saturn, Uranus, Pluto)  below the darkest sky
+ *   dark stop   (Neptune; Earth has no belt)            above the brightest sky
+ *
+ * That is not a contrast-ratio trick invented here. It is art-direction.md
+ * section 2's LIGHT rule - "depth comes from value steps between layers, darker
+ * toward the camera on bright stops and lighter toward the camera on dark stops"
+ * - applied to L4, which is the nearest world layer there is. A near object
+ * against a luminous sky silhouettes; that is what the reference frames do and
+ * it is why Alto's foreground reads at any height.
+ *
+ * WHAT IS KEPT, so this is a lighting change and not a deletion of the FR-12b
+ * materials: only the BODY value moves. Hue and chroma are preserved by
+ * `withLuma255` (it scales channels), and the facet, the rim on the lit side and
+ * the glint keep the material's own colours - so Saturn's chunk is still warm
+ * ice with a white lit edge and an ice-blue fleck, it is simply seen from its
+ * shadow side, which is what "ice chunks coated with dust" (FR-12b) looks like
+ * in front of a bright sky. Materials keep their ORDER too: the values at a stop
+ * are spread over `DEBRIS_VALUE_SPREAD`, so Jupiter's C-type is still the
+ * darkest of its four and its M-type still the lightest.
+ *
+ * WHAT THIS DOES NOT CLAIM. It clears the SKY, which is what is behind a rock
+ * almost everywhere - measured on the shipped frames, the per-row median
+ * background IS the sky at every height, and the dark silhouette geometry is
+ * under 5% of any row. A rock that happens to cross one of those dark shapes is
+ * still measured by the e2e probe and is not guaranteed by the rule here. The
+ * band-side guarantee is the older `DEBRIS_SEPARATION` rule above, which is
+ * unchanged and still asserted.
+ */
+
+/**
+ * How far down the frame a rock's CENTRE travels, as a fraction of GAME_HEIGHT.
+ *
+ * `FlightScene` puts the ship at `height - 150` and the breach line 74 px above
+ * it, so a rock's centre runs from 0 to 856/1080 = 0.793. Rounded up to 0.80.
+ * The probe's background ring reaches further than that, but a ring centred on
+ * the lowest rock still averages the sky AT that rock, so the centre's range is
+ * the range that decides the reading.
+ */
+export const ROCK_SKY_SPAN = 0.8;
+
+/**
+ * Where the sky's middle stop MIGHT sit, as a fraction of frame height.
+ *
+ * `parallax.ts` draws the gradient as two linear legs meeting at its own
+ * `SKY_MID_AT` (0.34 today). This file deliberately does NOT import that number:
+ * `parallax.ts` imports this module, so the dependency would be a cycle, and a
+ * second copy of a constant is how two files drift apart silently.
+ *
+ * Instead the sweep below is taken as the UNION over every knee position in this
+ * range, which brackets today's value with room either side. The union is a
+ * superset of the real sweep for any knee inside it, so the clearance derived
+ * from it can only be conservative - the failure mode of the approximation is a
+ * rock slightly darker than it needed to be, never a rock that vanishes.
+ *
+ * The range is deliberately narrow rather than generous. A wide one is not free:
+ * it deepens the modelled sweep, which pushes the rocks at the tight stops
+ * (Uranus, Pluto) toward black for a knee position nobody has proposed. If the
+ * world lane moves `SKY_MID_AT` outside [0.30, 0.42], this constant moves with
+ * it and `tests/unit/render/wordRockSeparation.test.ts` is the check that says
+ * so - it asserts the clearance, so a knee that invalidates the model makes the
+ * e2e probe red rather than letting a rock go quietly invisible.
+ */
+const SKY_KNEE_RANGE: readonly [number, number] = [0.3, 0.42];
+
+/**
+ * Clearance, in Rec.601 luminance bytes, a gameplay rock keeps from EVERY sky
+ * value it falls through.
+ *
+ * Bigger than `DEBRIS_SEPARATION` (18) on purpose, and the reason is the gap
+ * between this model and the pixels rather than a wish for margin. The rendered
+ * sky is the gradient plus an atmosphere pass, a starfield and the light's glow,
+ * so the value a rock is actually measured against moves a few levels either way
+ * from the gradient's own value; 24 keeps the measured separation above the
+ * probe's 0.06 bar (15.3 levels) with that wobble included. The measured worst
+ * case after this change is recorded in
+ * `tests/unit/render/wordRockSeparation.test.ts`.
+ */
+export const SKY_SWEEP_CLEARANCE = 24;
+
+/**
+ * Luminance room the materials at one stop are spread over.
+ *
+ * Without it every debris type at a stop collapses onto one value and Jupiter's
+ * four FR-12b materials - carbonaceous, silicate, metallic, Trojan - become one
+ * rock in four shapes. 16 levels is enough to order them and small enough that
+ * the lightest of them still clears the sky.
+ */
+export const DEBRIS_VALUE_SPREAD = 16;
+
+/**
+ * Absolute bounds, so no stop can push a rock to pure black or blown white.
+ *
+ * The floor is not cosmetic. Below about luminance 24 a rock stops being a
+ * material with a shadow side and becomes a hole in the picture: the facet tone
+ * has nowhere left to go, the 2-tone fill art-direction section 4 asks for
+ * collapses, and the shape reads as a cut-out. Uranus and Pluto both reach it.
+ */
+export const MIN_ROCK_LUMA = 24;
+export const MAX_ROCK_LUMA = 242;
+
+/** Set a colour's Rec.601 luminance, keeping hue and chroma (see `withLightness`). */
+export function withLuma255(hex: string, target: number): string {
+  const want = Math.min(255, Math.max(0, target));
+  // `withLightness` is monotone in its L* argument and `luma255` is monotone in
+  // the result, so a bisection on L* lands on the luminance asked for. Thirty
+  // halvings of [0, 100] is exact to far under one 8-bit step.
+  let lo = 0;
+  let hi = 100;
+  for (let i = 0; i < 30; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (luma255(withLightness(hex, mid)) < want) lo = mid;
+    else hi = mid;
+  }
+  return withLightness(hex, (lo + hi) / 2);
+}
+
+/** The sky's colour at height fraction `t` for a given knee position. */
+function skyAtKnee(stops: readonly [string, string, string], t: number, knee: number): string {
+  const [top, mid, bottom] = stops;
+  const u = Math.min(1, Math.max(0, t));
+  return u < knee
+    ? mixHex(top, mid, u / knee)
+    : mixHex(mid, bottom, (u - knee) / Math.max(1e-6, 1 - knee));
+}
+
+/**
+ * Every luminance the sky takes behind a falling rock, as a closed range.
+ *
+ * Both skies (AC-22.3 travels the gradient across a stage, so the late sky is
+ * behind rocks too) and every knee position in `SKY_KNEE_RANGE`.
+ */
+export function skyLumaSweep(p: StopPalette): { readonly min: number; readonly max: number } {
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (const stops of [skyStops(p), skyStopsLate(p)]) {
+    for (let k = 0; k <= 8; k += 1) {
+      const knee = SKY_KNEE_RANGE[0] + ((SKY_KNEE_RANGE[1] - SKY_KNEE_RANGE[0]) * k) / 8;
+      for (let i = 0; i <= 80; i += 1) {
+        const v = luma255(skyAtKnee(stops, (i / 80) * ROCK_SKY_SPAN, knee));
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+    }
+  }
+  return { min, max };
+}
+
+/**
+ * The luminance window a gameplay rock at this stop may take: outside the sky's
+ * sweep, on the side art-direction section 2 puts the near layers.
+ *
+ * `lo` is the darkest and `hi` the lightest; a stop's materials are laid out
+ * across it in their own order by `rockLumaFor`.
+ */
+export function rockLumaWindow(p: StopPalette): { readonly lo: number; readonly hi: number } {
+  const sweep = skyLumaSweep(p);
+  if (isBrightStop(p)) {
+    const hi = Math.max(MIN_ROCK_LUMA + DEBRIS_VALUE_SPREAD, sweep.min - SKY_SWEEP_CLEARANCE);
+    return { lo: Math.max(MIN_ROCK_LUMA, hi - DEBRIS_VALUE_SPREAD), hi };
+  }
+  const lo = Math.min(MAX_ROCK_LUMA - DEBRIS_VALUE_SPREAD, sweep.max + SKY_SWEEP_CLEARANCE);
+  return { lo, hi: Math.min(MAX_ROCK_LUMA, lo + DEBRIS_VALUE_SPREAD) };
+}
+
+/**
+ * The luminance the `rank`-th darkest of `count` materials takes at this stop.
+ *
+ * A stop with ONE material puts it in the MIDDLE of the window, not at either
+ * end. The sky-facing end is exactly `SKY_SWEEP_CLEARANCE` and the far end is
+ * that plus the whole spread, and neither extreme is the right answer: the near
+ * edge spends all the margin, and the far edge buys margin the probe does not
+ * need by taking Uranus' already-dark ice to near-black, where it stops being a
+ * material and starts being a hole. The midpoint is 32 levels from the sky,
+ * twice the probe's bar.
+ */
+export function rockLumaFor(p: StopPalette, rank: number, count: number): number {
+  const { lo, hi } = rockLumaWindow(p);
+  if (count <= 1) return (lo + hi) / 2;
+  const r = Math.min(count - 1, Math.max(0, rank));
+  return lo + ((hi - lo) * r) / (count - 1);
+}

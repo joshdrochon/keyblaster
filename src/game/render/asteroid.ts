@@ -1,6 +1,25 @@
-import Phaser from "phaser";
+// TYPE-ONLY, and it matters. Nothing in this file calls into Phaser at runtime -
+// every drawing entry point is handed the Graphics or the Scene it draws on - so
+// importing the namespace as a value was the only thing that made this module
+// unloadable in Vitest ("window is not defined"). With the import erased, the
+// FR-12b table and the UR-47 fill rule below are unit-testable without a browser
+// and without a Phaser mock, which is where their negative control now lives.
+import type Phaser from "phaser";
 import type { StopId } from "@engine/types.js";
-import { hexToInt } from "./wordPlate.js";
+import {
+  hexToNum,
+  luma255,
+  paletteFor,
+  rockLumaFor,
+  withLuma255,
+} from "./palette.js";
+
+/**
+ * `wordPlate.hexToInt` did this job and pulled Phaser in with it. `hexToNum`
+ * from `palette.ts` is the same parse for the 6-digit hexes this file and
+ * `palettes.json` use; the shorthand form `#abc` has never appeared in either.
+ */
+const hexToInt = hexToNum;
 
 /**
  * Vector debris (D71, D83; PRD FR-12b; art-direction.md section 4).
@@ -457,6 +476,112 @@ export function hasThreeVariants(type: DebrisType): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// UR-47: the colour a gameplay rock is actually drawn in
+// ---------------------------------------------------------------------------
+
+/**
+ * THE FILL A WORD-ASTEROID TAKES ON SCREEN, and why it is not `type.fill`.
+ *
+ * `DebrisType.fill` above is the MATERIAL: what this rock is made of, at full
+ * value, as FR-12b and art-direction section 4 describe it. It is the right
+ * colour for a rock lit from the front and the wrong colour for the one place
+ * the game actually draws rocks - L4, the nearest world layer, in front of a
+ * sky that sweeps most of the value range from the top of the frame to the
+ * bottom.
+ *
+ * `FlightScene.spawnRock` used to pass `type.fill` straight through, and the
+ * consequence is UR-47, the oldest open user-reported ticket: a rock whose value
+ * lies inside the sky's sweep is invisible at the one height where the sky has
+ * that value, on every stop, every run. Measured on the shipping game with the
+ * scene frozen so the pixels and the coordinates come from one frame, five of
+ * the six stops with a belt failed the AC-22.4 bar of 0.06 somewhere down the
+ * fall, Saturn worst at 0.0062 - an ice chunk and the sky behind it reading
+ * 227.4 and 225.8. The full table is in `render/palette.ts`, above
+ * `ROCK_SKY_SPAN`, with the reasoning for the rule.
+ *
+ * So the BODY value is set to clear that sweep - down on a bright stop, up on a
+ * dark one, per art-direction section 2's light rule - while hue, chroma and
+ * every other part of the material are kept: the facet stays a step below the
+ * body so the 2-tone fill survives, and the rim on the lit side and the glint
+ * keep the material's own colours, which is where the eye now reads what the
+ * rock is made of.
+ *
+ * Nothing else calls `drawDebris`. The decorative debris on the far planes goes
+ * through `parallax.materialsFor`, which reads `type.fill` directly and is
+ * deliberately untouched: those rocks are far away, they belong to their plane's
+ * value, and they are not what a child has to read a word off.
+ */
+
+/** How far below the body the crater/facet tone sits, in Rec.601 luminance. */
+export const FACET_VALUE_STEP = 20;
+
+/**
+ * Alpha of the lit-side rim.
+ *
+ * Raised from 0.50. On a rock drawn at its material value the rim was a grace
+ * note; on a rock drawn as its own shadow side it is the only place the material
+ * colour appears, and at 0.5 over a near-black body it was not appearing.
+ */
+export const RIM_ALPHA = 0.65;
+
+/** Cache: the derivation bisects twice and a stage spawns dozens of rocks. */
+const FILL_CACHE = new Map<string, string>();
+
+/**
+ * Word-carrying materials at a stop, DARKEST FIRST.
+ *
+ * The order is what keeps Jupiter's four FR-12b materials four materials: they
+ * are laid across `rockLumaWindow` in this order, so C-type carbonaceous is
+ * still the darkest of them and M-type metallic still the lightest, they are
+ * simply all now on the dark side of the sky instead of straddling it.
+ */
+function materialOrder(stop: StopId): readonly DebrisType[] {
+  return [...wordDebrisTypesFor(stop)].sort((a, b) => luma255(a.fill) - luma255(b.fill));
+}
+
+/**
+ * @param fillOverride D41's declared colourblind fill, when that palette is on.
+ *        It is a single colour for the whole stop, so there is no material order
+ *        to preserve and it takes the middle of the window - but it gets the
+ *        same sky clearance, because a colourblind player is not less entitled
+ *        to see the rock.
+ */
+export function wordRockFill(type: DebrisType, fillOverride?: string | null): string {
+  const base = fillOverride ?? type.fill;
+  const key = `${type.stop}|${type.id}|${base}`;
+  const hit = FILL_CACHE.get(key);
+  if (hit !== undefined) return hit;
+  const palette = paletteFor(type.stop);
+  let target: number;
+  if (fillOverride !== undefined && fillOverride !== null) {
+    target = rockLumaFor(palette, 0, 1);
+  } else {
+    const order = materialOrder(type.stop);
+    const rank = order.findIndex((d) => d.id === type.id);
+    target = rockLumaFor(palette, Math.max(0, rank), Math.max(1, order.length));
+  }
+  const out = withLuma255(base, target);
+  FILL_CACHE.set(key, out);
+  return out;
+}
+
+/**
+ * The facet tone for a body drawn at `bodyFill`: art-direction's darker half.
+ *
+ * The facet takes the GENTLER of two drops - a flat `FACET_VALUE_STEP` and a
+ * proportion of the body - which is the proportional one exactly when the body
+ * is dark. A flat 20-level drop off Uranus' body (luminance 32) lands on 12,
+ * which against a body of 32 is not a crater, it is a black spot: the same "one
+ * value, no structure" failure this whole change exists to remove, reproduced
+ * inside the rock. At the light end the flat drop wins and the 2-tone stays
+ * subtle, which is what art-direction section 4 asks for.
+ */
+export function wordRockFacet(type: DebrisType, bodyFill: string): string {
+  const body = luma255(bodyFill);
+  return withLuma255(type.facet, Math.max(6, body - FACET_VALUE_STEP, body * 0.58));
+}
+
+// ---------------------------------------------------------------------------
 // Drawing
 // ---------------------------------------------------------------------------
 
@@ -499,17 +624,20 @@ export function drawDebris(
 
   g.clear();
 
-  g.fillStyle(hexToInt(options.fillOverride ?? type.fill), 1);
+  // UR-47: the body is the material moved to a value that clears the sky this
+  // rock falls through, not the material itself. See `wordRockFill`.
+  const body = wordRockFill(type, options.fillOverride);
+  g.fillStyle(hexToInt(body), 1);
   g.fillPoints(points as Phaser.Types.Math.Vector2Like[], true, true);
 
-  g.fillStyle(hexToInt(type.facet), 0.55);
+  g.fillStyle(hexToInt(wordRockFacet(type, body)), 0.55);
   for (const facet of shape.facets) {
     g.fillCircle(facet.x * radius, facet.y * radius, facet.r * radius);
   }
 
   // Rim: a second offset outline on the lit side only, 10-15% lighter.
   const offset = radius * 0.06;
-  g.lineStyle(Math.max(1, sizePx * 0.022), hexToInt(type.rim), 0.5);
+  g.lineStyle(Math.max(1, sizePx * 0.022), hexToInt(type.rim), RIM_ALPHA);
   g.beginPath();
   const lit = points.filter((_p, i) => {
     const angle = -Math.PI / 2 + (i / points.length) * Math.PI * 2;

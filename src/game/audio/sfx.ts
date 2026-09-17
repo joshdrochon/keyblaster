@@ -176,6 +176,30 @@ export interface ClickLayer {
 export const CLICK_JITTER = Object.freeze({ hz: 0.18, gain: 0.22 });
 
 /**
+ * UR-45 - WHY EVERY BANDPASS VARIANT WAS THE QUIET ONE.
+ *
+ * Rendered variant by variant, the spread between siblings of one event was:
+ *
+ *   warp        17.6 dB    warp.2      bandpass @ 1800, tone  220 -> 880 Hz
+ *   warpCharge  15.5 dB    warpCharge.2 bandpass @  700, tone   62 -> 247 Hz
+ *   lock        12.7 dB    lock.2      bandpass @ 1600, tone  470 -> 705 Hz
+ *   shield       9.2 dB    shield.0/.2 bandpass @ 900/760
+ *   every lowpass/highpass event: under 3 dB
+ *
+ * One warp takeoff in three was 17 dB down - effectively silent, on the game's
+ * biggest moment. The pattern is exact and it is not a coincidence: a bandpass
+ * CENTRED OUTSIDE ITS OWN TONE'S SWEEP deletes the fundamental and leaves the
+ * harmonics, and a triangle's harmonics are 1/n^2. UR-13 made warp.2 worse by
+ * moving its tone two octaves down without moving the filter with it.
+ *
+ * Two changes, both structural rather than per-variant patches: every bandpass
+ * centre now sits INSIDE its variant's own sweep, and the Q comes down so a
+ * glide is coloured rather than gated. `rendered.test.ts` holds the sibling
+ * spread under 6 dB for every event, so this class cannot come back quietly.
+ */
+export const BANDPASS_Q = 0.8;
+
+/**
  * UR-44 SET THE CEILING ON THE CLICK GAINS, AND UR-34 SET THE FLOOR.
  *
  * The first pass ran the click at 0.46-0.54 and a press peaked 0.21 median
@@ -222,7 +246,7 @@ export const SFX_VARIANTS: Readonly<Record<SfxEventId, readonly SfxVariant[]>> =
   lock: table("lock", [
     { wave: "triangle", startHz: 520, endHz: 780, durationMs: 130, attackMs: 4, peakGain: 0.16, filterKind: "lowpass", filterHz: 3200, noise: 0.05, harshness: 0.05, pan: -0.1 },
     { wave: "sine", startHz: 620, endHz: 930, durationMs: 150, attackMs: 6, peakGain: 0.15, filterKind: "lowpass", filterHz: 2800, noise: 0.0, harshness: 0.0, pan: 0.12 },
-    { wave: "triangle", startHz: 470, endHz: 705, durationMs: 110, attackMs: 3, peakGain: 0.17, filterKind: "bandpass", filterHz: 1600, noise: 0.08, harshness: 0.08, pan: 0.0 },
+    { wave: "triangle", startHz: 470, endHz: 705, durationMs: 110, attackMs: 3, peakGain: 0.17, filterKind: "bandpass", filterHz: 580, noise: 0.08, harshness: 0.08, pan: 0.0 },
   ]),
   // The percussive half of a keypress. The PITCHED half is keystrokeTone.ts
   // (D75), which is why these are tiny: two layers, one tick, one note.
@@ -274,7 +298,7 @@ export const SFX_VARIANTS: Readonly<Record<SfxEventId, readonly SfxVariant[]>> =
       sub: { startHz: 132, endHz: 70, durationMs: 460, gain: 0.15 } },
     { wave: "square", startHz: 640, endHz: 150, durationMs: 300, attackMs: 2, peakGain: 0.32, filterKind: "lowpass", filterHz: 4400, noise: 0.62, harshness: 0.5, pan: 0.18,
       sub: { startHz: 116, endHz: 62, durationMs: 520, gain: 0.16 } },
-    { wave: "sawtooth", startHz: 900, endHz: 220, durationMs: 220, attackMs: 1, peakGain: 0.36, filterKind: "bandpass", filterHz: 2600, noise: 0.48, harshness: 0.4, pan: 0.02,
+    { wave: "sawtooth", startHz: 1500, endHz: 220, durationMs: 220, attackMs: 1, peakGain: 0.36, filterKind: "bandpass", filterHz: 1300, noise: 0.48, harshness: 0.4, pan: 0.02,
       sub: { startHz: 155, endHz: 78, durationMs: 400, gain: 0.14 } },
   ]),
   // A rock reaches the hull. D31: this is a WARM LOW THUD you feel, never an
@@ -287,9 +311,9 @@ export const SFX_VARIANTS: Readonly<Record<SfxEventId, readonly SfxVariant[]>> =
   ]),
   // Shields absorb: a rising filtered swell, glassy and protective.
   shield: table("shield", [
-    { wave: "triangle", startHz: 240, endHz: 620, durationMs: 420, attackMs: 40, peakGain: 0.2, filterKind: "bandpass", filterHz: 900, noise: 0.35, harshness: 0.12, pan: -0.2 },
+    { wave: "triangle", startHz: 240, endHz: 620, durationMs: 420, attackMs: 40, peakGain: 0.2, filterKind: "bandpass", filterHz: 400, noise: 0.35, harshness: 0.12, pan: -0.2 },
     { wave: "sine", startHz: 300, endHz: 760, durationMs: 380, attackMs: 30, peakGain: 0.19, filterKind: "highpass", filterHz: 420, noise: 0.28, harshness: 0.1, pan: 0.2 },
-    { wave: "triangle", startHz: 200, endHz: 540, durationMs: 460, attackMs: 55, peakGain: 0.21, filterKind: "bandpass", filterHz: 760, noise: 0.42, harshness: 0.15, pan: 0.0 },
+    { wave: "triangle", startHz: 200, endHz: 540, durationMs: 460, attackMs: 55, peakGain: 0.21, filterKind: "bandpass", filterHz: 340, noise: 0.42, harshness: 0.15, pan: 0.0 },
   ]),
   // The warp drive spools. Long, slow, climbing - anticipation.
   //
@@ -302,7 +326,7 @@ export const SFX_VARIANTS: Readonly<Record<SfxEventId, readonly SfxVariant[]>> =
   warpCharge: table("warpCharge", [
     { wave: "triangle", startHz: 73.42, endHz: 293.66, durationMs: 1800, attackMs: 220, peakGain: 0.22, filterKind: "lowpass", filterHz: 1400, noise: 0.25, harshness: 0.12, pan: 0.0 },
     { wave: "sine", startHz: 87.31, endHz: 349.23, durationMs: 2000, attackMs: 260, peakGain: 0.2, filterKind: "lowpass", filterHz: 1800, noise: 0.18, harshness: 0.06, pan: -0.14 },
-    { wave: "triangle", startHz: 61.74, endHz: 246.94, durationMs: 1600, attackMs: 180, peakGain: 0.24, filterKind: "bandpass", filterHz: 700, noise: 0.32, harshness: 0.15, pan: 0.15 },
+    { wave: "triangle", startHz: 61.74, endHz: 246.94, durationMs: 1600, attackMs: 180, peakGain: 0.24, filterKind: "bandpass", filterHz: 130, noise: 0.32, harshness: 0.15, pan: 0.15 },
   ]),
   // D62: "warp is a full stinger". The loudest, longest thing in the game.
   //
@@ -324,7 +348,7 @@ export const SFX_VARIANTS: Readonly<Record<SfxEventId, readonly SfxVariant[]>> =
   warp: table("warp", [
     { wave: "triangle", startHz: 196.0, endHz: 784.0, durationMs: 1500, attackMs: 26, peakGain: 0.38, filterKind: "lowpass", filterHz: 3200, noise: 0.26, harshness: 0.16, pan: 0.0 },
     { wave: "sine", startHz: 261.63, endHz: 1046.5, durationMs: 1700, attackMs: 34, peakGain: 0.36, filterKind: "lowpass", filterHz: 2600, noise: 0.32, harshness: 0.1, pan: -0.1 },
-    { wave: "triangle", startHz: 220.0, endHz: 880.0, durationMs: 1350, attackMs: 20, peakGain: 0.4, filterKind: "bandpass", filterHz: 1800, noise: 0.2, harshness: 0.18, pan: 0.12 },
+    { wave: "triangle", startHz: 220.0, endHz: 880.0, durationMs: 1350, attackMs: 20, peakGain: 0.47, filterKind: "bandpass", filterHz: 460, noise: 0.2, harshness: 0.18, pan: 0.12 },
   ]),
   // A beacon is lit at a stop: a clear bell, the reward tone of the whole game.
   beacon: table("beacon", [
@@ -662,7 +686,11 @@ export class SfxBus {
     const filter = this.ctx.createBiquadFilter();
     filter.type = variant.filterKind;
     filter.frequency.setValueAtTime(variant.filterHz, now);
-    filter.Q.setValueAtTime(variant.filterKind === "bandpass" ? 1.8 : 0.7, now);
+    // UR-45: 0.8, not 1.8. A bandpass this narrow over a tone that SWEEPS only
+    // passes the sound for the instant it crosses the centre, and the rest of
+    // the glide is thrown away. Broad enough to colour, wide enough that a
+    // variant is still audibly its event.
+    filter.Q.setValueAtTime(variant.filterKind === "bandpass" ? BANDPASS_Q : 0.7, now);
 
     const panner = this.ctx.createStereoPanner();
     panner.pan.setValueAtTime(clamp(variant.pan, -1, 1), now);

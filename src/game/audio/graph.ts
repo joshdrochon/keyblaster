@@ -168,27 +168,57 @@ export class SidechainDucker implements Ducker {
       target.gain.gain.cancelScheduledValues(now);
       target.gain.gain.setValueAtTime(target.gain.gain.value, now);
       target.gain.gain.linearRampToValueAtTime(to, now + rampMs / 1000);
+      // UR-46: remember what was committed, because a real `AudioParam` cannot
+      // be asked afterwards. See `scheduledReductionDb`.
+      this.committed.set(target.id, { base: target.base, target: to });
     }
   }
 
   /**
-   * MEASURED reduction, in dB, per bus: duck, read, release, read. This is what
-   * the evidence artifact reports - the number comes out of the graph, it is
-   * not copied from `duckDb`.
+   * The reduction this sidechain SCHEDULED, in dB, per bus.
+   *
+   * UR-46 - THIS USED TO CLAIM TO BE A MEASUREMENT AND WAS NOT.
+   *
+   * It read `gain.value` immediately after `duck(true)`, which schedules a
+   * `linearRampToValueAtTime`. On a real `AudioContext` a scheduled ramp does
+   * not move `.value` at all, so on the shipping context this returned 0 dB for
+   * every bus. It returned -6 only under `NullAudioContext`, whose `NullParam`
+   * applies a ramp synchronously (nullContext.ts) - and `NullAudioContext` is
+   * what the evidence emitter runs on. So `audio-graph.json` has been reporting
+   * a number produced by the harness rather than by the product, which is the
+   * pattern docs/verification-gaps.md is about.
+   *
+   * There is no honest way to read a ramp back off a real `AudioParam` - the
+   * Web Audio API exposes no automation introspection - so this no longer
+   * pretends to. It reports what the ducker COMMITTED: the ramp target it
+   * wrote, against the base it wrote it from, recorded at the moment it was
+   * scheduled. That is a true statement about the graph on every context, and
+   * it is not a restatement of `duckDb`, because a bus whose base moved under a
+   * settings slider gives a different answer.
+   *
+   * THE AUDIO ITSELF is measured in `tests/unit/audio/rendered.test.ts`, by
+   * rendering the duck and reading the samples. That is the check that would
+   * catch a ramp that never arrives; this one cannot, and no longer says it can.
    */
-  measureReductionDb(): Record<string, number> {
-    const before = new Map<BusId, number>();
-    for (const t of this.targets) before.set(t.id, t.gain.gain.value);
-
+  scheduledReductionDb(): Record<string, number> {
+    const wasDucking = this.ducking;
     this.duck(true);
-    const measured: Record<string, number> = {};
+    const out: Record<string, number> = {};
     for (const t of this.targets) {
-      const base = before.get(t.id) ?? t.base;
-      measured[t.id] = base > 0 ? gainToDb(t.gain.gain.value / base) : Number.NEGATIVE_INFINITY;
+      const committed = this.committed.get(t.id);
+      // A bus already at zero has no reduction to express, and reporting 0 dB
+      // for it would read as "not ducked". Same answer this always gave.
+      out[t.id] =
+        committed === undefined || committed.base <= 0
+          ? Number.NEGATIVE_INFINITY
+          : gainToDb(committed.target / committed.base);
     }
-    this.duck(false);
-    return measured;
+    if (!wasDucking) this.duck(false);
+    return out;
   }
+
+  /** What the last ramp on each bus was aimed at, and where from. */
+  private readonly committed = new Map<BusId, { base: number; target: number }>();
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +277,13 @@ export interface AudioGraph {
    * lines that never need it.
    */
   readonly voiceClipIds: readonly string[];
+  /**
+   * How many times Shadow has chirped (UR-25). The chirp stands in for every
+   * line that will make no sound, so a run with spoken lines and zero chirps
+   * and no clips is a mute robot - which is exactly what UR-25 reported and
+   * what nothing could see.
+   */
+  readonly chirpCount: number;
   /** Step the time-based buses. One call per frame from the scene. */
   advance(dtMs: number): void;
   /** Set the overall level without disturbing the ducker's captured bases. */
@@ -309,6 +346,18 @@ export function buildAudioGraph(ctx: AudioContextLike, options: AudioGraphOption
       ? null
       : createVoiceClipPlayer(ctx, buses.voice, options.voiceClips, options.voiceEnv.schedule);
 
+  /**
+   * UR-25 / UR-46: the chirp's only observable trace.
+   *
+   * `playChirp` builds nodes on the voice bus and touches no history, so once
+   * the chirp stopped borrowing `uiNav` there was nothing left for a test to
+   * read - and `shadow-voice.spec.ts` was still counting `sfx.history()`, which
+   * the chirp no longer reaches. An assertion with nothing behind it is worse
+   * than none, so the graph counts them.
+   */
+  let chirps = 0;
+  const chirp = options.voiceEnv.chirp ?? ((): void => playChirp(ctx, buses.voice));
+
   const voiceEnv: VoiceEnvironment = {
     ...options.voiceEnv,
     // UR-25 - SHADOW'S OWN SOUND, ON SHADOW'S OWN BUS.
@@ -319,7 +368,10 @@ export function buildAudioGraph(ctx: AudioContextLike, options: AudioGraphOption
     // firing in. It is now its own recipe routed to `buses.voice`, so it ducks,
     // fades and mixes with Shadow's recorded lines because it IS one of them.
     // See chirp.ts for how far it is held from the keystroke tick.
-    chirp: options.voiceEnv.chirp ?? ((): void => playChirp(ctx, buses.voice)),
+    chirp: (): void => {
+      chirps += 1;
+      chirp();
+    },
     ...(clips !== null ? { clips } : {}),
   };
   // The bus serialises Shadow's lines and holds the AC-21.4 duck across the
@@ -333,6 +385,9 @@ export function buildAudioGraph(ctx: AudioContextLike, options: AudioGraphOption
   return {
     ctx,
     buses,
+    get chirpCount(): number {
+      return chirps;
+    },
     voiceClipIds: clips === null ? [] : (options.voiceClips?.ids() ?? []),
     music,
     ambient,

@@ -746,3 +746,57 @@ export function spectralRolloffHz(
   }
   return sampleRate / 2;
 }
+
+/**
+ * The signal's loudness contour, as one value per `windowMs`.
+ *
+ * Periodicity in NOISE is not visible in the samples - two laps of a loop are
+ * bit-identical but so is any other pair of identical buffers, and the ear does
+ * not hear samples. What an ear latches onto in wind is the GUST PATTERN, which
+ * is the envelope. So that is what gets measured.
+ */
+export function envelope(samples: Float32Array, sampleRate: number, windowMs = 50): Float64Array {
+  const win = Math.max(1, Math.floor((sampleRate * windowMs) / 1000));
+  const count = Math.floor(samples.length / win);
+  const out = new Float64Array(Math.max(0, count));
+  for (let k = 0; k < count; k++) {
+    let sum = 0;
+    for (let i = 0; i < win; i++) sum += (samples[k * win + i] as number) ** 2;
+    out[k] = Math.sqrt(sum / win);
+  }
+  return out;
+}
+
+/**
+ * Normalised autocorrelation of an envelope at a lag given in seconds.
+ *
+ * Mean-removed, so a constant level correlates at 0 rather than at 1 and the
+ * number means "does the SHAPE repeat" rather than "is it the same loudness".
+ * 1.0 is a perfect repeat; a loop of length L scores ~1.0 at every multiple
+ * of L and noise scores near 0 everywhere else.
+ */
+export function envelopeAutocorrelation(
+  env: Float64Array,
+  sampleRate: number,
+  lagSeconds: number,
+  windowMs = 50,
+): number {
+  const lag = Math.round((lagSeconds * 1000) / windowMs);
+  const n = env.length - lag;
+  if (lag <= 0 || n <= 8) return 0;
+  let mean = 0;
+  for (const v of env) mean += v;
+  mean /= env.length;
+  let num = 0;
+  let a2 = 0;
+  let b2 = 0;
+  for (let i = 0; i < n; i++) {
+    const a = (env[i] as number) - mean;
+    const b = (env[i + lag] as number) - mean;
+    num += a * b;
+    a2 += a * a;
+    b2 += b * b;
+  }
+  const den = Math.sqrt(a2 * b2);
+  return den <= 0 ? 0 : num / den;
+}

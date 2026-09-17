@@ -177,11 +177,19 @@ async function spoken(page: Page): Promise<SpokenRecord[]> {
   );
 }
 
-async function sfxCount(page: Page): Promise<number> {
+/**
+ * UR-25: chirps, read off the graph's own counter.
+ *
+ * This used to count `graph.sfx.history()`, because the chirp borrowed `uiNav`
+ * from the SFX bus. It does not any more - it is its own recipe on the VOICE
+ * bus, where Shadow's recorded lines live - so that count could no longer see
+ * it, and the assertion below was passing or failing for unrelated reasons.
+ */
+async function chirpCount(page: Page): Promise<number> {
   return page.evaluate(() => {
     const kb = (window as unknown as { __kb: Record<string, unknown> }).__kb;
-    const audio = kb["audio"] as { graph: { sfx: { history(): unknown[] } } };
-    return audio.graph.sfx.history().length;
+    const audio = kb["audio"] as { graph: { chirpCount: number } };
+    return audio.graph.chirpCount;
   });
 }
 
@@ -248,7 +256,7 @@ test.describe("AC-21.5: Shadow speaks through the system voice", () => {
     // The voices loaded, and the transport STILL refuses them.
     expect(await transportId(page)).toBe("silent");
 
-    const before = await sfxCount(page);
+    const before = await chirpCount(page);
     await speak(page, "Mars ahead.");
 
     // Nothing reached the platform: zero network TTS.
@@ -257,7 +265,7 @@ test.describe("AC-21.5: Shadow speaks through the system voice", () => {
     // But the game did not silently do nothing either - the line chirped, so
     // the player still gets "he said something" (D31: a chirp, never a failure
     // sound).
-    expect(await sfxCount(page)).toBeGreaterThan(before);
+    expect(await chirpCount(page)).toBeGreaterThan(before);
   });
 
   test("AC-21.6: the line renders whether or not it is spoken", async ({ page }) => {

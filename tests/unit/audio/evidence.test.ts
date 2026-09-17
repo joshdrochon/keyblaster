@@ -40,7 +40,7 @@ import { buildAudioEvidence, countingFetchProbe } from "../../../src/game/audio/
 import { STOP_IDS } from "../../../src/engine/types.js";
 import { SFX_EVENTS, MIN_VARIANTS_PER_EVENT } from "../../../src/game/audio/sfx.js";
 import { MUSIC_LAYER_COUNT } from "../../../src/game/audio/music.js";
-import { fakeVoiceEnvironment } from "./fakes.js";
+import { fakeVoiceEnvironment, shippingVoiceEnvironment } from "./fakes.js";
 
 interface RubricItem {
   readonly id: string;
@@ -53,6 +53,9 @@ const REPO = process.cwd();
 const EVIDENCE_DIR = join(REPO, "gauntlet/evidence");
 const ARTIFACT = "audio-graph.json";
 const AUDIO_SRC = join(REPO, "src/game/audio");
+
+/** The one rubric item D98 collided with. See C16 and the test that pins it. */
+const COLLIDING_ITEM = "A-21.5";
 
 /**
  * The static half of the AC-21.5 network claim. The runtime probe proves the
@@ -72,7 +75,13 @@ function staticNetworkReferences(): number {
   return hits;
 }
 
-const { env } = fakeVoiceEnvironment();
+/**
+ * UR-46: the artifact is built on the env a CHILD gets, not the one a test
+ * opts into. See `shippingVoiceEnvironment`. This single substitution is what
+ * turns `voiceTransport` from "webspeech" into the truth, and it is what makes
+ * rubric item A-21.5 go red - see the documented collision below.
+ */
+const { env } = shippingVoiceEnvironment();
 const evidenceData = buildAudioEvidence(env, {
   rotationsPerEvent: 300,
   staticNetworkReferences: staticNetworkReferences(),
@@ -111,8 +120,22 @@ describe("the audio evidence artifact is derived from the real graph", () => {
     expect(Number.isFinite(evidenceData.duckDb)).toBe(true);
   });
 
-  it("AC-21.5: reports the transport the factory returned, and zero TTS calls", () => {
-    expect(evidenceData.voiceTransport).toBe("webspeech");
+  /**
+   * UR-46. THIS EXPECTED "webspeech" AND THAT WAS THE DEFECT, not the fix.
+   *
+   * The artifact was built on `fakeVoiceEnvironment`, which sets
+   * `allowSystemVoice: true` and documents itself as the "this session opted in"
+   * fixture. Under D98 the platform voice is OFF unless the URL asks for it, so
+   * no child is ever on that path - and the evidence for AC-21.5 was describing
+   * a session nobody has.
+   *
+   * This is not a threshold moved to fit a new number. `runtimeTtsNetworkCalls`
+   * - the half of AC-21.5 that is actually about network TTS - is unchanged and
+   * still zero. What changed is that the transport field now says what a player
+   * gets.
+   */
+  it("AC-21.5: reports the transport a CHILD gets, and zero TTS calls", () => {
+    expect(evidenceData.voiceTransport).toBe("silent");
     expect(evidenceData.runtimeTtsNetworkCalls).toBe(0);
   });
 
@@ -132,7 +155,7 @@ describe("the audio evidence artifact is derived from the real graph", () => {
   });
 
   it("is reproducible: a second run of the same graph reports the same thing", () => {
-    const again = buildAudioEvidence(fakeVoiceEnvironment().env, {
+    const again = buildAudioEvidence(shippingVoiceEnvironment().env, {
       rotationsPerEvent: 300,
       staticNetworkReferences: staticNetworkReferences(),
     });
@@ -184,16 +207,48 @@ describe("D85: the artifact is written and turns the audio rubric green", () => 
     expect(roundTripped).toEqual(evidenceData);
   });
 
-  it("A-21.1 .. A-21.5 pass once BOTH the graph and the wiring are evidenced", async () => {
+  it("A-21.1 .. A-21.4 pass once BOTH the graph and the wiring are evidenced", async () => {
     const results = await runAudioItems(
       { [ARTIFACT]: evidenceData, [WIRING]: connectedWiring() },
     );
     for (const [id, result] of results) {
+      if (id === COLLIDING_ITEM) continue;
       expect(`${id}: ${result.status} - ${result.detail}`).toBe(`${id}: pass - ${result.detail}`);
     }
     expect([...results.keys()]).toEqual(
       expect.arrayContaining(["A-21.1", "A-21.2", "A-21.3", "A-21.4", "A-21.5"]),
     );
+  });
+
+  /**
+   * A-21.5 IS RED, ON PURPOSE, AND THIS IS THE RECORD OF WHY (C16).
+   *
+   * The rubric item asserts `voiceTransport === "webspeech"`, sourced to D88.
+   * D98 superseded D88 - the platform voice is off unless the URL asks for it -
+   * so the shipping build's transport is `silent` and the item cannot pass on an
+   * honest artifact. It passed until now only because the emitter was built on
+   * the opt-in fixture.
+   *
+   * NOTHING HERE MAKES IT PASS. `tests/gauntlet/rubric.mjs` is untouched: the
+   * decision log outranks the rubric (CLAUDE.md precedence 1 over 3) and
+   * rewriting the item's expectation to match the new number is re-baselining,
+   * which nobody on this project may do. The gauntlet run reports A-21.5 red,
+   * which is the truth and is where the verdict belongs.
+   *
+   * This test pins the collision so it cannot be forgotten, and it FAILS THE DAY
+   * A-21.5 GOES GREEN - which forces whoever resolves C16 to come back here and
+   * delete it deliberately rather than letting the red quietly heal.
+   */
+  it("C16: A-21.5 is red because D98 retired the transport D88 asked for", async () => {
+    const results = await runAudioItems(
+      { [ARTIFACT]: evidenceData, [WIRING]: connectedWiring() },
+    );
+    const item = results.get(COLLIDING_ITEM);
+    expect(item?.status, "C16 is resolved - delete this test and unskip A-21.5").toBe("fail");
+    // And it is red for THIS reason, not some other regression that happens to
+    // land on the same item.
+    expect(evidenceData.voiceTransport).toBe("silent");
+    expect(evidenceData.runtimeTtsNetworkCalls).toBe(0);
   });
 });
 

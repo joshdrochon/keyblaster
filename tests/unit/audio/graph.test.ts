@@ -140,19 +140,19 @@ describe("AC-21.4: the voice bus sidechains Music and Ambient", () => {
     expect(DUCK_TARGET_IDS).not.toContain("voice");
   });
 
-  it("AC-21.4: the measured reduction is at least 6 dB on every ducked bus", () => {
+  it("AC-21.4: the scheduled reduction is at least 6 dB on every ducked bus", () => {
     const { graph } = build();
-    const measured = graph.ducker.measureReductionDb();
+    const measured = graph.ducker.scheduledReductionDb();
     expect(Object.keys(measured).sort()).toEqual(["ambient", "music"]);
     for (const [bus, db] of Object.entries(measured)) {
       expect(db, bus).toBeLessThanOrEqual(-6);
     }
   });
 
-  it("AC-21.4: measuring leaves the graph exactly as it found it", () => {
+  it("AC-21.4: reading the scheduled reduction leaves the graph as it found it", () => {
     const { graph } = build();
     const before = DUCK_TARGET_IDS.map((id) => graph.buses[id].gain.value);
-    graph.ducker.measureReductionDb();
+    graph.ducker.scheduledReductionDb();
     const after = DUCK_TARGET_IDS.map((id) => graph.buses[id].gain.value);
     after.forEach((v, i) => expect(v).toBeCloseTo(before[i]!, 9));
     expect(graph.ducker.ducking).toBe(false);
@@ -204,7 +204,7 @@ describe("AC-21.4: the voice bus sidechains Music and Ambient", () => {
     const gain = ctx.createGain();
     gain.gain.value = 0;
     const ducker = new SidechainDucker(ctx, [{ id: "music", gain, base: 0 }]);
-    expect(ducker.measureReductionDb()["music"]).toBe(Number.NEGATIVE_INFINITY);
+    expect(ducker.scheduledReductionDb()["music"]).toBe(Number.NEGATIVE_INFINITY);
   });
 });
 

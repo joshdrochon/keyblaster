@@ -136,3 +136,26 @@ export function fakeVoiceEnvironment(
     probe,
   };
 }
+
+/**
+ * THE VOICE ENVIRONMENT A CHILD ACTUALLY GETS (UR-46).
+ *
+ * `fakeVoiceEnvironment` sets `allowSystemVoice: true` - it IS the "this session
+ * opted in with ?voice=system" fixture, and says so. The evidence emitter was
+ * built on it, which is why `audio-graph.json` reported
+ * `voiceTransport: "webspeech"` while the shipping default under D98 is
+ * `silent`. The artifact was describing the harness.
+ *
+ * Same machine, same voice list, same everything else: the ONLY difference is
+ * the opt-in flag, because that is the only difference between the harness and
+ * the product. An evidence artifact built on this one tells the truth about
+ * what a player hears, whatever the rubric currently expects to read.
+ */
+export function shippingVoiceEnvironment(
+  voices: readonly SpeechVoiceLike[] | null = MAC_VOICES,
+  platform: VoiceEnvironment["platform"] = "mac",
+  lang = "en-US",
+): FakeVoiceEnvironment {
+  const built = fakeVoiceEnvironment(voices, platform, lang);
+  return { ...built, env: { ...built.env, allowSystemVoice: false } };
+}

@@ -205,7 +205,8 @@ describe("AC-21.1: beds crossfade on transition", () => {
     const spec = bedSpec("saturn");
     const oscillators = ctx.created.filter((n) => n.kind === "oscillator").length;
     expect(oscillators).toBe(spec.partials.length);
-    expect(ctx.created.filter((n) => n.kind === "bufferSource").length).toBe(1);
+    // UR-43: two noise layers of coprime length, not one.
+    expect(ctx.created.filter((n) => n.kind === "bufferSource").length).toBe(2);
   });
 
   it("UR-13: the bed's movement runs with no transition in flight", () => {
@@ -232,8 +233,17 @@ describe("AC-21.1: beds crossfade on transition", () => {
     ambient.start("earth");
     ambient.transitionTo("mars");
     ambient.advance(AMBIENT_CROSSFADE_MS);
-    // Two sources, but the expensive part - the sample data - was made once.
-    expect(ctx.created.filter((n) => n.kind === "bufferSource").length).toBe(2);
+    // Four sources - two layers per bed - but the expensive part, the sample
+    // data, is still made once per layer and shared (UR-43).
+    expect(ctx.created.filter((n) => n.kind === "bufferSource").length).toBe(4);
+    // Sharing is identity, not a count: the four sources point at exactly two
+    // buffers, so the sample data really was generated once per layer.
+    const buffers = new Set(
+      ctx.created
+        .filter((n) => n.kind === "bufferSource")
+        .map((n) => (n as unknown as { buffer: unknown }).buffer),
+    );
+    expect(buffers.size).toBe(2);
   });
 });
 

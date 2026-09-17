@@ -1,13 +1,13 @@
-# The check and the thing: twelve ways this codebase lied to itself
+# The check and the thing: fourteen ways this codebase lied to itself
 
-Written 2026-09-17, after a night in which twelve separate defects turned
-out to be the same defect.
+Written 2026-09-17, after a night in which fourteen separate defects
+turned out to be the same defect.
 
 Nine had a green test, two had a red one, and one was a picture a person judged. None of the tests
 were wrong about what they asserted. They were wrong about **what they were
 asserting it against.**
 
-This document exists because the thirteenth instance is cheaper to prevent
+This document exists because the fifteenth instance is cheaper to prevent
 than to find, and because "we have 2891 passing tests" stopped being reassuring at
 about the third one.
 
@@ -29,7 +29,7 @@ that binding.
 
 ---
 
-## The twelve
+## The fourteen
 
 | # | What was green | What shipped | Found by |
 |---|---|---|---|
@@ -47,6 +47,15 @@ that binding.
 
 | 11 | **`flight-frame.png` — the image a human judges the whole world art against for the R-world rubric item** | It was **a picture of the Title screen**. KEYBLASTER, the tagline and the play button, on the navy Title sky. Its own JSON said so and nobody read it that way: 90% below L\*40, max luminance 0.177, and a sample grid identical across all nine columns of every row. **Every prior R-world judgement is void; the art lane was handed the wrong picture for the life of the project.** The real flight screen measures 28.6% below L\*40 against the Title's 90.0% | The flight lane, after deleting the parallel boot |
 | 12 | `V-22.3` "the sky travels across a stage", green for months | It was sampling the **backdrop**, which by design never travels. On the real game it measured deltaE **0.00** against a bar of 10 | The same migration |
+
+| 13 | `shadow-voice.spec.ts:251` asserted that Shadow's chirp fires | `playChirp` builds nodes on the **voice** bus and touches `graph.sfx.history()` not at all — so the assertion could neither see a chirp nor miss one. It was not stale; it was **an assertion with nothing behind it**, which is worse than no assertion, because it occupies the space where a real check would go | The audio lane, clearing what it thought was a stale artifact |
+
+| 14 | `V-22.4`'s silhouette probe, reporting **passing** separations of 0.11-0.14 | The art lane pinned a rock's drawn luminance to a known constant, then replicated the spec's method: **3 of 5 frames had `inside` = 112.6 / 133.9 / 112.4 — pure sky, no rock in the core at all.** The probe screenshots, then reads coordinates in a *second* CDP round trip, while rocks fall on the wall clock. It was grading the sky against itself and calling it a pass. At the coordinate the failing run named, a frozen frame reads in 41.4 / out 108.1 / sep 0.2616; the run had reported `out 60.1`, a value the background never takes at that height | The art lane, after making the rock's colour predictable enough to catch the probe lying |
+
+Instance 14 is the one to remember when someone says a test is flaky. It was
+not flaky. It was sampling a moving world through two round trips and reporting
+whatever it happened to land on, in both directions — false green and false red
+from the same bug.
 
 Instance 11 is the worst thing in this document. The other ten are checks that
 measured the wrong thing; this one is a **human** looking at the wrong thing,
@@ -130,6 +139,6 @@ All of that machinery verifies **internal consistency**. None of it verifies
 that the thing being checked is the thing being shipped. That binding is
 maintained by attention, and attention is exactly what a green suite spends.
 
-Every one of the twelve was ultimately found the same way: by someone looking at
+Every one of the fourteen was ultimately found the same way: by someone looking at
 the actual artifact — a screen, a waveform, a route, a rendered page — rather
 than at a result. That is the cheapest available guard and the easiest to skip.

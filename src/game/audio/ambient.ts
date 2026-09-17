@@ -185,8 +185,60 @@ export function ambientCrossfade(elapsedMs: number, durationMs: number): { out: 
   return equalPowerCrossfade(progress(elapsedMs, durationMs));
 }
 
-/** Length of the wind noise loop, in seconds. */
-export const WIND_LOOP_SECONDS = 4;
+/**
+ * UR-43 - THE WIND IS TWO LOOPS OF COPRIME LENGTH, NOT ONE.
+ *
+ * The bed used to run one four-second noise buffer, seeded 0x2b7c19, shared by
+ * all seven planets. Measured as envelope autocorrelation, it was PERFECTLY
+ * periodic: r = 0.87-0.99 at 4.00 s and 8.00 s lag against a median of 0.03 at
+ * every other lag, with the envelope moving 3.2-4.5 dB - real gust structure,
+ * repeated fifteen to twenty-two times a belt, identically on every planet and
+ * in every session.
+ *
+ * UR-10 proved that loop's SEAM was clean and never measured its PERIOD, which
+ * is the same shape of miss that produced the original hum: a real property
+ * checked, the neighbouring one assumed.
+ *
+ * No measurement can settle whether a four-second repeat is invisible or
+ * maddening - only an ear can - so this is built so the question cannot arise.
+ * Two layers of COPRIME length play together, so the pair does not repeat until
+ * their least common multiple: 11 x 13 = 143 seconds, longer than a belt. And
+ * each planet starts both layers at its own offset, so no two worlds are ever
+ * hearing the same gust.
+ */
+export const WIND_LOOP_SECONDS = 11;
+
+/** The second layer. Coprime with the first: 11 x 13 = 143 s before a repeat. */
+export const WIND_LOOP_SECONDS_B = 13;
+
+/** Seeds for the two layers. Different, or the two would be the same noise. */
+export const WIND_SEEDS = Object.freeze({ a: 0x2b7c19, b: 0x6f31ad });
+
+/**
+ * How long the pair goes before it repeats. Derived from the two lengths rather
+ * than stated, so shortening either one fails the test that reads this.
+ */
+export function windCompositePeriodSeconds(
+  a: number = WIND_LOOP_SECONDS,
+  b: number = WIND_LOOP_SECONDS_B,
+): number {
+  const gcd = (x: number, y: number): number => (y === 0 ? x : gcd(y, x % y));
+  return (a * b) / gcd(a, b);
+}
+
+/**
+ * Where a given stop starts reading each wind layer, in seconds.
+ *
+ * Spread evenly around both loops and offset differently per layer, so two
+ * planets never share a gust and a player walking the route hears seven
+ * different winds rather than one wind seven times.
+ */
+export function windOffsetFor(stopId: StopId, layer: "a" | "b"): number {
+  const index = Math.max(0, STOP_IDS.indexOf(stopId));
+  const span = layer === "a" ? WIND_LOOP_SECONDS : WIND_LOOP_SECONDS_B;
+  const turn = (index + (layer === "b" ? 0.5 : 0)) / STOP_IDS.length;
+  return (turn % 1) * span;
+}
 
 /**
  * How much of the tail is folded back over the head to close the loop. A
@@ -238,7 +290,11 @@ export const WIND_WRAP_SECONDS = 0.25;
  * are uncorrelated, and a linear blend of uncorrelated noise dips ~3 dB in the
  * middle - the same reasoning as `equalPowerCrossfade` for the bed transition.
  */
-export function windLoopSamples(sampleRate: number, seconds = WIND_LOOP_SECONDS): Float32Array {
+export function windLoopSamples(
+  sampleRate: number,
+  seconds = WIND_LOOP_SECONDS,
+  seed: number = WIND_SEEDS.a,
+): Float32Array {
   const rate = Number.isFinite(sampleRate) && sampleRate > 0 ? sampleRate : 48000;
   const length = Math.max(1, Math.floor(rate * seconds));
   // At least two samples of overlap, and never more than half the lap.
@@ -248,7 +304,7 @@ export function windLoopSamples(sampleRate: number, seconds = WIND_LOOP_SECONDS)
   // than white is, and costs one add per sample. Run PAST the end by `wrap`
   // so there is real walk to fold back, never a repeat of the head.
   const walk = new Float32Array(length + wrap);
-  const rng = seededRandom(0x2b7c19);
+  const rng = seededRandom(seed);
   let last = 0;
   for (let i = 0; i < walk.length; i++) {
     const white = rng() * 2 - 1;
@@ -484,33 +540,52 @@ export class AmbientBus {
     }
 
     if (spec.windLevel > 0) {
-      const wind = this.ctx.createBufferSource();
-      wind.buffer = this.windBuffer();
-      wind.loop = true;
       const windFilter = this.ctx.createBiquadFilter();
       windFilter.type = "lowpass";
       windFilter.frequency.setValueAtTime(spec.windFilterHz, now);
       const windGain = this.ctx.createGain();
-      windGain.gain.value = spec.windLevel;
-      wind.connect(windFilter);
+      // Two layers summing, so each carries half the power the single layer did
+      // and the bed's level is unchanged. UR-43.
+      windGain.gain.value = spec.windLevel / Math.SQRT2;
       windFilter.connect(windGain);
       windGain.connect(filter);
-      wind.start(now);
+
+      for (const layer of ["a", "b"] as const) {
+        const wind = this.ctx.createBufferSource();
+        wind.buffer = this.windBuffer(layer);
+        wind.loop = true;
+        wind.connect(windFilter);
+        // The OFFSET is what stops seven planets sharing one gust, and the two
+        // coprime lengths are what stop either of them repeating inside a belt.
+        wind.start(now, windOffsetFor(spec.stopId, layer));
+      }
     }
 
     return { spec, gain, breath };
   }
 
-  private static sharedWind: WeakMap<object, AudioBufferLike> = new WeakMap();
+  private static sharedWind: WeakMap<object, Map<string, AudioBufferLike>> = new WeakMap();
 
-  /** Four seconds of deterministic noise, shared by every bed on a context. */
-  private windBuffer(): AudioBufferLike {
-    const cached = AmbientBus.sharedWind.get(this.ctx);
+  /**
+   * One of the two noise layers, generated once per context and shared by every
+   * bed on it. Two buffers of 11 s and 13 s is about 4.6 MB at 48 kHz for the
+   * whole game, against 0.8 MB for the single 4 s loop it replaces - the cost of
+   * the thing not repeating.
+   */
+  private windBuffer(layer: "a" | "b"): AudioBufferLike {
+    let byLayer = AmbientBus.sharedWind.get(this.ctx);
+    if (!byLayer) {
+      byLayer = new Map();
+      AmbientBus.sharedWind.set(this.ctx, byLayer);
+    }
+    const cached = byLayer.get(layer);
     if (cached) return cached;
-    const length = Math.max(1, Math.floor(this.ctx.sampleRate * WIND_LOOP_SECONDS));
+    const seconds = layer === "a" ? WIND_LOOP_SECONDS : WIND_LOOP_SECONDS_B;
+    const seed = layer === "a" ? WIND_SEEDS.a : WIND_SEEDS.b;
+    const length = Math.max(1, Math.floor(this.ctx.sampleRate * seconds));
     const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
-    buffer.getChannelData(0).set(windLoopSamples(this.ctx.sampleRate));
-    AmbientBus.sharedWind.set(this.ctx, buffer);
+    buffer.getChannelData(0).set(windLoopSamples(this.ctx.sampleRate, seconds, seed));
+    byLayer.set(layer, buffer);
     return buffer;
   }
 }

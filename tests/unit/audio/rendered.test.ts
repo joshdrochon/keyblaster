@@ -23,8 +23,21 @@ import {
   spectralRolloffHz,
   stepQuantile,
   tonality,
+  envelope,
+  envelopeAutocorrelation,
 } from "./offline.js";
-import { AMBIENT_BEDS, AmbientBus, bedBreath, bedSpec } from "../../../src/game/audio/ambient.js";
+import {
+  AMBIENT_BEDS,
+  AmbientBus,
+  WIND_LOOP_SECONDS,
+  WIND_LOOP_SECONDS_B,
+  WIND_SEEDS,
+  bedBreath,
+  bedSpec,
+  windCompositePeriodSeconds,
+  windLoopSamples,
+  windOffsetFor,
+} from "../../../src/game/audio/ambient.js";
 import {
   GENTLE_EVENTS,
   GENTLE_LIMITS,
@@ -32,10 +45,11 @@ import {
   SfxBus,
   variantsFor,
   type SfxEventId,
+  type SfxVariant,
 } from "../../../src/game/audio/sfx.js";
 import { KeystrokeTone, WORD_OPENING_SEMITONES, frequencyFor } from "../../../src/game/audio/keystrokeTone.js";
 import { SHADOW_CHIRP, chirpDurationMs, chirpPeakGain, chirpSeparation, playChirp } from "../../../src/game/audio/chirp.js";
-import { buildAudioGraph, busSpec } from "../../../src/game/audio/graph.js";
+import { DUCK_ATTACK_MS, buildAudioGraph, busSpec } from "../../../src/game/audio/graph.js";
 import { installAudio, type ChannelHandler } from "../../../src/game/audio/wiring.js";
 import { seededRandom } from "../../../src/game/audio/context.js";
 import { fakeVoiceEnvironment } from "./fakes.js";
@@ -976,5 +990,223 @@ describe("UR-30: the pitch ladder, driven through the shipping cue stream", () =
     const samples = belt.render();
     expect(rms(samples)).toBeLessThan(0.03);
     expect(peak(samples)).toBeLessThan(0.6);
+  });
+});
+
+/**
+ * UR-45 - NO VARIANT MAY BE THE QUIET ONE.
+ *
+ * AC-21.3 asks for three variants per event so nothing fatigues. It says nothing
+ * about their LEVELS, and nothing checked them, so the table quietly grew a rule
+ * nobody wrote: whichever variant used a bandpass was inaudible next to its
+ * siblings. Rendered variant by variant, before the fix:
+ *
+ *   warp        17.6 dB    warp.2       bandpass @ 1800, tone  220 -> 880 Hz
+ *   warpCharge  15.5 dB    warpCharge.2 bandpass @  700, tone   62 -> 247 Hz
+ *   lock        12.7 dB    lock.2       bandpass @ 1600, tone  470 -> 705 Hz
+ *   shield       9.2 dB    shield.0/.2  bandpass @ 900 / 760
+ *   blast        2.9 dB    beacon 0.9, hit 1.3, typo 1.3, uiNav 1.8, keystroke 2.8
+ *
+ * Every event whose variants are all lowpass or highpass sat inside 3 dB; every
+ * event with a bandpass did not. So one warp takeoff in three was 17 dB down on
+ * the loudest moment in the game, and a player heard the warp "work" twice and
+ * fail once with no pattern they could name.
+ *
+ * The rotation makes this worse than it sounds: the shuffle bag guarantees the
+ * quiet variant comes up exactly as often as the others.
+ */
+describe("UR-45: the three variants of an event are the same size", () => {
+  const renderVariant = (variant: SfxVariant): Float32Array => {
+    const { ctx, output } = onBus("sfx");
+    const bus = new SfxBus(ctx, output);
+    (
+      bus as unknown as {
+        voice: (v: SfxVariant, a: number, b: number, c: number) => void;
+      }
+    ).voice(variant, variant.startHz, variant.endHz, variant.peakGain);
+    return ctx.render(variant.durationMs / 1000 + 0.6);
+  };
+
+  /**
+   * FAILED FIRST on the shipped table: warp 17.6 dB, warpCharge 15.5, lock 12.7,
+   * shield 9.2. The bar is 6 dB - a factor of two in peak - which is looser than
+   * every event that was already correct (all inside 3.3 dB) and tight enough
+   * that a variant cannot go missing.
+   */
+  it("no event has a variant more than 6 dB quieter than its loudest sibling", () => {
+    for (const event of SFX_EVENTS) {
+      const peaks = variantsFor(event).map((v) => peak(renderVariant(v)));
+      const spreadDb = 20 * Math.log10(Math.max(...peaks) / Math.max(1e-9, Math.min(...peaks)));
+      expect(spreadDb, `${event} sibling spread`).toBeLessThan(6);
+    }
+  });
+
+  /**
+   * THE RULE THAT CAUSED IT, stated so it cannot be re-broken by a retune that
+   * happens to keep the levels close. A bandpass centred outside its own tone's
+   * sweep deletes the fundamental and leaves harmonics; a triangle's harmonics
+   * are 1/n^2, which is why warp.2 vanished when UR-13 moved its tone two
+   * octaves down and left the filter at 1800 Hz.
+   */
+  it("every bandpass sits inside the sweep of the tone it filters", () => {
+    for (const event of SFX_EVENTS) {
+      for (const v of variantsFor(event)) {
+        if (v.filterKind !== "bandpass") continue;
+        const lo = Math.min(v.startHz, v.endHz);
+        const hi = Math.max(v.startHz, v.endHz);
+        expect(v.filterHz, `${v.id} centre vs ${lo}-${hi} Hz`).toBeGreaterThanOrEqual(lo);
+        expect(v.filterHz, `${v.id} centre vs ${lo}-${hi} Hz`).toBeLessThanOrEqual(hi);
+      }
+    }
+  });
+});
+
+/**
+ * UR-43 - THE WIND MUST NOT REPEAT INSIDE A BELT.
+ *
+ * The bed ran one 4.000 s noise buffer on a fixed seed, shared by all seven
+ * planets. Measured as envelope autocorrelation it was perfectly periodic:
+ * r = 0.87-0.99 at 4.00 s and 8.00 s lag against a median of 0.03 at every
+ * other lag, with 3.2-4.5 dB of gust movement to latch onto, repeated fifteen
+ * to twenty-two times a belt and identically on every world.
+ *
+ * UR-10 proved that loop's SEAM was clean and never measured its PERIOD. That
+ * is the same miss that produced the original hum complaint: the neighbouring
+ * property assumed because the one in hand was checked.
+ *
+ * No measurement can settle whether a four-second repeat is invisible or
+ * maddening; only an ear can. So these tests do not argue that it was fine.
+ * They assert that the question cannot arise.
+ */
+describe("UR-43: the wind does not repeat inside a belt", () => {
+  it("the two layers are coprime, so the pair outlasts a belt", () => {
+    const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+    expect(gcd(WIND_LOOP_SECONDS, WIND_LOOP_SECONDS_B)).toBe(1);
+    // A belt is roughly 90 s. The pair may not come round inside one.
+    expect(windCompositePeriodSeconds()).toBeGreaterThanOrEqual(120);
+  });
+
+  it("no two worlds hear the same gust", () => {
+    for (const layer of ["a", "b"] as const) {
+      const offsets = AMBIENT_BEDS.map((b) => windOffsetFor(b.stopId, layer).toFixed(6));
+      expect(new Set(offsets).size, `layer ${layer}`).toBe(AMBIENT_BEDS.length);
+    }
+    // And the two layers do not start together either, or the pair would have
+    // one phase and the offsets would only be moving it around.
+    for (const bed of AMBIENT_BEDS) {
+      expect(windOffsetFor(bed.stopId, "a")).not.toBeCloseTo(windOffsetFor(bed.stopId, "b"), 3);
+    }
+  });
+
+  /**
+   * FAILED FIRST on the single 4 s layer: the old bed scored 0.94 at 4.00 s and
+   * 0.90 at 8.00 s against this 0.5 bar. Measured the way the ear works - the
+   * gust contour, not the samples.
+   */
+  it("the gust pattern does not come round at any lag a belt contains", () => {
+    for (const stopId of ["earth", "jupiter", "pluto"] as const) {
+      const samples = renderBed(stopId, 32);
+      const env = envelope(samples, SR);
+      let worst = 0;
+      let worstLag = 0;
+      // Every lag from 2 s to 15 s, in 50 ms steps - the old 4.00 s period is
+      // inside this range, and so is either layer on its own.
+      for (let lag = 2; lag <= 15; lag += 0.05) {
+        const r = Math.abs(envelopeAutocorrelation(env, SR, lag));
+        if (r > worst) {
+          worst = r;
+          worstLag = lag;
+        }
+      }
+      expect(worst, `${stopId} repeats at ${worstLag.toFixed(2)} s`).toBeLessThan(0.5);
+    }
+  });
+
+  it("UR-10 still holds: both layers join cleanly at their own seam", () => {
+    for (const [seconds, seed] of [
+      [WIND_LOOP_SECONDS, WIND_SEEDS.a],
+      [WIND_LOOP_SECONDS_B, WIND_SEEDS.b],
+    ] as const) {
+      const x = windLoopSamples(SR, seconds, seed);
+      const n = x.length;
+      let maxInterior = 0;
+      for (let i = 1; i < n; i++) {
+        maxInterior = Math.max(maxInterior, Math.abs((x[i] as number) - (x[i - 1] as number)));
+      }
+      const seam = Math.abs((x[0] as number) - (x[n - 1] as number));
+      expect(seam, `seam of the ${seconds}s layer`).toBeLessThanOrEqual(maxInterior);
+    }
+  });
+});
+
+/**
+ * UR-46 - AC-21.4's DUCK, MEASURED IN AUDIO.
+ *
+ * `audio-graph.json` has been reporting `duckDb: -6` as the evidence for
+ * AC-21.4, and that number never came from a sound. `measureReductionDb` read
+ * `gain.value` immediately after scheduling a `linearRampToValueAtTime`; a real
+ * `AudioParam` does not move until the automation runs, so on the shipping
+ * context that read is 0. It returned -6 only because `NullParam` applies ramps
+ * synchronously - and the evidence emitter runs on `NullAudioContext`. The
+ * artifact was describing the harness.
+ *
+ * The feature itself is fine. This is the check that says so, and it is the one
+ * that would fail if the ramp were never scheduled, aimed at the wrong bus, or
+ * cancelled by the next frame - none of which the artifact could ever have seen.
+ */
+describe("UR-46: the duck is real, and the evidence no longer pretends to hear it", () => {
+  const SETTLE = DUCK_ATTACK_MS / 1000;
+
+  it("AC-21.4: the music bus really drops at least 6 dB when Shadow speaks", () => {
+    const ctx = new OfflineAudioContextLike(SR);
+    const graph = buildAudioGraph(ctx, {
+      voiceEnv: fakeVoiceEnvironment(null).env,
+      rand: seededRandom(0x4411aa),
+    });
+    // The synthesised music bed is what plays on a build with no tracks, which
+    // is what this graph is. Nothing else needs to make a sound for a level
+    // measurement.
+    graph.setBusGain("ambient", 0);
+
+    let ducked = false;
+    const samples = ctx.render(3, (startTime) => {
+      if (!ducked && startTime >= 1) {
+        ducked = true;
+        graph.ducker.duck(true);
+      }
+    });
+
+    const before = rms(samples, Math.floor(0.4 * SR), Math.floor(0.95 * SR));
+    const during = rms(
+      samples,
+      Math.floor((1 + SETTLE + 0.1) * SR),
+      Math.floor(2.8 * SR),
+    );
+    const reductionDb = 20 * Math.log10(during / before);
+    expect(reductionDb).toBeLessThanOrEqual(-6 + 0.25);
+    // And it is a duck, not a mute: the bed is still there underneath.
+    expect(during).toBeGreaterThan(0);
+  });
+
+  /**
+   * THE PROOF THAT THE OLD EVIDENCE WAS FICTION, kept as a test so nobody
+   * reinstates the shortcut. On a context that actually renders, reading the
+   * param back straight after the ramp reports NO reduction at all - which is
+   * what the shipping game would have reported, had anything asked it there.
+   */
+  it("reading gain.value straight after a ramp reports nothing on a real context", () => {
+    const ctx = new OfflineAudioContextLike(SR);
+    const graph = buildAudioGraph(ctx, {
+      voiceEnv: fakeVoiceEnvironment(null).env,
+      rand: seededRandom(0x4411aa),
+    });
+    const before = graph.buses.music.gain.value;
+    graph.ducker.duck(true);
+    const readBackDb = 20 * Math.log10(graph.buses.music.gain.value / before);
+    expect(readBackDb).toBeCloseTo(0, 6);
+
+    // What the ducker COMMITTED is knowable on any context, and that is what
+    // the artifact reports now.
+    expect(graph.ducker.scheduledReductionDb()["music"]).toBeLessThanOrEqual(-6);
   });
 });

@@ -19,6 +19,7 @@ import {
   ensureMoteTexture,
   ensureShardTexture,
   wordDebrisTypesFor,
+  wordRockFill,
 } from "@game/render/asteroid.js";
 import {
   WordPlate,
@@ -1797,11 +1798,27 @@ export class FlightScene extends Phaser.Scene {
     const x = rock.container.x;
     const y = rock.container.y;
     const shardSpec = particleSpec("blastShards");
-    const fill = this.cfg.colorblindPalette
-      ? this.palette.colorblind.debris
-      : rock.debris.fill;
+    /**
+     * THE COLOUR THE ROCK IS ACTUALLY DRAWN IN, which is not `debris.fill`.
+     *
+     * `blastShards.colorSource` is "debris" - "the rock's own colour, so the
+     * player sees WHICH rock broke" - and this used to read `rock.debris.fill`,
+     * the material's declared colour. That was the same thing until UR-47,
+     * which pushes a word rock's body value OUT of the sky's luminance sweep so
+     * the rock stays visible against it (`asteroid.wordRockFill`). The rock is
+     * drawn in the cleared colour and the shards were drawn in the raw one, so
+     * they stopped agreeing - and on a pale stop like Saturn the shards came
+     * out cream-white against pale sky, which is UR-47 again one layer down.
+     *
+     * `wordRockFill` is the function `drawDebris` itself uses, so the two
+     * cannot drift apart again; `tests/unit/flight/shardTint.test.ts` asserts
+     * they are the same colour at every stop and material.
+     */
+    const fill = wordRockFill(
+      rock.debris,
+      this.cfg.colorblindPalette ? this.palette.colorblind.debris : null,
+    );
 
-    // The rock's own colour (blastShards.colorSource === "debris").
     this.shards.setParticleTint(hexToInt(fill));
     this.shards.emitParticleAt(x, y, shardSpec.quantity);
 

@@ -90,7 +90,20 @@ for (const stop of ["earth", "jupiter", "pluto"] as const) {
   write(`ur13-bed-${stop}`, ctx.render(25, (_t, dtMs) => bus.advance(dtMs)));
 }
 
-// 2. UR-13. The warp takeoff, three variants in a row.
+// 1b. UR-43. A hundred seconds of one bed - longer than the two wind layers'
+//     143-second composite period is NOT, deliberately, so that if anything in
+//     here comes round twice an ear will catch it. This is the file that closes
+//     UR-43, because no measurement can: only listening can say whether a repeat
+//     is invisible or maddening.
+{
+  const { ctx, output } = onBus("ambient");
+  const bus = new AmbientBus(ctx, output);
+  bus.start("neptune");
+  write("ur43-wind-100s", ctx.render(100, (_t, dtMs) => bus.advance(dtMs)));
+}
+
+// 2. UR-13 / UR-45. The warp takeoff, three variants in a row - the third was
+//    17 dB down before UR-45 and is the one to listen for.
 {
   const { ctx, output } = onBus("sfx");
   const bus = new SfxBus(ctx, output);

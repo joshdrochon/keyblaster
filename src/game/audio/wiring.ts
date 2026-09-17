@@ -205,6 +205,12 @@ export interface WiringSnapshot {
    * having to render the audio.
    */
   readonly toneResets: number;
+  /**
+   * Shadow's chirps (UR-25). Reported next to `spoken` on purpose: a run with
+   * lines spoken, no rendered clips and no chirps is a silent robot, and that
+   * is the defect a player had to ask about.
+   */
+  readonly chirps: number;
   /** Stops whose ambient bed the running game started or faded to, in order. */
   readonly ambientStops: readonly string[];
   readonly ambientCrossfades: number;
@@ -612,6 +618,7 @@ export function installAudio(options: InstallAudioOptions): AudioService {
         sfxPlays,
         toneSteps,
         toneResets,
+        chirps: graph.chirpCount,
         ambientStops: [...ambientStops],
         ambientCrossfades,
         musicIndices: [...musicIndices].sort((a, b) => a - b),

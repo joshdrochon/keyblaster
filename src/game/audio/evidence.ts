@@ -17,7 +17,9 @@
  *   musicLayers   the layer gain nodes the music bus actually created
  *   sfxVariants   DISTINCT variants observed over hundreds of real plays
  *   noConsec...   scanned from that same play history
- *   duckDb        the gain change the sidechain actually applied, in dB
+ *   duckDb        the gain change the sidechain SCHEDULED, in dB (UR-46: this
+ *                 emitter runs on a null context and cannot hear anything; the
+ *                 rendered proof is in tests/unit/audio/rendered.test.ts)
  *   voiceTransport   the id of the transport `createVoiceTransport` returned
  *   runtimeTts...    a fetch probe's call count, plus whatever static network
  *                    references the caller's source scan found
@@ -132,7 +134,14 @@ export function buildAudioEvidence(
   // --- Voice: the duck, the transport, the network ------------------------
   // Worst case across the ducked buses: the shallowest reduction is the one
   // AC-21.4 has to clear, so that is the number reported.
-  const reductions = Object.values(graph.ducker.measureReductionDb());
+  //
+  // UR-46: this is the reduction the sidechain SCHEDULED, not one read back out
+  // of the audio. It used to claim to be the latter and was not - it read
+  // `gain.value` straight after a ramp, which moves only under `NullParam`, and
+  // `NullAudioContext` is exactly what this emitter runs on. The rendered
+  // measurement lives in `tests/unit/audio/rendered.test.ts`; this artifact
+  // reports what the graph committed to, which is all a null context can know.
+  const reductions = Object.values(graph.ducker.scheduledReductionDb());
   const duckDb = reductions.length > 0 ? round(Math.max(...reductions), 4) : 0;
 
   const probe = voiceEnv.fetch as (ProbeFetch | undefined);
