@@ -19,6 +19,7 @@ import { createWordPrompt, type WordPrompt } from "./lib/typedWord";
 import { stageBundle } from "./lib/content";
 import { goTo, persistStopCleared, resolveInit, type ResolvedInit, type StoryInit } from "./lib/init";
 import { markStopCleared } from "@engine/progress/index.js";
+import { audioFrom } from "@game/audio/wiring";
 
 /**
  * Screen inventory row 2b - Earth activation (D57, AC-12.1).
@@ -128,6 +129,22 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
       wrapWidth: lineW - 72,
       lang: this.story.lang,
     }).setDepth(12);
+    // SHADOW SAYS IT (D63, AC-21.6). The label above is built first and is the
+    // source of truth; the voice is handed the SAME string, never a second copy
+    // of the copy, so a player with no audio reads exactly what a player with
+    // audio hears.
+    //
+    // The id is `${stopId}.preflightLine` because that is the key
+    // `scripts/render-voice.mjs` writes into the manifest and the only key the
+    // file transport will match. `stopId` rather than the literal "earth": this
+    // screen is Earth's today, and an id built from the stop cannot drift if it
+    // is ever reused. See `tests/unit/audio/voiceClips.test.ts`.
+    const stopId = this.story.stopId;
+    audioFrom(this.registry)?.speak({
+      id: `${stopId}.preflightLine`,
+      text: bundle.preflightLine,
+      kind: "scripted",
+    });
 
     // --- the one word -----------------------------------------------------
     label(

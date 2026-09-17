@@ -232,58 +232,40 @@ const at = (colors: readonly string[], i: number, fallback: string): string =>
 export function skyStops(p: StopPalette): readonly [string, string, string] {
   const first = at(p.colors, 0, "#000000");
   const mid = at(p.colors, 1, first);
-  return [first, mid, skyFloor(p, mid)];
+  return [first, mid, at(p.colors, p.colors.length - 1, mid)];
 }
 
 /**
- * How far the sky is allowed to darken from its middle stop to its bottom, in
- * L*. This is the fix for judge note 5 of round 2: "the MIDDLE is crowded."
+ * THE SKY'S BOTTOM STOP IS THE PALETTE'S DEEPEST COLOUR AGAIN.
  *
- * THE CROWDING WAS NOT IN THE DEPTH RAMP. The four plane fills are already ~17
- * L* apart on Mars, which is a clean ladder. The crowding was between the planes
- * and THE SKY BEHIND THEM. The sky's bottom stop was the palette's darkest
- * colour, so on Mars the gradient swept L* 83 -> 18 top to bottom: a range wider
- * than the entire terrain ladder. Every plane fill therefore matched the sky
- * exactly at SOME height in the frame, and a silhouette the same value as what
- * is behind it is not a silhouette. It is what makes four well-separated values
- * read as one brown soup.
+ * ---------------------------------------------------------------------------
+ * I NARROWED THIS AND IT WAS THE WRONG HALF.
  *
- * The reference never does this. `world-bar.png` goes pale teal to mid blue -
- * maybe 25 L* - and every scrap of dark in the frame is terrain. So the sky is
- * bounded to a band, the terrain keeps the whole range, and the dark under the
- * ship comes from the near plane and the floor vignette, which is where it
- * belongs.
+ * The reasoning was sound as far as it went: Mars' sky swept L* 83 to 18 top to
+ * bottom - wider than the terrain ladder drawn over it - so every plane fill
+ * matched the sky exactly at SOME height, and a silhouette the same value as
+ * what is behind it is not a silhouette. Bounding the sky to a 20-point band
+ * fixed that.
  *
- * 20 clears `ramp[1] + 8` on all five bright stops, which is what
- * `tests/unit/render/depth.test.ts` asserts.
+ * It also threw away the frame's dark half. Measured against `alto-03`:
+ *
+ *   L* bucket   0-40    40-60   60-80   80+
+ *   bounded     13.1%   19.2%   66.7%   1.0%
+ *   unbounded   23.4%   23.2%   52.4%   1.0%
+ *   alto-03     48.2%   32.0%   17.3%   2.4%
+ *
+ * The sky is about two thirds of our pixels, so it decides the distribution, and
+ * the narrow version put nearly all of them in one twenty-point box. The right
+ * fix for "terrain matches sky at some height" was to push the TERRAIN LADDER
+ * down, which `depthRamp` now does outright (53/41/28/16 on Mars against a sky
+ * that starts at 83). Both problems are solved by moving the thing that was
+ * wrong, rather than by moving the sky to cover for it.
+ *
+ * Kept as a constant because `tests/unit/render/depth.test.ts` asserts the sky
+ * is WIDE, which is the opposite of what it asserted before and is the claim
+ * the measurement supports.
  */
-export const SKY_L_RANGE = 20;
-
-/**
- * The sky's bottom stop: the palette's deepest colour, but never darker than
- * `SKY_L_RANGE` below the middle stop.
- *
- * Only bright stops are capped. On a night stop the sky IS the dark - Earth's
- * launchpad sky runs to a near-black horizon and the near plane separates
- * UPWARD off it (art-direction section 2, and the dark branch of
- * `foregroundInk`) - so capping there would remove the one thing those stops
- * have and gain nothing.
- */
-function skyFloor(p: StopPalette, mid: string): string {
-  const deep = at(p.colors, p.colors.length - 1, mid);
-  if (relativeLuminance(mid) <= 0.22) return deep;
-  const target = lightness(mid) - SKY_L_RANGE;
-  if (lightness(deep) >= target) return deep;
-  // Monotone in t, so 24 halvings land well inside one 8-bit step.
-  let lo = 0;
-  let hi = 1;
-  for (let i = 0; i < 24; i++) {
-    const m = (lo + hi) / 2;
-    if (lightness(mixHex(mid, deep, m)) > target) lo = m;
-    else hi = m;
-  }
-  return mixHex(mid, deep, (lo + hi) / 2);
-}
+export const MIN_SKY_L_RANGE = 40;
 
 /**
  * The palette colour furthest from `from` in VALUE. The sky's travel target.
@@ -602,6 +584,103 @@ export function liftAt(index: number, count: number): number {
 }
 
 /**
+ * Set a colour's L* without touching its hue, and as far as possible without
+ * touching its saturation.
+ *
+ * Scaling all three channels by one factor leaves the hue angle untouched and
+ * leaves HSV saturation `(max - min) / max` untouched, so it is the closest
+ * thing to a pure value knob that costs no colour-space conversion. Above the
+ * point where the brightest channel reaches 255 there is nowhere left to scale,
+ * so the remainder is a mix toward white - which does desaturate, and is only
+ * reached by a target lighter than the colour can be.
+ */
+export function withLightness(hex: string, targetL: number): string {
+  const { r, g, b } = rgbOf(hex);
+  const peak = Math.max(r, g, b);
+  if (peak === 0) return mixHex("#000000", "#FFFFFF", Math.min(1, Math.max(0, targetL / 100)));
+  const scale = (k: number): string =>
+    numToHex(
+      (Math.min(255, Math.round(r * k)) << 16) |
+        (Math.min(255, Math.round(g * k)) << 8) |
+        Math.min(255, Math.round(b * k)),
+    );
+  const ceiling = 255 / peak;
+  if (lightness(scale(ceiling)) < targetL) {
+    // Brighter than scaling can reach: finish toward white.
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 24; i += 1) {
+      const m = (lo + hi) / 2;
+      if (lightness(mixHex(scale(ceiling), "#FFFFFF", m)) < targetL) lo = m;
+      else hi = m;
+    }
+    return mixHex(scale(ceiling), "#FFFFFF", (lo + hi) / 2);
+  }
+  let lo = 0;
+  let hi = ceiling;
+  for (let i = 0; i < 26; i += 1) {
+    const m = (lo + hi) / 2;
+    if (lightness(scale(m)) < targetL) lo = m;
+    else hi = m;
+  }
+  return scale((lo + hi) / 2);
+}
+
+/**
+ * THE LADDER'S TWO ANCHORS, on a bright stop.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THESE ARE NUMBERS AND NOT A CURVE ANY MORE
+ *
+ * A blind critic measured our flight frame against `alto-03` and the gap was not
+ * where three rounds of judge notes had put it:
+ *
+ *   L* bucket   0-40    40-60   60-80   80+
+ *   ours        14.5%   16.9%   67.8%   0.9%
+ *   alto-03     48.3%   32.1%   17.4%   2.4%
+ *
+ * Two thirds of our frame sat in one twenty-point box. The global L*5-95 range
+ * looked respectable - 60.2 against the bar's 67.8 - but that was an artifact of
+ * the near-edge cliffs: mask those and the picture collapsed to 32.4 against
+ * 47.8. (Which is a second reason the edge bars had to go. They were the only
+ * thing making the range look acceptable, and removing them makes this number
+ * worse before this change makes it better.)
+ *
+ * The old ramp reached its values through `atmospheric()`, which DESATURATES
+ * toward grey on the way to the sky. Measured, that took the far band from the
+ * sky's S43 down to S30, so distant mesas read as dirty smudges rather than as
+ * land seen through air. Real air does not grey a shape out; it replaces it with
+ * the colour of the air in front of it, which is saturated.
+ *
+ * So the ramp now does two separate things, in order, and neither of them is a
+ * mix toward grey:
+ *   1. HUE AND CHROMA come from a mix between the SKY and the foreground ink -
+ *      the far band is nearly the sky's own colour, the near band is the ink's.
+ *   2. VALUE is then set outright, to a target on a ladder between these two
+ *      anchors, by `withLightness`, which scales channels and so leaves 1's work
+ *      alone.
+ *
+ * On Mars that puts the four bands at roughly L* 53 / 41 / 30 / 18 where they
+ * used to sit at 61 / 44 / 27 / 12 in a far greyer colour. The measurable claims
+ * are in `tests/unit/render/depth.test.ts`.
+ */
+
+/** How far below the sky the FURTHEST band sits, in L*, on a bright stop. */
+export const FAR_BAND_DROP_L = 20;
+
+/**
+ * And where the NEAREST band lands, absolutely. The bar's foreground median is
+ * L* 19.6-23.2; ours measured 38, about twice as light.
+ */
+export const NEAR_BAND_TARGET_L = 18;
+
+/**
+ * ...or this share of the ladder's whole run, whichever drop is larger. Saturn's
+ * sky is L*94 and a flat 20-point drop leaves its far band at 74.
+ */
+export const FAR_BAND_DROP_SHARE = 0.3;
+
+/**
  * `count` silhouette fills, FAR FIRST, spanning near-sky to near-black.
  *
  * This is the single function `WORLD-BAR.md` items 1-3 reduce to, and the
@@ -612,14 +691,54 @@ export function liftAt(index: number, count: number): number {
 export function depthRamp(p: StopPalette, count: number): string[] {
   const sky = skyStops(p)[1];
   const ink = foregroundInk(p);
+  const bright = isBrightStop(p);
+  const skyL = lightness(sky);
+  const inkL = lightness(ink);
+
+  // The two ends of the ladder.
+  //
+  // A DARK STOP KEEPS ITS OWN RULE and it is not the same rule. Earth is a night
+  // launchpad: its near plane sits ABOVE the sky by a bounded step
+  // (art-direction section 2, and the ceiling in `foregroundInk`), so the ladder
+  // runs upward from near-sky to that step and an absolute dark target would
+  // either invert the planes or produce a pale frame. Both halves are bounded in
+  // `tests/unit/render/depth.test.ts`.
+  const nearL = bright ? Math.min(NEAR_BAND_TARGET_L, inkL + 6) : inkL;
+  // The furthest band drops by the GREATER of a fixed step and a share of the
+  // ladder's whole run. The fixed step is what Mars and Jupiter need; the share
+  // is for Saturn, whose sky is L*94, where a flat 20-point drop still leaves
+  // the ladder's midpoint in the forties and two of its four bands pale.
+  const farL = bright
+    ? skyL - Math.max(FAR_BAND_DROP_L, (skyL - nearL) * FAR_BAND_DROP_SHARE)
+    : skyL + (inkL - skyL) * 0.25;
+
   const out: string[] = [];
   for (let i = 0; i < count; i++) {
-    const t = liftAt(i, count);
-    // `atmospheric` is what AIR does, and it only cools. The ramp additionally
-    // WARMS the near end (see `warmShift`): "warm dark in front, cool behind" is
-    // a relative statement and doing only half of it buys half the separation,
-    // which is the whole of judge note 3 ("the image is all one brown").
-    out.push(warmShift(atmospheric(ink, sky, t), (1 - t) ** 1.4));
+    // 0 at the furthest band, 1 at the nearest. Note this is the OPPOSITE sense
+    // from `liftAt`, which is still the haze curve the decorative debris uses.
+    const t = count === 1 ? 1 : i / (count - 1);
+    // 1. Hue and chroma: the sky's colour at the back, the ink's at the front.
+    //    A mix between two saturated colours stays saturated; that is the whole
+    //    difference from the `desaturate`-toward-grey this replaces.
+    const family = mixHex(sky, ink, t ** 0.85);
+    // NO COOL SHIFT ON THE FAR END, and this is a reversal.
+    //
+    // Two judge rounds said "still one hue family" and the fix was always going
+    // to be more cooling. Then somebody measured both sides instead of asserting:
+    // our frame has a hue circular SD of 5.2 degrees with 98.6% of saturated
+    // pixels in H0-30, and `alto-03` - their desert - has 6.9 degrees and 95.3%
+    // in H0-30, with all fourteen of its dominant colours inside H18-22. THE BAR
+    // IS AS MONOHUE AS WE ARE. Hue was never the gap.
+    //
+    // And cooling was actively costing us the thing that IS the gap. `coolShift`
+    // raises blue toward 255, which on a warm colour collapses HSV saturation:
+    // Mars' far band came out at S21 against a sky of S53, i.e. the grey smudge
+    // the desaturate-toward-grey was already producing, reached by a second
+    // route. A light warm push on the near end is kept, because a near band that
+    // is merely the sky darkened reads as a shadow rather than as rock.
+    const hued = warmShift(family, t ** 1.4);
+    // 2. Value, set outright on an even ladder between the anchors.
+    out.push(withLightness(hued, farL + (nearL - farL) * t));
   }
   return out;
 }

@@ -569,153 +569,20 @@ export function dotLattice(
 }
 
 // ---------------------------------------------------------------------------
-// The near frame (judge note 3: "the canyonWalls read as UI chrome")
+// THE NEAR FRAME IS GONE, and this note is its gravestone.
+//
+// There used to be a `WallProfile` vocabulary here - authored reach-vs-depth
+// curves for rock running down the left and right edges of the stage, with
+// interruptions, different segment rhythms per side and half the segments
+// dropped. It was a real improvement on the generated boxes before it, and it
+// did not matter, because the defect was never the rock's shape.
+//
+// Anything drawn against both vertical edges of a frame at most heights is a
+// BORDER. A player said so three times: "the bars on the left and right... should
+// be one seamless screen." WORLD-BAR item 6 wants a dark foreground, and a dark
+// foreground is made of OBJECTS - things with a near and a far side that pass
+// the camera and leave. `parallax.ts` gets it from the near-plane and foreVeil
+// silhouettes and from the floor vignette instead.
+//
+// Anyone reaching for edge decoration again: this was tried three times.
 // ---------------------------------------------------------------------------
-
-/**
- * WHY THESE ARE NOT MASSIFS.
- *
- * The near plane used to be `massifPoints` boxes stacked four-a-side down both
- * edges, and a player and the judge both read them the same way: a border around
- * the screen, not terrain. Two things caused that. They were the SAME shape on
- * both sides at the SAME cadence, and they never went away - a constant-reach
- * band down each edge is a frame by definition, whatever is drawn inside it.
- *
- * So the near edge is authored as a WALL EDGE instead: a profile of how far the
- * rock reaches in from the screen edge as you travel down it, which is allowed
- * to reach zero. Where it reaches zero the wall is simply not there and the sky
- * comes all the way to the edge of the frame, which is what makes the rest of it
- * read as rock rather than as chrome.
- *
- * COORDINATE SPACE: `t` runs 0..1 down the segment, `reach` is 0..1 of the
- * plane's maximum reach inward. Every profile starts and ends at reach 0 so
- * consecutive segments join without a step, and so the wrap seam is a pinch
- * rather than a jump.
- */
-export interface WallProfile {
-  readonly id: string;
-  /** Inner edge, top to bottom. `reach` 0 means "no wall here at all". */
-  readonly edge: readonly { readonly t: number; readonly reach: number }[];
-}
-
-/** A big square buttress with a step in it, then a long taper to nothing. */
-const WALL_BUTTRESS: WallProfile = {
-  id: "buttress",
-  edge: [
-    { t: 0.0, reach: 0.0 },
-    { t: 0.05, reach: 0.18 },
-    { t: 0.08, reach: 0.2 },
-    { t: 0.1, reach: 0.62 },
-    { t: 0.14, reach: 0.72 },
-    { t: 0.36, reach: 0.72 },
-    { t: 0.41, reach: 0.48 },
-    { t: 0.55, reach: 0.46 },
-    { t: 0.6, reach: 0.9 },
-    { t: 0.64, reach: 1.0 },
-    { t: 0.78, reach: 1.0 },
-    { t: 0.84, reach: 0.54 },
-    { t: 0.93, reach: 0.22 },
-    { t: 1.0, reach: 0.0 },
-  ],
-};
-
-/** Two narrow fingers with a real GAP between them: the interruption. */
-const WALL_FINGERS: WallProfile = {
-  id: "fingers",
-  edge: [
-    { t: 0.0, reach: 0.0 },
-    { t: 0.04, reach: 0.36 },
-    { t: 0.07, reach: 0.44 },
-    { t: 0.22, reach: 0.44 },
-    { t: 0.27, reach: 0.12 },
-    { t: 0.3, reach: 0.0 },
-    { t: 0.52, reach: 0.0 }, // <- a fifth of the segment with no wall at all
-    { t: 0.56, reach: 0.3 },
-    { t: 0.6, reach: 0.58 },
-    { t: 0.63, reach: 0.66 },
-    { t: 0.82, reach: 0.66 },
-    { t: 0.88, reach: 0.3 },
-    { t: 0.94, reach: 0.14 },
-    { t: 1.0, reach: 0.0 },
-  ],
-};
-
-/** One broad low shelf that leans out and settles back. */
-const WALL_SHELF: WallProfile = {
-  id: "shelf",
-  edge: [
-    { t: 0.0, reach: 0.0 },
-    { t: 0.08, reach: 0.1 },
-    { t: 0.16, reach: 0.12 },
-    { t: 0.2, reach: 0.84 },
-    { t: 0.26, reach: 0.94 },
-    { t: 0.44, reach: 0.94 },
-    { t: 0.5, reach: 0.7 },
-    { t: 0.58, reach: 0.68 },
-    { t: 0.62, reach: 0.34 },
-    { t: 0.76, reach: 0.3 },
-    { t: 0.86, reach: 0.16 },
-    { t: 1.0, reach: 0.0 },
-  ],
-};
-
-/** A tall thin blade that barely reaches in, with a notch near the top. */
-const WALL_BLADE: WallProfile = {
-  id: "blade",
-  edge: [
-    { t: 0.0, reach: 0.0 },
-    { t: 0.06, reach: 0.26 },
-    { t: 0.11, reach: 0.3 },
-    { t: 0.18, reach: 0.3 },
-    { t: 0.21, reach: 0.52 },
-    { t: 0.25, reach: 0.56 },
-    { t: 0.3, reach: 0.3 },
-    { t: 0.66, reach: 0.28 },
-    { t: 0.72, reach: 0.0 },
-    { t: 0.86, reach: 0.0 }, // <- and another gap, at a different rhythm
-    { t: 0.9, reach: 0.24 },
-    { t: 0.96, reach: 0.2 },
-    { t: 1.0, reach: 0.0 },
-  ],
-};
-
-export const WALL_PROFILES: readonly WallProfile[] = [
-  WALL_BUTTRESS,
-  WALL_FINGERS,
-  WALL_SHELF,
-  WALL_BLADE,
-];
-
-/**
- * Turn a wall profile into a closed polygon against one edge of the stage.
- *
- * `side` is -1 for the left edge and +1 for the right. The polygon is closed
- * along a line OUTSIDE the stage, so the wall has no visible outer edge - it is
- * the frame's rock, and rock does not stop at the viewport.
- */
-export function placeWall(
-  profile: WallProfile,
-  w: number,
-  topY: number,
-  segmentH: number,
-  maxReach: number,
-  side: -1 | 1,
-): Vec2[] {
-  const edgeX = side < 0 ? 0 : w;
-  // `reach` is measured INWARD from the edge, so the sign is the opposite of the
-  // side's. Getting this backwards draws the entire wall outside the viewport,
-  // which is exactly what the first render of it did: the near frame was there,
-  // it was correct, and every pixel of it was off screen.
-  const inner = profile.edge.map(({ t, reach }) => ({
-    x: edgeX - side * reach * maxReach,
-    y: topY + t * segmentH,
-  }));
-  // ...and the closing line is OUTSIDE the stage, so the wall has no visible
-  // outer edge.
-  const outsideX = edgeX + side * maxReach * 0.4;
-  return [
-    { x: outsideX, y: topY },
-    ...inner,
-    { x: outsideX, y: topY + segmentH },
-  ];
-}

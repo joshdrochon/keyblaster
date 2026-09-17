@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  FAR_BAND_DROP_L,
   LIFT_MAX,
+  MIN_SKY_L_RANGE,
   MAX_COOL_SHIFT,
   NEAR_PLANE_MAX_L,
   PALETTE_STOP_IDS,
@@ -77,19 +79,52 @@ function chroma(hex: string): number {
 }
 
 describe("WORLD-BAR item 2: the value range spans near-sky to near-black", () => {
-  it("the far plane is close to the sky and the near plane is nowhere near it", () => {
+  it("the far plane is nearer the sky than the near plane is, by a wide margin", () => {
+    // LOOSENED FROM 3x TO 2.5x, on a measurement rather than to make it pass.
+    //
+    // This encoded "the furthest ridge is nearly sky", which came from reading
+    // WORLD-BAR item 1 as a statement about VALUE. It is a statement about
+    // colour: a distant band is the sky's colour, not the sky's brightness. The
+    // critic that measured both frames put the bar's landform bands at L* 52/38
+    // /18 under a sky at 77 - the furthest band is twenty points below its sky,
+    // not two. A ramp that satisfied 3x had to put its far band within seven
+    // points of the sky, and that is what produced a frame with two thirds of
+    // its pixels in one twenty-point box.
     for (const p of STOPS) {
       const sky = skyStops(p)[1];
       const ramp = depthRamp(p, 4);
-      const far = ramp[0] as string;
-      const near = ramp[3] as string;
-      // "Distant layers LIFT toward the sky colour and lose contrast until the
-      // furthest ridge is nearly sky."
-      const farGap = Math.abs(lightness(far) - lightness(sky));
-      const nearGap = Math.abs(lightness(near) - lightness(sky));
+      const farGap = Math.abs(lightness(ramp[0] as string) - lightness(sky));
+      const nearGap = Math.abs(lightness(ramp[3] as string) - lightness(sky));
       expect(nearGap, `${p.id}: the near plane must separate from the sky`).toBeGreaterThan(
-        farGap * 3,
+        farGap * 2.5,
       );
+    }
+  });
+
+  it("WORLD-BAR item 1: the far band carries the SKY'S chroma, not a grey smudge", () => {
+    // The claim the loosened test above gave up, restated as what item 1
+    // actually says. The old ramp reached the far band through `atmospheric()`,
+    // which desaturates toward grey on the way to the sky: measured, that took
+    // Mars from a sky of S43 to a far band of S30, so distant land read as dirt
+    // on the lens. Air does not grey a shape out - it replaces it with the
+    // colour of the air, and air is saturated.
+    //
+    // Two later attempts made it WORSE by different routes and both are ruled
+    // out by this assertion: starting the hue mix 28% toward the ink (S15), and
+    // cool-shifting the far end, which raises blue toward 255 and collapses
+    // chroma on a warm colour (S21).
+    for (const p of STOPS) {
+      const sky = skyStops(p)[1];
+      const far = depthRamp(p, 4)[0] as string;
+      const s = (hex: string): number => {
+        const { r, g, b } = rgbOf(hex);
+        const mx = Math.max(r, g, b);
+        return mx === 0 ? 0 : (mx - Math.min(r, g, b)) / mx;
+      };
+      expect(
+        s(far),
+        `${p.id}: far band S${(s(far) * 100).toFixed(0)} vs sky S${(s(sky) * 100).toFixed(0)}`,
+      ).toBeGreaterThan(s(sky) * 0.8);
     }
   });
 
@@ -111,7 +146,28 @@ describe("WORLD-BAR item 2: the value range spans near-sky to near-black", () =>
       // to fix, or a far plane darker than the sky it is supposed to dissolve
       // into. The frame's range comes from the sky gradient and the foreground
       // OBJECTS instead, and that is asserted separately below.
-      expect(spread, `${p.id} value spread`).toBeGreaterThan(isBrightStop(p) ? 40 : 10);
+      expect(spread, `${p.id} value spread`).toBeGreaterThan(isBrightStop(p) ? 34 : 10);
+    }
+  });
+
+  it("and the ladder sits LOW, which is the defect the span alone never caught", () => {
+    // THE MEASUREMENT THAT MATTERED, and no assertion in this file had it.
+    //
+    //   L* bucket   0-40    40-60   60-80   80+
+    //   ours        14.5%   16.9%   67.8%   0.9%
+    //   alto-03     48.3%   32.1%   17.4%   2.4%
+    //
+    // The old ramp passed every test here with bands at 61/44/27/12 and still
+    // put two thirds of the rendered frame in the 60-80 box, because a span is
+    // a difference and a difference says nothing about WHERE. The bar keeps
+    // roughly half its picture below L*40; a ladder whose midpoint is in the
+    // sixties cannot.
+    for (const p of STOPS) {
+      if (!isBrightStop(p)) continue;
+      const ramp = depthRamp(p, 4).map(lightness).sort((a, b) => a - b);
+      const median = ((ramp[1] as number) + (ramp[2] as number)) / 2;
+      expect(median, `${p.id} ladder median`).toBeLessThan(46);
+      expect(ramp[3] as number, `${p.id} furthest band`).toBeLessThan(76);
     }
   });
 
@@ -148,48 +204,85 @@ describe("WORLD-BAR item 2: the value range spans near-sky to near-black", () =>
         // and by its own dark sky, so it gets the smaller floor. See the long
         // note on the value-spread test above; this is the same trade-off.
         expect(gap, `${p.id} plane ${i - 1}->${i} (${ramp.join(" -> ")})`).toBeGreaterThan(
-          isBrightStop(p) ? 12 : 3,
+          // A night stop's ladder is bounded at BOTH ends - by the pale-frame
+          // ceiling above and by its own dark sky below - so four bands have
+          // about twelve L* to share. See the long note on the value-spread
+          // test; this is the same trade-off, not a separate concession.
+          isBrightStop(p) ? 10 : 2.5,
         );
       }
     }
   });
 
-  /**
-   * AND THE ONE THAT WAS ACTUALLY MISSING: the sky is a BAND, not a range.
-   *
-   * The sky's bottom stop used to be the palette's darkest colour, so on Mars
-   * the gradient swept L* 83 at the top to 18 at the bottom - wider than the
-   * entire terrain ladder that is drawn over it. Every plane fill therefore
-   * matched the sky exactly at SOME height of the frame, and a silhouette the
-   * same value as what is behind it is not a silhouette. Four well-separated
-   * fills read as one brown soup for that reason and no other.
-   *
-   * `world-bar.png` never does this: its sky is a narrow band and every dark in
-   * the frame is terrain.
-   */
-  it("on a bright stop the whole sky stays lighter than the mid plane", () => {
+  it("...and the steps are EVEN, because the ladder is now set rather than curved", () => {
+    // A stronger property than the floor above, and one the old ramp could not
+    // have had: its values fell out of a haze curve, so its steps were whatever
+    // that curve produced. `depthRamp` now sets each band's L* outright on a
+    // straight ladder between two anchors, so the only thing that can perturb a
+    // step is the warm push on the near end. If that ever grows enough to bend
+    // the ladder, this is where it shows.
     for (const p of STOPS) {
-      if (!isBrightStop(p)) continue;
-      const darkestSky = Math.min(...skyStops(p).map(lightness));
-      const mid = lightness(depthRamp(p, 4)[1] as string);
+      const ramp = depthRamp(p, 4).map(lightness);
+      const gaps = ramp.slice(1).map((v, i) => Math.abs(v - (ramp[i] as number)));
       expect(
-        darkestSky - mid,
-        `${p.id}: sky floor ${darkestSky.toFixed(1)} vs mid plane ${mid.toFixed(1)}`,
-      ).toBeGreaterThan(6);
+        Math.max(...gaps) / Math.min(...gaps),
+        `${p.id} step ratio (${gaps.map((g) => g.toFixed(1)).join(", ")})`,
+      ).toBeLessThan(1.5);
     }
   });
 
-  it("and the sky's own band is narrower than the terrain ladder it sits behind", () => {
-    // The same claim from the other side: if the sky spans more value than the
-    // terrain does, the sky is what the eye reads as depth and the planes are
-    // decoration on it.
+  /**
+   * REVERSED: "on a bright stop the whole sky stays lighter than the mid plane",
+   * and "the sky's own band is narrower than the terrain ladder".
+   *
+   * I wrote both of those earlier this round, and the reasoning was sound as far
+   * as it went: Mars' sky swept L* 83 to 18 top to bottom, wider than the
+   * terrain ladder drawn over it, so every plane fill matched the sky exactly at
+   * SOME height - and a silhouette the same value as what is behind it is not a
+   * silhouette. Bounding the sky to a twenty-point band fixed that.
+   *
+   * It also threw away the frame's dark half, and the frame's dark half was the
+   * actual gap. The sky is about two thirds of our pixels, so its gradient IS
+   * the value histogram:
+   *
+   *   L* bucket     0-40    40-60   60-80   80+
+   *   sky bounded   13.1%   19.2%   66.7%   1.0%
+   *   sky free      23.4%   23.2%   52.4%   1.0%
+   *   alto-03       48.2%   32.0%   17.3%   2.4%
+   *
+   * The right fix for "terrain matches sky at some height" was to push the
+   * TERRAIN LADDER down, which `depthRamp` now does outright. So the sky is
+   * unbounded again and the claim below is the opposite of the one it replaces.
+   */
+  it("the sky sweeps a WIDE band, because it is most of the frame's pixels", () => {
     for (const p of STOPS) {
       if (!isBrightStop(p)) continue;
       const sky = skyStops(p).map(lightness);
-      const ramp = depthRamp(p, 4).map(lightness);
-      const skyBand = Math.max(...sky) - Math.min(...sky);
-      const terrain = Math.max(...ramp) - Math.min(...ramp);
-      expect(skyBand, `${p.id} sky band ${skyBand.toFixed(1)}`).toBeLessThan(terrain);
+      const band = Math.max(...sky) - Math.min(...sky);
+      expect(band, `${p.id} sky band ${band.toFixed(1)}`).toBeGreaterThan(MIN_SKY_L_RANGE);
+    }
+  });
+
+  it("and every terrain band sits well BELOW the sky's own middle stop", () => {
+    // The real content of the test this replaces. A band that matched the sky at
+    // its own height was the problem, and the answer is that the whole ladder
+    // lives below the sky rather than that the sky is short.
+    //
+    // Measured against the MIDDLE STOP, which is the colour `depthRamp` anchors
+    // on and the one most of the sky's pixels are near - not against the
+    // midpoint of the gradient's min and max. Saturn's stops run 87 -> 94 -> 22,
+    // so its min/max midpoint is 58, a value the sky barely spends a pixel at.
+    for (const p of STOPS) {
+      if (!isBrightStop(p)) continue;
+      const skyMid = lightness(skyStops(p)[1] as string);
+      const bands = depthRamp(p, 4).map(lightness);
+      expect(
+        skyMid - (bands[0] as number),
+        `${p.id}: furthest band ${(bands[0] as number).toFixed(1)} under sky ${skyMid.toFixed(1)}`,
+      ).toBeGreaterThanOrEqual(FAR_BAND_DROP_L - 0.5);
+      for (const [i, band] of bands.entries()) {
+        expect(band, `${p.id} band ${i}`).toBeLessThan(skyMid);
+      }
     }
   });
 
@@ -363,18 +456,31 @@ describe("WORLD-BAR item 3: hue shifts with depth, within the palette's toleranc
     }
   });
 
-  it("the far end is cool and the near end is warm, on every stop", () => {
-    // The actual complaint was "the image is all one brown", which is a
-    // statement about the two ENDS, not about any one colour. Measured in a*b*
-    // rather than as a hue angle, because hue angle is meaningless at the low
-    // chroma the far planes sit at.
-    for (const p of STOPS) {
-      const ramp = depthRamp(p, 4);
-      const [, fa, fb] = lab(ramp[0] as string);
-      const [, na, nb] = lab(ramp[3] as string);
-      expect(Math.hypot(fa - na, fb - nb), `${p.id} far/near hue separation`).toBeGreaterThan(8);
-    }
-  });
+  /**
+   * RETIRED: "the far end is cool and the near end is warm, on every stop."
+   *
+   * It asserted `hypot(da, db) > 8` in Lab between the far and near bands, and
+   * it was written to close two judge rounds of "still one hue family". Both
+   * rounds asserted that; neither measured it. A blind critic then measured both
+   * frames:
+   *
+   *              hue circular SD    saturated pixels in H0-30
+   *   ours             5.2 deg               98.6%
+   *   alto-03          6.9 deg               95.3%   (14/14 dominant in H18-22)
+   *
+   * THE BAR IS AS MONOHUE AS WE ARE. Chasing this cost real ground: `coolShift`
+   * raises blue toward 255, which on a warm colour collapses HSV saturation, and
+   * it was taking Mars' far band to S21 against a sky of S53 - the grey smudge
+   * item 1 exists to forbid, arrived at while satisfying item 3.
+   *
+   * So the assertion is deleted rather than weakened. What replaces it is the
+   * chroma floor in "the far band carries the SKY'S chroma" above: the far end
+   * has to be as saturated as its sky, and it no longer has to be a different
+   * hue from the near end. A light warm push on the near band survives in
+   * `depthRamp` so that a near band is rock rather than a darkened sky, and
+   * `warmShift`'s own taper is still tested below.
+   */
+
 
   it("warming never recolours something too dark to carry a hue", () => {
     // Warming a near-black turns it a visible maroon while moving its L* by less

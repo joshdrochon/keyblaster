@@ -31,6 +31,7 @@ import {
 } from "./support/laneInit";
 import { coachAllowlist } from "./support/vocab";
 import { audioFrom } from "@game/audio/wiring";
+import { chargeSoundPlan } from "./support/warpCharge";
 import {
   cells,
   chargeFraction,
@@ -185,10 +186,26 @@ export class WarpScene extends Phaser.Scene {
    */
   private meterShown = 0;
   private meterTween: Phaser.Tweens.Tween | null = null;
-  /** Which third of the charge has been SOUNDED. See `soundCharge`. */
+  /** Identifies the meter tween in flight; see `easeMeterTo`. */
+  private meterToken = 0;
+  /**
+   * How many frames the meter has been REDRAWN MID-MOVE.
+   *
+   * This is the difference between easing and jolting, counted rather than
+   * described: a bar painted straight from `chargeFraction` moves in exactly
+   * one step per keystroke and this number never leaves zero. Sampling the
+   * drawn fill instead is a race a test cannot reliably win - the tween is
+   * 280 ms and a snapshot round-trip is not much less than that.
+   */
+  private meterEaseFrames = 0;
+  /**
+   * Which third of the charge has been SOUNDED, 0 before anything has.
+   *
+   * One field, not two. It used to be a `chargeStage` number AND a
+   * `chargeHeard` boolean, which is the same fact twice and therefore two facts
+   * that can disagree; `chargeSoundPlan` reads "nothing yet" off the 0.
+   */
   private chargeStage = 0;
-  /** One warp-charge spool per visit (AC-21.3), not one per keystroke. */
-  private chargeHeard = false;
   /**
    * "Was it drawn", latched on a real render pass (see `latchOnRender`). The
    * Text's own `visible` flag is the truth only while the scene is alive: it
@@ -215,7 +232,6 @@ export class WarpScene extends Phaser.Scene {
     this.gate = null;
     this.multiplier = 0;
     this.warping = false;
-    this.chargeHeard = false;
     this.debrisMoved = false;
     this.debrisSignature = "";
     this.overlay = data?.overlay === true;
@@ -649,6 +665,21 @@ export class WarpScene extends Phaser.Scene {
       this.paintMeter();
       return;
     }
+    /**
+     * A TOKEN, NOT JUST `stop()`.
+     *
+     * `Tween.stop()` marks a tween for removal; Phaser can still dispatch one
+     * more `onUpdate` for it later in the same frame. That callback wrote
+     * `meterShown` from the OLD holder, so a fast typist could have the new
+     * tween finish at the true fill and then be dragged back a few thousandths
+     * by the corpse of the previous one - a bar that settles just short of
+     * where the state says it is, forever, with no further keystroke to fix it.
+     *
+     * Found by `tests/e2e/warp.spec.ts` "the charge meter EASES...", which
+     * types six characters quickly and then asserts the drawn fill converges on
+     * the state. The token makes a stale callback a no-op.
+     */
+    const token = ++this.meterToken;
     const holder = { v: this.meterShown };
     this.meterTween = this.tweens.add({
       targets: holder,
@@ -656,10 +687,13 @@ export class WarpScene extends Phaser.Scene {
       duration: 280,
       ease: EASE.arrive,
       onUpdate: () => {
+        if (token !== this.meterToken) return;
+        this.meterEaseFrames += 1;
         this.meterShown = holder.v;
         this.paintMeter();
       },
       onComplete: () => {
+        if (token !== this.meterToken) return;
         this.meterShown = target;
         this.paintMeter();
       },
@@ -873,29 +907,15 @@ export class WarpScene extends Phaser.Scene {
    */
   private soundCharge(fill: number): void {
     const audio = audioFrom(this.registry);
+    // The RULE still runs with no audio service (the standalone e2e harness has
+    // none): `chargeStage` is game state, not a sound, and a screen that only
+    // advanced it when someone was listening would behave differently under
+    // test than in the game.
+    const plan = chargeSoundPlan(this.chargeStage, fill);
+    this.chargeStage = plan.stage;
     if (audio === null) return;
-    const f = Math.max(0, Math.min(1, fill));
-
-    if (!this.chargeHeard) {
-      this.chargeHeard = true;
-      audio.play("warpCharge", "warp-scene:charge", { pitchSemitones: 0 });
-      this.chargeStage = 1;
-    } else {
-      // Thirds, and never the last one: at f === 1 the stinger is the sound.
-      const stage = Math.min(3, Math.floor(f * 3) + 1);
-      if (stage > this.chargeStage && f < 1) {
-        this.chargeStage = stage;
-        audio.play("warpCharge", "warp-scene:charge", {
-          pitchSemitones: (stage - 1) * 7,
-          gainScale: 0.6 + 0.2 * stage,
-        });
-      }
-    }
-
-    audio.play("keystroke", "warp-scene:charge-step", {
-      pitchSemitones: f * 12,
-      gainScale: 0.85,
-    });
+    if (plan.spool !== null) audio.play("warpCharge", "warp-scene:charge", plan.spool);
+    audio.play("keystroke", "warp-scene:charge-step", plan.step);
   }
 
   /**
@@ -1085,6 +1105,19 @@ export class WarpScene extends Phaser.Scene {
       lastEvent: this.sentence.lastEvent,
       chargeFraction: chargeFraction(this.sentence),
       chargePercent: chargePercent(this.sentence),
+      /**
+       * The DRAWN fill, which lags `chargeFraction` by a Cubic.Out tween.
+       *
+       * Reported separately from the state on purpose: "the bar eases" is the
+       * claim that these two numbers DIFFER during the move and converge after
+       * it, and a snapshot that only carried the state could not tell an eased
+       * bar from the jolting one the player complained about.
+       */
+      meterShown: this.meterShown,
+      /** Frames the fill was redrawn mid-move. Zero means it stepped. */
+      meterEaseFrames: this.meterEaseFrames,
+      /** Which third of the charge has sounded. 0..3; see `warpCharge.ts`. */
+      chargeStage: this.chargeStage,
       percentLabel: this.percentLabel.text,
       // Latched on a render pass and never cleared: "the charged line was
       // drawn", which is the claim, rather than "it is drawn right now", which

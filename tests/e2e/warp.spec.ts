@@ -58,6 +58,9 @@ type WarpSnapshot = {
   lastEvent: string;
   chargeFraction: number;
   chargePercent: number;
+  meterShown: number;
+  meterEaseFrames: number;
+  chargeStage: number;
   percentLabel: string;
   chargedLabelVisible: boolean;
   focusId: string;
@@ -216,6 +219,75 @@ test("AC-16.2 a typo does not reset the sentence and re-highlights the current l
   // And the sentence still finishes normally afterwards.
   await page.keyboard.type(" is", { delay: 25 });
   expect((await snap<WarpSnapshot>(page, "warp")).index).toBe(7);
+});
+
+test("AC-22.5 the charge meter EASES toward the fill rather than jolting to it", async ({
+  page,
+}) => {
+  // The player's words: "the progress bar should ease, not just jolt forward".
+  //
+  // The claim is about the two numbers being DIFFERENT for a moment and then
+  // the same - the state is exact and instantaneous (AC-16.3 still reads
+  // exactly 1 on the final character) and only the pixels lag it. A test that
+  // read `chargeFraction` alone could not tell an eased bar from a stepped one,
+  // which is why the scene reports the drawn value separately.
+  test.setTimeout(90_000);
+  await openWarp(page);
+
+  const idle = await snap<WarpSnapshot>(page, "warp");
+  expect(idle.meterEaseFrames).toBe(0);
+
+  // One keystroke. The fill is REDRAWN OVER MANY FRAMES on its way to the new
+  // value, which is what "ease" means and what a stepped bar cannot do: painted
+  // straight from `chargeFraction` this counter never leaves zero.
+  //
+  // Counted rather than sampled on purpose. The tween is 280 ms and a snapshot
+  // round-trip is not reliably shorter, so "read the drawn fill and assert it
+  // lags" is a race - it passed and failed on the same build.
+  await page.keyboard.press("M");
+  await page.waitForTimeout(600);
+  const settled = await snap<WarpSnapshot>(page, "warp");
+  expect(settled.chargeFraction).toBeGreaterThan(0);
+  // Two, not twenty. Headless Chromium rasterises Phaser in software and steps
+  // its clock at a fraction of wall time (see playwright.config.ts) - this
+  // 280 ms tween gets two or three update frames here and forty in a browser.
+  // The number that carries the claim is the FLOOR, and the floor for a bar
+  // that jolts is zero: `paintMeter` is only ever reached from the tween.
+  expect(settled.meterEaseFrames).toBeGreaterThanOrEqual(2);
+  // And it ARRIVES. Easing that never reaches the state is a different bug.
+  expect(settled.meterShown).toBeCloseTo(settled.chargeFraction, 5);
+
+  // It never overshoots - the sentence carries the text the player is reading
+  // and a bar that springs past the end reads as a fault, which is why the
+  // tween is Cubic.Out and never Back.Out.
+  await page.keyboard.type("ars is", { delay: 20 });
+  await page.waitForTimeout(600);
+  const later = await snap<WarpSnapshot>(page, "warp");
+  expect(later.meterShown).toBeLessThanOrEqual(1);
+  expect(later.meterShown).toBeCloseTo(later.chargeFraction, 5);
+});
+
+test("AC-21.3 the charge makes a rising noise that tracks the fill", async ({ page }) => {
+  // "The warp drive progress bar should actually make noise when its charging
+  // up." The RULE is unit-tested in tests/unit/scenes/warpCharge.test.ts; what
+  // this asserts is that the screen actually walks it - the stage advances
+  // through its thirds as the sentence is typed, rather than sounding once on
+  // the first character and then charging in silence.
+  test.setTimeout(90_000);
+  await openWarp(page);
+
+  await page.keyboard.press("M");
+  const first = await snap<WarpSnapshot>(page, "warp");
+  expect(first.chargeStage).toBe(1);
+
+  await page.keyboard.type("ars is the", { delay: 20 });
+  const middle = await snap<WarpSnapshot>(page, "warp");
+  expect(middle.chargeStage).toBeGreaterThan(first.chargeStage);
+
+  await page.keyboard.type(" red", { delay: 20 });
+  const late = await snap<WarpSnapshot>(page, "warp");
+  expect(late.chargeStage).toBeGreaterThanOrEqual(middle.chargeStage);
+  expect(late.chargeStage).toBeLessThanOrEqual(3);
 });
 
 test("AC-16.3 the charge meter reaches exactly 100% on the final character", async ({

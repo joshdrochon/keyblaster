@@ -41,7 +41,8 @@ export type NullNodeKind =
   | "oscillator"
   | "biquad"
   | "bufferSource"
-  | "panner";
+  | "panner"
+  | "mediaSource";
 
 /** One scheduled automation call, kept so tests can assert ramps happen. */
 export interface ParamEvent {
@@ -225,6 +226,19 @@ export class NullAudioContext implements AudioContextLike {
   createStereoPanner(): StereoPannerNodeLike {
     return this.track(new NullPanner());
   }
+  /**
+   * A recorded stand-in for `createMediaElementSource`. The element is kept so
+   * a test can assert WHICH clip was routed, which is the only thing a recorder
+   * can honestly say about a media source.
+   */
+  createMediaElementSource(element: unknown): AudioNodeLike {
+    const node = this.track(new NullNode("mediaSource"));
+    this.mediaElements.push(element);
+    return node;
+  }
+
+  /** Every element handed to `createMediaElementSource`, in order. */
+  readonly mediaElements: unknown[] = [];
 
   /** Every node carrying a label, e.g. every bus and every named layer. */
   labelled(): NullNode[] {

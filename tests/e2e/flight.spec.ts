@@ -5,6 +5,8 @@ import { join, resolve } from "node:path";
 // own debug contract is checked at compile time without bundling src into the
 // test runner.
 import type { FlightDebugState } from "../../src/game/scenes/FlightScene.js";
+// @ts-expect-error - .mjs tooling module, no type declarations by design
+import { measureSilhouettes } from "../gauntlet/silhouette.mjs";
 
 /**
  * Screen 6 (Flight), screen 6b (Stall) and the HUD overlay.
@@ -145,6 +147,14 @@ async function waitFrames(page: Page, count: number): Promise<void> {
     });
   }, count);
 }
+
+/**
+ * The design resolution the scenes lay out in (sceneKeys.ts GAME_WIDTH/HEIGHT).
+ * Every coordinate the debug surface reports is in this space; the canvas is
+ * whatever the window gave it, so a probe that wants pixels scales by
+ * bufferWidth / DESIGN.width.
+ */
+const DESIGN = { width: 1920, height: 1080 } as const;
 
 const state = (page: Page): Promise<FlightState> =>
   page.evaluate(() => window.__kbFlight?.state() as FlightState);
@@ -922,97 +932,73 @@ test.describe("Flight - rubric evidence", () => {
    * by silhouette."
    *
    * ---------------------------------------------------------------------------
-   * WHY THIS WAS REWRITTEN
+   * THIS IS THE THIRD MEASURE. READ WHY THE FIRST TWO FAILED BEFORE CHANGING IT.
    *
-   * The old version desaturated the frame, Otsu-thresholded it and counted
-   * connected regions, then asserted the count was between 3 and 60. Its whole
-   * evidence artifact was `{"contours": 14}`.
+   * 1. A CONTOUR COUNT. Desaturate, Otsu-threshold, count connected regions,
+   *    pass for any count in [3, 60]. The whole evidence artifact was
+   *    `{"contours": 14}`. Fourteen blobs says nothing about whether any of them
+   *    IS the rocket, and a frame in which every asteroid had dissolved into the
+   *    terrain would score a dozen contours off the terrain alone — which is
+   *    exactly the failure the AC exists to catch.
    *
-   * That number cannot fail for the reason the AC cares about. Fourteen blobs in
-   * a frame says nothing about whether ANY of them is the rocket, or a rock.
-   * Fourteen clouds would pass it. A frame in which every asteroid had dissolved
-   * into the terrain behind it would pass it, as long as the terrain itself had
-   * a few contours - and dissolving into the terrain is precisely the failure
-   * the AC exists to catch.
+   * 2. PER-REGION BACKGROUND SEPARATION off the same Otsu binarisation.
+   *    Genuinely stronger: it required a real luminance step across every
+   *    object-sized region. It still could not answer the AC, because **Otsu is
+   *    adaptive**. A real regression was available to test it against — a floor
+   *    vignette that washed 58% near-black across the full width at the ship's
+   *    own height, so a rock down there measured luminance 76 against a
+   *    background of 76. A probe that knew where the objects were scored that
+   *    0.002. This measure scored it **0.239**, four times the bar, because it
+   *    re-split the crushed frame and found its object-sized regions somewhere
+   *    else — terrain edges up in the untouched part of the picture.
    *
-   * So the measurement is now per OBJECT, against objects the scene names. The
-   * live rocks come from `__kbFlight.state()`; the ship is at the anchor
-   * `FlightScene` puts it at. For each, in the DESATURATED frame, we compare the
-   * mean luminance inside the object with the mean luminance of a ring just
-   * outside it. That difference IS "identifiable by silhouette" - it is what
-   * your eye does when the colour is gone - and an object that has dissolved
-   * into its background scores zero however many contours the frame has.
+   * The lane that shipped (2) deliberately did NOT move the threshold to catch
+   * that vignette, and was right to refuse: a number fitted to one known defect
+   * catches that defect and nothing else, and passes the next one. The defect
+   * was never the threshold. The defect was that the measurement was free to
+   * wander to a different part of the image.
+   *
+   * ---------------------------------------------------------------------------
+   * 3. WHAT IT MEASURES NOW: POSITION-ANCHORED SEPARATION.
+   *
+   * Nothing is segmented and no threshold is chosen from the data. The scene is
+   * asked where its objects are, and the frame is measured THERE: mean luminance
+   * in each object's core against mean luminance in a ring just outside it.
+   *
+   *   rocks  `__kbFlight.state().rocks[]`. Centre x from the plate's own
+   *          left/right (the mapping `plate-legibility.spec.ts` already relies
+   *          on), centre y from `rockBottom - sizePx/2`, radius `sizePx/2`.
+   *   ship   `FlightScene` anchors it at (width/2, height-150) with a half-width
+   *          of 46 px (FlightScene.ts:169,570-571). Hard-coded here on purpose:
+   *          if the art lane moves the ship, this probe measures empty sky and
+   *          the item goes RED rather than quietly passing on a rock instead.
+   *
+   * The ring excludes other objects and every word plate, so two rocks
+   * overlapping do not read as one rock against the sky.
+   *
+   * The measure itself lives in `tests/gauntlet/silhouette.mjs`, pure and
+   * browser-free, so its NEGATIVE CONTROL runs in vitest in milliseconds:
+   * `tests/unit/gauntlet/silhouette.test.ts` feeds it a synthetic frame, then
+   * the same frame with the vignette applied, and asserts this measure goes red
+   * (0.000) while the superseded Otsu measure on the identical pixels still
+   * reports 0.27. Re-run it with:
+   *
+   *   npx vitest run tests/unit/gauntlet/silhouette.test.ts --coverage.enabled=false
+   *
+   * WHAT IT STILL DOES NOT CLAIM. That a child can tell a rock from the ship,
+   * or that the frame reads as art. It says each object the scene reports is
+   * still distinguishable from what is immediately behind it with the colour
+   * gone. The judge's eye is the gate for the rest.
    */
-  interface Region {
-    area: number;
-    /** Centroid y as a fraction of frame height. Which band it is in. */
-    at: number;
-    inside: number;
-    outside: number;
-    separation: number;
-  }
-  interface Sample {
-    frame: { w: number; h: number };
-    threshold: number;
-    regions: Region[];
-    /** Object-sized regions whose centroid is in the bottom third. */
-    bottomBand: number;
+  interface ProbeObject {
+    id: string;
+    kind: string;
+    cx: number;
+    cy: number;
+    r: number;
   }
 
-  /**
-   * AC-22.4: "Desaturated flight screenshot: rocket and asteroids identifiable
-   * by silhouette."
-   *
-   * ---------------------------------------------------------------------------
-   * WHY THIS WAS REWRITTEN
-   *
-   * The old version desaturated the frame, Otsu-thresholded it, counted
-   * connected regions and asserted the count was between 3 and 60. Its entire
-   * evidence artifact was `{"contours": 14}`.
-   *
-   * That number cannot fail for the reason the AC exists. Fourteen regions says
-   * nothing about whether any of them separates from what is behind it, and a
-   * frame in which every asteroid had dissolved into the terrain would still
-   * score a dozen contours off the terrain alone - which is precisely the
-   * failure the AC is there to catch.
-   *
-   * So the measurement is now per REGION and it is about EDGES. Each
-   * object-sized region in the thresholded frame is compared against a ring of
-   * background just outside it, and the weakest of those steps is the number.
-   * A dissolved object has no step, whatever the region count is.
-   *
-   * ---------------------------------------------------------------------------
-   * HOW SENSITIVE IT ACTUALLY IS, MEASURED RATHER THAN ASSERTED
-   *
-   * A real regression was available to test this against: a floor vignette that
-   * washed 58% near-black across the full width at the ship's own height, so a
-   * rock down there measured luminance 76 against a background of 76. A probe
-   * that knew where the objects were scored that at 0.002.
-   *
-   * THIS CHECK DOES NOT FAIL ON IT. Run against that vignette it reports
-   * minSeparation 0.239, regions 6-8 per frame and 1-2 in the bottom band -
-   * degraded against the healthy frame's 0.187 / 8-9 / 2-4, but inside every
-   * threshold here. Otsu is adaptive, so it re-splits a crushed frame and still
-   * finds regions with a step across them.
-   *
-   * That is recorded rather than tuned away. Thresholds fitted to one known
-   * defect are how a check ends up green and meaningless, which is the whole
-   * reason this item was on the false-pass list. So: this version is strictly
-   * stronger than a contour count - it requires object-sized, uncropped regions,
-   * a real luminance step across every one of them, and shapes present in the
-   * bottom third where the player is looking - and it is NOT a proof that the
-   * frame reads. The judge's eye is still the gate for that.
-   *
-   * WHAT IT DOES NOT CLAIM, stated because the last version of this overclaimed
-   * and that is how it got into the false-pass list. It does not identify which
-   * region is the rocket. The scene's debug state reports rock positions in
-   * their parallax container's local space, not in screen space, so there is no
-   * honest way from here to say "this blob is rock-3" without reaching into
-   * another lane's scene internals. What it does assert is the property the AC
-   * turns on: that the frame contains several object-sized shapes and that every
-   * one of them still separates from its background with the colour gone.
-   */
-  test("V-22.4 / AC-22.4: object-sized shapes still separate from their background, desaturated", async ({
+  test("V-22.4 / AC-22.4: every object the scene reports still separates from its background, desaturated", async ({
     page,
   }) => {
     test.setTimeout(90_000);
@@ -1028,11 +1014,29 @@ test.describe("Flight - rubric evidence", () => {
     );
     await page.waitForTimeout(1500);
 
-    const sample = (): Promise<Sample> =>
+    /** FlightScene.ts:169 / :570-571 — the ship's anchor, in DESIGN pixels. */
+    const SHIP = { cx: DESIGN.width / 2, cy: DESIGN.height - 150, halfWidth: 46 };
+
+    /**
+     * ONE PAGE TURN FOR BOTH. The positions and the pixels must come from the
+     * same frame, and this is not a nicety: rocks fall on the wall clock, and
+     * reading the state in one `page.evaluate` and the canvas in the next puts
+     * two CDP round trips between them. Measured here, that gap was about a
+     * second - the probe was drawing its rings 140 px above every rock and
+     * reporting ~0.007 separation for a frame a human can read at a glance.
+     * It looked exactly like a broken renderer, and it was a broken clock.
+     */
+    const grab = (): Promise<{
+      w: number;
+      h: number;
+      b64: string;
+      rocks: { word: string; sizePx: number; isCanister: boolean; plateLeft: number; plateRight: number; plateTop: number; plateBottom: number; rockBottom: number }[];
+    }> =>
       page.evaluate(() => {
+        const live = window.__kbFlight?.state();
         const canvas = document.querySelector("canvas") as HTMLCanvasElement;
-        // Half resolution: enough to resolve a rock, cheap enough to flood-fill
-        // five times without the page stuttering.
+        // Half resolution: enough to resolve a rock, cheap to move across the
+        // bridge five times without the page stuttering.
         const W = Math.round(canvas.width / 2);
         const H = Math.round(canvas.height / 2);
         const off = document.createElement("canvas");
@@ -1041,195 +1045,155 @@ test.describe("Flight - rubric evidence", () => {
         const ctx = off.getContext("2d") as CanvasRenderingContext2D;
         ctx.drawImage(canvas, 0, 0, W, H);
         const { data } = ctx.getImageData(0, 0, W, H);
-
-        const grey = new Uint8Array(W * H);
-        for (let i = 0; i < grey.length; i += 1) {
-          grey[i] = Math.round(
+        const bytes = new Uint8Array(W * H);
+        for (let i = 0; i < bytes.length; i += 1) {
+          bytes[i] = Math.round(
             0.299 * (data[i * 4] as number) +
               0.587 * (data[i * 4 + 1] as number) +
               0.114 * (data[i * 4 + 2] as number),
           );
         }
-
-        // Otsu: the split that best separates light from dark, which is what
-        // "does it still read" means once the colour is gone.
-        const hist = new Array<number>(256).fill(0);
-        for (const v of grey) hist[v] = (hist[v] as number) + 1;
-        const total = grey.length;
-        let sum = 0;
-        for (let i = 0; i < 256; i += 1) sum += i * (hist[i] as number);
-        let sumB = 0;
-        let wB = 0;
-        let best = 0;
-        let threshold = 128;
-        for (let t = 0; t < 256; t += 1) {
-          wB += hist[t] as number;
-          if (wB === 0) continue;
-          const wF = total - wB;
-          if (wF === 0) break;
-          sumB += t * (hist[t] as number);
-          const mB = sumB / wB;
-          const mF = (sum - sumB) / wF;
-          const between = wB * wF * (mB - mF) * (mB - mF);
-          if (between > best) {
-            best = between;
-            threshold = t;
-          }
-        }
-
-        // Connected components of each class.
-        const label = new Int32Array(W * H).fill(-1);
-        const regions: Region[] = [];
-        const stack: number[] = [];
-        // OBJECT-SIZED, in pixels of this half-res buffer. A rock is 40-130 px
-        // across at design resolution, so 20-65 here: an area band of 250..9000
-        // takes rocks and the ship and excludes both the sky and a stray speck.
-        const MIN_AREA = 250;
-        const MAX_AREA = 9000;
-        for (let start = 0; start < W * H; start += 1) {
-          if (label[start] !== -1) continue;
-          const cls = (grey[start] as number) > threshold ? 1 : 0;
-          const id = regions.length;
-          const members: number[] = [];
-          stack.length = 0;
-          stack.push(start);
-          label[start] = id;
-          while (stack.length > 0) {
-            const p = stack.pop() as number;
-            members.push(p);
-            const x = p % W;
-            const y = (p - x) / W;
-            const neighbours = [
-              x > 0 ? p - 1 : -1,
-              x < W - 1 ? p + 1 : -1,
-              y > 0 ? p - W : -1,
-              y < H - 1 ? p + W : -1,
-            ];
-            for (const q of neighbours) {
-              if (q < 0 || label[q] !== -1) continue;
-              if (((grey[q] as number) > threshold ? 1 : 0) !== cls) continue;
-              label[q] = id;
-              stack.push(q);
-            }
-          }
-          // Reserve the id whether or not we keep the region, so labels stay
-          // unique; only object-sized ones are measured.
-          regions.push({ area: members.length, at: 0, inside: 0, outside: 0, separation: 0 });
-          if (members.length < MIN_AREA || members.length > MAX_AREA) continue;
-
-          // A region touching the frame edge is a crop, not an object.
-          let touchesEdge = false;
-          let minX = W;
-          let maxX = 0;
-          let minY = H;
-          let maxY = 0;
-          for (const p of members) {
-            const x = p % W;
-            const y = (p - x) / W;
-            if (x === 0 || y === 0 || x === W - 1 || y === H - 1) touchesEdge = true;
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
-          }
-          if (touchesEdge) continue;
-
-          let insideSum = 0;
-          for (const p of members) insideSum += grey[p] as number;
-          // The background ring: everything within a 6 px band of the region's
-          // bounding box that is NOT this region. That is what the eye compares
-          // the shape against.
-          const pad = 6;
-          let outSum = 0;
-          let outN = 0;
-          for (let y = Math.max(0, minY - pad); y <= Math.min(H - 1, maxY + pad); y += 1) {
-            for (let x = Math.max(0, minX - pad); x <= Math.min(W - 1, maxX + pad); x += 1) {
-              const p = y * W + x;
-              if (label[p] === id) continue;
-              const insideBox = x >= minX && x <= maxX && y >= minY && y <= maxY;
-              if (insideBox) continue;
-              outSum += grey[p] as number;
-              outN += 1;
-            }
-          }
-          if (outN === 0) continue;
-          const inside = insideSum / members.length;
-          const outside = outSum / outN;
-          let ySum = 0;
-          for (const p of members) ySum += (p - (p % W)) / W;
-          regions[id] = {
-            area: members.length,
-            at: Number((ySum / members.length / H).toFixed(3)),
-            inside: Number(inside.toFixed(1)),
-            outside: Number(outside.toFixed(1)),
-            separation: Number((Math.abs(inside - outside) / 255).toFixed(4)),
-          };
-        }
-
-        const kept = regions.filter((r) => r.separation > 0);
+        let s2 = "";
+        for (const v of bytes) s2 += String.fromCharCode(v);
         return {
-          frame: { w: W, h: H },
-          threshold,
-          regions: kept,
-          bottomBand: kept.filter((r) => r.at > 0.667).length,
+          w: W,
+          h: H,
+          b64: btoa(s2),
+          rocks: (live?.rocks ?? []).map((r) => ({
+            word: r.word,
+            sizePx: r.sizePx,
+            isCanister: r.isCanister,
+            plateLeft: r.plateLeft,
+            plateRight: r.plateRight,
+            plateTop: r.plateTop,
+            plateBottom: r.plateBottom,
+            rockBottom: r.rockBottom,
+          })),
         };
       });
 
-    // FIVE FRAMES A SECOND APART, because the belt's own pacing decides how many
-    // rocks are live (FR-8 / D19) and a single still can catch a nearly empty
-    // sky. Sampling over time puts what the belt actually produced in front of
-    // the measurement, at several positions and against several backgrounds.
-    const samples: Sample[] = [];
+    interface FrameSample {
+      frame: { w: number; h: number };
+      objects: Record<string, unknown>[];
+      unmeasurable: Record<string, unknown>[];
+      minSeparation: number;
+      rocks: number;
+    }
+
+    const samples: FrameSample[] = [];
     for (let i = 0; i < 5; i += 1) {
-      samples.push(await sample());
+      const { w, h, b64, rocks } = await grab();
+      // base64, not latin1. Decoding this as "binary" hands the probe the ASCII
+      // codes of the base64 alphabet - a near-uniform buffer averaging 88 - and
+      // every object then reads ~0.002 against its own background. Which is,
+      // incidentally, the first thing this measure ever caught.
+      const grey = Uint8Array.from(Buffer.from(b64, "base64"));
+      const scale = w / DESIGN.width;
+
+      const objects: ProbeObject[] = rocks.map((r, i2) => ({
+        id: `rock-${i2}-${r.word}`,
+        kind: r.isCanister ? "canister" : "rock",
+        cx: ((r.plateLeft + r.plateRight) / 2) * scale,
+        cy: (r.rockBottom - r.sizePx / 2) * scale,
+        r: (r.sizePx / 2) * scale,
+      }));
+      objects.push({
+        id: "ship",
+        kind: "ship",
+        cx: SHIP.cx * scale,
+        cy: SHIP.cy * scale,
+        r: SHIP.halfWidth * scale,
+      });
+      // Word plates are neither object nor background.
+      const exclude = rocks.map((r) => ({
+        x0: r.plateLeft * scale,
+        y0: r.plateTop * scale,
+        x1: r.plateRight * scale,
+        y1: r.plateBottom * scale,
+      }));
+
+      const measured = measureSilhouettes({ grey, w, h, objects, exclude }) as {
+        objects: Record<string, unknown>[];
+        unmeasurable: Record<string, unknown>[];
+        minSeparation: number;
+      };
+      samples.push({
+        frame: { w, h },
+        objects: measured.objects,
+        unmeasurable: measured.unmeasurable,
+        minSeparation: measured.minSeparation,
+        rocks: rocks.length,
+      });
       if (i < 4) await page.waitForTimeout(1000);
     }
-    const regions = samples.flatMap((s) => s.regions);
-    const separations = regions.map((r) => r.separation);
-    const minSeparation = separations.length === 0 ? 0 : Math.min(...separations);
-    const weakest = regions.reduce(
-      (a, b) => (b.separation < a.separation ? b : a),
-      regions[0] ?? { area: 0, inside: 0, outside: 0, separation: 0 },
+
+    const all = samples.flatMap(
+      (s) => s.objects as { separation: number; kind: string; at: { y: number } }[],
     );
-    const perFrame = samples.map((s) => s.regions.length);
+    const minSeparation = all.length === 0 ? 0 : Math.min(...all.map((o) => o.separation));
+    const weakest = all.reduce(
+      (a, b) => (a === null || b.separation < a.separation ? b : a),
+      null as { separation: number; kind: string } | null,
+    );
+    const shipReadings = all.filter((o) => o.kind === "ship");
+    const unmeasurable = samples.flatMap((s) => s.unmeasurable);
+    // WHICH BAND, because "the frame does not read" is not a task and "debris
+    // in the bottom third sits in the terrain's own luma band" is.
+    const frameH = samples[0]?.frame.h ?? 1;
+    const bandOf = (y: number): "top" | "middle" | "bottom" =>
+      y < frameH / 3 ? "top" : y < (2 * frameH) / 3 ? "middle" : "bottom";
+    const byBand: Record<string, { n: number; min: number }> = {};
+    for (const o of all) {
+      const b = bandOf(o.at.y);
+      const cur = byBand[b] ?? { n: 0, min: 1 };
+      byBand[b] = { n: cur.n + 1, min: Math.min(cur.min, o.separation) };
+    }
 
     writeEvidence("desaturated-silhouettes.json", {
       claim:
-        "AC-22.4: with the colour removed, every object-sized shape in the frame still separates from its background",
+        "AC-22.4: with the colour removed, every object the scene reports — every live rock and the ship — still separates from the background immediately around it",
       method:
-        "desaturate, Otsu threshold, connected components in an object-sized area band, then mean luminance inside each region vs a 6 px background ring outside its bounding box; 5 frames 1 s apart",
-      limitations: [
-        "regions are not identified as specific rocks: the scene reports rock positions in parallax-container space, not screen space",
-        "measured sensitivity: a floor vignette that crushed the play area to a 0.002 object/background step still scores 0.239 here, because Otsu re-splits a crushed frame. Stronger than the contour count it replaced; not a proof that the frame reads.",
-      ],
+        "position-anchored: the scene is asked where its objects are, and the desaturated frame is measured there. Mean luma in each object's core disc (0.45r) against a background ring (1.15r..1.75r) that excludes other objects and every word plate. No segmentation, no threshold chosen from the data. 5 frames 1 s apart.",
+      measure: "tests/gauntlet/silhouette.mjs measureSilhouettes",
+      supersedes:
+        "a global-Otsu connected-component measure, which scored 0.239 on a floor vignette that crushed the play area to a 0.002 step: it is adaptive, so it re-split the crushed frame and reported on terrain edges elsewhere",
+      negativeControl:
+        "tests/unit/gauntlet/silhouette.test.ts — the same vignette applied to a synthetic frame drives this measure to 0.000 while the superseded Otsu measure on the identical pixels still reports ~0.27. Runs in vitest, no browser: npx vitest run tests/unit/gauntlet/silhouette.test.ts --coverage.enabled=false",
+      shipAnchor: SHIP,
       frame: samples[0]?.frame,
       frames: samples.length,
-      threshold: samples[0]?.threshold,
-      regionsPerFrame: perFrame,
-      bottomBandPerFrame: samples.map((s) => s.bottomBand),
-      regionsMeasured: regions.length,
+      objectsMeasured: all.length,
+      shipReadings: shipReadings.length,
+      byBand,
+      unmeasurable,
       minSeparation: Number(minSeparation.toFixed(4)),
       weakest,
-      regions,
+      perFrame: samples.map((s) => ({
+        rocks: s.rocks,
+        measured: s.objects.length,
+        minSeparation: s.minSeparation,
+      })),
+      objects: all,
+      limitations: [
+        "the ship's anchor is read from FlightScene.ts:169,570-571 rather than from the debug surface; if the scene moves it, this probe measures empty sky and the item goes red",
+        "it does not claim a child can tell a rock from the ship, only that each object is distinguishable from what is immediately behind it",
+      ],
     });
 
-    // Anti-vacuity: a frame with no object-sized shapes in it has nothing to say
-    // about silhouettes, and a minimum over one region is not a minimum.
-    expect(regions.length, "object-sized regions measured").toBeGreaterThanOrEqual(8);
+    // ANTI-VACUITY. A minimum over an empty set is not a minimum, and a capture
+    // that never saw the ship is a capture of a frame with no rocket in it.
+    expect(all.length, "objects measured").toBeGreaterThanOrEqual(10);
+    expect(shipReadings.length, "the ship must be measured in every frame").toBe(samples.length);
+    // Ship plus at least one rock in every frame. A frame in which only the
+    // ship could be measured says nothing about the asteroids, and the AC names
+    // both.
     expect(
-      Math.min(...perFrame),
-      "every sampled frame has object-sized shapes in it",
+      Math.min(...samples.map((s) => s.objects.length)),
+      "every sampled frame must have the ship and at least one rock in it",
     ).toBeGreaterThanOrEqual(2);
-    // AND IN THE BOTTOM THIRD SPECIFICALLY, which is where the ship flies and
-    // where a full-width darkening wash does its damage. The ship alone
-    // guarantees one there in a healthy frame; zero means something has
-    // flattened the band the player is actually looking at.
-    expect(
-      Math.min(...samples.map((x) => x.bottomBand)),
-      "every sampled frame has an object-sized shape in its bottom third",
-    ).toBeGreaterThanOrEqual(1);
-    // 0.06 of the 8-bit range is about 15 levels: well above dither, and far
-    // below what a real silhouette against terrain gives.
+    // 0.06 of the 8-bit range is about 15 levels: well above dither, far below
+    // what a real silhouette against terrain gives. Unchanged from the measure
+    // this replaces — the bar did not move, the thing being measured did.
     expect(minSeparation, `weakest: ${JSON.stringify(weakest)}`).toBeGreaterThan(0.06);
   });
 

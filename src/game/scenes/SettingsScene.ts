@@ -1,5 +1,5 @@
 import { GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
-import { availableContentLangs, resolveContentLang } from "@engine/i18n";
+import { SHIPPED_LANGS, availableContentLangs, resolveContentLang } from "@engine/i18n";
 import {
   type InputMethod,
   type KeyboardLayout,
@@ -169,7 +169,8 @@ export class SettingsScene extends MenuScene {
         label: this.t.t("settings.uiLang"),
         width: colW,
         value: s.uiLang,
-        choices: this.langChoices(LANGS),
+        // D95: only languages the build actually ships.
+        choices: this.langChoices(SHIPPED_LANGS),
         onChange: (v) => this.applyAndRestart({ uiLang: v }),
       }),
     );
@@ -189,9 +190,23 @@ export class SettingsScene extends MenuScene {
           value: s.contentLang,
           // AC-14.1: only languages this input method can actually produce.
           choices: this.langChoices(typeable),
-          note: typeable.length < LANGS.length
-            ? this.t.t("settings.contentLangUnavailable")
-            : undefined,
+          // D95: compare against what this input method COULD type, not
+          // against every language that exists. After the ship filter
+          // `typeable` is always length 1 while LANGS.length is 3, so this
+          // note rendered for every player on every input method - telling a
+          // child to pick a Hindi keyboard under a row offering only English.
+          // Unactionable, and settings.spec.ts:146 then passed for the wrong
+          // reason.
+          // Show it only when a SHIPPED language is blocked by this input
+          // method. Comparing against LANGS made it permanent after D95 (3
+          // languages exist, 1 is offered, so it always fired); comparing
+          // against typeableContentLangs made it permanent too, for the
+          // mirror-image reason. The note is actionable only if changing the
+          // keyboard would actually unlock something the build ships.
+          note:
+            typeable.length < SHIPPED_LANGS.length
+              ? this.t.t("settings.contentLangUnavailable")
+              : undefined,
           onChange: (v) => this.app.applySettings({ contentLang: v }),
         },
       ),

@@ -31,7 +31,7 @@ import {
 } from "./sceneKeys.js";
 import { hexToNum, paletteFor } from "./render/palette.js";
 import { LANTERN_SHOT_KEY, LanternShotScene } from "./render/lanternShot.js";
-import { createTranslator, type Translator } from "../engine/i18n/index.js";
+import { createTranslator, isShipped, type Translator } from "../engine/i18n/index.js";
 import {
   DEFAULT_SHIP_NAME,
   createProfileStore,
@@ -127,9 +127,14 @@ function buildContext(params: URLSearchParams, store: ProfileStore): SceneContex
 }
 
 function pickLang(params: URLSearchParams, store: ProfileStore): Lang {
+  // D95: `isShipped`, not `isLang`. The URL parameter is a real entry point -
+  // `?lang=es` brought the entire UI up in Spanish in the shipped build, past
+  // a menu that no longer offers it. A saved `uiLang` gets the same treatment,
+  // because a profile written before the cut still carries one.
   const fromUrl = params.get("lang");
-  if (fromUrl !== null && isLang(fromUrl)) return fromUrl;
-  return store.activeProfile()?.settings.uiLang ?? "en";
+  if (fromUrl !== null && isLang(fromUrl) && isShipped(fromUrl)) return fromUrl;
+  const saved = store.activeProfile()?.settings.uiLang;
+  return saved !== undefined && isShipped(saved) ? saved : "en";
 }
 
 // ---------------------------------------------------------------------------

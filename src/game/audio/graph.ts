@@ -45,6 +45,7 @@ import {
   type Ducker,
   type VoiceEnvironment,
 } from "./voice.js";
+import { createVoiceClipPlayer, type VoiceClipCatalog } from "./voiceClips.js";
 
 export type BusId = "master" | "music" | "ambient" | "sfx" | "voice";
 
@@ -194,6 +195,16 @@ export class SidechainDucker implements Ducker {
 
 export interface AudioGraphOptions {
   readonly voiceEnv: VoiceEnvironment;
+  /**
+   * Shadow's rendered lines (D63), if this build ships any.
+   *
+   * It arrives HERE rather than on `voiceEnv` because a clip has to be routed
+   * into the graph to be worth playing, and the voice bus does not exist until
+   * `buildAudioGraph` has made it. Same reasoning as the `chirp` below: the
+   * wiring belongs at the graph, so `voice.ts` still names no sibling and
+   * AC-21.7's boundary test stays honest.
+   */
+  readonly voiceClips?: VoiceClipCatalog;
   /** Injected so variant rotation is reproducible in a test. */
   readonly rand?: () => number;
   /** Overall level, 0..1. Settings will drive this. */
@@ -209,6 +220,17 @@ export interface AudioGraph {
   readonly keystrokeTone: KeystrokeTone;
   readonly voice: VoiceBus;
   readonly ducker: SidechainDucker;
+  /**
+   * Line ids this graph can play from a RENDERED FILE (D63). Empty on a build
+   * that shipped none, and empty on a context that cannot route a media
+   * element - which are different situations with the same consequence.
+   *
+   * Separate from `voice.transportId` on purpose; see the `id` getter in
+   * `adaptiveTransport`. Together they answer "what can this machine do":
+   * `transportId` is the speech path for an unrendered line, this is the set of
+   * lines that never need it.
+   */
+  readonly voiceClipIds: readonly string[];
   /** Step the time-based buses. One call per frame from the scene. */
   advance(dtMs: number): void;
   /** Set the overall level without disturbing the ducker's captured bases. */
@@ -256,6 +278,18 @@ export function buildAudioGraph(ctx: AudioContextLike, options: AudioGraphOption
   // failure - a chirp here says "he said something", it does not say "error".
   // Wired at the graph rather than inside voice.ts so that module still names
   // no sibling and AC-21.7's boundary test stays honest.
+  //
+  // THE RENDERED LINES (D63). Routed to `buses.voice`, which is what makes the
+  // AC-21.4 duck, the master fader and the settings volumes apply to Shadow's
+  // recorded voice - none of which reach a Web Speech utterance, because that
+  // one never enters the graph at all. Null when the context cannot route a
+  // media element, in which case nothing changes and every line is spoken by
+  // the platform exactly as before.
+  const clips =
+    options.voiceClips === undefined
+      ? null
+      : createVoiceClipPlayer(ctx, buses.voice, options.voiceClips, options.voiceEnv.schedule);
+
   const voiceEnv: VoiceEnvironment = {
     ...options.voiceEnv,
     chirp:
@@ -263,6 +297,7 @@ export function buildAudioGraph(ctx: AudioContextLike, options: AudioGraphOption
       ((): void => {
         sfx.play("uiNav", { gainScale: 0.9 });
       }),
+    ...(clips !== null ? { clips } : {}),
   };
   // The bus serialises Shadow's lines and holds the AC-21.4 duck across the
   // gap between two of them, so it needs the same clock the transport uses.
@@ -275,6 +310,7 @@ export function buildAudioGraph(ctx: AudioContextLike, options: AudioGraphOption
   return {
     ctx,
     buses,
+    voiceClipIds: clips === null ? [] : (options.voiceClips?.ids() ?? []),
     music,
     ambient,
     sfx,

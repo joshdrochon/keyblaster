@@ -22,6 +22,7 @@ export * from "./ambient.js";
 export * from "./sfx.js";
 export * from "./keystrokeTone.js";
 export * from "./voice.js";
+export * from "./voiceClips.js";
 export * from "./evidence.js";
 // The connection layer. `createAudioSystem` BUILDS the audio; `installAudio`
 // is what makes the game the thing playing it (audit.md 1.2).
@@ -37,6 +38,7 @@ import {
   type Scheduler,
   type SpeechPort,
 } from "./voice.js";
+import type { VoiceClipCatalog, VoiceMediaElement } from "./voiceClips.js";
 
 /**
  * Construct the platform's AudioContext, or null if there is not one.
@@ -85,6 +87,132 @@ function detectPlatformFrom(scope: unknown): Platform {
   return detectPlatform(ua, platform);
 }
 
+// ---------------------------------------------------------------------------
+// Shadow's rendered lines (D63)
+// ---------------------------------------------------------------------------
+
+/**
+ * The rendered clips, as URLs the bundler owns.
+ *
+ * THIS IS ALSO WHAT MAKES THEM SHIP. Vite emits an asset only if something
+ * imports it, so before this glob existed `vite build` put zero mp3 into
+ * `dist/` and a file transport would have 404'd in a real build while looking
+ * perfectly wired in dev. The glob is the import. `?url` keeps the bytes out of
+ * the JS bundle: what lands here is a hashed path, and the file is fetched by
+ * the media element when a line is actually spoken.
+ *
+ * `import.meta.glob` rather than a static import for the same reason
+ * `scenes/lib/content.ts` uses it: `resolveJsonModule` is off, no lane may edit
+ * tsconfig, and a glob is declared by `vite/client` which tsconfig does load.
+ */
+const CLIP_URLS = import.meta.glob("../../content/audio/voice/*.mp3", {
+  query: "?url",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+/**
+ * The render manifest, which is the AUTHORITY on what was rendered and what it
+ * was rendered from. The glob above says what is on disk; this says what was
+ * meant to be. An id needs both - a file with no manifest row is an orphan from
+ * a half-finished render, and a manifest row with no file is a render that was
+ * capped mid-run (see `scripts/render-voice.mjs`).
+ */
+const CLIP_MANIFEST = import.meta.glob("../../content/audio/voice/manifest.json", {
+  import: "default",
+  eager: true,
+}) as Record<string, unknown>;
+
+/** `{ id, file }` rows from the manifest, narrowed by hand. It is content. */
+export function manifestClipIds(manifest: unknown = Object.values(CLIP_MANIFEST)[0]): string[] {
+  if (typeof manifest !== "object" || manifest === null) return [];
+  const lines = (manifest as { lines?: unknown }).lines;
+  if (!Array.isArray(lines)) return [];
+  const ids: string[] = [];
+  for (const row of lines) {
+    if (typeof row !== "object" || row === null) continue;
+    const id = (row as { id?: unknown }).id;
+    if (typeof id === "string" && id.length > 0) ids.push(id);
+  }
+  return ids;
+}
+
+/** Line id from a clip path: ".../mars.beaconFlavor.mp3" -> "mars.beaconFlavor". */
+function clipIdOf(path: string): string | null {
+  const file = path.split("/").pop();
+  if (file === undefined || !file.endsWith(".mp3")) return null;
+  const id = file.slice(0, -".mp3".length);
+  return id.length > 0 ? id : null;
+}
+
+/**
+ * Wrap a real `HTMLAudioElement` as a `VoiceMediaElement`.
+ *
+ * The cast is the entire cost of not modelling the DOM's media types in the
+ * port, and it is confined to this function - the same trade `webSpeechPort`
+ * makes for utterances.
+ */
+function adaptMediaElement(element: unknown): VoiceMediaElement {
+  const el = element as {
+    play(): unknown;
+    pause(): void;
+    currentTime: number;
+    addEventListener(type: string, listener: () => void): void;
+    removeEventListener(type: string, listener: () => void): void;
+  };
+  return {
+    play: () => el.play(),
+    pause: () => el.pause(),
+    get currentTime(): number {
+      return el.currentTime;
+    },
+    set currentTime(value: number) {
+      el.currentTime = value;
+    },
+    addEventListener: (type, listener) => el.addEventListener(type, listener),
+    removeEventListener: (type, listener) => el.removeEventListener(type, listener),
+  };
+}
+
+/**
+ * The catalog of rendered lines this build can play, or null.
+ *
+ * Null in Node, in a browser with no `Audio` constructor, and in a build that
+ * shipped no renders. Every one of those is a game that speaks through the
+ * platform voice, which is D88's stand-in and still a complete game.
+ */
+export function browserVoiceClips(scope: unknown = globalThis): VoiceClipCatalog | null {
+  if (typeof scope !== "object" || scope === null) return null;
+  const Ctor = (scope as Record<string, unknown>)["Audio"];
+  if (typeof Ctor !== "function") return null;
+
+  const rendered = new Set(manifestClipIds());
+  const byId = new Map<string, string>();
+  for (const [path, url] of Object.entries(CLIP_URLS)) {
+    const id = clipIdOf(path);
+    // Both, or neither: see CLIP_MANIFEST. An empty manifest is treated as "no
+    // manifest was shipped", not as "nothing was rendered", so a build that
+    // dropped the json still plays the files it has.
+    if (id !== null && (rendered.size === 0 || rendered.has(id))) byId.set(id, url);
+  }
+  if (byId.size === 0) return null;
+
+  const ids = [...byId.keys()].sort();
+  const make = Ctor as new (src: string) => unknown;
+  return {
+    ids: () => ids,
+    open(id: string): VoiceMediaElement | null {
+      const url = byId.get(id);
+      if (url === undefined) return null;
+      try {
+        return adaptMediaElement(new make(url));
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
 export interface AudioSystemOptions {
   /** Override the context. Tests pass a `NullAudioContext`. */
   readonly ctx?: AudioContextLike | null;
@@ -98,6 +226,11 @@ export interface AudioSystemOptions {
   readonly masterGain?: number;
   /** The scope globals are read from. Injected so the adapter is testable. */
   readonly scope?: unknown;
+  /**
+   * Shadow's rendered lines (D63). `null` forces the platform voice for every
+   * line, which is how a test asserts the stand-in still works end to end.
+   */
+  readonly voiceClips?: VoiceClipCatalog | null;
 }
 
 /**
@@ -110,9 +243,11 @@ export function createAudioSystem(options: AudioSystemOptions = {}): AudioGraph 
   const speech = options.speech !== undefined ? options.speech : browserSpeechPort(scope);
   const schedule = options.schedule ?? browserScheduler(scope);
   const platform = options.platform ?? detectPlatformFrom(scope);
+  const clips = options.voiceClips !== undefined ? options.voiceClips : browserVoiceClips(scope);
 
   const graphOptions = {
     voiceEnv: { speech, platform, lang: options.lang ?? "en-US", schedule },
+    ...(clips !== null ? { voiceClips: clips } : {}),
     ...(options.rand ? { rand: options.rand } : {}),
     ...(options.masterGain !== undefined ? { masterGain: options.masterGain } : {}),
   };

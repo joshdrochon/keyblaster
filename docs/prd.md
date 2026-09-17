@@ -138,9 +138,9 @@ KeyBlaster is a 2D high-fidelity vertical scroller for grades 2–5 in which the
 - AC-13.2 The blocklist (profanity, alcohol, drugs, weapons-as-violence) rejects, and the allowlist alone would already have rejected, every word on it. → U (fixture including "liquor").
 - AC-13.3 AI outputs (§3.4) pass the same filter before use. → U.
 
-**FR-14 Languages (D45, D46, D95).** UI: en, es, hi. Content: en, es, hi, built and tested; the SHIPPED build offers English only (D95). Independent selection.
+**FR-14 Languages (D45, D46, D95, C14).** UI and content are each selectable in principle, and en/es/hi are all built, translated and tested. The SHIPPED build offers **English only, for both** (D95). Note C14: the runtime content loader globs `content/en/` regardless of the setting, so `contentLang` reaches nothing today — that predates D95 and is unresolved.
 - AC-14.1 Content language options are filtered by input method: Devanagari content is offered only if input is `inscript` or `translit`. → U.
-- AC-14.4 The shipped content-language menu offers English only (D95), and a profile saved with `es` or `hi` selected is repaired to a shipped language rather than left on content the menu cannot show. The withheld content remains present and under test, so restoring it is a one-array change. → U.
+- AC-14.4 The shipped build offers English only, in **both** the content-language row and the UI-language row (D95); no unshipped language is reachable from any menu, from a saved profile, or from the `?lang=` URL parameter. The withheld content remains on disk and under test. → U.
 - AC-14.2 Romanized transliteration matches Devanagari targets per a deterministic mapping table; ambiguous romanizations accept all listed variants. → U (table-driven).
 - AC-14.3 All UI strings come from i18n files; no hard-coded English in scenes. → U (lint rule / string extraction test).
 

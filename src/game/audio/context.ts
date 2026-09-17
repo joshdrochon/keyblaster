@@ -97,6 +97,21 @@ export interface AudioContextLike {
   createBufferSource(): AudioBufferSourceNodeLike;
   createBuffer(numberOfChannels: number, length: number, sampleRate: number): AudioBufferLike;
   createStereoPanner(): StereoPannerNodeLike;
+  /**
+   * Route a media element (a pre-rendered voice clip) INTO the graph.
+   *
+   * Optional, and the only optional member of this port, because it is the one
+   * capability a context can honestly lack: the null context has nothing to
+   * route, and a browser that blocked audio never got far enough to have one.
+   * `createVoiceClipPlayer` asks for it and returns null when it is absent,
+   * which is how a build with rendered files still runs on a machine that
+   * cannot play them.
+   *
+   * `element` is `unknown` rather than `HTMLMediaElement` for the same reason
+   * `SpeechPort` is not `SpeechSynthesis`: no module under src/game/audio may
+   * name a DOM type. The one real call site casts, in index.ts.
+   */
+  createMediaElementSource?(element: unknown): AudioNodeLike;
 }
 
 // ---------------------------------------------------------------------------

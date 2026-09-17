@@ -205,17 +205,44 @@ describe("AC-6e.3: pacing the belt to the player does not empty the sky", () => 
   });
 
   it("AC-6e.3: the measure can be non-zero, so zero means something", () => {
-    // A belt whose words all share a first letter cannot legally fill the board
-    // (AC-2.1), which is the one way a gap-free board can still go quiet.
-    const collide = ["sun", "sky", "spin", "storm", "star", "solid"];
-    const r = simulateBelt(
-      belt({ stagePool: collide, spawnCount: 12, knobs: { maxLive: MAX_LIVE_MAX } }),
-      MEDIAN,
+    // THIS CONTROL USED TO BE VACUOUS. It flew a pool whose words all share a
+    // first letter and then asserted `maxDeadMs <= 2000` - a restatement of the
+    // passing assertion above, not a demonstration that the metric can move. It
+    // also could not have worked: a shared first letter only blocks a NON-EMPTY
+    // board (AC-2.1), and `picker.ts`'s final cascade rung filters by nothing
+    // but "not live" and "first letter not taken", so an empty board always
+    // yields a word. Dead time in this harness is structurally impossible while
+    // FlightScene.trySpawn:955's empty-board fast path is modelled.
+    //
+    // So the control removes that clause and nothing else. The belt then waits
+    // out its derived gap on an empty board - which is precisely the defect
+    // AC-6e.3 forbids - and the metric moves off zero. That is the evidence
+    // that a reading of 0 ms above means something.
+    //
+    // The stronger claim - that the metric can pass 2000, so the THRESHOLD is
+    // reachable and not only the metric - takes the whole sweep and is asserted
+    // in tests/unit/simulation/coreLoop.test.ts, which records the breach in
+    // gauntlet/evidence/deadtime.json for the rubric to gate on. One seed here
+    // reaches a few hundred ms; asserting 2000 off a single seed would be a
+    // number tuned to one run.
+    const quiet = simulateBelt(
+      belt({ spawnCount: 24, knobs: { maxLive: MAX_LIVE_MIN }, emptyBoardFastPath: false }),
+      SLOW,
       {},
       mulberry32(5),
     );
-    expect(r.spawned).toBeGreaterThan(0);
-    expect(r.maxDeadMs).toBeLessThanOrEqual(2000);
+    expect(quiet.spawned).toBeGreaterThan(0);
+    expect(quiet.maxDeadMs).toBeGreaterThan(0);
+
+    // And with the shipped rule back, the same belt on the same seed is silent
+    // for no time at all.
+    const shipped = simulateBelt(
+      belt({ spawnCount: 24, knobs: { maxLive: MAX_LIVE_MIN } }),
+      SLOW,
+      {},
+      mulberry32(5),
+    );
+    expect(shipped.maxDeadMs).toBe(0);
   });
 });
 

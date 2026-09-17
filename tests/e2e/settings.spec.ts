@@ -117,20 +117,29 @@ test.describe("row 11 - settings", () => {
     // the applied value - there is no second place for it to be wrong.
   });
 
-  test("AC-19.1 UI language changes the screen with no reload", async ({
+  test("AC-14.4 / D95 the UI-language row offers only shipped languages", async ({
     page,
   }) => {
+    // This test previously drove the row through es and hi and asserted the
+    // heading changed. D95 ships English only, in BOTH rows, so cycling can no
+    // longer reach another language - and the live-reskin behaviour AC-19.1
+    // describes has no second language to demonstrate it with in this build.
+    //
+    // It is NOT deleted, because deleting it would make the cut invisible: a
+    // check that passes by having nothing left to measure is this repo's
+    // signature failure (docs/audit.md). It now asserts the cut instead, and
+    // will fail loudly the day SHIPPED_LANGS grows - which is when the
+    // live-reskin assertions below should be restored.
     await seed(page, [{ name: "Ana" }], SETTINGS);
     const heading = screen(page, SETTINGS).locator('[data-testid="ui-heading"]');
     await expect(heading).toContainText("ship controls");
 
-    await adjust(page, "settings.uiLang", "ArrowRight");
-    expect((await settings(page))["uiLang"]).toBe("es");
-    await expect(heading).toContainText("controles de la nave");
+    const before = (await settings(page))["uiLang"];
+    expect(before).toBe("en");
 
     await adjust(page, "settings.uiLang", "ArrowRight");
-    expect((await settings(page))["uiLang"]).toBe("hi");
-    await expect(heading).toContainText("यान");
+    expect((await settings(page))["uiLang"]).toBe("en");
+    await expect(heading).toContainText("ship controls");
   });
 
   test("AC-19.1 / AC-14.1 content language is filtered by input method", async ({
@@ -138,26 +147,30 @@ test.describe("row 11 - settings", () => {
   }) => {
     await seed(page, [{ name: "Ana" }], SETTINGS);
 
-    // Latin keyboard: Devanagari content is not offered at all.
-    expect((await snapshot(page, SETTINGS))["contentLangChoices"]).toEqual([
-      "en",
-      "es",
-    ]);
-    await expect(item(page, SETTINGS, "settings.contentLang")).toContainText(
+    // D95: the shipped menu is English only, on every input method. AC-14.1's
+    // "Devanagari is offered only on a Devanagari input method" rule still
+    // holds and is exercised on all three languages by
+    // tests/unit/i18n/shippedLangs.test.ts via typeableContentLangs(); what is
+    // asserted HERE is what a player can actually reach.
+    expect((await snapshot(page, SETTINGS))["contentLangChoices"]).toEqual(["en"]);
+    // The "pick a Hindi keyboard" note must NOT show on a latin keyboard when
+    // the row offers only English - it told the child to do something that
+    // would change nothing. It previously showed to everyone, and the old
+    // assertion here passed for that wrong reason.
+    await expect(item(page, SETTINGS, "settings.contentLang")).not.toContainText(
       "hindi keyboard",
     );
 
+    // Cycling cannot leave English, because there is nowhere to go.
     await adjust(page, "settings.contentLang", "ArrowRight");
-    expect((await settings(page))["contentLang"]).toBe("es");
+    expect((await settings(page))["contentLang"]).toBe("en");
 
-    // Switch to a Hindi input method and it appears.
+    // And a Devanagari input method does not conjure Hindi content into a
+    // build that does not ship it. This is the assertion that would fail the
+    // day someone filters the menu somewhere other than SHIPPED_LANGS.
     await adjust(page, "settings.inputMethod", "ArrowRight");
     expect((await settings(page))["inputMethod"]).toBe("translit");
-    expect((await snapshot(page, SETTINGS))["contentLangChoices"]).toEqual([
-      "en",
-      "es",
-      "hi",
-    ]);
+    expect((await snapshot(page, SETTINGS))["contentLangChoices"]).toEqual(["en"]);
   });
 
   test("AC-14.1 an untypeable stored pair is repaired when Settings opens", async ({

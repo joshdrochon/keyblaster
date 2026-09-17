@@ -274,16 +274,35 @@ test("AC-18.1 the Title is operable with the keyboard alone and shows focus", as
         ).focusIndex,
     );
 
+  // D95: the Title carries two items, not three. The language row is omitted
+  // when only one language ships, because a one-option selector is noise on
+  // the first screen a child sees. The property AC-18.1 asserts - arrows and
+  // Tab move a visible focus, and the list WRAPS so a child cannot get stuck
+  // at the end - is unchanged and is what is checked here. `last` is derived
+  // rather than written as a literal so this survives the row coming back.
+  const last = await page.evaluate(
+    () =>
+      (
+        (window as unknown as Record<string, Record<string, unknown>>)["__kb"]?.["title"] as {
+          items: string[];
+        }
+      ).items.length - 1,
+  );
+  expect(last).toBeGreaterThan(0);
+
+  const count = last + 1;
   expect(await focus()).toBe(0);
   await page.keyboard.press("ArrowDown");
-  expect(await focus()).toBe(1);
+  expect(await focus()).toBe(1 % count);
+  // Tab is a second way to move the same focus, and it advances by one.
   await page.keyboard.press("Tab");
-  expect(await focus()).toBe(2);
-  // Wraps, so a child cannot get stuck at the end of the list.
+  expect(await focus()).toBe(2 % count);
+  // Wraps at both ends, so a child cannot get stuck.
+  while ((await focus()) !== last) await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   expect(await focus()).toBe(0);
   await page.keyboard.press("ArrowUp");
-  expect(await focus()).toBe(2);
+  expect(await focus()).toBe(last);
 
   // The focus ring is drawn, not implied: the frame must change when focus moves.
   const a = await frame(page);
@@ -293,26 +312,37 @@ test("AC-18.1 the Title is operable with the keyboard alone and shows focus", as
   expect(await pixelDiffPercent(page, a.toString("base64"), b.toString("base64"))).toBeGreaterThan(0);
 });
 
-test("D45 the language switch is visible and changes the UI language", async ({ page }) => {
+test("AC-14.4 / D95 the Title offers no unshipped language", async ({ page }) => {
+  // This was "D45 the language switch is visible and changes the UI language",
+  // driving the row to Spanish. D95 ships English only, so there is no second
+  // language to switch to and the row is not drawn at all.
+  //
+  // NOT deleted. Deleting it would make the cut invisible, and a check that
+  // passes by having nothing left to measure is this repo's signature failure.
+  // It now asserts the cut, and goes red the day SHIPPED_LANGS grows - which
+  // is exactly when the switch assertions above should come back.
   await openTitle(page);
 
-  const lang = (): Promise<string> =>
+  const state = (): Promise<{ lang: string; items: string[] }> =>
     page.evaluate(
       () =>
-        (
-          (window as unknown as Record<string, Record<string, unknown>>)["__kb"]?.["title"] as {
-            lang: string;
-          }
-        ).lang,
+        (window as unknown as Record<string, Record<string, unknown>>)["__kb"]?.["title"] as {
+          lang: string;
+          items: string[];
+        },
     );
 
-  expect(await lang()).toBe("en");
-  // Third item is the language row; Right steps along it.
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("ArrowRight");
-  await page.waitForTimeout(500);
-  expect(await lang()).toBe("es");
+  expect((await state()).lang).toBe("en");
+  // The language row is not among the focusable items at all.
+  expect((await state()).items).toEqual(["primary", "settings"]);
+
+  // Walking the whole list and pressing Right anywhere cannot change it.
+  for (let i = 0; i < 4; i++) {
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowRight");
+  }
+  await page.waitForTimeout(400);
+  expect((await state()).lang).toBe("en");
 });
 
 test("AC-19.3 reduced motion removes camera sway and keeps ambient drift", async ({ page }) => {

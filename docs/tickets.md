@@ -4,24 +4,23 @@
      computed from evidence on each run, and a hand-typed status is the
      exact failure this board exists to prevent. -->
 
-Generated: 2026-09-17T00:47:32.394Z
-Tickets: **316**
+Generated: 2026-09-17T01:21:10.754Z
+Tickets: **323**
 
 | DONE | OPEN | UNVERIFIED | FALSE-PASS | BLOCKED | EXEMPT |
 |---|---|---|---|---|---|
-| 183 | 26 | 24 | 12 | 31 | 40 |
+| 172 | 23 | 43 | 10 | 35 | 40 |
 
 **DONE** means an assertion names it and the evidence is fresher than the
 code. **UNVERIFIED** means something claims it but the binding is weak or
 the evidence is stale. **FALSE-PASS** means a check is green and does not
 measure its claim — read those first.
 
-## ac (106) — 88 DONE · 12 OPEN · 2 UNVERIFIED · 4 FALSE-PASS
+## ac (106) — 75 DONE · 10 OPEN · 18 UNVERIFIED · 3 FALSE-PASS
 
 | state | id | title | why | source |
 |---|---|---|---|---|
 | FALSE-PASS | `KB-AC-22.4` | Desaturated flight screenshot: rocket and asteroids identifiable by silhouette (checked by contour count with… | the rubric item covering it (V-22.4) does not measure its claim | docs/prd.md |
-| FALSE-PASS | `KB-AC-6d.1c` | Trophies per D80: First Light (Earth lit), Pathfinder (first beacon), Belt Runner (main-belt stage 0 hits), R… | Twelve trophies are defined in src/game/ui/catalog.ts and nothing in src/ ever writes profile.trophies; ResultsScene.ts:237 hardcodes an em… | docs/prd.md |
 | FALSE-PASS | `KB-AC-6e.3` | During flight, no interval > 2 s with zero live asteroids and no pending spawn. | the rubric item covering it (L-6e.3) does not measure its claim | docs/prd.md |
 | FALSE-PASS | `KB-AC-6e.4` | Retention line trends upward across a full Earth | the rubric item covering it (L-6e.4) does not measure its claim | docs/prd.md |
 | OPEN | `KB-AC-1.1` | Ship x/y do not change during a stage except for shake offsets. | no test names this AC | docs/prd.md |
@@ -30,14 +29,28 @@ measure its claim — read those first.
 | OPEN | `KB-AC-13.3` | AI outputs (§3.4) pass the same filter before use. | no test names this AC | docs/prd.md |
 | OPEN | `KB-AC-17.3` | Beacon persists to profile and blinks on the Director map thereafter. | no test names this AC | docs/prd.md |
 | OPEN | `KB-AC-21.2` | Music has ≥ 3 intensity layers; intensity index is a function of live asteroid count and combo. | rubric item A-21.2 is failing | docs/prd.md |
-| OPEN | `KB-AC-22.9` | 60 fps: p95 frame time ≤ 16.7 ms over a 60 s scripted flight in headless Chromium. | rubric item P-22.9 is failing | docs/prd.md |
 | OPEN | `KB-AC-23.1` | No raster file is referenced from anywhere in `src/`; reference images in `design-reference/refs/` are looked… | no test names this AC | docs/prd.md |
 | OPEN | `KB-AC-24.1` | The beam emitter renders as engineered tech: large lens, iris aperture that opens on fire, three concentric f… | no test names this AC | docs/prd.md |
 | OPEN | `KB-AC-24.3` | The four colorways in that reference are the four base ships (D79); no text is drawn on the hull and `{shipNa… | no test names this AC | docs/prd.md |
-| OPEN | `KB-AC-6e.1` | Input-to-visual latency ≤ 16.7 ms measured keydown | rubric item L-6e.1 is failing | docs/prd.md |
 | OPEN | `KB-AC-6e.5` | Playtest targets (to set): median session ≥ N min, replay rate ≥ M%. | no test names this AC | docs/prd.md |
+| UNVERIFIED | `KB-AC-18.2` | Profiles: name + avatar; no email field exists anywhere. | the rubric item covering it (G-pii) is itself unverified | docs/prd.md |
+| UNVERIFIED | `KB-AC-19.1` | Each setting persists and takes effect without reload: music vol, SFX vol, keyboard layout (qwerty/azerty/qwe… | the rubric item covering it (A-21.8) is itself unverified | docs/prd.md |
+| UNVERIFIED | `KB-AC-21.1` | Per-planet ambient bed file exists and plays on that stop; crossfades on transition. | the rubric item covering it (A-21.1) is itself unverified | docs/prd.md |
+| UNVERIFIED | `KB-AC-21.3` | Every event (lock, keystroke, typo, blast, hit, shield, warp charge, warp, beacon, UI nav) has ≥ 3 SFX varian… | the rubric item covering it (A-21.3) is itself unverified | docs/prd.md |
+| UNVERIFIED | `KB-AC-21.4` | Music ducks by ≥ 6 dB while a Shadow voice line plays. | the rubric item covering it (A-21.4) is itself unverified | docs/prd.md |
+| UNVERIFIED | `KB-AC-21.5` | Shadow speaks via Web Speech API (system voice) with a per-platform voice preference list and fallback; no ne… | the rubric item covering it (A-21.5) is itself unverified | docs/prd.md |
+| UNVERIFIED | `KB-AC-21.6` | Coach notes are spoken via system voice after the text renders; text remains the source of truth and the disp… | the rubric item covering it (A-21.6) is itself unverified | docs/prd.md |
+| UNVERIFIED | `KB-AC-22.1` | ≥ 5 parallax layers at distinct speeds. | the rubric item covering it (V-22.1a) is itself unverified | docs/prd.md |
+| UNVERIFIED | `KB-AC-22.2` | Idle frames differ: two title-screen screenshots 1 s apart have > 2% pixel difference. | the rubric item covering it (V-22.2) is itself unverified | docs/prd.md |
+| UNVERIFIED | `KB-AC-22.3` | Stage start vs stage end background gradient differ (ΔE > 10 on sampled sky). | the rubric item covering it (V-22.3) is itself unverified | docs/prd.md |
+| UNVERIFIED | `KB-AC-22.5` | Zero `Linear` easing in tween configs. | the rubric item covering it (V-22.5) is itself unverified | docs/prd.md |
+| UNVERIFIED | `KB-AC-22.6` | Blast, hit, warp emit distinct particle configs. | the rubric item covering it (V-22.6) is itself unverified | docs/prd.md |
+| UNVERIFIED | `KB-AC-22.7` | Each stage palette ≤ 7 colors + 1 accent in config; screenshot dominant colors ⊆ palette ± tolerance. | the rubric item covering it (V-22.7) is itself unverified | docs/prd.md |
+| UNVERIFIED | `KB-AC-22.8` | Word label contrast ratio ≥ 4.5:1 against its plate. | the rubric item covering it (V-22.8) is itself unverified | docs/prd.md |
 | UNVERIFIED | `KB-AC-25.1` | The rendered vector Shadow matches `design-reference/refs/shadow-sheet.png`: charcoal body, cream face rim, g… | mentioned in 1 test file(s) but never in a test title — the citation may be a comment outliving its assertion | docs/prd.md |
+| UNVERIFIED | `KB-AC-6d.1` | Skins unlock only from mastery milestones defined in config; no time/purchase path exists. | mentioned in 1 test file(s) but never in a test title — the citation may be a comment outliving its assertion | docs/prd.md |
 | UNVERIFIED | `KB-AC-6d.1b` | Ships/skins per D79: 4 ships (unlock at 1/3/5/7 beacons), 1 skin each (unlock: first 3★ stop, 25-combo, 50-co… | mentioned in 1 test file(s) but never in a test title — the citation may be a comment outliving its assertion | docs/prd.md |
+| UNVERIFIED | `KB-AC-6e.2` | Every keystroke event emits ≥ 1 visual and ≥ 1 audio response. | the rubric item covering it (A-21.8) is itself unverified | docs/prd.md |
 | DONE | `KB-AC-10.1` | Never two knob changes in one stage. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-10.2` | Given a simulated player with fixed true accuracy p, long-run measured hit rate converges to [0.80, 0.90] for… | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-10.3` | Difficulty never increases while hit rate < 0.85 (D18). | named by an assertion in 2 test file(s) | docs/prd.md |
@@ -55,7 +68,7 @@ measure its claim — read those first.
 | DONE | `KB-AC-14.1` | Content language options are filtered by input method: Devanagari content is offered only if input is `inscri… | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-14.2` | Romanized transliteration matches Devanagari targets per a deterministic mapping table; ambiguous romanizatio… | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-14.3` | All UI strings come from i18n files; no hard-coded English in scenes. | named by an assertion in 2 test file(s) | docs/prd.md |
-| DONE | `KB-AC-14.4` | The shipped content-language menu offers English only (D95), and a profile saved with `es` or `hi` selected i… | named by an assertion in 1 test file(s) | docs/prd.md |
+| DONE | `KB-AC-14.4` | The shipped build offers English only, in **both** the content-language row and the UI-language row (D95); no… | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-15.1` | Timeout 1500 ms; on timeout/error/invalid JSON, fallback bundle is used and UI is identical. | named by an assertion in 4 test file(s) | docs/prd.md |
 | DONE | `KB-AC-15.2` | Output is validated: schema, allowlist, word count, banned-term scan. | named by an assertion in 6 test file(s) | docs/prd.md |
 | DONE | `KB-AC-15.3` | No AI call during flight; exactly one per warp break; zero on Earth. | named by an assertion in 2 test file(s) | docs/prd.md |
@@ -68,10 +81,8 @@ measure its claim — read those first.
 | DONE | `KB-AC-17.1` | Coordinates computed from Keplerian elements (JPL approximate elements, J2000) for the stop's planet on the c… | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-17.2` | Pluto uses the 1800–2050 element set. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-18.1` | Every screen reachable and returnable via keyboard alone. | named by an assertion in 15 test file(s) | docs/prd.md |
-| DONE | `KB-AC-18.2` | Profiles: name + avatar; no email field exists anywhere. | named by an assertion in 5 test file(s) | docs/prd.md |
 | DONE | `KB-AC-18.3` | Leaderboards: personal-best per stop; opt-in relative board shows the player and up to 2 above / 2 below; no … | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-18.4` | Local persistence via localStorage with versioned schema and migration; corrupted storage | named by an assertion in 8 test file(s) | docs/prd.md |
-| DONE | `KB-AC-19.1` | Each setting persists and takes effect without reload: music vol, SFX vol, keyboard layout (qwerty/azerty/qwe… | named by an assertion in 4 test file(s) | docs/prd.md |
 | DONE | `KB-AC-19.2` | Keyboard layout changes the key | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-19.3` | Reduced motion disables screen shake and camera sway, keeps gameplay motion. | named by an assertion in 4 test file(s) | docs/prd.md |
 | DONE | `KB-AC-19.4` | No difficulty selector, no dyslexia-font toggle exists. | named by an assertion in 1 test file(s) | docs/prd.md |
@@ -82,19 +93,8 @@ measure its claim — read those first.
 | DONE | `KB-AC-20.2` | Per-word markers: "faster" if median first-key latency improved ≥ 15% vs prior exposure. | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-20.3` | Retention line: for retention words in this stage, % hit and mean latency delta vs first exposure. | named by an assertion in 4 test file(s) | docs/prd.md |
 | DONE | `KB-AC-20.4` | Stars per §3.1 AC-4.4. | named by an assertion in 2 test file(s) | docs/prd.md |
-| DONE | `KB-AC-21.1` | Per-planet ambient bed file exists and plays on that stop; crossfades on transition. | named by an assertion in 6 test file(s) | docs/prd.md |
-| DONE | `KB-AC-21.3` | Every event (lock, keystroke, typo, blast, hit, shield, warp charge, warp, beacon, UI nav) has ≥ 3 SFX varian… | named by an assertion in 4 test file(s) | docs/prd.md |
-| DONE | `KB-AC-21.4` | Music ducks by ≥ 6 dB while a Shadow voice line plays. | named by an assertion in 5 test file(s) | docs/prd.md |
-| DONE | `KB-AC-21.5` | Shadow speaks via Web Speech API (system voice) with a per-platform voice preference list and fallback; no ne… | named by an assertion in 4 test file(s) | docs/prd.md |
-| DONE | `KB-AC-21.6` | Coach notes are spoken via system voice after the text renders; text remains the source of truth and the disp… | named by an assertion in 4 test file(s) | docs/prd.md |
-| DONE | `KB-AC-21.7` | The voice path is complete against the system-voice stand-in (D88): voice bus, ducking (AC-21.4) and spoken c… | named by an assertion in 1 test file(s) | docs/prd.md |
-| DONE | `KB-AC-22.1` | ≥ 5 parallax layers at distinct speeds. | named by an assertion in 3 test file(s) | docs/prd.md |
-| DONE | `KB-AC-22.2` | Idle frames differ: two title-screen screenshots 1 s apart have > 2% pixel difference. | named by an assertion in 2 test file(s) | docs/prd.md |
-| DONE | `KB-AC-22.3` | Stage start vs stage end background gradient differ (ΔE > 10 on sampled sky). | named by an assertion in 3 test file(s) | docs/prd.md |
-| DONE | `KB-AC-22.5` | Zero `Linear` easing in tween configs. | named by an assertion in 1 test file(s) | docs/prd.md |
-| DONE | `KB-AC-22.6` | Blast, hit, warp emit distinct particle configs. | named by an assertion in 1 test file(s) | docs/prd.md |
-| DONE | `KB-AC-22.7` | Each stage palette ≤ 7 colors + 1 accent in config; screenshot dominant colors ⊆ palette ± tolerance. | named by an assertion in 1 test file(s) | docs/prd.md |
-| DONE | `KB-AC-22.8` | Word label contrast ratio ≥ 4.5:1 against its plate. | named by an assertion in 4 test file(s) | docs/prd.md |
+| DONE | `KB-AC-21.7` | The voice path is complete against the system-voice stand-in (D88): voice bus, ducking (AC-21.4) and spoken c… | named by an assertion in 2 test file(s) | docs/prd.md |
+| DONE | `KB-AC-22.9` | 60 fps: p95 frame time ≤ 16.7 ms over a 60 s scripted flight in headless Chromium. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-22b.1` | No red failure state, lives counter, or "wrong" label/sound exists anywhere in `src/game`. | named by an assertion in 7 test file(s) | docs/prd.md |
 | DONE | `KB-AC-22b.2` | A hull strike renders as shake + spark with no full-screen red flash (restates AC-4.2 as a rendering invarian… | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-24.2` | The rendered vector Lantern matches `design-reference/refs/lantern-topdown.png` in silhouette, orientation, p… | named by an assertion in 1 test file(s) | docs/prd.md |
@@ -114,9 +114,9 @@ measure its claim — read those first.
 | DONE | `KB-AC-6b.1` | Ship name is stored on profile and substituted into story text via `{shipName}`, default "Lantern" (C07 resol… | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-6c.1` | Score multiplier = min(combo, 10); combo resets on typo or hull hit; HUD shows "×N". | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-6c.2` | Keystroke tone steps up a fixed scale (e.g., pentatonic) per successful keystroke, resets on typo; pitch inde… | named by an assertion in 1 test file(s) | docs/prd.md |
-| DONE | `KB-AC-6d.1` | Skins unlock only from mastery milestones defined in config; no time/purchase path exists. | named by an assertion in 2 test file(s) | docs/prd.md |
+| DONE | `KB-AC-6d.1c` | Trophies per D80: First Light (Earth lit), Pathfinder (first beacon), Belt Runner (main-belt stage 0 hits), R… | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-6d.2` | Trophy definitions are config; each is awarded exactly once per profile; Beacon Log renders them. | named by an assertion in 1 test file(s) | docs/prd.md |
-| DONE | `KB-AC-6e.2` | Every keystroke event emits ≥ 1 visual and ≥ 1 audio response. | named by an assertion in 4 test file(s) | docs/prd.md |
+| DONE | `KB-AC-6e.1` | Input-to-visual latency ≤ 16.7 ms measured keydown | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-7.1` | Every blast/miss/typo updates the record deterministically. | named by an assertion in 1 test file(s) | docs/prd.md |
 | DONE | `KB-AC-7.2` | Records persist across sessions (D44). | named by an assertion in 2 test file(s) | docs/prd.md |
 | DONE | `KB-AC-8.1` | Formula implemented exactly; clamps hold. | named by an assertion in 2 test file(s) | docs/prd.md |
@@ -127,23 +127,24 @@ measure its claim — read those first.
 | DONE | `KB-AC-9.3` | From stage 2 on, 20% (±1) of spawns are retention words from earlier stops, spaced by the SRS rule: eligible … | named by an assertion in 3 test file(s) | docs/prd.md |
 | DONE | `KB-AC-9.4` | A missed word's next eligibility is set to "next stage" (D23). | named by an assertion in 3 test file(s) | docs/prd.md |
 
-## collision (13) — 9 DONE · 4 BLOCKED
+## collision (14) — 9 DONE · 5 BLOCKED
 
 | state | id | title | why | source |
 |---|---|---|---|---|
-| BLOCKED | `KB-C10` | AC-3.3 "ignored" vs typo | unresolved — two decisions conflict and the user picks | docs/decision-log.md:158 |
-| BLOCKED | `KB-C11` | D92 coach model ID string | unresolved — two decisions conflict and the user picks | docs/decision-log.md:156 |
-| BLOCKED | `KB-C12` | Ambient beds: pre-rendered files vs procedural | unresolved — two decisions conflict and the user picks | docs/decision-log.md:154 |
-| BLOCKED | `KB-C13` | Planet names in the asteroid pool | unresolved — two decisions conflict and the user picks | docs/decision-log.md:152 |
-| DONE | `KB-C01` | Weapons | resolved in the log | docs/decision-log.md:169 |
-| DONE | `KB-C02` | Accounts | resolved in the log | docs/decision-log.md:170 |
-| DONE | `KB-C03` | Fall speed | resolved in the log | docs/decision-log.md:171 |
-| DONE | `KB-C04` | Scope language | resolved in the log | docs/decision-log.md:172 |
-| DONE | `KB-C05` | Route | resolved in the log | docs/decision-log.md:167 |
-| DONE | `KB-C06` | Audio source | resolved in the log | docs/decision-log.md:165 |
-| DONE | `KB-C07` | Ship name | resolved in the log | docs/decision-log.md:162 |
-| DONE | `KB-C08` | Skins vs D08 | resolved in the log | docs/decision-log.md:163 |
-| DONE | `KB-C09` | Voice source | resolved in the log | docs/decision-log.md:160 |
+| BLOCKED | `KB-C10` | AC-3.3 "ignored" vs typo | unresolved — two decisions conflict and the user picks | docs/decision-log.md:161 |
+| BLOCKED | `KB-C11` | D92 coach model ID string | unresolved — two decisions conflict and the user picks | docs/decision-log.md:159 |
+| BLOCKED | `KB-C12` | Ambient beds: pre-rendered files vs procedural | unresolved — two decisions conflict and the user picks | docs/decision-log.md:157 |
+| BLOCKED | `KB-C13` | Planet names in the asteroid pool | unresolved — two decisions conflict and the user picks | docs/decision-log.md:155 |
+| BLOCKED | `KB-C14` | `contentLang` is a setting that reaches nothing | unresolved — two decisions conflict and the user picks | docs/decision-log.md:152 |
+| DONE | `KB-C01` | Weapons | resolved in the log | docs/decision-log.md:172 |
+| DONE | `KB-C02` | Accounts | resolved in the log | docs/decision-log.md:173 |
+| DONE | `KB-C03` | Fall speed | resolved in the log | docs/decision-log.md:174 |
+| DONE | `KB-C04` | Scope language | resolved in the log | docs/decision-log.md:175 |
+| DONE | `KB-C05` | Route | resolved in the log | docs/decision-log.md:170 |
+| DONE | `KB-C06` | Audio source | resolved in the log | docs/decision-log.md:168 |
+| DONE | `KB-C07` | Ship name | resolved in the log | docs/decision-log.md:165 |
+| DONE | `KB-C08` | Skins vs D08 | resolved in the log | docs/decision-log.md:166 |
+| DONE | `KB-C09` | Voice source | resolved in the log | docs/decision-log.md:163 |
 
 ## decision (89) — 54 DONE · 35 EXEMPT
 
@@ -239,45 +240,46 @@ measure its claim — read those first.
 | DONE | `KB-D91` | Shadow reference approved: `design-reference/refs/shadow-sheet.png`. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:76 |
 | DONE | `KB-D95` | Spanish and Hindi content is **withheld from the shipped menu** for the hackathon build. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:116 |
 
-## escalation (27) — 27 BLOCKED
+## escalation (29) — 1 DONE · 28 BLOCKED
 
 | state | id | title | why | source |
 |---|---|---|---|---|
-| BLOCKED | `KB-ESC-01` | AC-10.2 — controller cannot reach the 85% band for weak typists | awaiting a user decision | gauntlet/escalations.md:4 |
-| BLOCKED | `KB-ESC-02` | AC-20.1 / FR-15 — `accuracy` mixes words and keystrokes | awaiting a user decision | gauntlet/escalations.md:63 |
-| BLOCKED | `KB-ESC-03` | PROCESS — the loop asked the user a blocking question (fixed) | awaiting a user decision | gauntlet/escalations.md:108 |
-| BLOCKED | `KB-ESC-04` | C10 — AC-3.3 "ignored" vs typo (collision, user decision) | awaiting a user decision | gauntlet/escalations.md:130 |
-| BLOCKED | `KB-ESC-05` | AC-9.2 — no guaranteed-catch word can exist on a fresh profile | awaiting a user decision | gauntlet/escalations.md:161 |
-| BLOCKED | `KB-ESC-06` | C11 — D92's coach model id is probably wrong (one-line fix) | awaiting a user decision | gauntlet/escalations.md:208 |
-| BLOCKED | `KB-ESC-07` | Design brief's flat "+25% Spanish" is wrong for short labels | awaiting a user decision | gauntlet/escalations.md:249 |
-| BLOCKED | `KB-ESC-08` | C12 — ambient beds are procedural, not pre-rendered (collision vs D63) | awaiting a user decision | gauntlet/escalations.md:291 |
-| BLOCKED | `KB-ESC-09` | FOUNDATION lane (boot / render / Title) — decisions taken, review requested | awaiting a user decision | gauntlet/escalations.md:321 |
-| BLOCKED | `KB-ESC-10` | Warp / Beacon / Results / Ending lane — four decisions and one measurement | awaiting a user decision | gauntlet/escalations.md:331 |
-| BLOCKED | `KB-ESC-11` | C13 — planet names in the asteroid pool (collision, user decision) | awaiting a user decision | gauntlet/escalations.md:402 |
-| BLOCKED | `KB-ESC-12` | AC-22.9 — the PRD names an instrument that cannot measure the claim | awaiting a user decision | gauntlet/escalations.md:435 |
-| BLOCKED | `KB-ESC-13` | Devanagari word-plate progress has no glyph index (open seam, not a blocker) | awaiting a user decision | gauntlet/escalations.md:511 |
-| BLOCKED | `KB-ESC-14` | P-22.9 — 60 fps: p95 frame time <= 16.7 ms over a 60 s scripted flight | awaiting a user decision | gauntlet/escalations.md:547 |
-| BLOCKED | `KB-ESC-15` | Two Shadows — the reference-compare pass did not cover what menus draw | awaiting a user decision | gauntlet/escalations.md:559 |
-| BLOCKED | `KB-ESC-16` | L-6e.1 — Input-to-visual latency <= 16.7 ms (one frame) | awaiting a user decision | gauntlet/escalations.md:601 |
-| BLOCKED | `KB-ESC-17` | D09 fix — three decisions taken with the documented behaviour, per D94 | awaiting a user decision | gauntlet/escalations.md:613 |
-| BLOCKED | `KB-ESC-18` | D25's parked-word tier is unreachable at three of six belts | awaiting a user decision | gauntlet/escalations.md:672 |
-| BLOCKED | `KB-ESC-19` | Audio wiring — four sound-design calls made without you (audit.md 1.2) | awaiting a user decision | gauntlet/escalations.md:728 |
-| BLOCKED | `KB-ESC-20` | The e2e suite's verdict is load-dependent at three workers | awaiting a user decision | gauntlet/escalations.md:795 |
-| BLOCKED | `KB-ESC-21` | E-playable-path · Four decisions taken on the `fix/playable-path` lane | awaiting a user decision | gauntlet/escalations.md:856 |
-| BLOCKED | `KB-ESC-22` | D27 vs D17 — hull 3 and the 80-90% band cannot both hold at 58 words | awaiting a user decision | gauntlet/escalations.md:925 |
-| BLOCKED | `KB-ESC-23` | E-world-3 · The near plane on a night stop cannot have the reference's value range | awaiting a user decision | gauntlet/escalations.md:996 |
-| BLOCKED | `KB-ESC-24` | E-world-4 · V-22.8 measures plate contrast in colour space, and a veil now sits over the plate | awaiting a user decision | gauntlet/escalations.md:1052 |
-| BLOCKED | `KB-ESC-25` | E-fail-state · Does a hard fail state (D29) belong in this game at all? | awaiting a user decision | gauntlet/escalations.md:1073 |
-| BLOCKED | `KB-ESC-26` | E-practice-trajectory · A repeat rock now misses the ship, which bends AC-4.2 | awaiting a user decision | gauntlet/escalations.md:1203 |
-| BLOCKED | `KB-ESC-27` | E-world-5 — Two independent critics say shape vocabulary is not the gap. | awaiting a user decision | gauntlet/escalations.md:1267 |
+| BLOCKED | `KB-ESC-ac-10-2-controller-cannot-reach-the-85-band-` | AC-10.2 — controller cannot reach the 85% band for weak typists | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:4 |
+| BLOCKED | `KB-ESC-ac-20-1-fr-15-accuracy-mixes-words-and-keyst` | AC-20.1 / FR-15 — `accuracy` mixes words and keystrokes | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:63 |
+| BLOCKED | `KB-ESC-ac-22-9-the-prd-names-an-instrument-that-can` | AC-22.9 — the PRD names an instrument that cannot measure the claim | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:435 |
+| BLOCKED | `KB-ESC-ac-9-2-no-guaranteed-catch-word-can-exist-on` | AC-9.2 — no guaranteed-catch word can exist on a fresh profile | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:161 |
+| BLOCKED | `KB-ESC-audio-wiring-four-sound-design-calls-made-wi` | Audio wiring — four sound-design calls made without you (audit.md 1.2) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:728 |
+| BLOCKED | `KB-ESC-c10-ac-3-3-ignored-vs-typo-collision-user-de` | C10 — AC-3.3 "ignored" vs typo (collision, user decision) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:130 |
+| BLOCKED | `KB-ESC-c11-d92-s-coach-model-id-is-probably-wrong-o` | C11 — D92's coach model id is probably wrong (one-line fix) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:208 |
+| BLOCKED | `KB-ESC-c12-ambient-beds-are-procedural-not-pre-rend` | C12 — ambient beds are procedural, not pre-rendered (collision vs D63) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:291 |
+| BLOCKED | `KB-ESC-c13-planet-names-in-the-asteroid-pool-collis` | C13 — planet names in the asteroid pool (collision, user decision) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:402 |
+| BLOCKED | `KB-ESC-d09-fix-three-decisions-taken-with-the-docum` | D09 fix — three decisions taken with the documented behaviour, per D94 | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:613 |
+| BLOCKED | `KB-ESC-d25-s-parked-word-tier-is-unreachable-at-thr` | D25's parked-word tier is unreachable at three of six belts | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:672 |
+| BLOCKED | `KB-ESC-d27-vs-d17-hull-3-and-the-80-90-band-cannot-` | D27 vs D17 — hull 3 and the 80-90% band cannot both hold at 58 words | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:925 |
+| BLOCKED | `KB-ESC-design-brief-s-flat-25-spanish-is-wrong-for-` | Design brief's flat "+25% Spanish" is wrong for short labels | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:249 |
+| BLOCKED | `KB-ESC-devanagari-word-plate-progress-has-no-glyph-` | Devanagari word-plate progress has no glyph index (open seam, not a blocker) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:511 |
+| BLOCKED | `KB-ESC-e-fail-state-does-a-hard-fail-state-d29-belo` | E-fail-state · Does a hard fail state (D29) belong in this game at all? | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1073 |
+| BLOCKED | `KB-ESC-e-playable-path-four-decisions-taken-on-the-` | E-playable-path · Four decisions taken on the `fix/playable-path` lane | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:856 |
+| BLOCKED | `KB-ESC-e-practice-trajectory-a-repeat-rock-now-miss` | E-practice-trajectory · A repeat rock now misses the ship, which bends AC-4.2 | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1203 |
+| BLOCKED | `KB-ESC-e-world-3-the-near-plane-on-a-night-stop-can` | E-world-3 · The near plane on a night stop cannot have the reference's value range | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:996 |
+| BLOCKED | `KB-ESC-e-world-4-v-22-8-measures-plate-contrast-in-` | E-world-4 · V-22.8 measures plate contrast in colour space, and a veil now sits over the plate | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1052 |
+| BLOCKED | `KB-ESC-e-world-5-two-independent-critics-say-shape-` | E-world-5 — Two independent critics say shape vocabulary is not the gap. | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1267 |
+| BLOCKED | `KB-ESC-e-world-6-two-critics-disagree-about-hue-the` | E-world-6 — Two critics disagree about hue. | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1360 |
+| BLOCKED | `KB-ESC-foundation-lane-boot-render-title-decisions-` | FOUNDATION lane (boot / render / Title) — decisions taken, review requested | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:321 |
+| BLOCKED | `KB-ESC-g-trace-turning-on-strict-makes-the-board-re` | G-trace — turning on `--strict` makes the board red: 11 ACs have no test that asserts them | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1401 |
+| BLOCKED | `KB-ESC-l-6e-1-input-to-visual-latency-16-7-ms-one-f` | L-6e.1 — Input-to-visual latency <= 16.7 ms (one frame) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:601 |
+| BLOCKED | `KB-ESC-p-22-9-60-fps-p95-frame-time-16-7-ms-over-a-` | P-22.9 — 60 fps: p95 frame time <= 16.7 ms over a 60 s scripted flight | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:547 |
+| BLOCKED | `KB-ESC-the-e2e-suite-s-verdict-is-load-dependent-at` | The e2e suite's verdict is load-dependent at three workers | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:795 |
+| BLOCKED | `KB-ESC-two-shadows-the-reference-compare-pass-did-n` | Two Shadows — the reference-compare pass did not cover what menus draw | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:559 |
+| BLOCKED | `KB-ESC-warp-beacon-results-ending-lane-four-decisio` | Warp / Beacon / Results / Ending lane — four decisions and one measurement | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:331 |
+| DONE | `KB-ESC-process-the-loop-asked-the-user-a-blocking-q` | PROCESS — the loop asked the user a blocking question (fixed) | marked resolved in gauntlet/escalations.md | gauntlet/escalations.md:108 |
 
-## fr (27) — 16 DONE · 7 OPEN · 1 UNVERIFIED · 3 FALSE-PASS
+## fr (31) — 17 DONE · 8 OPEN · 4 UNVERIFIED · 2 FALSE-PASS
 
 | state | id | title | why | source |
 |---|---|---|---|---|
-| FALSE-PASS | `KB-FR-22` | Nothing reads as punishment (D31, D28) | rolled up from 9 AC(s); worst is FALSE-PASS | docs/prd.md:218 |
-| FALSE-PASS | `KB-FR-6d` | Skins and trophies (D73, D74) | rolled up from 4 AC(s); worst is FALSE-PASS | docs/prd.md:68 |
 | FALSE-PASS | `KB-FR-6e` | Core loop qualities (D77) | rolled up from 5 AC(s); worst is FALSE-PASS | docs/prd.md:74 |
+| FALSE-PASS | `KB-SEC-3.10` | Visual rubric (D60) — all V unless noted | rolled up from 9 AC(s); worst is FALSE-PASS | docs/prd.md:201 |
 | OPEN | `KB-FR-1` | Scroll and ship | rolled up from 2 AC(s); worst is OPEN | docs/prd.md:31 |
 | OPEN | `KB-FR-12b` | Per-stop debris | rolled up from 3 AC(s); worst is OPEN | docs/prd.md:115 |
 | OPEN | `KB-FR-13` | Allowlist (D34) | rolled up from 3 AC(s); worst is OPEN | docs/prd.md:136 |
@@ -285,15 +287,19 @@ measure its claim — read those first.
 | OPEN | `KB-FR-23` | All art is vector drawn in code (D83, D84) | rolled up from 1 AC(s); worst is OPEN | docs/prd.md:222 |
 | OPEN | `KB-FR-24` | The Lantern (D89, D90) | rolled up from 3 AC(s); worst is OPEN | docs/prd.md:225 |
 | OPEN | `KB-FR-6` | Stage end | no AC beneath this FR | docs/prd.md:57 |
+| OPEN | `KB-SEC-3.9` | Audio (D62, D63, D88) | rolled up from 7 AC(s); worst is OPEN | docs/prd.md:191 |
+| UNVERIFIED | `KB-FR-18` | Flow | rolled up from 4 AC(s); worst is UNVERIFIED | docs/prd.md:171 |
 | UNVERIFIED | `KB-FR-25` | Shadow (D91, D66) | rolled up from 3 AC(s); worst is UNVERIFIED | docs/prd.md:230 |
+| UNVERIFIED | `KB-FR-6d` | Skins and trophies (D73, D74) | rolled up from 4 AC(s); worst is UNVERIFIED | docs/prd.md:68 |
+| UNVERIFIED | `KB-SEC-3.7` | Settings (D41) | rolled up from 4 AC(s); worst is UNVERIFIED | docs/prd.md:177 |
 | DONE | `KB-FR-10` | Controller (D53) | rolled up from 4 AC(s); worst is DONE | docs/prd.md:101 |
 | DONE | `KB-FR-11` | Calibration (D51) | rolled up from 3 AC(s); worst is DONE | docs/prd.md:108 |
 | DONE | `KB-FR-12` | Stops | rolled up from 3 AC(s); worst is DONE | docs/prd.md:131 |
-| DONE | `KB-FR-14` | Languages (D45, D46, D95) | rolled up from 4 AC(s); worst is DONE | docs/prd.md:141 |
+| DONE | `KB-FR-14` | Languages (D45, D46, D95, C14) | rolled up from 4 AC(s); worst is DONE | docs/prd.md:141 |
 | DONE | `KB-FR-15` | One call per warp break | rolled up from 5 AC(s); worst is DONE | docs/prd.md:149 |
 | DONE | `KB-FR-16` | Warp sentence | rolled up from 3 AC(s); worst is DONE | docs/prd.md:158 |
-| DONE | `KB-FR-18` | Flow | rolled up from 4 AC(s); worst is DONE | docs/prd.md:171 |
 | DONE | `KB-FR-2` | Asteroids | rolled up from 3 AC(s); worst is DONE | docs/prd.md:35 |
+| DONE | `KB-FR-22` | Nothing reads as punishment (D31, D28) | rolled up from 2 AC(s); worst is DONE | docs/prd.md:218 |
 | DONE | `KB-FR-3` | Input and lock | rolled up from 5 AC(s); worst is DONE | docs/prd.md:40 |
 | DONE | `KB-FR-4` | Hull | rolled up from 4 AC(s); worst is DONE | docs/prd.md:47 |
 | DONE | `KB-FR-5` | Shield canister | rolled up from 2 AC(s); worst is DONE | docs/prd.md:53 |
@@ -302,44 +308,45 @@ measure its claim — read those first.
 | DONE | `KB-FR-7` | Per-player word model | rolled up from 2 AC(s); worst is DONE | docs/prd.md:83 |
 | DONE | `KB-FR-8` | Fall time (D19) | rolled up from 3 AC(s); worst is DONE | docs/prd.md:87 |
 | DONE | `KB-FR-9` | Word selection (D21, D22) | rolled up from 4 AC(s); worst is DONE | docs/prd.md:95 |
+| DONE | `KB-SEC-3.8` | Results and learning evidence (D50) | rolled up from 4 AC(s); worst is DONE | docs/prd.md:184 |
 
-## rubric (33) — 7 OPEN · 21 UNVERIFIED · 5 FALSE-PASS
+## rubric (33) — 5 OPEN · 21 UNVERIFIED · 5 FALSE-PASS · 2 BLOCKED
 
 | state | id | title | why | source |
 |---|---|---|---|---|
-| FALSE-PASS | `KB-G-scenes` | Every scene in src/game/scenes has a screen-inventory row | Reports 27 scenes where there are 17 (it walks lib/ and support/ helpers), asserts nothing itself, and defers to G-trace, which passes non-… | tests/gauntlet/rubric.mjs (D78 / architecture section 10.2) |
-| FALSE-PASS | `KB-G-trace` | trace-check green: every D has an AC, every AC a test, every scene a row | "Every AC has a test" is a substring scan over concatenated test sources, and the --strict flag that would enforce it is never passed by th… | tests/gauntlet/rubric.mjs (D61 / D78 / architecture section 10.2) |
-| FALSE-PASS | `KB-L-6e.3` | No dead time > 2 s during flight | deadtime.json is quantised to the harness's own 120ms tick and reports exactly 120; the anti-vacuity control asserts <= 2000 where it neede… | tests/gauntlet/rubric.mjs (D77 / AC-6e.3) |
-| FALSE-PASS | `KB-L-6e.4` | Retention line trends upward across a full Earth->Pluto run | retention.json's "trends upward" follows arithmetically from 0.72 ** record.hits in the player model; the engine contributes nothing to the… | tests/gauntlet/rubric.mjs (D77 / AC-6e.4 / D50) |
-| FALSE-PASS | `KB-V-22.4` | Silhouettes read when desaturated | Contour count replaced with per-region background separation, but the art lane reports it still scores 0.239 on a known vignette regression… | tests/gauntlet/rubric.mjs (D60#4 / AC-22.4) |
+| FALSE-PASS | `KB-G-scenes` | Every registered Phaser scene has a screen-inventory row, and vice versa | Reports 27 scenes where there are 17 (it walks lib/ and support/ helpers), asserts nothing itself, and defers to G-trace, which passes non-… | tests/gauntlet/rubric.mjs (D78 / architecture section 10.2) |
+| FALSE-PASS | `KB-G-trace` | trace-check green: every D has an AC, every AC an ASSERTING test, every scene a row | "Every AC has a test" is a substring scan over concatenated test sources, and the --strict flag that would enforce it is never passed by th… | tests/gauntlet/rubric.mjs (D61 / D78 / architecture section 10.2) |
+| FALSE-PASS | `KB-L-6e.3` | No dead time > 2 s during flight, on a measure that can exceed 2 s | deadtime.json is quantised to the harness's own 120ms tick and reports exactly 120; the anti-vacuity control asserts <= 2000 where it neede… | tests/gauntlet/rubric.mjs (D77 / AC-6e.3) |
+| FALSE-PASS | `KB-L-6e.4` | The retention pipeline reports improvement for a learner who improves, over the whole route | retention.json's "trends upward" follows arithmetically from 0.72 ** record.hits in the player model; the engine contributes nothing to the… | tests/gauntlet/rubric.mjs (D77 / AC-6e.4 / D50) |
+| FALSE-PASS | `KB-V-22.4` | Silhouettes read when desaturated, measured where the objects are | Contour count replaced with per-region background separation, but the art lane reports it still scores 0.239 on a known vignette regression… | tests/gauntlet/rubric.mjs (D60#4 / AC-22.4) |
+| BLOCKED | `KB-L-6e.1` | Input-to-visual latency <= 16.7 ms (one frame) | escalated — awaiting a decision in gauntlet/escalations.md | tests/gauntlet/rubric.mjs (D77 / AC-6e.1) |
+| BLOCKED | `KB-P-22.9` | 60 fps: p95 frame time <= 16.7 ms over a 60 s scripted flight | escalated — awaiting a decision in gauntlet/escalations.md | tests/gauntlet/rubric.mjs (D60#9 / AC-22.9 / NFR-1) |
 | OPEN | `KB-A-21.2` | Music has >= 3 intensity layers driven by live asteroids and combo | built: music intensity layer count; wired: the index moved on live HUD liveCount/combo during real play | tests/gauntlet/rubric.mjs (D62 / AC-21.2) |
 | OPEN | `KB-G-e2e-whole` | The whole e2e suite passes in ONE run, under the repo config | 1 of 192 e2e tests failing or flaky in a whole-suite run | tests/gauntlet/rubric.mjs (CLAUDE.md gauntlet loop / D93) |
-| OPEN | `KB-L-6e.1` | Input-to-visual latency <= 16.7 ms (one frame) | no row for this item in gauntlet/report.md | tests/gauntlet/rubric.mjs (D77 / AC-6e.1) |
-| OPEN | `KB-P-22.9` | 60 fps: p95 frame time <= 16.7 ms over a 60 s scripted flight | no row for this item in gauntlet/report.md | tests/gauntlet/rubric.mjs (D60#9 / AC-22.9 / NFR-1) |
 | OPEN | `KB-R-lantern` | Vector Lantern matches design-reference/refs/lantern-topdown.png | judge verdict is stale: approved a 167607-byte render, current is 175974 (5.0% drift). | tests/gauntlet/rubric.mjs (D90 / art-direction.md section 5) |
 | OPEN | `KB-R-shadow` | Vector Shadow matches design-reference/refs/shadow-sheet.png | judge verdict is stale: approved a 115640-byte render, current is 140179 (21.2% drift). | tests/gauntlet/rubric.mjs (D91 / art-direction.md section 6) |
 | OPEN | `KB-R-world` | The flight screen has a named visual reference to be judged against | flight frame and reference both exist but no judge verdict recorded - a reference compare is never auto-passed (D85) | tests/gauntlet/rubric.mjs (D59 / D60 / art-direction.md section 0) |
-| UNVERIFIED | `KB-A-21.1` | Per-planet ambient bed exists, crossfades, and follows the running game | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D62 / AC-21.1) |
-| UNVERIFIED | `KB-A-21.3` | All ten events have >= 3 SFX variants, rotate, and are reached by game code | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D62 / AC-21.3) |
-| UNVERIFIED | `KB-A-21.4` | Music ducks by >= 6 dB while Shadow speaks, on the live graph | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D62 / AC-21.4) |
-| UNVERIFIED | `KB-A-21.5` | Shadow speaks via Web Speech system voice; zero network TTS at runtime | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D88 / AC-21.5) |
-| UNVERIFIED | `KB-A-21.6` | Coach notes are spoken after the text renders, display identical either way | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D88 / AC-21.6) |
-| UNVERIFIED | `KB-A-21.8` | The game is audible: cues reach the bus, sliders move it, silence never crashes | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (audit.md 1.2 / AC-19.1 / AC-6e.2) |
-| UNVERIFIED | `KB-G-coverage` | Engine coverage >= 95% lines/branches/functions/statements | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D55 / CLAUDE.md) |
-| UNVERIFIED | `KB-G-engine-purity` | src/engine imports neither Phaser nor the DOM | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (CLAUDE.md HARD RULES / architecture section 2) |
-| UNVERIFIED | `KB-G-nored` | No red failure state, lives counter, or 'wrong' sound | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D28 / D31 / design brief 'Do not') |
-| UNVERIFIED | `KB-G-one-shadow` | Exactly one drawShadow and one drawLantern implementation | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D91 / AC-25.1 / D83) |
-| UNVERIFIED | `KB-G-pii` | No PII field and no analytics SDK anywhere in src/ | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D43 / AC-18.2 / NFR-3) |
-| UNVERIFIED | `KB-G-raster` | No raster asset referenced from src/ (all art is vector in code) | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D83 / D84 / CLAUDE.md) |
-| UNVERIFIED | `KB-G-secrets` | No API-key-shaped string in the client bundle | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (NFR-4 / CLAUDE.md) |
-| UNVERIFIED | `KB-V-22.1a` | At least 5 parallax layers at distinct scroll speeds | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (config half)) |
-| UNVERIFIED | `KB-V-22.1b` | Layer-debug overlay shows the five speeds actually moving | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (visual half)) |
-| UNVERIFIED | `KB-V-22.2` | Idle frame is never still (two Title shots 1s apart differ > 2%) | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D60#2 / AC-22.2) |
-| UNVERIFIED | `KB-V-22.3` | Sky gradient shifts across a stage (deltaE > 10) | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D60#3 / AC-22.3) |
-| UNVERIFIED | `KB-V-22.5` | Zero Linear easing anywhere in tween configs | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D60#5 / AC-22.5) |
-| UNVERIFIED | `KB-V-22.6` | Blast, hit and warp have distinct particle signatures | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D60#6 / AC-22.6) |
-| UNVERIFIED | `KB-V-22.7` | Each stage palette is 5-7 colours plus exactly one accent | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D60#7 / AC-22.7) |
-| UNVERIFIED | `KB-V-22.8` | Word plate text contrast >= 4.5:1 | reported PASS, but report.md predates the newest file in src/ by 59m | tests/gauntlet/rubric.mjs (D60#8 / AC-22.8) |
+| UNVERIFIED | `KB-A-21.1` | Per-planet ambient bed exists, crossfades, and follows the running game | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D62 / AC-21.1) |
+| UNVERIFIED | `KB-A-21.3` | All ten events have >= 3 SFX variants, rotate, and are reached by game code | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D62 / AC-21.3) |
+| UNVERIFIED | `KB-A-21.4` | Music ducks by >= 6 dB while Shadow speaks, on the live graph | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D62 / AC-21.4) |
+| UNVERIFIED | `KB-A-21.5` | Shadow speaks via Web Speech system voice; zero network TTS at runtime | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D88 / AC-21.5) |
+| UNVERIFIED | `KB-A-21.6` | Coach notes are spoken after the text renders, display identical either way | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D88 / AC-21.6) |
+| UNVERIFIED | `KB-A-21.8` | The game is audible: cues reach the bus, sliders move it, silence never crashes | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (audit.md 1.2 / AC-19.1 / AC-6e.2) |
+| UNVERIFIED | `KB-G-coverage` | Engine coverage >= 95% lines/branches/functions/statements | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D55 / CLAUDE.md) |
+| UNVERIFIED | `KB-G-engine-purity` | src/engine imports neither Phaser nor the DOM | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (CLAUDE.md HARD RULES / architecture section 2) |
+| UNVERIFIED | `KB-G-nored` | No red failure state, lives counter, or 'wrong' sound | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D28 / D31 / design brief 'Do not') |
+| UNVERIFIED | `KB-G-one-shadow` | Exactly one drawShadow and one drawLantern implementation | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D91 / AC-25.1 / D83) |
+| UNVERIFIED | `KB-G-pii` | No PII field and no analytics SDK anywhere in src/ | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D43 / AC-18.2 / NFR-3) |
+| UNVERIFIED | `KB-G-raster` | No raster asset referenced from src/ (all art is vector in code) | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D83 / D84 / CLAUDE.md) |
+| UNVERIFIED | `KB-G-secrets` | No API-key-shaped string in the client bundle | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (NFR-4 / CLAUDE.md) |
+| UNVERIFIED | `KB-V-22.1a` | At least 5 parallax layers at distinct scroll speeds | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (config half)) |
+| UNVERIFIED | `KB-V-22.1b` | Layer-debug overlay shows the five speeds actually moving | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (visual half)) |
+| UNVERIFIED | `KB-V-22.2` | Idle frame is never still (two Title shots 1s apart differ > 2%) | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#2 / AC-22.2) |
+| UNVERIFIED | `KB-V-22.3` | Sky gradient shifts across a stage (deltaE > 10) | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#3 / AC-22.3) |
+| UNVERIFIED | `KB-V-22.5` | Zero Linear easing anywhere in tween configs | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#5 / AC-22.5) |
+| UNVERIFIED | `KB-V-22.6` | Blast, hit and warp have distinct particle signatures | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#6 / AC-22.6) |
+| UNVERIFIED | `KB-V-22.7` | Each stage palette is 5-7 colours plus exactly one accent | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#7 / AC-22.7) |
+| UNVERIFIED | `KB-V-22.8` | Word plate text contrast >= 4.5:1 | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#8 / AC-22.8) |
 
 ## screen (21) — 16 DONE · 5 EXEMPT
 

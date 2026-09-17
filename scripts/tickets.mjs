@@ -158,17 +158,34 @@ const TEST_FILES = testFiles();
  */
 export function citationStrength(id, files = TEST_FILES) {
   // `it.each([...])("AC-x.y ...")` puts the cases between the call and the
-  // title, so the optional group below steps over one bracketed argument list.
-  // Known limit: the template-literal table form, it.each`...`, is not matched
-  // and grades WEAK. That errs toward pessimism, which is the safe direction.
+  // title, so the optional group steps over one bracketed argument list.
+  //
+  // WHAT IS DELIBERATELY EXCLUDED, and why each one was a live false pass:
+  //   .skip/.todo/.fixme - a citation with no assertion behind it. CLAUDE.md
+  //     forbids skipped tests on main, and an earlier revision of this file's
+  //     OWN TESTS advertised "test.skip variants are seen" as a feature.
+  //   an id that is a strict PREFIX of a longer id - AC-6d.1 was DONE on the
+  //     strength of tests titled AC-6d.1c, i.e. certified by the very tests a
+  //     pessimism entry had flagged as measuring nothing.
+  //   a commented-out `it(` - the exact thing WEAK exists to represent.
+  // Known limit: the template-literal table form, it.each`...`, grades WEAK.
+  // That errs toward pessimism, which is the safe direction.
+  const BOUND = "(?![\\w.])"; // no longer id may extend this one
   const titleRe = new RegExp(
-    `\\b(?:describe|it|test)(?:\\.\\w+)*\\s*\\(\\s*(?:\\[[^\\]]*\\]\\s*\\)\\s*\\(\\s*)?(["'\`])(?:(?!\\1).)*?${escapeRe(id)}`,
+    `\\b(?:describe|it|test)(?:\\.(?!skip|todo|fixme|concurrent\\.skip)\\w+)*\\s*\\(\\s*(?:\\[[^\\]]*\\]\\s*\\)\\s*\\(\\s*)?(["'\`])(?:(?!\\1).)*?${escapeRe(id)}${BOUND}`,
     "s",
   );
+  const mentionRe = new RegExp(`${escapeRe(id)}${BOUND}`);
   const hits = { strong: [], weak: [] };
   for (const f of files) {
-    if (!f.src.includes(id)) continue;
-    if (titleRe.test(f.src)) hits.strong.push(f.path);
+    if (!mentionRe.test(f.src)) continue;
+    // Drop commented-out lines before looking for a title. A `// it("AC-x ...`
+    // is a citation whose assertion was deleted, which is WEAK by definition.
+    const live = f.src
+      .split("\n")
+      .filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l))
+      .join("\n");
+    if (titleRe.test(live)) hits.strong.push(f.path);
     else hits.weak.push(f.path);
   }
   if (hits.strong.length) return { level: "STRONG", files: hits.strong };
@@ -237,7 +254,9 @@ function rubricResults() {
   const byId = new Map();
   if (!raw) return { byId, meta };
   for (const line of raw.split("\n")) {
-    const m = line.match(/^\|\s*(PASS|FAIL|TODO|ESCALATED|NOT IMPLEMENTED)\s*\|\s*([\w.\-]+)\s*\|([^|]*)\|([^|]*)\|/i);
+    const m = line.match(
+      /^\|\s*(PASS|FAIL|TODO|ESC!|ESCALATED|NOT IMPLEMENTED)\s*\|\s*([\w.\-]+)\s*\|([^|]*)\|([^|]*)\|/i,
+    );
     if (!m) continue;
     byId.set(m[2].trim(), {
       status: m[1].trim().toUpperCase(),
@@ -252,15 +271,51 @@ function rubricResults() {
 // Source parsers for the doc shapes trace-check does not cover
 // ---------------------------------------------------------------------------
 
-/** `**FR-1 Scroll and ship.** The Lantern is fixed...` */
+/**
+ * Requirements AND the acceptance criteria each one OWNS, by document order.
+ *
+ * Ownership used to be inferred from the AC id — `AC-22.1` -> `FR-22` — and
+ * that was wrong twice over. `FR-22` is "Nothing reads as punishment" and owns
+ * `AC-22b.1/.2`; the nine `AC-22.x` visual criteria live under a `### 3.10`
+ * heading and belong to it in no sense. Meanwhile `AC-19.x`, `AC-20.x`, all
+ * seven audio `AC-21.x` and `AC-22b.x` had no FR ticket at all, because the
+ * old parser matched only `**FR-n Title.**` and those sections are `### 3.x`
+ * headings. That absence was silent, which is this project's signature defect.
+ *
+ * So: walk the document, and every AC belongs to the most recent requirement
+ * heading above it, whichever of the two shapes that heading took.
+ */
 function parseFrs() {
   const src = read("docs/prd.md");
   const out = [];
+  let current = null;
   src.split("\n").forEach((line, i) => {
-    const m = line.match(/^\*\*(FR-[\d]+[a-z]*)\s+([^*]+?)\.?\*\*\s*(.*)$/);
-    if (m) out.push({ id: m[1], title: m[2].trim(), body: m[3].trim(), line: i + 1 });
+    const fr = line.match(/^\*\*(FR-[\d]+[a-z]*)\s+([^*]+?)\.?\*\*\s*(.*)$/);
+    if (fr) {
+      current = { id: fr[1], title: fr[2].trim(), body: fr[3].trim(), line: i + 1, acs: [] };
+      out.push(current);
+      return;
+    }
+    // `### 3.10 Visual bar` — a section that owns criteria but declares no FR.
+    const sec = line.match(/^###\s+([\d]+[a-z]*(?:\.[\d]+)?)\s+(.*)$/);
+    if (sec) {
+      current = {
+        id: `SEC-${sec[1]}`,
+        title: sec[2].trim(),
+        body: "",
+        line: i + 1,
+        acs: [],
+        section: true,
+      };
+      out.push(current);
+      return;
+    }
+    const ac = line.match(/^\s*-\s*(AC-[\d]+[a-z]?\.[\d]+[a-z]?)\s+/);
+    if (ac && current) current.acs.push(ac[1]);
   });
-  return out;
+  // A requirement that owns no criterion is not a rollup parent; drop the bare
+  // section rows so the board does not grow empty ceremony.
+  return out.filter((r) => !r.section || r.acs.length > 0);
 }
 
 /** `- **C13 · Planet names...** ... **Status: unresolved.**` */
@@ -276,19 +331,42 @@ function parseCollisions() {
   return out;
 }
 
-/** `## AC-10.2 — controller cannot reach the 85% band` */
+/**
+ * `## AC-10.2 — controller cannot reach the 85% band`, plus whether it has been
+ * resolved.
+ *
+ * Every heading used to be BLOCKED unconditionally, which meant an escalation
+ * could not be closed by ANYONE — writing the decision into the file changed
+ * nothing, only deleting the heading did. Since
+ * `docs/definition-of-done.md` defines 100% as zero BLOCKED, 100% was
+ * unreachable by construction. Six of the headings in the file were already
+ * not pending when this was found.
+ *
+ * RESOLUTION CONVENTION, so the user can close one by writing a line:
+ * put `**Resolved:**` (or `**Status:** resolved`) anywhere in the section, or
+ * mark the heading itself `(fixed)` / `(resolved)`. The body is scanned only
+ * up to the next `## `, so one section cannot close another.
+ */
 function parseEscalations() {
   const raw = readIf("gauntlet/escalations.md");
   if (!raw) return [];
-  const out = [];
-  raw.split("\n").forEach((line, i) => {
+  const lines = raw.split("\n");
+  const starts = [];
+  lines.forEach((line, i) => {
     const m = line.match(/^##\s+(?!#)(.+)$/);
-    if (!m) return;
-    const heading = m[1].trim();
-    const ids = [...heading.matchAll(/\b((?:AC|FR|D|C|V|A|P|L|G|R)-?[\w.]*\d[\w.]*)\b/g)].map((x) => x[1]);
-    out.push({ heading, refs: ids, line: i + 1 });
+    if (m) starts.push({ heading: m[1].trim(), line: i + 1, at: i });
   });
-  return out;
+  return starts.map((sec, n) => {
+    const body = lines.slice(sec.at, n + 1 < starts.length ? starts[n + 1].at : lines.length).join("\n");
+    const resolved =
+      /\((?:fixed|resolved|closed)\)/i.test(sec.heading) ||
+      /\*\*Resolved:?\*\*/i.test(body) ||
+      /\*\*Status:?\*\*\s*resolved/i.test(body);
+    const ids = [...sec.heading.matchAll(/\b((?:AC|FR|D|C|V|A|P|L|G|R)-?[\w.]*\d[\w.]*)\b/g)].map(
+      (x) => x[1],
+    );
+    return { heading: sec.heading, refs: ids, line: sec.line, resolved };
+  });
 }
 
 /** Decision text, for a ticket title. */
@@ -311,6 +389,35 @@ const firstSentence = (s, n = 110) => {
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 };
 
+/**
+ * The rubric-item state decision, extracted as a PURE function so it can be
+ * tested with fixtures.
+ *
+ * It was previously inline, and a critic demonstrated that deleting the
+ * staleness branch entirely - or making `newestSourceMtime()` return 0, so
+ * nothing is ever stale - left the whole suite green at 20/20. A check whose
+ * removal nothing notices is not a check. This shape lets the branch be
+ * exercised directly rather than only through whatever the repo happens to
+ * look like on the day.
+ */
+export function rubricState({ result, falsePass, stale, ageMs }) {
+  if (falsePass) return { state: STATE.FALSE_PASS, why: falsePass.why };
+  if (!result) return { state: STATE.OPEN, why: "no row for this item in gauntlet/report.md" };
+  const status = String(result.status).toUpperCase();
+  if (status === "FAIL") return { state: STATE.OPEN, why: result.measurement || "reported FAIL" };
+  if (status === "ESC!" || status === "ESCALATED") {
+    return { state: STATE.BLOCKED, why: "escalated — awaiting a decision in gauntlet/escalations.md" };
+  }
+  if (status === "PASS" && stale) {
+    return {
+      state: STATE.UNVERIFIED,
+      why: `reported PASS, but report.md predates the newest file in src/ by ${fmtAge(ageMs)}`,
+    };
+  }
+  if (status === "PASS") return { state: STATE.DONE, why: result.measurement };
+  return { state: STATE.OPEN, why: status };
+}
+
 export function buildTickets() {
   const tickets = [];
   const { byId: rubricById, meta: reportMeta } = rubricResults();
@@ -325,31 +432,12 @@ export function buildTickets() {
   // These come first because the AC tickets below bind to them.
   const rubricByAc = new Map();
   for (const item of RUBRIC) {
-    const result = rubricById.get(item.id);
-    const fp = falsePasses.get(item.id);
-    let state, why;
-    if (fp) {
-      state = STATE.FALSE_PASS;
-      why = fp.why;
-    } else if (!result) {
-      state = STATE.OPEN;
-      why = "no row for this item in gauntlet/report.md";
-    } else if (result.status === "FAIL") {
-      state = STATE.OPEN;
-      why = result.measurement || "reported FAIL";
-    } else if (result.status === "ESCALATED") {
-      state = STATE.BLOCKED;
-      why = "escalated — awaiting a decision in gauntlet/escalations.md";
-    } else if (result.status === "PASS" && reportMeta.stale) {
-      state = STATE.UNVERIFIED;
-      why = `reported PASS, but report.md predates the newest file in src/ by ${fmtAge(reportMeta.ageMs)}`;
-    } else if (result.status === "PASS") {
-      state = STATE.DONE;
-      why = result.measurement;
-    } else {
-      state = STATE.OPEN;
-      why = result.status;
-    }
+    const { state, why } = rubricState({
+      result: rubricById.get(item.id),
+      falsePass: falsePasses.get(item.id),
+      stale: reportMeta.stale,
+      ageMs: reportMeta.ageMs,
+    });
 
     tickets.push({
       id: `KB-${item.id}`,
@@ -390,6 +478,13 @@ export function buildTickets() {
     } else if (bound.some((b) => b.state === STATE.OPEN)) {
       state = STATE.OPEN;
       why = `rubric item ${bound.find((b) => b.state === STATE.OPEN).id} is failing`;
+    } else if (bound.some((b) => b.state === STATE.UNVERIFIED)) {
+      // The staleness pillar. Without this case the rubric item's freshness
+      // check was computed and then thrown away here, so an AC could be DONE -
+      // "evidence fresher than the code" - while the only evidence for it was
+      // a report predating the code. That was 105 of 184 DONE rows.
+      state = STATE.UNVERIFIED;
+      why = `the rubric item covering it (${bound.find((b) => b.state === STATE.UNVERIFIED).id}) is itself unverified`;
     } else {
       state = STATE.DONE;
       why = `named by an assertion in ${cite.files.length} test file(s)`;
@@ -411,15 +506,20 @@ export function buildTickets() {
   // --- Functional requirements -------------------------------------------
   // An FR is done when every AC beneath it is done. It owns no evidence of its
   // own, so it never invents any.
-  const acByFr = new Map();
-  for (const [id] of acs) {
-    const fr = `FR-${id.replace(/^AC-/, "").split(".")[0]}`;
-    if (!acByFr.has(fr)) acByFr.set(fr, []);
-    acByFr.get(fr).push(`KB-${id}`);
-  }
   const stateOf = new Map(tickets.map((t) => [t.id, t.state]));
-  for (const fr of parseFrs()) {
-    const children = acByFr.get(fr.id) ?? [];
+  const requirements = parseFrs();
+  const owned = new Set(requirements.flatMap((r) => r.acs));
+  // Absence must never be silent: an AC that no requirement heading owns is a
+  // parse failure, not an AC without a parent, and it gets said out loud.
+  const orphans = [...acs.keys()].filter((id) => !owned.has(id));
+  if (orphans.length) {
+    console.error(
+      `tickets: ${orphans.length} AC(s) owned by no requirement heading: ${orphans.join(", ")}`,
+    );
+    process.exitCode = 1;
+  }
+  for (const fr of requirements) {
+    const children = fr.acs.map((a) => `KB-${a}`);
     const childStates = children.map((c) => stateOf.get(c)).filter(Boolean);
     const worst = childStates.length
       ? childStates.reduce((a, b) => (SEVERITY[a] <= SEVERITY[b] ? a : b))
@@ -514,18 +614,23 @@ export function buildTickets() {
   // --- Escalations --------------------------------------------------------
   // Always BLOCKED: an escalation is by construction a decision only the user
   // can take (D94). None of these can be computed to DONE from this side.
-  parseEscalations().forEach((e, i) => {
+  for (const e of parseEscalations()) {
+    // Id derived from the heading, not from position. Positional ids meant
+    // inserting one escalation at the top renumbered every other ticket, and
+    // these are tracked across days.
     tickets.push({
-      id: `KB-ESC-${String(i + 1).padStart(2, "0")}`,
+      id: `KB-ESC-${slug(e.heading).slice(0, 44)}`,
       kind: "escalation",
       title: firstSentence(e.heading, 120),
       source: `gauntlet/escalations.md:${e.line}`,
-      state: STATE.BLOCKED,
-      why: "awaiting a user decision",
+      state: e.resolved ? STATE.DONE : STATE.BLOCKED,
+      why: e.resolved
+        ? "marked resolved in gauntlet/escalations.md"
+        : "awaiting a user decision — add **Resolved:** to its section to close it",
       evidence: [],
       refs: e.refs,
     });
-  });
+  }
 
   tickets.sort(
     (a, b) => SEVERITY[a.state] - SEVERITY[b.state] || a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id),
@@ -608,9 +713,19 @@ function main() {
     console.log(`\nWrote gauntlet/tickets.json and docs/tickets.md`);
   }
 
-  if (FLAGS.check && (t[STATE.FALSE_PASS] > 0 || t[STATE.UNVERIFIED] > 0)) {
+  // 100% is every ticket DONE or EXEMPT (docs/definition-of-done.md). An
+  // earlier revision exited 0 with 26 OPEN and 31 BLOCKED outstanding while
+  // that document named this command as the sole measure - so the command the
+  // project had designated as the definition of done returned success at ~82%.
+  const outstanding = tickets.filter(
+    (x) => x.state !== STATE.DONE && x.state !== STATE.EXEMPT,
+  );
+  if (FLAGS.check && outstanding.length > 0) {
+    const byState = {};
+    for (const x of outstanding) byState[x.state] = (byState[x.state] ?? 0) + 1;
     console.error(
-      `\n--check: ${t[STATE.FALSE_PASS]} false pass(es) and ${t[STATE.UNVERIFIED]} unverified ticket(s)`,
+      `\n--check: ${outstanding.length} ticket(s) not DONE or EXEMPT — ` +
+        Object.entries(byState).map(([k, v]) => `${v} ${k}`).join(", "),
     );
     process.exit(1);
   }

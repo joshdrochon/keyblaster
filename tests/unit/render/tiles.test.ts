@@ -4,7 +4,6 @@ import {
   FALLBACK_RADII,
   VEIL_BY_STOP,
   accentTile,
-  canyonTile,
   driftTile,
   dustTile,
   massifTile,
@@ -25,7 +24,6 @@ import {
 } from "../../../src/game/render/palette.js";
 import {
   MASS_PROFILES,
-  WALL_PROFILES,
   heightOf,
   place,
   profileById,
@@ -128,17 +126,6 @@ const GENERATORS: readonly { name: string; build: (rand: () => number) => TileOp
   {
     name: "massifTile (mid: rim + dots + fronds)",
     build: (rand) => massifTile(W, H, MID_MASSIF(rand)),
-  },
-  {
-    name: "canyonTile",
-    build: (rand) =>
-      canyonTile(W, H, {
-        fill: "#39140B",
-        rimColor: "#5A3126",
-        light: -2,
-        maxReach: W * 0.14,
-        rand,
-      }),
   },
   { name: "dustTile", build: (rand) => dustTile(W, H, "#C0A28C", rand) },
   { name: "starTile", build: (rand) => starTile(W, H, "#F7E6D0", 90, rand) },
@@ -295,16 +282,6 @@ describe("a plane composites to ONE opaque silhouette", () => {
     { name: "massifTile (far)", ops: massifTile(W, H, FAR_MASSIF(rng(SEED))) },
     { name: "massifTile (mid)", ops: massifTile(W, H, MID_MASSIF(rng(SEED))) },
     {
-      name: "canyonTile",
-      ops: canyonTile(W, H, {
-        fill: "#39140B",
-        rimColor: "#5A3126",
-        light: -2,
-        maxReach: W * 0.14,
-        rand: rng(SEED),
-      }),
-    },
-    {
       name: "driftTile",
       ops: driftTile(W, H, {
         materials: MATERIALS,
@@ -340,19 +317,6 @@ describe("a plane composites to ONE opaque silhouette", () => {
     expect(lastRim, "the mid plane draws rims").toBeGreaterThanOrEqual(0);
     expect(firstFill, "the mid plane draws fills").toBeGreaterThanOrEqual(0);
     expect(lastRim, "every rim precedes every fill").toBeLessThan(firstFill);
-  });
-
-  it("the near frame carries no alpha either, at any reach", () => {
-    for (const reach of [0.02, 0.14, 0.3]) {
-      const ops = canyonTile(W, H, {
-        fill: "#39140B",
-        rimColor: "#5A3126",
-        light: -2,
-        maxReach: W * reach,
-        rand: rng(SEED + reach * 1000),
-      });
-      for (const op of ops) expect(op.alpha).toBe(1);
-    }
   });
 });
 
@@ -441,148 +405,26 @@ describe("silhouette character comes from authored profiles, not from noise", ()
 });
 
 /**
- * THE NEAR FRAME (brief defect 3: "the canyonWalls read as UI chrome, not
- * terrain. They frame the screen like a border").
+ * THE NEAR FRAME IS GONE, AND SO ARE ITS TESTS.
+ *
+ * Six tests used to live here: that every wall profile reached zero reach
+ * somewhere, that half of each edge was missing, that the two edges never shared
+ * a rhythm, that the wall reached inward rather than off-screen, that it never
+ * entered the word lane, and that it carried no alpha. They all passed. The
+ * feature they were guarding was a defect.
+ *
+ * They are deleted rather than skipped, on purpose. A green test for a removed
+ * feature is an argument for putting it back, and this idea was tried three
+ * times: generated boxes, authored wall profiles, then interrupted authored wall
+ * profiles. Anything occupying both vertical edges of a frame at most heights is
+ * a border. The dark foreground comes from near-black OBJECTS crossing the near
+ * planes and from the floor vignette.
+ *
+ * The property that replaces them is in `tests/e2e/world-frame.spec.ts`: no
+ * persistent vertical band down either edge of a rendered frame. That is a claim
+ * about the picture rather than about the geometry, which is where it belongs -
+ * the geometry was never the thing that was wrong.
  */
-describe("the near frame is interrupted terrain, not a border", () => {
-  it("every wall profile starts and ends at zero reach, so segments join cleanly", () => {
-    // The seam contract. A segment that ends mid-rock meets the next segment's
-    // start as a horizontal step across the wall - one more straight line in a
-    // frame that already had too many, and at the tile boundary it is a jump.
-    for (const profile of WALL_PROFILES) {
-      const first = profile.edge[0];
-      const last = profile.edge[profile.edge.length - 1];
-      expect(first?.t, `${profile.id} starts at t=0`).toBe(0);
-      expect(first?.reach, `${profile.id} starts at the edge`).toBe(0);
-      expect(last?.t, `${profile.id} ends at t=1`).toBe(1);
-      expect(last?.reach, `${profile.id} ends at the edge`).toBe(0);
-      for (const e of profile.edge) {
-        expect(e.reach, `${profile.id} reach in range`).toBeGreaterThanOrEqual(0);
-        expect(e.reach, `${profile.id} reach in range`).toBeLessThanOrEqual(1);
-      }
-      // Monotone in t, or the polygon self-intersects.
-      const ts = profile.edge.map((e) => e.t);
-      expect(ts.every((t, i) => i === 0 || t >= (ts[i - 1] as number))).toBe(true);
-    }
-  });
-
-  it("the wall is genuinely INTERRUPTED: some profiles are absent for a real run", () => {
-    // Judge note 3. A band that is always present down both edges is a border,
-    // whatever is drawn inside it. At least half the catalogue has to vanish
-    // for a stretch, or the "interrupted" claim is decoration on a frame.
-    const withGaps = WALL_PROFILES.filter((profile) => {
-      const gap = profile.edge.reduce((best, e, i, arr) => {
-        if (e.reach > 0.02) return best;
-        const next = arr[i + 1];
-        if (next === undefined || next.reach > 0.02) return best;
-        return Math.max(best, next.t - e.t);
-      }, 0);
-      return gap > 0.1;
-    });
-    expect(
-      withGaps.length,
-      `only ${withGaps.length} of ${WALL_PROFILES.length} wall profiles ever stop`,
-    ).toBeGreaterThanOrEqual(Math.ceil(WALL_PROFILES.length / 2));
-  });
-
-  it("HALF of each edge is MISSING, so it is interrupted and not merely irregular", () => {
-    // The distinction the judge drew. Rock down both edges at every height is a
-    // border with a wobbly inside line, however much its width varies.
-    const ops = canyonTile(W, H, {
-      fill: "#39140B",
-      rimColor: "#5A3126",
-      light: -2,
-      maxReach: W * 0.17,
-      rand: rng(SEED),
-    });
-    const fills = ops.filter((op) => op.kind === "poly" && op.color === "#39140B");
-    // Three segments on the left and four on the right, with half of each
-    // dropped: two pieces a side, not seven.
-    expect(fills).toHaveLength(4);
-    // ...and the dropped runs are CONTIGUOUS, so what is left is a canyon wall
-    // you fly past rather than a dashed line down the edge.
-    const left = fills.filter((op) => op.kind === "poly" && (op.points[1] as { x: number }).x < W / 2);
-    expect(left).toHaveLength(2);
-  });
-
-  it("the two sides never share a rhythm, so the frame cannot read as symmetric", () => {
-    const ops = canyonTile(W, H, {
-      fill: "#39140B",
-      rimColor: "#5A3126",
-      light: -2,
-      maxReach: W * 0.14,
-      rand: rng(SEED),
-    });
-    const fills = ops.filter((op) => op.kind === "poly" && op.color === "#39140B");
-    const left = fills.filter(
-      (op) => op.kind === "poly" && op.points[1] !== undefined && (op.points[1] as { x: number }).x < W / 2,
-    );
-    const right = fills.filter(
-      (op) => op.kind === "poly" && op.points[1] !== undefined && (op.points[1] as { x: number }).x >= W / 2,
-    );
-    expect(left.length, "both edges carry rock").toBeGreaterThan(0);
-    expect(right.length, "both edges carry rock").toBeGreaterThan(0);
-    // The rhythms differ: the right edge is phase-shifted by half a segment and
-    // its segments are a different height, so no incident on one edge is level
-    // with an incident on the other.
-    const topsOf = (ops: TileOp[]): number[] =>
-      ops.map((op) => (op.kind === "poly" ? Math.round(Math.min(...op.points.map((pt) => pt.y))) : 0));
-    for (const a of topsOf(left)) {
-      for (const b of topsOf(right)) {
-        expect(Math.abs(a - b), `left segment at ${a} is level with right at ${b}`).toBeGreaterThan(
-          20,
-        );
-      }
-    }
-  });
-
-  it("the wall reaches INWARD from the edge, not outward off the screen", () => {
-    // The assertion that was missing, and the defect it would have caught: the
-    // reach sign was inverted, so `placeWall` drew the entire near frame outside
-    // the viewport. Every other test still passed - it wrapped correctly, it was
-    // opaque, it stayed out of the word lane (trivially, being at x = -200) -
-    // and the rendered frame simply had no near plane at all.
-    const maxReach = W * 0.17;
-    const ops = canyonTile(W, H, {
-      fill: "#39140B",
-      rimColor: "#5A3126",
-      light: -2,
-      maxReach,
-      rand: rng(SEED),
-    });
-    let deepestLeft = 0;
-    let deepestRight = 0;
-    for (const op of ops) {
-      if (op.kind !== "poly") continue;
-      for (const pt of op.points) {
-        if (pt.x < W / 2) deepestLeft = Math.max(deepestLeft, pt.x);
-        else deepestRight = Math.max(deepestRight, W - pt.x);
-      }
-    }
-    // Both edges have to put real rock ON the screen - over half the reach they
-    // were given, since the profiles peak near 1.0.
-    expect(deepestLeft, "left wall reaches into the frame").toBeGreaterThan(maxReach * 0.5);
-    expect(deepestRight, "right wall reaches into the frame").toBeGreaterThan(maxReach * 0.3);
-  });
-
-  it("the near frame never reaches into the word lane (AC-22.8)", () => {
-    const maxReach = W * 0.14;
-    const ops = canyonTile(W, H, {
-      fill: "#39140B",
-      rimColor: "#5A3126",
-      light: -2,
-      maxReach,
-      rand: rng(SEED),
-    });
-    for (const op of ops) {
-      if (op.kind !== "poly") continue;
-      for (const pt of op.points) {
-        const intrusion = Math.min(pt.x, W - pt.x);
-        expect(intrusion, `x=${pt.x.toFixed(0)}`).toBeLessThan(maxReach + 8);
-      }
-    }
-  });
-});
 
 describe("decorative debris is not in the ship's lane (AC-22.8, FR-8/D19)", () => {
   it("lane-guarded planes leave the centre of the frame completely clear", () => {

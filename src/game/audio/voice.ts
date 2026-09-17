@@ -145,6 +145,15 @@ export interface VoiceEnvironment {
    * module has to have one.
    */
   readonly chirp?: () => void;
+  /**
+   * Shadow's PRE-RENDERED lines (D63). Absent on a build that ships no files,
+   * and absent for every line that has no file - which includes every coach
+   * note, forever, because those are written at runtime.
+   *
+   * `graph.ts` builds this over the voice bus, so a clip is ducked, mastered
+   * and faded by the same graph everything else in the game goes through.
+   */
+  readonly clips?: VoiceClipPlayer;
 }
 
 // ---------------------------------------------------------------------------
@@ -329,6 +338,196 @@ export interface VoiceTransport {
 
 /** How long a graceful stop may wait for a word boundary before cutting. */
 export const EASE_OUT_DEADLINE_MS = 140;
+
+// ---------------------------------------------------------------------------
+// Pre-rendered clips (D63) - the half of D88 that Web Speech cannot do
+// ---------------------------------------------------------------------------
+
+/**
+ * A rendered line that is CURRENTLY SOUNDING, and the two things that can be
+ * done to it. Handed out by `VoiceClipPlayer.play`.
+ */
+export interface VoiceClipHandle {
+  /**
+   * EASE OUT FOR REAL.
+   *
+   * This is the method that does not exist on the Web Speech path and is the
+   * whole reason a file transport is worth building. A rendered clip runs
+   * through a `GainNode` we own, so "ease out to silence" is a scheduled fade
+   * on that node rather than the word-boundary compromise `webSpeechTransport`
+   * is forced into. The curve is exponential, never linear: a linear fade on a
+   * voice is audibly a volume knob being turned, and AC-22.5's objection to
+   * linear motion applies to a fade the player HEARS for the same reason.
+   *
+   * `done` is called once, after the fade has finished and the clip has stopped.
+   */
+  fadeOut(ms: number, done: () => void): void;
+  /** Stop now, hard. No fade, no `onEnd`. */
+  stop(): void;
+}
+
+/** What `play` reports back. Exactly one of these fires, exactly once. */
+export interface VoiceClipCallbacks {
+  /** The clip reached its end, or was stopped after making sound. */
+  readonly onEnd: () => void;
+  /**
+   * The clip NEVER MADE A SOUND - a missing file, a decode error, or a browser
+   * that refused playback before a user gesture.
+   *
+   * This is the callback that keeps the promise in the brief: a missing file
+   * must degrade, never fail silently. The transport responds by handing the
+   * same line to the Web Speech fallback, so the player hears the line late
+   * rather than not at all.
+   */
+  readonly onFail: () => void;
+}
+
+/**
+ * The rendered-clip port. Same shape of decision as `SpeechPort`: OUR
+ * interface, no DOM type, so a fake is a dozen lines and nothing under
+ * src/game/audio has to know what an `HTMLAudioElement` is.
+ */
+export interface VoiceClipPlayer {
+  /** Is there a rendered file for this line id? Asked PER LINE, never cached. */
+  has(id: string): boolean;
+  /**
+   * Start the clip. Returns null when it could not even be started, in which
+   * case neither callback fires and the caller falls back immediately.
+   */
+  play(id: string, callbacks: VoiceClipCallbacks): VoiceClipHandle | null;
+}
+
+/**
+ * The fade an interrupted clip takes to silence.
+ *
+ * Longer than `EASE_OUT_DEADLINE_MS` on purpose. The Web Speech number is a
+ * DEADLINE - how long we are willing to wait for a word to finish before
+ * cutting - and it wants to be short. This is a FADE, and a fade under about
+ * 120 ms reads as a cut with a click on the end of it. 180 ms is a breath.
+ */
+export const VOICE_FADE_OUT_MS = 180;
+
+/**
+ * Plays Shadow's rendered lines, and hands anything unrendered to `fallback`.
+ *
+ * WHY THE FALLBACK IS A FUNCTION. `adaptiveTransport` re-decides between Web
+ * Speech and silence on every line, because Chrome's voice list is empty at
+ * boot (see the header). A fallback captured once here would freeze that
+ * decision at construction and reintroduce the exact bug the header is about.
+ *
+ * THREE WAYS A LINE REACHES THE FALLBACK, and all three matter:
+ *   1. no rendered file for this id - coach notes are generated at runtime and
+ *      can never have one, so this is the COMMON case, not the error case;
+ *   2. `play` returned null - the catalog knows the id but could not open it;
+ *   3. `onFail` fired after we had already committed - a 404, a decode error,
+ *      or a browser that refused playback. The line is re-spoken through Web
+ *      Speech from the top, because nothing was heard.
+ */
+export function preRenderedTransport(
+  clips: VoiceClipPlayer,
+  fallback: () => VoiceTransport,
+): VoiceTransport {
+  let done: (() => void) | null = null;
+  let handle: VoiceClipHandle | null = null;
+  /** The transport currently carrying the line, when it is not a clip. */
+  let onFallback: VoiceTransport | null = null;
+  /** Bumped whenever a line stops. A late callback carrying a stale token is
+   *  a callback about a line nobody is listening to any more. */
+  let token = 0;
+
+  const finish = (): void => {
+    const cb = done;
+    done = null;
+    handle = null;
+    onFallback = null;
+    if (cb) cb();
+  };
+
+  const stopCurrent = (): void => {
+    token += 1;
+    handle?.stop();
+    handle = null;
+    onFallback?.cancel();
+    onFallback = null;
+    finish();
+  };
+
+  return {
+    id: "prerendered",
+    // A clip player with the Web Speech fallback behind it can always take a
+    // line; worst case the line is spoken by the platform instead of played.
+    available: () => true,
+
+    speak(line, onDone) {
+      stopCurrent();
+      const mine = ++token;
+      done = onDone;
+
+      const toFallback = (): void => {
+        if (mine !== token) return;
+        handle = null;
+        const next = fallback();
+        onFallback = next;
+        next.speak(line, () => {
+          if (mine !== token) return;
+          finish();
+        });
+      };
+
+      if (!clips.has(line.id)) {
+        toFallback();
+        return;
+      }
+      const started = clips.play(line.id, {
+        onEnd: () => {
+          if (mine !== token) return;
+          finish();
+        },
+        onFail: toFallback,
+      });
+      // `onFail` may have fired synchronously, in which case the line is
+      // already with the fallback and `started` - if it is not null - belongs
+      // to a clip that never sounded.
+      if (onFallback !== null) {
+        started?.stop();
+        return;
+      }
+      if (started === null) {
+        toFallback();
+        return;
+      }
+      handle = started;
+    },
+
+    cancel() {
+      stopCurrent();
+    },
+
+    easeOut(release) {
+      if (onFallback !== null) {
+        onFallback.easeOut(release);
+        return;
+      }
+      const inFlight = handle;
+      if (inFlight === null || done === null) {
+        // Nothing sounding: the graceful stop of silence is silence.
+        release();
+        return;
+      }
+      // The line is abandoned as far as this transport is concerned the moment
+      // the fade is armed, so the clip's own `onEnd` - which will arrive when
+      // the fade stops it - cannot release the bus a second time.
+      token += 1;
+      handle = null;
+      const cb = done;
+      done = null;
+      inFlight.fadeOut(VOICE_FADE_OUT_MS, () => {
+        if (cb) cb();
+        release();
+      });
+    },
+  };
+}
 
 export interface WebSpeechOptions {
   /**
@@ -527,20 +726,56 @@ export function adaptiveTransport(env: VoiceEnvironment): VoiceTransport {
           schedule: env.schedule,
         });
 
-  const pick = (): VoiceTransport => (web !== null && web.available() ? web : silent);
+  /** Web Speech if there is a local voice RIGHT NOW, silence if there is not. */
+  const spoken = (): VoiceTransport => (web !== null && web.available() ? web : silent);
+
+  /**
+   * The rendered-file path (D63). Built once - it holds no decision, only a
+   * lookup - but CONSULTED PER LINE, because whether a line has a file is a
+   * property of the line, not of the session. `preRenderedTransport` is handed
+   * `spoken` as a function for the same reason: the Web Speech decision must
+   * still be re-made at the moment a clip falls through to it.
+   */
+  const pre = env.clips === undefined ? null : preRenderedTransport(env.clips, spoken);
+  const clips = env.clips;
+
+  const pick = (line?: VoiceLine): VoiceTransport => {
+    if (line !== undefined && pre !== null && clips !== undefined && clips.has(line.id)) {
+      return pre;
+    }
+    return spoken();
+  };
+
   let active: VoiceTransport = silent;
 
   return {
     get id(): VoiceTransportId {
+      // THE SPEECH PATH, AND ONLY THE SPEECH PATH.
+      //
+      // Still a live read, and it must stay one: a value frozen at construction
+      // reported "silent" on a machine that was, at that moment, speaking,
+      // because Chrome's voice list is empty at boot.
+      //
+      // It deliberately does NOT become "prerendered" when this build ships
+      // files. Everything that reads this field - AC-21.5's evidence, the
+      // rubric, three e2e tests - is asking one question: can this machine
+      // speak a line that has no recording, and does it refuse cloud voices
+      // while doing so. That question has the same answer whether or not any
+      // files shipped, and folding a second fact into the same string would
+      // make a "silent" machine indistinguishable from one that simply has no
+      // renders. Which lines came from files is `voiceClipIds` on the graph
+      // and `spoken` in the wiring snapshot.
       return pick().id;
     },
     // The composite can always take a line: worst case it takes the time the
     // line would have taken and makes a small sound.
     available: () => true,
     speak(line, onDone) {
-      const next = pick();
+      const next = pick(line);
       if (next !== active) active.cancel();
       active = next;
+      // The chirp is the "he said something" stand-in for a line that will make
+      // no sound at all. A clip is sound, so it never chirps.
       if (active === silent && web !== null) env.chirp?.();
       active.speak(line, onDone);
     },
@@ -554,10 +789,15 @@ export function adaptiveTransport(env: VoiceEnvironment): VoiceTransport {
 }
 
 /**
- * THE SWAP FUNCTION (D88, AC-21.7). Today: `adaptiveTransport`. Tomorrow, when
- * `ELEVENLABS_API_KEY` has produced a manifest of pre-rendered files, one
- * branch is added here for `kind === "scripted"` and NOTHING outside this file
- * moves.
+ * THE SWAP FUNCTION (D88, AC-21.7). The swap has HAPPENED.
+ *
+ * `adaptiveTransport` now decides between three paths per line - a rendered
+ * file, the platform's local voice, silence - and the branch is on the LINE,
+ * not on the session and not on `kind`. `kind` was the wrong axis: it says
+ * where the text came from, and what the transport needs to know is whether
+ * this particular id was rendered. A scripted line that was added after the
+ * last render has `kind === "scripted"` and no file, and it must still be
+ * spoken.
  */
 export function createVoiceTransport(env: VoiceEnvironment): VoiceTransport {
   return adaptiveTransport(env);

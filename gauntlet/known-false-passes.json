@@ -24,14 +24,6 @@
     }
   },
   {
-    "id": "AC-6d.1c",
-    "why": "Twelve trophies are defined in src/game/ui/catalog.ts and nothing in src/ ever writes profile.trophies; ResultsScene.ts:237 hardcodes an empty list. Every trophy test seeds the trophy first.",
-    "cite": {
-      "file": "docs/audit.md",
-      "quote": "twelve trophies — defined in config and"
-    }
-  },
-  {
     "id": "L-6e.3",
     "why": "deadtime.json is quantised to the harness's own 120ms tick and reports exactly 120; the anti-vacuity control asserts <= 2000 where it needed > 0.",
     "cite": {

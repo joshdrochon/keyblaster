@@ -294,9 +294,41 @@ export interface BeltConfig {
    * shown to fix something rather than asserted to.
    */
   fixedGapMs?: number | null;
+  /**
+   * `FlightScene.trySpawn:955` - "an empty board never waits":
+   *
+   *     if (this.rocks.length > 0 && now < this.nextSpawnAtMs) return;
+   *
+   * That one clause is the whole of AC-6e.3. With it, dead time is impossible
+   * by construction, because `pickNext`'s final cascade rung filters the pool by
+   * nothing but "not live" and "first letter not taken" (picker.ts:337-341) and
+   * `createSelectionState` throws rather than hand back an empty pool - so an
+   * empty board always yields a word on the same instant it went empty.
+   *
+   * Defaults to the shipped rule. Setting it FALSE is the negative control for
+   * L-6e.3: it reproduces the defect the AC exists to forbid, the belt waits out
+   * its full derived gap on an empty board, and dead time appears. Without that
+   * control, "max dead gap: 0 ms" is a statement about the fast path's existence
+   * and not a measurement of anything.
+   */
+  emptyBoardFastPath?: boolean;
+  /**
+   * Turn OFF the D21/D23 retention interleave for this belt - the earlier stops'
+   * words are never offered to the picker. The engine control for L-6e.4: if
+   * the retention line still trends up with the interleave gone, the number is
+   * a property of the player model and not of the selection engine.
+   */
+  noRetention?: boolean;
 }
 
 export interface BeltSpawn extends SpawnRecord {
+  /**
+   * The picker chose this word from the RETENTION pool (D21/D23/AC-9.3), i.e.
+   * it belongs to an earlier stop and the selection engine brought it back.
+   * Recorded so a retention measure can attribute an improvement to the engine
+   * rather than to two stage pools happening to share a word.
+   */
+  fromRetention: boolean;
   /** Gap the belt waited after this rock before feeding the next one, ms. */
   gapAfterMs: number;
   /** How long this rock waited before the player could start it, ms. */
@@ -385,7 +417,7 @@ export function simulateBelt(
   let selection: SelectionState = createSelectionState({
     stage: cfg.stopIndex,
     stagePool: cfg.stagePool,
-    retentionPool: cfg.retentionPool,
+    retentionPool: (cfg.noRetention ?? false) ? [] : cfg.retentionPool,
     book,
   });
   let controller: ControllerState = createController({ knobs: cfg.knobs ?? {} });
@@ -504,7 +536,7 @@ export function simulateBelt(
     // 3. Feed the belt. The gate is the scene's, exactly: never past `maxLive`,
     //    and never early UNLESS the board is empty - AC-6e.3's fast path, which
     //    is what stops a longer gap from turning into dead air.
-    const boardEmpty = live.length === 0;
+    const boardEmpty = live.length === 0 && (cfg.emptyBoardFastPath ?? true);
     if (pending() && live.length < controller.knobs.maxLive && (boardEmpty || nowMs >= nextSpawnAtMs)) {
       const outcome = pickNext(selection, {
         live: live.map((r) => r.word),
@@ -567,6 +599,7 @@ export function simulateBelt(
         clearedAtMs: rock.deadlineMs,
         hit: false,
         fkLatencyMs: 0,
+        fromRetention: outcome.source === "retention",
         gapAfterMs: gap,
         queuedMs: 0,
         fallMs: fall,

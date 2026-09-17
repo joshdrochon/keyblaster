@@ -106,6 +106,71 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
   })) as Grid;
 
   const shot = await page.screenshot({ type: "png" });
+
+  /**
+   * THE MEASUREMENT THAT REPLACED "does it look flat".
+   *
+   * A blind critic measured our frame and `alto-03` into L* buckets and found
+   * the gap nobody's eye had named in three judge rounds:
+   *
+   *   L* bucket   0-40    40-60   60-80   80+
+   *   ours        14.5%   16.9%   67.8%   0.9%
+   *   alto-03     48.3%   32.1%   17.4%   2.4%
+   *
+   * Two thirds of the picture in one twenty-point box. The global L*5-95 range
+   * looked fine at the time - it was an artifact of the near-edge cliffs, which
+   * have since been removed for a separate reason.
+   *
+   * The thresholds below are BASELINED ON THE CURRENT FRAME, not on the bar, and
+   * that is deliberate and stated: the bar's 48% below L*40 comes from land
+   * filling the lower half of a side-scroller's frame, and this is a vertical
+   * scroller where a plane that fills the lower half of the tile becomes a band
+   * (see `massifTile`). What is asserted is the ground taken so far, so it
+   * cannot be given back silently.
+   */
+  const value = (await page.evaluate(async (b64: string) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const c = document.createElement("canvas");
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const cx2 = c.getContext("2d") as CanvasRenderingContext2D;
+    cx2.drawImage(img, 0, 0);
+    const px = cx2.getImageData(0, 0, c.width, c.height).data;
+    const lin = (v: number): number => {
+      const u = v / 255;
+      return u <= 0.04045 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4;
+    };
+    const buckets = [0, 0, 0, 0];
+    let above90 = 0;
+    const n = px.length / 4;
+    for (let i = 0; i < n; i += 1) {
+      const y =
+        0.2126 * lin(px[i * 4] as number) +
+        0.7152 * lin(px[i * 4 + 1] as number) +
+        0.0722 * lin(px[i * 4 + 2] as number);
+      const L = 116 * (y > 0.008856 ? Math.cbrt(y) : 7.787 * y + 16 / 116) - 16;
+      if (L >= 90) above90 += 1;
+      const k = L < 40 ? 0 : L < 60 ? 1 : L < 80 ? 2 : 3;
+      buckets[k] = (buckets[k] as number) + 1;
+    }
+    const pct = (v: number): number => Number((((v ?? 0) / n) * 100).toFixed(1));
+    return {
+      below40: pct(buckets[0] as number),
+      mid: pct(buckets[1] as number),
+      upper: pct(buckets[2] as number),
+      above80: pct(buckets[3] as number),
+      above90: Number(((above90 / n) * 100).toFixed(2)),
+    };
+  }, shot.toString("base64"))) as {
+    below40: number;
+    mid: number;
+    upper: number;
+    above80: number;
+    above90: number;
+  };
+
   mkdirSync(EVIDENCE, { recursive: true });
   writeFileSync(join(EVIDENCE, "flight-frame.png"), shot);
   writeFileSync(
@@ -117,6 +182,15 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
         render: "gauntlet/evidence/flight-frame.png",
         stopId: "mars",
         valueRange: { min: Number(grid.min.toFixed(4)), max: Number(grid.max.toFixed(4)) },
+        lightnessBuckets: value,
+        barForComparison: {
+          source: "design-reference/refs/alto-03_PalmKicker.png",
+          below40: 48.2,
+          mid: 32.0,
+          upper: 17.3,
+          above80: 2.4,
+          above90: 2.09,
+        },
         sampleGrid: grid.rows,
         capturedAt: new Date().toISOString(),
         note: "A reference compare is never auto-passed (D85). This file records the measurable half only.",
@@ -131,6 +205,19 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
   // front and a back has both ends of the range in it somewhere.
   expect(grid.max - grid.min, "value range across the frame").toBeGreaterThan(0.35);
   expect(grid.min, "somewhere in the frame is genuinely dark").toBeLessThan(0.2);
+
+  // RE-BASELINED, AND SAID OUT LOUD. The frame measured 13.1 / 19.2 / 66.7 / 1.0
+  // before this round's sky and depth-ramp work and 33.4 / 22.8 / 41.7 / 2.1
+  // after it, against the bar's 48.2 / 32.0 / 17.3 / 2.4. These floors sit just
+  // under what was achieved, so the ground cannot be given back quietly - they
+  // are NOT set at the bar, because the bar's dark half is land filling the
+  // bottom of a side-scroller's frame and this is a vertical scroller.
+  expect(value.below40, "share of the frame below L*40").toBeGreaterThan(28);
+  expect(value.upper, "share of the frame in the L*60-80 box").toBeLessThan(48);
+  // WORLD-BAR item 4: there is a light in the frame and it is the brightest
+  // thing in it. Before this round the brightest non-UI pixel was a 3 px star
+  // sparkle and 0.9% of the frame was above L*90.
+  expect(value.above90, "share of the frame above L*90 (the light)").toBeGreaterThan(1.1);
 });
 
 /**
@@ -147,7 +234,7 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
  * UI lane's, and its three evidence artifacts are a named contract with
  * `rubric.mjs`. This one is R-world's evidence and belongs with R-world's.
  */
-test("R-world: the Title frame, on a dark stop, has no pale frame around it", async ({
+test("R-world: the Title frame is ONE SEAMLESS SCREEN - no vertical bar down either edge", async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -171,7 +258,30 @@ test("R-world: the Title frame, on a dark stop, has no pale frame around it", as
   // WebGL drawing buffer is gone by the time script runs. Decoding the PNG that
   // is being written as evidence measures exactly the frame being judged, needs
   // no image dependency, and cannot silently read nothing.
-  const edges = (await page.evaluate(async (b64: string) => {
+  /**
+   * THE MEASUREMENT THIS SCREEN EXISTS FOR, AND WHY IT CHANGED DIRECTION.
+   *
+   * The old version of this test asserted that the frame's edge bands were
+   * DARKER than 0.42 and that they DIFFERED from the centre by more than 0.01 -
+   * the second clause on the reasoning that "the near plane must be
+   * distinguishable from the sky behind it" (art-direction section 2 puts a dark
+   * stop's near plane above its sky in value).
+   *
+   * That second clause was requiring the defect. A near plane that runs down
+   * both vertical edges and is distinguishable from what is behind it IS a
+   * border, and on Earth - a dark stop, so the near plane is the LIGHTER of the
+   * two - it is a pale border. A player reported it three times, the last time
+   * as: "the bars on the left and right are still there... should be one
+   * seamless screen." The test was green through all three reports.
+   *
+   * So the claim is inverted, and it is measured as a BAR rather than as a
+   * brightness. A landform that happens to reach an edge is fine and the
+   * reference is full of them; what is not fine is a band present at nearly
+   * every height. So: for each row of the picture, is the edge sample far from
+   * that row's own middle? A bar answers yes on almost every row. A landform
+   * answers yes on some of them.
+   */
+  const bars = (await page.evaluate(async (b64: string) => {
     const img = new Image();
     img.src = `data:image/png;base64,${b64}`;
     await img.decode();
@@ -180,34 +290,62 @@ test("R-world: the Title frame, on a dark stop, has no pale frame around it", as
     off.height = img.naturalHeight;
     const ctx = off.getContext("2d") as CanvasRenderingContext2D;
     ctx.drawImage(img, 0, 0);
-    const mean = (x: number, y: number, w: number, h: number): number => {
-      const d = ctx.getImageData(x, y, w, h).data;
-      let sum = 0;
-      for (let i = 0; i < d.length; i += 4) {
-        sum +=
-          0.2126 * (d[i] as number) + 0.7152 * (d[i + 1] as number) + 0.0722 * (d[i + 2] as number);
-      }
-      return sum / (d.length / 4) / 255;
-    };
     const W = off.width;
     const H = off.height;
-    const band = Math.round(W * 0.045);
-    const top = Math.round(H * 0.25);
-    const tall = Math.round(H * 0.5);
+    const d = ctx.getImageData(0, 0, W, H).data;
+    const lum = (x: number, y: number): number => {
+      const i = (y * W + x) * 4;
+      return (
+        (0.2126 * (d[i] as number) +
+          0.7152 * (d[i + 1] as number) +
+          0.0722 * (d[i + 2] as number)) /
+        255
+      );
+    };
+    const meanRow = (y: number, x0: number, x1: number): number => {
+      let sum = 0;
+      for (let x = x0; x < x1; x += 1) sum += lum(x, y);
+      return sum / Math.max(1, x1 - x0);
+    };
+
+    const band = Math.round(W * 0.035);
+    // Rows are sampled across the whole height. The HUD-free Title has type on
+    // the left, so the "middle" reference is taken from the centre fifth, which
+    // no chrome occupies on any screen in the game.
+    const rows: { y: number; left: number; right: number; mid: number }[] = [];
+    for (let i = 0; i < 64; i += 1) {
+      const y = Math.round(((i + 0.5) / 64) * (H - 1));
+      rows.push({
+        y,
+        left: meanRow(y, 0, band),
+        right: meanRow(y, W - band, W),
+        mid: meanRow(y, Math.round(W * 0.4), Math.round(W * 0.6)),
+      });
+    }
+    // 0.035 of the luminance range is roughly nine 8-bit levels: below that an
+    // edge is not reading as a separate thing at all.
+    const DIFFERENT = 0.035;
+    const leftRows = rows.filter((r) => Math.abs(r.left - r.mid) > DIFFERENT).length;
+    const rightRows = rows.filter((r) => Math.abs(r.right - r.mid) > DIFFERENT).length;
     return {
-      left: mean(0, top, band, tall),
-      right: mean(W - band, top, band, tall),
-      centre: mean(Math.round(W * 0.45), top, Math.round(W * 0.1), tall),
-      brightest: Math.max(
-        mean(0, top, band, tall),
-        mean(W - band, top, band, tall),
-      ),
+      rows: rows.length,
+      leftRowsDifferent: leftRows,
+      rightRowsDifferent: rightRows,
+      leftFraction: Number((leftRows / rows.length).toFixed(3)),
+      rightFraction: Number((rightRows / rows.length).toFixed(3)),
+      meanLeft: Number((rows.reduce((a, r) => a + r.left, 0) / rows.length).toFixed(4)),
+      meanRight: Number((rows.reduce((a, r) => a + r.right, 0) / rows.length).toFixed(4)),
+      meanMid: Number((rows.reduce((a, r) => a + r.mid, 0) / rows.length).toFixed(4)),
     };
   }, shot.toString("base64"))) as {
-    left: number;
-    right: number;
-    centre: number;
-    brightest: number;
+    rows: number;
+    leftRowsDifferent: number;
+    rightRowsDifferent: number;
+    leftFraction: number;
+    rightFraction: number;
+    meanLeft: number;
+    meanRight: number;
+    meanMid: number;
   };
 
   mkdirSync(EVIDENCE, { recursive: true });
@@ -219,37 +357,34 @@ test("R-world: the Title frame, on a dark stop, has no pale frame around it", as
         item: "R-world (Title)",
         render: "gauntlet/evidence/title-frame.png",
         stopId: "earth",
-        edgeLuminance: edges,
+        claim: "one seamless screen: neither vertical edge carries a band at most heights",
+        edgeBands: bars,
         capturedAt: new Date().toISOString(),
-        note: "A reference compare is never auto-passed (D85). This records the measurable half: the near plane at the frame edges is not a pale border.",
+        note: "A reference compare is never auto-passed (D85). This records the measurable half.",
       },
       null,
       2,
     )}\n`,
   );
 
-  // THE ASSERTION THIS SCREEN EXISTS FOR. `canyonWalls` draws the near plane
-  // down both edges. Before this round it was drawn in near-white on a dark
-  // stop, and the Title came out with a pale border around it - reported by a
-  // player as "two large near-white vertical masses framing the screen".
+  // A LANDFORM MAY TOUCH AN EDGE. A BAND MAY NOT RUN DOWN ONE.
   //
-  // A near plane on a dark stop is LIGHTER than the sky (art-direction s2) and
-  // still dark in absolute terms, so both halves are checked.
-  //
-  // 0.42 is the threshold because that is where the unit-level rule lands once
-  // it reaches pixels: `NEAR_PLANE_MAX_L` caps the near plane at L* 42, and the
-  // rim highlight on its lit edge adds a little on top. The old near-white
-  // foreground measured about 0.94 here, so the gap between pass and the defect
-  // is enormous - this is not a threshold tuned to squeak past.
-  expect(edges.left, "the left edge is not a pale frame").toBeLessThan(0.42);
-  expect(edges.right, "the right edge is not a pale frame").toBeLessThan(0.42);
-  // And it is still a PLANE, not the sky: art-direction section 2 wants the
-  // near field lighter than the sky on a dark stop, so the edges have to differ
-  // from the middle of the frame rather than merely being dark.
+  // 0.45 is the line: terrain reaching an edge over a third of the height is
+  // scenery, and something present over nearly half of it is a frame. The
+  // `canyonWalls` this replaces scored close to 1.0 on both edges, so the gap
+  // between passing and the defect is not a tuned margin.
   expect(
-    Math.abs(edges.left - edges.centre) + Math.abs(edges.right - edges.centre),
-    "the near plane must be distinguishable from the sky behind it",
-  ).toBeGreaterThan(0.01);
+    bars.leftFraction,
+    `left edge differs from the middle on ${bars.leftRowsDifferent}/${bars.rows} rows`,
+  ).toBeLessThan(0.45);
+  expect(
+    bars.rightFraction,
+    `right edge differs from the middle on ${bars.rightRowsDifferent}/${bars.rows} rows`,
+  ).toBeLessThan(0.45);
+  // And neither edge is a PALE frame in the average, which is the original
+  // complaint and is worth keeping as a second, independent bound.
+  expect(bars.meanLeft, "the left edge is not a pale frame").toBeLessThan(0.42);
+  expect(bars.meanRight, "the right edge is not a pale frame").toBeLessThan(0.42);
 });
 
 /**

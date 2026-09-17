@@ -18,6 +18,15 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, extname } from "node:path";
+import { parseInventory, sceneNames, sceneRowMap } from "../../scripts/trace-check.mjs";
+
+/**
+ * The scene readers come FROM trace-check rather than being written again here.
+ * G-scenes and G-trace used to carry two different ideas of what a scene is
+ * (27 vs 17) and report both as green; one definition is the fix. Injectable so
+ * a test can hand the check a deliberately broken map and watch it go red.
+ */
+const TRACE = { parseInventory, sceneNames, sceneRowMap };
 
 export const STATUS = Object.freeze({
   PASS: "pass",
@@ -111,8 +120,160 @@ function waives(src, checkId) {
   return new RegExp(`@gauntlet-allow\\s+${checkId}\\b`).test(src);
 }
 
+/**
+ * WHAT COUNTS AS A SCENE. Exactly what boot.ts registers: `discoverScenes()`
+ * globs `./scenes/*.ts`, top level only, and the file must map to a SCENE_KEYS
+ * entry. `sceneNames` in trace-check reads the same set, so this is imported
+ * rather than re-derived - the 27-vs-17 disagreement between G-scenes and
+ * G-trace came from exactly one recursive `walk` that nobody cross-checked.
+ */
 const sceneFiles = (repo) =>
-  walk(join(repo, "src/game/scenes")).filter((f) => extname(f) === ".ts");
+  readdirSync(join(repo, "src/game/scenes"), { withFileTypes: true })
+    .filter((e) => e.isFile() && extname(e.name) === ".ts" && !e.name.endsWith(".test.ts"))
+    .map((e) => join(repo, "src/game/scenes", e.name));
+
+/**
+ * Scenes that legitimately have NO screen-inventory row, each with the reason.
+ * Same doctrine as trace-check's AC_EXEMPT: the empty string in
+ * SCENE_INVENTORY_ROW is an exemption whether or not anyone wrote it down, and
+ * an exemption nobody wrote down is how a completeness check stops meaning
+ * anything. Writing them here makes the next `"": ` someone adds fail until
+ * they say why.
+ */
+export const NO_SCREEN_SCENES = {
+  Boot: "SCENE_KEYS.boot names the boot STEP, not a scene class - src/game/boot.ts is a function and there is no BootScene.ts. SCENE_INVENTORY_ROW is typed Record<SceneKey, string>, so the key must carry a value, and \"\" is the honest one: nothing is drawn and no row is claimed.",
+};
+
+/**
+ * Phaser scenes that live OUTSIDE src/game/scenes, each with the reason.
+ * D78 and trace-check relation 3 both only look inside that directory, so a
+ * scene registered from anywhere else escapes the screen inventory entirely.
+ * One does today, for a stated reason; the point of naming it is that the
+ * SECOND one fails this item instead of arriving unnoticed.
+ */
+export const OFF_TREE_SCENES = {
+  LanternShotScene: "src/game/render/lanternShot.ts - the R-lantern reference-compare harness. Registered by boot.ts only under ?lantern=1 and never in a normal session; a render harness is not a screen. Its own header states this.",
+};
+
+/**
+ * Every CONCRETE Phaser scene class declared under src/game outside scenes/.
+ * Resolved transitively to a fixpoint so a subclass of a subclass of
+ * Phaser.Scene is still found.
+ */
+export function offTreeScenes(repo) {
+  const declarations = [];
+  for (const f of gameSources(repo)) {
+    const rel = f.replace(repo + "/", "");
+    const src = stripComments(readFileSync(f, "utf8"));
+    for (const m of src.matchAll(
+      /(abstract\s+)?class\s+([A-Za-z0-9_$]+)\s+extends\s+(?:Phaser\.)?([A-Za-z0-9_$.]+)/g,
+    )) {
+      declarations.push({ abstract: m[1] !== undefined, name: m[2], base: m[3].replace(/^Phaser\./, ""), rel });
+    }
+  }
+  const sceneish = new Set(["Scene"]);
+  for (let pass = 0; pass < 8; pass += 1) {
+    const before = sceneish.size;
+    for (const d of declarations) if (sceneish.has(d.base)) sceneish.add(d.name);
+    if (sceneish.size === before) break;
+  }
+  return declarations.filter(
+    (d) => !d.abstract && sceneish.has(d.name) && !d.rel.startsWith("src/game/scenes/"),
+  );
+}
+
+/**
+ * D78, asserted rather than deferred. Fails on:
+ *   1. a scene file with no SCENE_INVENTORY_ROW entry
+ *   2. a scene mapped to a row the design brief does not contain
+ *   3. a scene mapped to "" that is not in NO_SCREEN_SCENES
+ *   4. a NO_SCREEN_SCENES / OFF_TREE_SCENES entry that no longer applies
+ *      (a stale exemption is a lie in the same direction)
+ *   5. an inventory row with no scene and no NON_SCENE_ROWS reason
+ *   6. a Phaser.Scene subclass under src/game outside scenes/, unlisted
+ *   7. the rubric and trace-check disagreeing about how many scenes there are
+ */
+export function sceneCompleteness(repo, deps = TRACE) {
+  const dir = join(repo, "src/game/scenes");
+  if (!existsSync(dir) || sceneFiles(repo).length === 0) {
+    return todo("src/game/scenes is empty (FIRST TASK 4)");
+  }
+  const scenes = deps.sceneNames(repo);
+  const { rows: declared, nonScene } = deps.sceneRowMap(repo);
+  const inventory = new Set(deps.parseInventory(repo));
+  const problems = [];
+
+  if (scenes.length !== sceneFiles(repo).length) {
+    problems.push(
+      `the rubric counts ${sceneFiles(repo).length} scene files and trace-check counts ${scenes.length};` +
+        ` two checks disagreeing about what a scene is was the original defect here`,
+    );
+  }
+
+  for (const name of scenes) {
+    if (!declared.has(name)) {
+      problems.push(`${name} has no SCENE_INVENTORY_ROW entry (D78)`);
+      continue;
+    }
+    const row = declared.get(name);
+    if (row !== "" && !inventory.has(row)) {
+      problems.push(`${name} -> "${row}", which is not a row in the design brief`);
+    }
+  }
+
+  // THE "" ESCAPE. trace-check:223 skips an empty row, so a scene mapped to ""
+  // satisfies D78 while claiming no screen and being asked for none. Every such
+  // key must be named below with a reason, in either direction.
+  for (const [name, row] of declared) {
+    if (row === "" && !(name in NO_SCREEN_SCENES)) {
+      problems.push(`${name} maps to the empty row "" with no reason; add it to NO_SCREEN_SCENES or give it a row`);
+    }
+    // A key that claims a REAL row but has no scene file is fictional coverage:
+    // the row reads as satisfied and nothing renders it.
+    if (row !== "" && !scenes.includes(name)) {
+      problems.push(`SCENE_INVENTORY_ROW claims ${name} -> "${row}", but src/game/scenes has no ${name} scene`);
+    }
+  }
+  for (const name of Object.keys(NO_SCREEN_SCENES)) {
+    if (!declared.has(name)) {
+      problems.push(`NO_SCREEN_SCENES names ${name}, which is not in SCENE_INVENTORY_ROW any more`);
+    } else if (declared.get(name) !== "") {
+      problems.push(`NO_SCREEN_SCENES names ${name}, but it now has the row "${declared.get(name)}"`);
+    }
+  }
+
+  // Reverse direction: every brief row needs a scene or a NON_SCENE_ROWS reason.
+  const covered = new Set([...declared.values()].filter(Boolean));
+  const uncovered = [...inventory].filter((r) => !covered.has(r) && !nonScene.has(r));
+  if (uncovered.length) {
+    problems.push(`inventory rows with no scene and no NON_SCENE_ROWS reason: ${uncovered.join(", ")}`);
+  }
+
+  // Scenes registered from outside scenes/ - invisible to D78 until now.
+  //
+  // Transitive, because `class X extends MenuScene` is a Phaser scene too and a
+  // regex for `extends Phaser.Scene` alone would miss it. Abstract classes are
+  // skipped by the language, not by a waiver list: `abstract class MenuScene
+  // extends Phaser.Scene` cannot be registered and so cannot escape anything.
+  const offTree = offTreeScenes(repo);
+  for (const { name, rel } of offTree) {
+    if (!(name in OFF_TREE_SCENES)) {
+      problems.push(`${name} in ${rel} is a Phaser scene outside src/game/scenes, so D78 never sees it; list it in OFF_TREE_SCENES with a reason or move it`);
+    }
+  }
+  for (const name of Object.keys(OFF_TREE_SCENES)) {
+    if (!offTree.some((o) => o.name === name)) {
+      problems.push(`OFF_TREE_SCENES names ${name}, which no longer exists`);
+    }
+  }
+
+  if (problems.length) return bad(problems.join("; "));
+  return ok(
+    `${scenes.length} scenes, ${covered.size} of ${inventory.size} inventory rows covered,` +
+      ` ${nonScene.size} rows declared non-scene, ${Object.keys(NO_SCREEN_SCENES).length} scene(s) with no screen,` +
+      ` ${offTree.length} scene(s) outside src/game/scenes (all named, with reasons)`,
+  );
+}
 
 const gameSources = (repo) =>
   walk(join(repo, "src/game")).filter((f) => [".ts", ".mjs"].includes(extname(f)));
@@ -207,38 +368,84 @@ const visual = [
   {
     id: "V-22.4",
     source: "D60#4 / AC-22.4",
-    title: "Silhouettes read when desaturated",
+    title: "Silhouettes read when desaturated, measured where the objects are",
     kind: "visual",
     needsBrowser: true,
-    // MEASURES THE OBJECTS, NOT THE FRAME.
+    // THIS IS THE THIRD MEASURE BEHIND THIS ITEM. THE FIRST TWO WERE GREEN AND
+    // COULD NOT ANSWER THE AC.
     //
-    // This used to assert that a desaturated frame contained between 3 and 60
-    // connected regions, on an evidence file whose entire content was
-    // `{"contours": 14}`. A region count cannot fail for the reason AC-22.4
-    // exists: it says nothing about whether any of those regions IS a rock, and
-    // a frame in which every asteroid had dissolved into the terrain would
-    // still score a dozen contours off the terrain alone.
+    // 1. A CONTOUR COUNT, passed for any count in [3, 60], on an evidence file
+    //    whose entire content was `{"contours": 14}`. It never identified the
+    //    rocket or an asteroid; a frame with the Lantern failing to render and
+    //    thirteen dust blobs scores the identical number.
+    // 2. PER-REGION SEPARATION off a global Otsu binarisation. Stronger, and
+    //    still adaptive: run against a floor vignette that crushed the play
+    //    area to a 0.002 object/background step, it scored 0.239 — because
+    //    Otsu re-splits a crushed frame and finds its object-sized regions
+    //    somewhere else in the picture.
     //
-    // `desaturated-silhouettes.json` measures, per rock and for the ship, the
-    // luminance gap between the object and a ring just outside it. An object
-    // that has dissolved into its background scores zero there whatever the
-    // rest of the frame is doing.
+    // The lane that shipped (2) refused to move the threshold to catch that one
+    // vignette and was right: a number fitted to one known defect catches that
+    // defect and passes the next. The defect was that the measurement could
+    // migrate to a different part of the image, and no threshold fixes that.
+    //
+    // `desaturated-silhouettes.json` is now POSITION-ANCHORED: the scene is
+    // asked where each rock and the ship are, and the frame is measured there —
+    // object core against a background ring — with nothing chosen from the
+    // data. The negative control is a unit test, not a sentence: feed the same
+    // measure a synthetic frame with the vignette applied and it reports 0.000
+    // while the superseded Otsu measure on identical pixels still reports 0.27
+    // (tests/unit/gauntlet/silhouette.test.ts).
+    //
+    // THE BAR DID NOT MOVE. 0.06 is the same threshold the previous measure
+    // used. What moved is what is being measured.
     run: async ({ evidence }) => {
-      if (!evidence.has("desaturated-silhouettes.json")) {
+      const name = "desaturated-silhouettes.json";
+      if (!evidence.has(name)) {
         return todo("Flight scene not built; no desaturated-silhouettes.json evidence");
       }
-      const data = evidence.read("desaturated-silhouettes.json");
-      // Anti-vacuity: a capture that measured one object is a capture of an
-      // empty sky, and its minimum is meaningless.
-      if (!(data.objectsMeasured >= 3)) {
+      const data = evidence.read(name);
+      const ev = evidence.path(name);
+      // PROVENANCE. An artifact from the adaptive measure must not satisfy this
+      // item, however good its number looks — that number is the false pass.
+      if (!/measureSilhouettes/.test(String(data.measure ?? ""))) {
         return bad(
-          `only ${data.objectsMeasured} object(s) measured; the belt was empty`,
-          evidence.path("desaturated-silhouettes.json"),
+          `artifact does not name the position-anchored measure (measure: ${JSON.stringify(data.measure)}); a region count or an Otsu segmentation cannot answer AC-22.4`,
+          ev,
         );
       }
+      if (typeof data.negativeControl !== "string" || data.negativeControl.length < 40) {
+        return bad("artifact must name a re-runnable negative control (D85)", ev);
+      }
+      // Anti-vacuity: a capture that measured one object is a capture of an
+      // empty sky, and its minimum is meaningless.
+      if (!(data.objectsMeasured >= 6)) {
+        return bad(
+          `only ${data.objectsMeasured} object(s) measured; the belt was empty`,
+          ev,
+        );
+      }
+      // AC-22.4 names the rocket AND the asteroids. A capture that never
+      // located the ship has answered half the question.
+      if (!(data.shipReadings >= 1) || data.shipReadings !== data.frames) {
+        return bad(
+          `the ship was measured in ${data.shipReadings} of ${data.frames} frames; AC-22.4 names the rocket as well as the asteroids`,
+          ev,
+        );
+      }
+      if (Array.isArray(data.unmeasurable) && data.unmeasurable.length > data.objectsMeasured / 4) {
+        return bad(
+          `${data.unmeasurable.length} object(s) could not be measured at all; a minimum taken over what happened to be measurable is not a minimum`,
+          ev,
+        );
+      }
+      const bands = data.byBand ?? {};
+      const bandDetail = Object.entries(bands)
+        .map(([b, v]) => `${b} ${v.min} (n=${v.n})`)
+        .join(", ");
       return evidence.assertNumber(
-        "desaturated-silhouettes.json", "minSeparation", (v) => v > 0.06,
-        `weakest object/background luminance separation across ${data.objectsMeasured} objects, desaturated`);
+        name, "minSeparation", (v) => v > 0.06,
+        `weakest object/background luminance separation across ${data.objectsMeasured} objects, desaturated; by band: ${bandDetail}; weakest ${JSON.stringify(data.weakest)}`);
     },
   },
   {
@@ -806,24 +1013,118 @@ const loop = [
   {
     id: "L-6e.3",
     source: "D77 / AC-6e.3",
-    title: "No dead time > 2 s during flight",
+    title: "No dead time > 2 s during flight, on a measure that can exceed 2 s",
     kind: "unit",
-    run: async ({ evidence }) =>
-      evidence.has("deadtime.json")
-        ? evidence.assertNumber("deadtime.json", "maxGapMs", (v) => v <= 2000,
-            "longest interval with no live asteroid and no pending spawn")
-        : todo("flight simulation not built; no deadtime.json evidence"),
+    // THE ARTIFACT USED TO BE ITS OWN INSTRUMENT.
+    //
+    // `deadtime.json` read `{"maxGapMs": 120}` and 120 was `simulateStage`'s
+    // spawn tick: that harness advances its clock with `nowMs +=
+    // cfg.spawnIntervalMs`, so dead time could only ever be a multiple of 120
+    // and the reported figure was the FLOOR of the measurable range. Breaching
+    // 2000 would have needed seventeen consecutive picker refusals in a harness
+    // that "resolves every live rock independently, as if the player could
+    // answer them all at once" - the very assumption that hid the belt stall.
+    // The item was true by construction and said nothing about the game.
+    //
+    // Four gates now, and the third is the one that matters: an artifact must
+    // carry a NEGATIVE CONTROL that breached the threshold. If the harness
+    // cannot produce a failing number, "0 ms" is a statement about the
+    // empty-board fast path existing, not a measurement, and this item says so
+    // instead of passing.
+    run: async ({ evidence }) => {
+      const name = "deadtime.json";
+      if (!evidence.has(name)) return todo("flight simulation not built; no deadtime.json evidence");
+      const d = evidence.read(name);
+      const ev = evidence.path(name);
+      if (typeof d.harness !== "string" || /simulateStage|parallel/i.test(d.harness)) {
+        return bad(
+          `harness must be the serial-typist belt: a harness that clears every live rock at once cannot be asked whether the sky went empty (got ${JSON.stringify(d.harness)})`,
+          ev,
+        );
+      }
+      if (typeof d.measurementResolutionMs !== "number") {
+        return bad("must report measurementResolutionMs: a reading with no stated resolution cannot be told from its own tick", ev);
+      }
+      if (d.measurementResolutionMs > 0 && d.maxGapMs === d.measurementResolutionMs) {
+        return bad(
+          `maxGapMs (${d.maxGapMs}) is exactly the measurement resolution — the reading is the instrument, not the belt`,
+          ev,
+        );
+      }
+      const control = d.control;
+      if (typeof control?.maxGapMs !== "number") {
+        return bad("no negative control in the artifact: an anti-vacuity control that nobody can re-run is a sentence, not evidence", ev);
+      }
+      if (!(control.maxGapMs > 2000)) {
+        return bad(
+          `the negative control reached only ${control.maxGapMs} ms, so this measure has never been seen to breach 2000 ms and a pass proves nothing`,
+          ev,
+        );
+      }
+      if (!(d.belts >= 100) || !(d.spawns > 0)) {
+        return bad(`too small to mean anything: ${d.belts} belts, ${d.spawns} spawns`, ev);
+      }
+      return evidence.assertNumber(name, "maxGapMs", (v) => v <= 2000,
+        `longest interval with no live asteroid and no pending spawn across ${d.belts} belts (control breached at ${Math.round(control.maxGapMs)} ms)`);
+    },
   },
   {
     id: "L-6e.4",
     source: "D77 / AC-6e.4 / D50",
-    title: "Retention line trends upward across a full Earth->Pluto run",
+    // RETITLED, DELIBERATELY AND NARROWER. The old title was "Retention line
+    // trends upward across a full Earth->Pluto run" and three of its four words
+    // were wrong: the simulation ran three stops of seven, "trends upward" was
+    // arithmetic (the modelled child's recognition latency is a strictly
+    // decreasing function of hit count, so no seed could fail), and it was read
+    // as a learning result. What the evidence can support is that the PIPELINE
+    // reports an improvement for a learner who improves, and that the selection
+    // engine is what puts the re-met words on the line. See
+    // gauntlet/escalations.md for the options and the reason for this one.
+    title: "The retention pipeline reports improvement for a learner who improves, over the whole route",
     kind: "unit",
-    run: async ({ evidence }) =>
-      evidence.has("retention.json")
-        ? evidence.assertShape("retention.json", (r) => r.trendUp === true,
-            "simulated learner's retention improves across seven stops")
-        : todo("learning-engine simulation not built; no retention.json evidence"),
+    run: async ({ evidence }) => {
+      const name = "retention.json";
+      if (!evidence.has(name)) return todo("learning-engine simulation not built; no retention.json evidence");
+      const d = evidence.read(name);
+      const ev = evidence.path(name);
+      if (typeof d.harness !== "string" || /simulateStage|parallel/i.test(d.harness)) {
+        return bad(`harness must be the serial-typist belt (got ${JSON.stringify(d.harness)})`, ev);
+      }
+      // The route, asserted rather than implied by the title. Earth flies no
+      // belt (D57), so the whole route is six.
+      if (d.stops !== 6) {
+        return bad(`ran ${d.stops} stop(s); the Mars->Pluto route is six belts and the claim is about the whole run`, ev);
+      }
+      if (!(d.crossStopWords > 0)) {
+        return bad("no word was met again at a later stop, so there is no delayed re-test to report on", ev);
+      }
+      if (!(d.engineSourcedWords > 0)) {
+        return bad("no re-met word was chosen from the retention pool: the line is entirely the content pools' overlap, not the engine", ev);
+      }
+      // CONTROL 1 (the model). A learner who cannot get faster must not read as
+      // improving. The control this replaces pitted a 260 ms learner against a
+      // 220 ms floor and asserted the delta was under 60 - a 40 ms range tested
+      // against a 60 ms bound, which could not have failed.
+      const flat = d.controls?.flatLearner;
+      if (flat === undefined) return bad("no flat-learner control in the artifact", ev);
+      if (flat.trendUp !== false) {
+        return bad("the flat-learner control reports an improvement: the pipeline says a learner who did not improve did", ev);
+      }
+      // CONTROL 2 (the engine). With the D21/D23 interleave removed, the number
+      // of re-met words must DROP. If it does not, the engine contributes
+      // nothing and this item is measuring how much the story's stage pools
+      // happen to overlap.
+      const noInterleave = d.controls?.noInterleave;
+      if (noInterleave === undefined) return bad("no no-interleave control in the artifact", ev);
+      if (!(noInterleave.crossStopWords < noInterleave.withInterleave)) {
+        return bad(
+          `removing the retention interleave changed the re-met word count from ${noInterleave.withInterleave} to ${noInterleave.crossStopWords}: the selection engine contributes nothing to this line`,
+          ev,
+        );
+      }
+      return evidence.assertShape(name, (r) => r.trendUp === true,
+        `${d.crossStopWords} words met again at a later stop (${d.engineSourcedWords} of them brought back by the engine) read faster than at first exposure; controls: flat learner ${flat.trendUp}, no-interleave ${noInterleave.crossStopWords} vs ${noInterleave.withInterleave}`);
+    },
   },
 ];
 
@@ -1086,27 +1387,62 @@ const guardrails = [
   {
     id: "G-trace",
     source: "D61 / D78 / architecture section 10.2",
-    title: "trace-check green: every D has an AC, every AC a test, every scene a row",
+    title: "trace-check green: every D has an AC, every AC an ASSERTING test, every scene a row",
     kind: "trace",
+    // RUNS --strict, AND THAT IS THE POINT.
+    //
+    // This item used to run `scripts/trace-check.mjs` with no flag and report
+    // PASS while its own printed line read "97/106 cited by a real test (9 not
+    // yet)". The flag that turns that count into a failure exists, is named in
+    // trace-check's header as "what the gauntlet runs", and was never passed.
+    // An item whose evidence contradicts its own status is worse than no item.
+    //
+    // Passing it makes this item RED today: 10 acceptance criteria have no test
+    // that asserts them. That is a real finding, escalated in
+    // gauntlet/escalations.md with the list, not a reason to drop the flag.
+    // `npm test` still runs the non-strict form, so the "no red merges" rule in
+    // CLAUDE.md is untouched - the gap is red where the bar lives.
     run: async ({ repo, runNode }) => {
       const s = join(repo, "scripts/trace-check.mjs");
       if (!existsSync(s)) return todo("scripts/trace-check.mjs not written yet");
-      const r = await runNode(["scripts/trace-check.mjs"]);
+      const r = await runNode(["scripts/trace-check.mjs", "--strict"]);
+      const out = `${r.stdout ?? ""}\n${r.stderr ?? ""}`.trim();
+      if (!/AC->test:/.test(out)) {
+        return bad(`trace-check --strict produced no AC->test line; it did not run: ${out.slice(0, 400)}`,
+          "gauntlet/evidence/trace-check.txt");
+      }
       return r.code === 0
-        ? ok(r.stdout.trim().split("\n").slice(-3).join(" | "), "gauntlet/evidence/trace-check.txt")
-        : bad(r.stdout.trim().split("\n").slice(-12).join("\n"), "gauntlet/evidence/trace-check.txt");
+        ? ok(out.split("\n").filter((l) => /AC->test:|trace-check OK/.test(l)).join(" | "),
+            "gauntlet/evidence/trace-check.txt")
+        : bad(out.split("\n").slice(-12).join("\n"), "gauntlet/evidence/trace-check.txt");
     },
   },
   {
     id: "G-scenes",
     source: "D78 / architecture section 10.2",
-    title: "Every scene in src/game/scenes has a screen-inventory row",
+    title: "Every registered Phaser scene has a screen-inventory row, and vice versa",
     kind: "trace",
-    run: async ({ repo }) => {
-      const scenes = sceneFiles(repo);
-      if (scenes.length === 0) return todo("src/game/scenes is empty (FIRST TASK 4)");
-      return ok(`${scenes.length} scenes present; row-matching is enforced by trace-check (G-trace)`);
-    },
+    // THIS ITEM USED TO HAVE NO FAILING BRANCH AT ALL.
+    //
+    // It returned `todo` on an empty directory and `ok` on anything else, and
+    // its own detail string said row-matching was "enforced by trace-check
+    // (G-trace)" - which passed non-strict. One of thirty-three items, and
+    // there was no input on which it could go red.
+    //
+    // It also disagreed with the check it deferred to about what a scene IS:
+    // it reported 27 by walking every .ts under src/game/scenes, counting the
+    // lib/ and support/ helpers as screens, while trace-check counted the 17
+    // top-level scene files that boot.ts actually registers.
+    //
+    // Now it asserts D78 itself, through the SAME readers trace-check uses
+    // (imported, not reimplemented, so the two can never disagree again), and
+    // it closes the two escapes D78 had:
+    //   - a scene mapped to the empty row "", which trace-check skips
+    //     (`SCENE_INVENTORY_ROW.Boot` is ""), and
+    //   - a Phaser.Scene subclass registered from OUTSIDE src/game/scenes,
+    //     which relation 3 never looks at (`LanternShotScene`).
+    // Both now need a named entry below, with a reason, or the item fails.
+    run: async ({ repo }) => sceneCompleteness(repo),
   },
   {
     id: "G-one-shadow",

@@ -23,11 +23,27 @@ import { type InputMethod, type Lang, LANGS } from "../types.js";
  * hackathon build only, to shrink the surface that has to be kept honest before
  * the deadline. Nothing was deleted and nothing was weakened.
  *
- * TO RESTORE: put "es" and "hi" back in this array. That is the whole change.
- * The content, the translations, the normalisation, the transliteration matcher
- * and their tests all keep running in the meantime, so they cannot rot while
- * they are dormant — `tests/unit/content/` still fails the build if a Spanish
- * copy budget is blown or a Devanagari matra is truncated.
+ * TO RESTORE, and this is NOT the one-line change an earlier version of this
+ * comment claimed. Putting "es" and "hi" back in this array restores the MENU.
+ * It does not restore the game, because the runtime content pipeline was
+ * already English-only before this cut ever happened:
+ *
+ *   src/game/scenes/lib/content.ts   import.meta.glob(".../content/en/*.json")
+ *   src/game/scenes/lib/content.ts   parseStageBundle returns lang: "en"
+ *   src/game/scenes/support/vocab.ts sight-words glob is content/en/
+ *   src/game/scenes/PreflightScene.ts passes `lang` in a payload that is not a
+ *                                     FlightConfig key, so the belt falls back
+ *                                     to DEFAULT_FLIGHT_CONFIG.contentLang
+ *
+ * So `contentLang` is a setting that reaches nothing, and has been for as long
+ * as those globs have existed. A critic found this; the cut did not cause it,
+ * the cut exposed it. Restoring the languages means widening those globs and
+ * threading `contentLang` into FlightConfig as well as editing this array.
+ *
+ * What IS true: the es/hi bundles are still on disk and still validated by
+ * `tests/unit/content/`, so the copy budgets and the Devanagari round-trip
+ * cannot rot. But they are exercised by TEST FIXTURES, not by the game. What
+ * is protected is the arithmetic, not the path.
  *
  * WHY THIS IS A FILTER AND NOT A DELETION. Removing the content would make
  * every check that covers it pass by having nothing left to measure, which is

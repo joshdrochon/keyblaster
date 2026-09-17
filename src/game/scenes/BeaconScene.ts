@@ -192,6 +192,41 @@ export class BeaconScene extends Phaser.Scene {
     return { headline: b.beaconHeadline, state: b.beaconState, flavour: b.beaconFlavor };
   }
 
+  /**
+   * SHADOW READS THE BEACON (D63, AC-21.6).
+   *
+   * The beacon coming up is the emotional beat of the whole loop and it was
+   * silent: the three lines were drawn and never spoken, so the pre-rendered
+   * voice files for them - which existed - could never be reached by anything.
+   *
+   * THE IDS ARE THE CONTRACT. `${stopId}.beaconHeadline` is exactly the key
+   * `scripts/render-voice.mjs` writes into the manifest, and the file transport
+   * looks a line up by that id and nothing else. A scene that invented its own
+   * id here would silently fall through to the system voice forever, which is
+   * the bug this whole change exists to fix; `voiceClips.test.ts` asserts these
+   * three strings for that reason.
+   *
+   * AC-21.6's ordering is structural: the labels are built in `create`, long
+   * before the lamp lights, so the text is on screen before a word is said. The
+   * three lines are QUEUED, not overlapped - `VoiceBus` hands the second to the
+   * transport only when the first reports done - and `interruptFor` is never
+   * called here because nothing the player did displaced anything.
+   */
+  private narrateBeacon(): void {
+    const audio = audioFrom(this.registry);
+    if (audio === null) return;
+    const { headline, state, flavour } = this.headline();
+    const lines: readonly [string, string][] = [
+      [`${this.stopId}.beaconHeadline`, headline],
+      [`${this.stopId}.beaconState`, state],
+      [`${this.stopId}.beaconFlavor`, flavour],
+    ];
+    for (const [id, text] of lines) {
+      if (text.trim().length === 0) continue;
+      audio.speak({ id, text, kind: "scripted" });
+    }
+  }
+
   private buildHeader(): Phaser.GameObjects.GameObject[] {
     const pal = this.lane.palette;
     const { headline, state } = this.headline();
@@ -312,6 +347,7 @@ export class BeaconScene extends Phaser.Scene {
       // AC-21.3 `beacon`: a clear bell, the reward tone of the whole game, on
       // the frame the lamp comes up rather than when the scene opens.
       audioFrom(this.registry)?.play("beacon", "beacon-scene:lit");
+      this.narrateBeacon();
       if (this.lane.reducedMotion) {
         halo.setAlpha(1);
         return;

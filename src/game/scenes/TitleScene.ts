@@ -27,6 +27,7 @@ import { hexToNum, mixHex, paletteAt } from "../render/palette.js";
 import { TEX, ensureTextures } from "../render/textures.js";
 import { LANTERN_DESIGN_HEIGHT, drawLantern, type LanternRig } from "../render/lantern.js";
 import { LANGS, type Lang } from "../../engine/types.js";
+import { SHIPPED_LANGS } from "../../engine/i18n/index.js";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
 
 const FONT = '"Avenir Next","Nunito","Trebuchet MS",system-ui,sans-serif';
@@ -108,9 +109,14 @@ export class TitleScene extends Phaser.Scene {
 
     const primary = this.buildPrimary(primaryLabel, primarySub, 200, 560);
     const settings = this.buildQuiet(t.t("title.settings"), 200, 726);
-    const lang = this.buildLangRow(200, 900);
-    hud.add([primary.root, settings.root, lang.root]);
-    this.items = [primary, settings, lang];
+    // D95: the language row only exists when there is a choice to make. With a
+    // single shipped language it is a one-option selector, which is noise on
+    // the first screen a child sees - and it was still offering ES and हिं
+    // after the content cut, which is worse than noise: it offers a language
+    // the game will not switch to.
+    const lang = SHIPPED_LANGS.length > 1 ? this.buildLangRow(200, 900) : null;
+    hud.add([primary.root, settings.root, ...(lang ? [lang.root] : [])]);
+    this.items = lang ? [primary, settings, lang] : [primary, settings];
 
     this.bindKeyboard();
     this.bindPointers();
@@ -254,9 +260,9 @@ export class TitleScene extends Phaser.Scene {
   private buildLangRow(x: number, y: number): MenuItem {
     const root = this.add.container(x, y);
     const { t } = services(this);
-    this.langIndex = Math.max(0, LANGS.indexOf(t.lang));
+    this.langIndex = Math.max(0, SHIPPED_LANGS.indexOf(t.lang));
     let cursor = 4;
-    LANGS.forEach((lang, i) => {
+    SHIPPED_LANGS.forEach((lang, i) => {
       const label = this.add
         .text(cursor, 0, LANG_LABEL[lang], {
           fontFamily: FONT,
@@ -400,7 +406,8 @@ export class TitleScene extends Phaser.Scene {
   // -------------------------------------------------------------------------
 
   private cycleLang(step: number): void {
-    const next = LANGS[(this.langIndex + step + LANGS.length) % LANGS.length];
+    const next =
+      SHIPPED_LANGS[(this.langIndex + step + SHIPPED_LANGS.length) % SHIPPED_LANGS.length];
     if (next === undefined) return;
     services(this).setLang(next);
     // Rebuilding is the honest way to re-flow copy that changes length by +25%

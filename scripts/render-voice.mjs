@@ -27,17 +27,66 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = join(REPO, "src/content/audio/voice");
 const STOPS = ["earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto"];
 
-/** Fields that Shadow SPEAKS. Everything else on a bundle is read, not said. */
+/**
+ * Stage-bundle fields Shadow SPEAKS. Everything else on a bundle is read.
+ *
+ * ================== THIS LIST USED TO BE A GUESS ==================
+ * The first render pass produced 28 files against ids of the form
+ * `<stop>.<field>` taken from this list, and NO CALL SITE SPOKE ANY OF THEM.
+ * `beaconHeadline` / `beaconState` / `beaconFlavor` were drawn as labels in
+ * BeaconScene and never handed to the voice bus; `preflightLine` was drawn in
+ * EarthActivationScene and never spoken either. Every file was correct, every
+ * file was unreachable, and nothing in the repo noticed because no test related
+ * the two id spaces.
+ *
+ * The scenes now speak them, with exactly these ids, and
+ * `tests/unit/audio/voiceClips.test.ts` asserts the relationship in both
+ * directions. BEFORE ADDING A FIELD HERE, ADD THE SPEAK SITE AND THE TEST. A
+ * render with no call site is money spent on silence.
+ */
 const SPOKEN_FIELDS = ["preflightLine", "beaconHeadline", "beaconState", "beaconFlavor"];
+
+/**
+ * UI strings Shadow speaks, by their `SceneStringKey` (src/content/en/ui.json).
+ *
+ * These are the ONLY ids `PreflightScene.say()` has ever handed to the voice
+ * bus (`PreflightScene.ts` -> `STEP_LINE_KEY`, plus the two literals), and none
+ * of them had a file. They are per-GAME rather than per-stop: the pre-flight
+ * ritual says the same three lines at every planet, so three renders cover all
+ * seven stops, which is also why they cost almost nothing.
+ *
+ * The id IS the ui.json key, unchanged, because the id space is the contract
+ * between this script and `browserVoiceClips` and a translation of it here
+ * would be a silent miss at runtime.
+ */
+const SPOKEN_UI_KEYS = [
+  "preflight.line.opening",
+  "preflight.line.hull",
+  "preflight.line.systems",
+  "preflight.line.engines",
+  "preflight.line.done",
+  "preflight.line.returning",
+];
 
 /** ElevenLabs bills per character. Flash v2.5 is ~$0.00003/char on paid tiers. */
 const USD_PER_CHAR = 0.00003;
 
 const argv = process.argv.slice(2);
 const flag = (name) => argv.includes(`--${name}`);
+/**
+ * The value after `--name`, or `fallback`.
+ *
+ * The `startsWith("--")` guard is not decoration. Without it
+ * `--voice --cap-usd 1` set the voice id to the literal string "--cap-usd" and
+ * then sent seven requests to a voice that does not exist - a flag that eats
+ * the next flag is a bug that spends money before it reports itself.
+ */
 const value = (name, fallback = null) => {
   const i = argv.indexOf(`--${name}`);
-  return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
+  if (i < 0) return fallback;
+  const next = argv[i + 1];
+  if (typeof next !== "string" || next.length === 0 || next.startsWith("--")) return fallback;
+  return next;
 };
 
 const LIVE = flag("live");
@@ -58,7 +107,33 @@ function collectLines() {
       lines.push({ id: `${stop}.${field}`, stop, field, text: text.trim() });
     }
   }
+
+  // The pre-flight ritual's lines, which live in ui.json rather than in a stage
+  // bundle because they are the same at every stop. See SPOKEN_UI_KEYS.
+  const uiPath = join(REPO, "src/content/en/ui.json");
+  if (existsSync(uiPath)) {
+    const ui = JSON.parse(readFileSync(uiPath, "utf8"));
+    const strings = ui?.strings ?? {};
+    for (const key of SPOKEN_UI_KEYS) {
+      const text = strings[key];
+      if (typeof text !== "string" || text.trim().length === 0) continue;
+      lines.push({ id: key, stop: "ui", field: key, text: text.trim() });
+    }
+  }
   return lines;
+}
+
+/** Rows of the manifest already on disk, by id. Empty on a first run. */
+function existingManifest() {
+  const p = join(OUT, "manifest.json");
+  if (!existsSync(p)) return new Map();
+  try {
+    const parsed = JSON.parse(readFileSync(p, "utf8"));
+    const rows = Array.isArray(parsed?.lines) ? parsed.lines : [];
+    return new Map(rows.filter((r) => typeof r?.id === "string").map((r) => [r.id, r]));
+  } catch {
+    return new Map();
+  }
 }
 
 async function listVoices() {
@@ -155,30 +230,72 @@ if (estUsd > CAP_USD) {
 }
 
 mkdirSync(OUT, { recursive: true });
+
+/**
+ * ================== THIS RUN IS RESUMABLE (and it was not) ==================
+ * The loop used to let `render()` throw straight out of the script. One 429
+ * half way down the list left N mp3s on disk, NO manifest, and a re-run that
+ * paid for all of them again. Three changes fix it and none of them change what
+ * a clean run does:
+ *
+ *   1. a line whose file and manifest row both already exist is SKIPPED and
+ *      costs nothing, so a re-run only pays for what is missing;
+ *   2. a failed line is caught, reported, and the run moves on rather than
+ *      taking the whole batch down with it;
+ *   3. the manifest is written in a `finally`, so whatever was rendered is
+ *      recorded even when the run ends badly.
+ *
+ * `--force` re-renders everything, which is what a voice change needs.
+ */
+const previous = existingManifest();
+const FORCE = flag("force");
 let spent = 0;
+let failed = 0;
+let skipped = 0;
 const manifest = [];
 
-for (const line of lines) {
-  const cost = line.text.length * USD_PER_CHAR;
-  if (spent + cost > CAP_USD) {
-    console.error(`\nStopping: the next line would exceed the $${CAP_USD} cap. Rendered ${manifest.length}.`);
-    break;
+try {
+  for (const line of lines) {
+    const priorRow = previous.get(line.id);
+    const file = `${line.id}.mp3`;
+    if (!FORCE && priorRow !== undefined && existsSync(join(OUT, file))) {
+      manifest.push(priorRow);
+      skipped += 1;
+      continue;
+    }
+    const cost = line.text.length * USD_PER_CHAR;
+    if (spent + cost > CAP_USD) {
+      console.error(`\nStopping: the next line would exceed the $${CAP_USD} cap.`);
+      break;
+    }
+    try {
+      const audio = await render(line);
+      writeFileSync(join(OUT, file), audio);
+      spent += cost;
+      manifest.push({ id: line.id, file, chars: line.text.length, bytes: audio.length });
+      console.log(`  rendered ${line.id.padEnd(26)} ${audio.length} bytes`);
+    } catch (error) {
+      failed += 1;
+      console.error(`  FAILED   ${line.id.padEnd(26)} ${String(error?.message ?? error)}`);
+    }
   }
-  const audio = await render(line);
-  const file = `${line.id}.mp3`;
-  writeFileSync(join(OUT, file), audio);
-  spent += cost;
-  manifest.push({ id: line.id, file, chars: line.text.length, bytes: audio.length });
-  console.log(`  rendered ${line.id.padEnd(26)} ${audio.length} bytes`);
+} finally {
+  writeFileSync(
+    join(OUT, "manifest.json"),
+    JSON.stringify(
+      { renderedAt: new Date().toISOString(), model: MODEL, voiceId: VOICE_ID, lines: manifest },
+      null,
+      2,
+    ) + "\n",
+  );
 }
 
-writeFileSync(
-  join(OUT, "manifest.json"),
-  JSON.stringify(
-    { renderedAt: new Date().toISOString(), model: MODEL, voiceId: VOICE_ID, lines: manifest },
-    null,
-    2,
-  ) + "\n",
+console.log(
+  `\n${manifest.length} lines in the manifest · ${skipped} already on disk · ` +
+    `${failed} failed · $${spent.toFixed(4)} spent of $${CAP_USD} cap`,
 );
-console.log(`\n${manifest.length} lines · $${spent.toFixed(4)} spent of $${CAP_USD} cap`);
 console.log(`Written to src/content/audio/voice/ with a manifest.`);
+if (failed > 0) {
+  console.log(`Re-run the same command to retry only the ${failed} that failed.`);
+  process.exit(1);
+}

@@ -8,6 +8,11 @@ import {
 } from "@engine/i18n/index.js";
 import { LANGS, type InputMethod } from "@engine/types.js";
 import { bundlesFor, sightWordsFor } from "../content/fixtures.js";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "../../../src");
 
 /**
  * D95 — Spanish and Hindi are withheld from the shipped menu for the hackathon
@@ -15,8 +20,14 @@ import { bundlesFor, sightWordsFor } from "../content/fixtures.js";
  *
  *   - the player is offered English only, and a save that predates the cut is
  *     repaired rather than left pointing at content the menu will not show;
- *   - the Spanish and Hindi content is still THERE, still loaded, still
- *     validated, so the cut is reversible by editing one array.
+ *   - the Spanish and Hindi content is still on disk and still validated.
+ *
+ * NOT "still loaded", and NOT "reversible by editing one array" — both of which
+ * an earlier version of this comment claimed. The runtime pipeline globs
+ * content/en/ only (scenes/lib/content.ts, scenes/support/vocab.ts), so the
+ * es/hi bundles are reached by these fixtures and by nothing else. The cut did
+ * not cause that; it exposed it. Restoring the languages needs those globs
+ * widened and contentLang threaded into FlightConfig too. See D95.
  *
  * The second half is the important half. The tempting version of this change
  * was to delete the es/hi content, and that would have made every check
@@ -100,5 +111,47 @@ describe("D95: AC-14.1's input-method rule is still exercised on all three langu
       const typeable = new Set(typeableContentLangs(im));
       for (const lang of menu) expect(typeable.has(lang), `${lang} on ${im}`).toBe(true);
     }
+  });
+});
+
+describe("D95: no unshipped language reaches a menu", () => {
+  /**
+   * A SOURCE-LEVEL GUARD, and it is worth being precise about what it proves.
+   * It does not render a scene; it asserts that the two screens carrying a
+   * language selector build their choices from SHIPPED_LANGS rather than from
+   * the full LANGS list.
+   *
+   * It exists because the first cut missed exactly this. `availableContentLangs`
+   * filtered the CONTENT language, the shipped build was declared English-only,
+   * and the Title screen went on drawing "EN ES हिं" along the bottom — offering
+   * two languages the game would no longer switch to. A user screenshot caught
+   * it, not the suite. The cut was real; it was applied in one of the two places
+   * it needed to be applied.
+   */
+  const scenes = {
+    "TitleScene.ts": readFileSync(`${SRC}/game/scenes/TitleScene.ts`, "utf8"),
+    "SettingsScene.ts": readFileSync(`${SRC}/game/scenes/SettingsScene.ts`, "utf8"),
+  };
+
+  for (const [name, src] of Object.entries(scenes)) {
+    it(`${name} builds its language choices from SHIPPED_LANGS`, () => {
+      expect(src, `${name} does not reference SHIPPED_LANGS`).toContain("SHIPPED_LANGS");
+    });
+
+    it(`${name} never iterates the raw LANGS list to build a selector`, () => {
+      // The specific shapes that shipped the bug: LANGS.forEach(...) drawing a
+      // label per language, and langChoices(LANGS) filling an option row.
+      expect(src).not.toMatch(/\bLANGS\.forEach\b/);
+      expect(src).not.toMatch(/langChoices\(\s*LANGS\s*\)/);
+      expect(src).not.toMatch(/choices:\s*LANGS\b/);
+    });
+  }
+
+  it("NEGATIVE CONTROL: the patterns above do match the broken form", () => {
+    // Without this, the three assertions above would pass against a file that
+    // simply never mentions languages at all - including an empty string.
+    const broken = 'LANGS.forEach((lang, i) => {}); langChoices(LANGS);';
+    expect(broken).toMatch(/\bLANGS\.forEach\b/);
+    expect(broken).toMatch(/langChoices\(\s*LANGS\s*\)/);
   });
 });

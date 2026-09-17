@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { type GameServices, services } from "@game/boot";
 import type { Notice } from "@engine/persistence";
-import { resolveContentLang } from "@engine/i18n";
+import { isShipped, resolveContentLang } from "@engine/i18n";
 import {
   DEFAULT_SETTINGS,
   type Profile,
@@ -104,6 +104,13 @@ export function appFor(scene: Phaser.Scene): App {
       // only when the input-method row is touched. Identity is meaningful here:
       // when resolveContentLang returns the same value, nothing was repaired
       // and the screen has nothing to tell the player.
+      // D95 repair, and it must come FIRST: resolveContentLang falls back to
+      // uiLang, so an unshipped uiLang would otherwise be handed straight back
+      // as the content language. A profile saved before the cut carries
+      // uiLang: "es", and nothing repaired it - the row rendered "english"
+      // (findIndex returned -1, clamped to 0) while the game stayed in
+      // Spanish, which is the one thing AC-19.1 is about.
+      if (!isShipped(merged.uiLang)) merged.uiLang = "en";
       merged.contentLang = resolveContentLang(
         merged.contentLang,
         merged.inputMethod,

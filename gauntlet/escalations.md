@@ -1354,3 +1354,122 @@ are in-code, cheap, and are what actually reads as depth. Re-running shape sheet
 before them would only produce better-shaped ribbons.
 
 I retracted the tracing instruction to the art lane.
+
+---
+
+## E-world-6 — Two critics disagree about hue. The one that measured wins.
+
+Recorded because I acted on the wrong one first and queued a night of work
+against it.
+
+**Critic A (earlier, framed):** "The frame is monochrome. Every sampled point —
+sky, far band, mid band, near wall, planet, asteroid, temple — falls in hue
+12°–28°. One 16-degree wedge. WORLD-BAR item 3 is the one item that has not
+been done." It sampled our frame only.
+
+**Critic B (later, blind):** measured both sides.
+
+| | hue circular SD | % of saturated pixels in H0–30 |
+|---|---|---|
+| ours, flight-frame | 5.2° | 98.6% |
+| alto-03, their desert | 6.9° | 95.3% |
+
+Alto's own desert is as monohue as ours; all fourteen of its dominant colours
+sit in H18–22. **Hue is not the gap.**
+
+What is: **67.8% of our frame sits inside L\* 60–80**, one 20-point box, against
+Alto's 17.4%. And our global range only looks acceptable because all the dark
+lives in the left and right edge cliffs — mask them and the picture area
+collapses from an apparent 60.2 spread to 32.4, against the bar's 47.8.
+
+Two consequences worth stating plainly:
+
+1. The bars the user wants removed are currently the only thing making our value
+   range look respectable. Removing them will make the measured numbers WORSE
+   before the depth-ramp fix makes them better. That is expected, not a
+   regression.
+2. `art-direction.md` §2 specifies "one flat colour from palette" per band. That
+   spec is what produced the flat frame. Changing it is a real decision and it
+   is the user's — see the sun item, which cannot be done within it.
+
+**Lesson for the standing rule:** an assertion about one artifact is not a
+finding. Critic A looked at our frame and inferred what the bar must be doing.
+Critic B measured the bar. Any future visual critique must sample BOTH sides.
+
+---
+
+## G-trace — turning on `--strict` makes the board red: 11 ACs have no test that asserts them
+
+- **Escalated:** 2026-09-16 (false-pass remediation lane)
+- **Source:** D61 / D78 / CLAUDE.md line 20 / architecture §10.2
+- **Attempts:** n/a — this is a decision, not a fix-and-retry item. The measurement is correct; what to do about the eleven is a call about what the submission claims.
+- **Evidence:** `node scripts/trace-check.mjs --strict` (exit 1); `tests/unit/gauntlet/traceAndScenes.test.ts`.
+
+<!-- G-trace-strict-unlinked: 11 -->
+<!-- The marker above is read by tests/unit/gauntlet/traceAndScenes.test.ts. It may
+     never be LOWER than the live count: a new AC arriving with no test turns that
+     test red. It may be higher after a lane closes one. Update it when you close
+     these, and retire this entry when the count reaches the exemption list. -->
+
+### What changed
+
+`G-trace` ran `scripts/trace-check.mjs` with no flag and reported **PASS** while
+the line it printed as its own evidence read `AC->test: 97/106 cited by a real
+test (9 not yet)`. `trace-check.mjs`'s own header names `--strict` as "what the
+gauntlet runs". It was never passed. An item whose evidence contradicts its own
+status is worse than no item, so the flag is now on.
+
+Separately, the linkage behind that count was `allTestSources.includes(id)` — a
+substring scan over every test file concatenated, so an AC named in a **comment**
+counted as covered. It is now graded by `citationStrength` from
+`scripts/tickets.mjs` (reused, not reimplemented, so the ticket board and the
+trace check can never disagree about what "tested" means): **STRONG** = the id is
+inside a `describe`/`it`/`test` title, **WEAK** = named only in prose, **NONE** =
+not named at all. Only STRONG counts.
+
+### The eleven
+
+Eight are named by no test at all:
+
+| AC | What is untested |
+|---|---|
+| AC-1.1 | ship position invariant across a stage |
+| AC-1.2 | background layers advance at configured speeds |
+| AC-6e.5 | playtest targets — **never set**; the AC still literally reads "median session ≥ N min, replay rate ≥ M%" |
+| AC-13.3 | **AI outputs pass the allowlist filter before use** — a safety claim |
+| AC-17.3 | beacon persists and blinks on the map |
+| AC-23.1 | no raster referenced from `src/` (covered in practice by G-raster, but not by a test naming the AC) |
+| AC-24.1 | the emitter renders as engineered tech |
+| AC-24.3 | four colourways = four base ships; no text on hull; `{shipName}` renders |
+
+Three are named only in prose — a comment or a doc block, never a test title,
+which is exactly what a citation looks like after the assertion it described was
+deleted: **AC-6d.1**, **AC-6d.1b**, **AC-25.1**. AC-6d.1 is the live example the
+ticket board already flags: it read as covered on the strength of tests titled
+`AC-6d.1c`, a longer id.
+
+One AC is exempt, explicitly and with a reason, in `TEST_EXEMPT`: **AC-12b.3**,
+the NASA debris-source research closure, already exempt from relation 2 on
+identical grounds. Nothing else was exempted; exempting the other eleven would be
+the fix-by-redefinition this whole lane exists to prevent.
+
+### Options
+
+| | Option | Cost | Effect on the board |
+|---|---|---|---|
+| A | Leave `--strict` on. G-trace is RED until the eleven are closed. | The gauntlet reports a real failure it did not report before. | Honest. Board goes 1 item redder. |
+| B | Write the eleven tests now. | Five are e2e/visual (AC-1.1, AC-1.2, AC-17.3, AC-24.1, AC-24.3) and need browser work; AC-13.3 is a real safety gap; AC-6e.5 cannot be tested because its targets were never chosen — that is a user decision, not a coding task. | Green, eventually, but not tonight and not without a decision on AC-6e.5. |
+| C | Exempt the eleven with reasons. | Cheap. | This is how a check becomes green and meaningless. Rejected. |
+| D | Revert to non-strict. | Free. | Back to a PASS that contradicts its own printed evidence. Rejected. |
+
+**Lean: A, and start on B.** `npm test` still runs the non-strict form, so
+CLAUDE.md's "no red merges" rule is untouched — the gap is red where the bar
+lives (`tests/gauntlet/`) and green where the commit gate lives. AC-6e.5 needs a
+number from the user before anyone can write a test for it; the other ten are
+ordinary work.
+
+### What the write-up may say
+
+Not "every criterion maps to a test, enforced by trace-check". Say: **"95 of 106
+acceptance criteria are asserted by a test named for them; 11 are not, and they
+are listed in gauntlet/escalations.md."**

@@ -203,6 +203,16 @@ export interface WiringSnapshot {
   /** Voice lines the running game handed to the voice bus. */
   readonly spoken: readonly { readonly id: string; readonly kind: string }[];
   readonly voiceTransport: string;
+  /**
+   * Shadow's lines this build can play from a rendered file (D63).
+   *
+   * Reported next to `spoken`, so the evidence can answer the question that
+   * matters - how many lines the running game actually took off disk - by
+   * intersecting the two, rather than by anybody asserting it.
+   */
+  readonly voiceClipIds: readonly string[];
+  /** Spoken line ids that had a rendered file. A subset of `spoken`. */
+  readonly voiceClipsUsed: readonly string[];
   /** Lines waiting behind the one in flight. Never negative, never concurrent. */
   readonly voiceQueued: number;
   /** True while a line is actually in flight. At most one, ever. */
@@ -526,6 +536,10 @@ export function installAudio(options: InstallAudioOptions): AudioService {
         advancedMs,
         spoken: [...spoken],
         voiceTransport: graph.voice.transportId,
+        voiceClipIds: [...graph.voiceClipIds],
+        voiceClipsUsed: spoken
+          .map((s) => s.id)
+          .filter((id, i, all) => all.indexOf(id) === i && graph.voiceClipIds.includes(id)),
         voiceQueued: graph.voice.queued,
         voiceSpeaking: graph.voice.speaking,
         voiceInterrupts: transitions,

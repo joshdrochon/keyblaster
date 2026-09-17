@@ -41,14 +41,11 @@ import {
 } from "./palette.js";
 import {
   type Profile,
-  type WallProfile,
   MASS_PROFILES,
-  WALL_PROFILES,
   dotLattice,
   frondBlades,
   heightOf,
   place,
-  placeWall,
   profilesFor,
 } from "./profiles.js";
 
@@ -157,6 +154,13 @@ const SOLID = 1;
  */
 const PLINTH_HEIGHT = 0.3;
 
+/**
+ * And its half-width, as a fraction of the stage. 0.34 means a landform group
+ * covers at most about two thirds of the frame, so there is always sky beside
+ * it and its base is never a line from edge to edge.
+ */
+const PLINTH_MAX_SPAN = 0.28;
+
 interface Layered {
   readonly rims: TileOp[];
   readonly fills: TileOp[];
@@ -165,6 +169,51 @@ interface Layered {
 
 const layered = (): Layered => ({ rims: [], fills: [], detail: [] });
 const flatten = (l: Layered): TileOp[] => [...l.rims, ...l.fills, ...l.detail];
+
+/**
+ * Break a placed mass's flat BASE into a shallow stepped edge.
+ *
+ * Every authored profile closes with one straight segment along its base,
+ * because that is what the silhouette sheet draws and what a mass standing on
+ * ground looks like. In this game nothing stands on ground: the planes wrap
+ * vertically, so a group's base hangs in open sky and that single straight
+ * segment renders as a RULED HORIZONTAL LINE across most of the frame.
+ *
+ * That is the same defect as the vertical bars a player reported three times,
+ * turned ninety degrees, and it appeared the moment those bars were removed and
+ * stopped hiding it. So the plinth - the one mass whose base is actually visible
+ * - gets its base replaced by a few shallow steps in the profile's own language:
+ * flat runs and short risers, nothing curved, nothing translucent.
+ *
+ * It does not manufacture a horizon. It stops the absence of one from reading as
+ * a line somebody drew.
+ */
+function steppedBase(points: readonly Vec[], amp: number, rand: () => number): Vec[] {
+  const maxY = Math.max(...points.map((p) => p.y));
+  const eps = 0.5;
+  // The base segment: two adjacent points both on the bottom edge.
+  const i = points.findIndex(
+    (p, k) =>
+      Math.abs(p.y - maxY) < eps &&
+      Math.abs((points[(k + 1) % points.length] as Vec).y - maxY) < eps,
+  );
+  if (i < 0) return [...points];
+  const a = points[i] as Vec;
+  const b = points[(i + 1) % points.length] as Vec;
+  const steps = 4;
+  const inserted: Vec[] = [];
+  let prevY = a.y;
+  for (let k = 1; k < steps; k += 1) {
+    const x = a.x + ((b.x - a.x) * k) / steps;
+    const y = maxY - rand() * amp;
+    // A riser at the step's x, then the flat run to the next one.
+    inserted.push({ x, y: prevY });
+    inserted.push({ x, y });
+    prevY = y;
+  }
+  inserted.push({ x: b.x, y: prevY });
+  return [...points.slice(0, i + 1), ...inserted, ...points.slice(i + 1)];
+}
 
 /** Offset a point list toward the light, for the rim copy drawn behind a mass. */
 function towardLight(points: readonly Vec[], light: number, px: number): Vec[] {
@@ -278,7 +327,7 @@ export function massifTile(w: number, h: number, o: MassifTileOptions): TileOp[]
     let reach = leadHalfW;
     for (let c = 0; c < companionCount; c++) {
       const p = catalogue[Math.floor(o.rand() * catalogue.length) % catalogue.length] as Profile;
-      const scale = 0.4 + o.rand() * 0.38;
+      const scale = 0.32 + o.rand() * 0.28;
       const halfW = leadHalfW * scale;
       // Overlapping on purpose: adjacent masses that touch read as one landform,
       // masses with a gap read as two objects. The reference does both, but the
@@ -296,8 +345,15 @@ export function massifTile(w: number, h: number, o: MassifTileOptions): TileOp[]
     // first render of this had a 1000 px dune as the biggest object in frame,
     // with the lead mass perched on it like a wart. A plinth is ground, and
     // ground is foreshortened.
-    const plinthHalfW = (leadHalfW + reach) * 0.92;
-    const plinth = MASS_PROFILES[0] as Profile; // DUNE
+    //
+    // CAPPED, and the cap is the whole reason the groups read as landforms.
+    // Uncapped, `(leadHalfW + reach) * 0.92` reached 1788 px on a 1280 px stage:
+    // the plinth spanned the frame and its flat base drew a ruled horizontal
+    // line from edge to edge. Having just removed two vertical bars, that is the
+    // same defect turned ninety degrees, and a player would report it the same
+    // way. A group is a landform, and a landform does not span the world.
+    const plinthHalfW = Math.min((leadHalfW + reach) * 0.92, w * PLINTH_MAX_SPAN);
+    const plinth = MASS_PROFILES[0] as Profile;
     const plinthSquash = (leadH * PLINTH_HEIGHT) / Math.max(1, heightOf(plinth, plinthHalfW));
 
     // The keep-out column for the one light.
@@ -316,7 +372,13 @@ export function massifTile(w: number, h: number, o: MassifTileOptions): TileOp[]
       }
     }
 
-    push(place(plinth, cx + (side * reach) / 2, baseY, plinthHalfW, mirror, plinthSquash));
+    push(
+      steppedBase(
+        place(plinth, cx + (side * reach) / 2, baseY, plinthHalfW, mirror, plinthSquash),
+        leadH * 0.16,
+        o.rand,
+      ),
+    );
     for (const c of companions) {
       push(place(c.profile, cx + c.dx, baseY, c.halfW, c.mirror));
     }
@@ -344,87 +406,6 @@ export function massifTile(w: number, h: number, o: MassifTileOptions): TileOp[]
       for (const blade of frondBlades(fx, baseY - leadH * 0.98, leadHalfW * 0.34)) {
         out.detail.push({ kind: "poly", color: o.fill, alpha: SOLID, points: blade });
       }
-    }
-  }
-  return flatten(out);
-}
-
-export interface CanyonTileOptions {
-  readonly fill: string;
-  readonly rimColor: string;
-  readonly light: number;
-  /** Maximum reach inward from an edge, in pixels. */
-  readonly maxReach: number;
-  readonly rand: () => number;
-}
-
-/**
- * The near frame: rock along both EDGES of the stage, INTERRUPTED.
- *
- * Judge note 3: "the canyonWalls read as UI chrome, not terrain. They frame the
- * screen like a border. Either make them read as near terrain - irregular,
- * interrupted, varying, clearly part of the world - or remove them."
- *
- * They read as chrome because they were the same generated box shape at the same
- * cadence down both edges, always present, always about the same width. That is
- * the definition of a border. What is drawn now is an authored WALL EDGE
- * (`profiles.ts`, `WALL_PROFILES`) - a hand-drawn reach-vs-depth curve that is
- * allowed to go to ZERO, so the wall genuinely stops and the sky reaches the
- * frame edge. The two sides get different profiles, different segment heights
- * and different maximum reach, so nothing about them is mirrored.
- *
- * They stay out of the middle, which is not negotiable: word plates fall down
- * the centre and a foreground that eats a word costs a child a rock (AC-22.8).
- */
-export function canyonTile(w: number, h: number, o: CanyonTileOptions): TileOp[] {
-  const out = layered();
-  for (const side of [-1, 1] as const) {
-    // Different segment counts per side, so the two edges never share a rhythm.
-    const segments = side < 0 ? 3 : 4;
-    const segH = h / segments;
-    // HALF A SEGMENT OF PHASE on the right, so the two edges' incidents never
-    // line up. Two walls that step at the same heights are a frame with a
-    // pattern on it. The offset still tiles: the content spans half a segment
-    // past the tile and its wrapped copy covers the half at the top.
-    const phase = side < 0 ? 0 : segH * 0.5;
-    // And different reach, so one side is clearly nearer than the other.
-    const sideReach = o.maxReach * (side < 0 ? 1 : 0.74);
-    // ONE WHOLE SEGMENT PER SIDE IS SIMPLY ABSENT.
-    //
-    // This is the difference between "irregular" and "interrupted", and only the
-    // second one stops a frame being a frame. With rock down both edges at every
-    // height, varying its width just gives you a border with a wobbly inside
-    // line - which is what the render before this one showed on the Title, where
-    // the near plane is LIGHTER than the sky and two pale vertical masses is the
-    // exact defect a player reported months ago.
-    //
-    // Half the segments go, not one: at 3-and-4 segments with one dropped each,
-    // the two edges still carried rock over two thirds of every height and the
-    // Title - where a dark stop's near plane is LIGHTER than its sky - still
-    // read as edging. Two pieces a side is a canyon you are flying past. Six is
-    // a picture frame.
-    const drop = Math.floor(segments / 2);
-    const skipFrom = Math.floor(o.rand() * segments) % segments;
-    for (let i = 0; i < segments; i++) {
-      const profile = WALL_PROFILES[
-        Math.floor(o.rand() * WALL_PROFILES.length) % WALL_PROFILES.length
-      ] as WallProfile;
-      // Substantial WHERE IT IS. The interruptions are what stop this reading as
-      // a border, so the rock between them does not also have to be timid - a
-      // thin band that also comes and goes reads as nothing at all.
-      const reach = sideReach * (0.72 + o.rand() * 0.28);
-      // Both rand() calls happen either way: skipping them would make the tile's
-      // geometry depend on WHICH segment was dropped, and the seed would stop
-      // reproducing the frame.
-      if ((i - skipFrom + segments) % segments < drop) continue;
-      const points = placeWall(profile, w, phase + i * segH, segH, reach, side);
-      out.rims.push({
-        kind: "poly",
-        color: o.rimColor,
-        alpha: SOLID,
-        points: towardLight(points, o.light, 3),
-      });
-      out.fills.push({ kind: "poly", color: o.fill, alpha: SOLID, points });
     }
   }
   return flatten(out);

@@ -20,6 +20,18 @@ zero `FALSE-PASS`, zero `BLOCKED`.
 `npm run tickets:check` exits non-zero until that is true. That command is the
 goal. There is no second opinion and no separate scoreboard.
 
+**A caveat this document owes you**, from the critic that reviewed the board:
+two of the six states — `FALSE-PASS` and `EXEMPT` — are still populated by hand,
+and `DONE` is what a ticket becomes when nobody typed an objection. So the board
+computes *the absence of a recorded objection* more than it computes truth.
+Deleting an entry from `gauntlet/known-false-passes.json` will flip a ticket to
+`DONE` with no evidence having changed. Several defects that made this worse are
+fixed (the staleness signal now reaches AC rows; skipped, empty, commented-out
+and prefix-matched citations no longer count as assertions; requirement
+ownership is read from the PRD rather than guessed from the id). Several remain
+and are listed in `gauntlet/queue.md` under P2b. Read that list before quoting
+the DONE number to anyone.
+
 What the states mean, because the difference is the whole point:
 
 | State | Meaning |
@@ -29,7 +41,7 @@ What the states mean, because the difference is the whole point:
 | `OPEN` | No test names it, or the check covering it is failing. |
 | `UNVERIFIED` | Something claims it, but the citation is a comment or the evidence is stale. |
 | `FALSE-PASS` | A check is green **and does not measure its claim.** Worst state. Read these first. |
-| `BLOCKED` | Waiting on a human decision. Cannot be computed closed from this side. |
+| `BLOCKED` | Waiting on a human decision. **To close one:** write `**Resolved:**` (or `**Status:** resolved`) into that escalation's section in `gauntlet/escalations.md`, or mark its heading `(fixed)`. Until this convention existed, every heading was BLOCKED unconditionally — writing the decision changed nothing, only deleting the heading did — which made the 100% defined below unreachable by construction. |
 
 ## Why the board is not the whole bar
 
