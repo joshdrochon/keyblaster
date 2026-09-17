@@ -326,6 +326,14 @@ describe("UR-51 / FR-8: the fall budget scales with the depth the controller ask
     }
   });
 
+  it("UR-51: rawFallTimeMs defaults to FR-8's own calibration when none is given", () => {
+    // The last uncovered branch in this module, and it is the one the PRD is
+    // written against: no calibration means FR-8's 350 ms, not NaN.
+    expect(rawFallTimeMs({ word: "jupiter", ease: EASE_NEW })).toBe(
+      rawFallTimeMs({ word: "jupiter", ease: EASE_NEW, calibration: DEFAULT_CALIBRATION }),
+    );
+  });
+
   it("UR-51: a non-finite budget factor falls back to FR-8's own bounds", () => {
     // Same rule as clampKnobs and concurrencyTarget, at the last place the
     // number is used: a corrupt knob must never be able to stop a child's game,

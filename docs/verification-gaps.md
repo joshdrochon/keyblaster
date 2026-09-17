@@ -1,6 +1,6 @@
-# The check and the thing: twenty-three ways this codebase lied to itself
+# The check and the thing: twenty-four ways this codebase lied to itself
 
-Written 2026-09-17, after a night in which twenty-three separate defects
+Written 2026-09-17, after a night in which twenty-four separate defects
 turned out to be the same defect.
 
 Nine had a green test, two had a red one, and one was a picture a person judged. None of the tests
@@ -29,7 +29,7 @@ that binding.
 
 ---
 
-## The twenty-three
+## The twenty-four
 
 | # | What was green | What shipped | Found by |
 |---|---|---|---|
@@ -163,6 +163,17 @@ a ship when they make a profile, and can earn more hulls by playing. Neither
 does anything. The reward exists, the unlock fires, the catalog is correct, and
 the flight screen draws the same hardcoded cream ship regardless.
 
+| 24 | The **difficulty controller** — `Knobs`, the ease ramp, `endStage`, all unit-tested, all correct | `endStage` computes the new knob and emits it on `FLIGHT_EVENTS.stageComplete`. `grep -rn "FLIGHT_EVENTS.stageComplete" src/` returns **one hit: the emit**. No listener, no `Profile` field, and neither `PreflightScene.complete` nor `ResultsScene.replay` passes `knobs`. So `FlightConfig.knobs` is `{}` and `maxLive` is **2 on every belt, for every child, forever** | The difficulty lane, before changing anything, checking where its output would land |
+
+Instance 24 is the orphan pattern (instance 1) arriving at the top of the
+game. UR-51 asked whether the engine that raises difficulty with the player was
+ever implemented. It was implemented. It was tested. It emits into nothing.
+
+What makes it worth its own row is the *shape of the evidence*: every test of
+the controller passed, because every test called it directly. Nothing asserted
+that its output reached a belt. The same one-line grep that found it would have
+found it a month ago.
+
 Instance 11 is the worst thing in this document. The other ten are checks that
 measured the wrong thing; this one is a **human** looking at the wrong thing,
 carefully, repeatedly, and reaching conclusions about art they were never
@@ -245,6 +256,6 @@ All of that machinery verifies **internal consistency**. None of it verifies
 that the thing being checked is the thing being shipped. That binding is
 maintained by attention, and attention is exactly what a green suite spends.
 
-Every one of the twenty-three was ultimately found the same way: by someone looking at
+Every one of the twenty-four was ultimately found the same way: by someone looking at
 the actual artifact — a screen, a waveform, a route, a rendered page — rather
 than at a result. That is the cheapest available guard and the easiest to skip.
