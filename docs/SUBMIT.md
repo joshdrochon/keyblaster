@@ -139,7 +139,33 @@ option that holds the visibility bar at every height on every stop, and the
 ice is in the frame rather than absent. Flipping to white chunks is one
 constant if you prefer the look and accept they get harder to see.
 
-**b. One word-asteroid at a time**
+**b. One word-asteroid at a time — and it costs more than it looks**
+
+**New, and it changes this decision.** The belt's one-rock limit is also why a
+third of your music never plays. Music intensity is
+`pressure = live rocks + min(combo,10) x 0.5`, with the top layer at
+pressure 8. Combo contributes at most 5, so **the third layer needs three live
+asteroids and the belt peaks at two.** It is not a wiring bug — the wiring is
+proven and the evidence now confirms it — the curve simply cannot reach its own
+top layer on the board the game produces. That is why rubric item `A-21.2`
+cannot pass.
+
+So this is one constraint with two symptoms. Four ways out, and the cheapest
+two are one constant each:
+
+| | option | cost |
+|---|---|---|
+| leave both | the metric stays red and a composed layer is never heard | |
+| raise the fall budget | a second answerable rock AND the third layer — but a slower, easier game for every pilot, and UR-42's numbers say the budget must roughly double |
+| retune the thresholds | one constant; the top layer fires at a pressure the design called index-1 territory, and nobody has heard whether that is right |
+| **weight combo harder** | one constant; a long streak alone can reach the top. **My lean.** In a typing game the thing a child is *doing* is building a streak, and music that swells with the streak is telling the truth about the game |
+
+This is a question about what the music **means**, so it is yours. Written up
+with numbers in `gauntlet/escalations.md`.
+
+---
+
+**c. One word-asteroid at a time**
 
 You asked whether more asteroids arrive at harder levels. They do not, and my first answer was wrong — I recommended
 raising `maxLive` and filling to it. A lane refuted both with measurement:
