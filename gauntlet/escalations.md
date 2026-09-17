@@ -3194,3 +3194,85 @@ The trim throws away the fade regions: 89.8% of `mars` is kept, 93.2% of
 fade in and the fade out, which is material a loop cannot use. Flagging it
 because "the loop is 36 s not 40 s" is a fact about the shipped product, not
 because it is a problem.
+
+---
+
+## U-ships follow-on — the unlock landed; the hull a child flies, and where they change it, did not
+
+- **Escalated:** 2026-09-16 (profile-writers lane)
+- **Source:** PRD AC-6d.1 / AC-6d.1b / AC-24.3, D73, D79
+- **Attempts:** n/a for the two open calls. They are product/lane calls, not fix-and-retry items.
+- **Evidence:** `tests/unit/unlocks/unlocks.test.ts` (19 tests, none of which seeds an unlock); `tests/unit/arch/profileWriters.test.ts` — `KNOWN_ORPHANS` is now empty and the negative control `without applyUnlocks, unlockedShips is reported as an orphan` fails on demand.
+
+### What is now closed
+
+Option **A** of the `U-ships` escalation above is done. `src/engine/unlocks/index.ts`
+is the mirror of `src/engine/awards/index.ts`: pure, under the 95% gate, called from
+`ResultsScene` on the line after `persistTrophies()`. Ships open at 1/3/5/7 lit
+beacons; the four trims open at a first 3-star stop, a 25 chain, a 50 chain and a
+full retention set, which are the same three stage facts three trophies already
+travel on, read off the same `StageAward`. `ResultsScene`'s standalone profile —
+the literal that once hardcoded `trophies: []` and then `unlockedShips: []` — is
+`blankProfile` now, so the fixture cannot drift from the engine again.
+
+A skin unlock IS visible with no further work: `catalog.liveryFor` reads
+`unlockedSkins`, and `ProfilePickerScene` draws each pilot's card with it. Earn the
+dawn trim and your ship is a different colour the next time you look at the picker.
+
+One live defect was created by closing it and is fixed in the same change:
+`ProfileCreateScene.buildShipStep` drew its tiles from `app.profile()`, i.e.
+whichever pilot is currently ACTIVE, which its own comment forbade ("a new pilot
+never inherits another pilot's ships"). Inert while nothing could fill the lists;
+a younger sibling inheriting an older one's hulls the moment `applyUnlocks` went
+live. It now reads `unlocksForNewPilot()`.
+
+### Open call 1 — the ship you pick is still not the ship you fly
+
+Unchanged from the finding above, and **deliberately not half-landed**. There are
+three drawings of one ship:
+
+| Where | Colours | Drawn on |
+|---|---|---|
+| `catalog.SHIPS` / `SKINS` → `ui/chrome.drawShip` | hull/stripe/glass/lens per `ship-1..4` | the create tiles, the picker card |
+| `render/lantern.ts` `LANTERN_COLORWAYS` (`coral`/`teal`/`amber`/`rose`) | different hexes for the same four ships | `TitleScene`, `WarpScene`, `LanternShotScene` |
+| `FlightScene.drawLantern` | hard-coded `#F3E7D3` / `#FF6B4A` / `#9FD8F0`, reads neither table | **the belt** — the screen the child spends the most time on |
+
+Adding `colorwayFor(shipId)` is one function, but on its own it changes nothing the
+player sees, because the flown ship does not call `drawLantern` at all. Landing a
+mapping nothing calls would be this exact defect class a third time, so it is not
+landed.
+
+| | Option | Cost | Effect |
+|---|---|---|---|
+| A | Pass `liveryFor(profile)` into `FlightScene.drawLantern` and delete its four literals. | ~15 lines, one lane. Not unit-testable — it is a Phaser scene — so the evidence would have to be an e2e pixel sample. | The flown ship is the picked ship IN COLOUR, which is what AC-24.3 says the four ships ARE ("four colourways, not four silhouettes"). The silhouette still differs from the picker's and from Warp's. |
+| B | Delete `FlightScene.drawLantern`, fly the real `render/lantern.ts` rig, and map `shipId → LanternColorway`. | Touches `WarpScene` and the art lane. Re-tunes the belt's ship scale, the emitter mount, the bob and the scorch layer against `LANTERN_DESIGN_HEIGHT`. | One ship in the game, four colourways, end to end. |
+| C | Leave it. | Free | Every child flies the same cream-and-coral hull whatever they picked or earned. |
+
+**Lean: B, but not tonight.** A is cheap and is a real improvement, but it leaves
+three silhouettes and buys a change no unit test can hold. B is the fix and it needs
+the Warp/art lane, which is live. If the schedule forces a choice, take A as an
+interim and keep B on the board — do not take C, because the unlock is now real and
+a reward you cannot see is close to no reward at all.
+
+### Open call 2 — a hull can be earned but never equipped
+
+`profile.shipId` is written exactly once, by `createProfile` at the end of the
+three-beat create flow. Both routes into `ProfileCreateScene` are "new pilot"
+(`ProfilePickerScene` lines 103 and 187). **There is no screen anywhere in the game
+where an existing pilot changes their ship.**
+
+So a child who lights their third beacon genuinely unlocks `ship-2` — it is
+computed, persisted, and survives a reload — and has nowhere to go and put it on.
+Skins have a path (the livery follows automatically); hulls do not.
+
+| | Option | Cost | Effect |
+|---|---|---|---|
+| A | A "change ship" step reachable from the profile picker, reusing `buildShipStep` against the pilot's own unlocks. | One scene route plus a store write of `shipId`. The kit and the tiles already exist. | AC-6d.1b means something to the player. |
+| B | Put it in Settings. | Smaller, but Settings/panel/cockpit is a lane that just landed and is closed. | Same effect, wrong home — a hull is not a setting. |
+| C | Auto-equip the newest hull on unlock. | Two lines | **Rejected.** Repainting a child's ship without asking takes away the choice the reward was supposed to give. D73's reward is informational. |
+| D | Leave hulls earned-but-unwearable, ship skins only. | Free | Honest and shippable, but three of the four hulls are still a promise with no redemption. |
+
+**Lean: A.** It is the smallest thing that makes the beacon thresholds mean
+anything, and the tiles it needs are already written. Not C, ever.
+
+**Status: needs the user.** Tracked under `U-ships-2`.

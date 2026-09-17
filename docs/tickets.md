@@ -4,12 +4,12 @@
      computed from evidence on each run, and a hand-typed status is the
      exact failure this board exists to prevent. -->
 
-Generated: 2026-09-17T05:06:18.267Z
-Tickets: **364**
+Generated: 2026-09-17T05:13:35.889Z
+Tickets: **365**
 
 | DONE | OPEN | UNVERIFIED | FALSE-PASS | BLOCKED | EXEMPT |
 |---|---|---|---|---|---|
-| 157 | 21 | 65 | 10 | 71 | 40 |
+| 157 | 21 | 65 | 10 | 72 | 40 |
 
 **DONE** means an assertion names it and the evidence is fresher than the
 code. **UNVERIFIED** means something claims it but the binding is weak or
@@ -244,7 +244,7 @@ measure its claim — read those first.
 | DONE | `KB-D97` | The parallax world drops terrain grammar entirely. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:120 |
 | DONE | `KB-D98` | Web Speech is removed from the shipped build. | named on an acceptance-criterion or requirement line in the PRD | docs/decision-log.md:122 |
 
-## escalation (54) — 4 DONE · 50 BLOCKED
+## escalation (55) — 4 DONE · 51 BLOCKED
 
 | state | id | title | why | source |
 |---|---|---|---|---|
@@ -293,6 +293,7 @@ measure its claim — read those first.
 | BLOCKED | `KB-ESC-the-bar-for-sky-borne-text-4-5-1-not-wcag-s-` | The bar for sky-borne text: 4.5:1, not WCAG's 3:1 for large text | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1877 |
 | BLOCKED | `KB-ESC-the-e2e-suite-s-verdict-is-load-dependent-at` | The e2e suite's verdict is load-dependent at three workers | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:795 |
 | BLOCKED | `KB-ESC-two-shadows-the-reference-compare-pass-did-n` | Two Shadows — the reference-compare pass did not cover what menus draw | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:559 |
+| BLOCKED | `KB-ESC-u-ships-follow-on-the-unlock-landed-the-hull` | U-ships follow-on — the unlock landed; the hull a child flies, and where they change it, did not | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:3200 |
 | BLOCKED | `KB-ESC-u-ships-four-ships-and-four-skins-exist-and-` | U-ships — four ships and four skins exist, and not one of them can ever be unlocked | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1748 |
 | BLOCKED | `KB-ESC-ur-10-follow-on-an-interrupted-ambient-cross` | UR-10 follow-on — an interrupted AMBIENT crossfade cuts a bed dead | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:3044 |
 | BLOCKED | `KB-ESC-ur-11-cockpit-settings-four-calls-taken-per-` | UR-11 cockpit settings — four calls taken, per D94 | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:2919 |

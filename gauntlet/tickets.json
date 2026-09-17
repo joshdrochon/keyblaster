@@ -857,6 +857,16 @@
     "refs": []
   },
   {
+    "id": "KB-ESC-u-ships-follow-on-the-unlock-landed-the-hull",
+    "kind": "escalation",
+    "title": "U-ships follow-on — the unlock landed; the hull a child flies, and where they change it, did not",
+    "source": "gauntlet/escalations.md:3200",
+    "state": "BLOCKED",
+    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
+    "evidence": [],
+    "refs": []
+  },
+  {
     "id": "KB-ESC-u-ships-four-ships-and-four-skins-exist-and-",
     "kind": "escalation",
     "title": "U-ships — four ships and four skins exist, and not one of them can ever be unlocked",

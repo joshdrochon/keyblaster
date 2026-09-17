@@ -938,11 +938,45 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
 // ---------------------------------------------------------------------------
 
 /**
- * How fast the sky's lower half reaches its bottom stop. Below 1 = sooner.
- * See the note inside `gradient`; this is tuned against a measured histogram,
- * not by eye, and `tests/e2e/world-frame.spec.ts` holds the measurement.
+ * Where the sky's MIDDLE stop sits, as a fraction of the frame height.
+ *
+ * ---------------------------------------------------------------------------
+ * THIS REPLACES A CURVE THAT DREW A HORIZON LINE
+ *
+ * The lower leg used to be `((t - 0.5) * 2) ** 0.45`, to reach the dark bottom
+ * stop sooner than a straight ramp does - the sky is most of the frame, so its
+ * shape IS the value histogram. The value is continuous at the joint. The SLOPE
+ * is not: `u ** 0.45` has infinite gradient at u = 0, so the first strip below
+ * the midpoint was already 17.5% of the way to the bottom colour. On Mars that
+ * is 9.6 L* in ONE ROW, at exactly y = h/2, on every screen that draws a sky.
+ *
+ * A blind critic measured it as a hard seam: 8.58 L* on ending, 5.95 on beacon,
+ * 4.84 on flight, across 96-100% of columns, against a largest row-to-row jump
+ * of 0.58 anywhere in `world-bar.png`. It read as a horizon - which is the
+ * artifact that removing the terrain was supposed to kill.
+ *
+ * MOVING THE STOP does the same job with no discontinuity. Both legs stay
+ * linear, so the value is continuous and the slope merely kinks: the first strip
+ * below the joint is 1.6% of the range, about 0.85 L* on Mars, and the change in
+ * step size across the joint is ~0.56 L* - inside what the reference itself does.
+ *
+ * 0.34 rather than 0.5 is what keeps the darkening early. The lower two thirds
+ * of the frame carry the mid-to-bottom travel instead of the lower half.
  */
-const SKY_FLOOR_CURVE = 0.45;
+const SKY_MID_AT = 0.34;
+
+/**
+ * The sky's colour at a height fraction, using the SAME two legs `gradient`
+ * draws with. Exported-in-spirit: anything that has to sit against the sky needs
+ * to know what the sky is doing where it sits, not on average.
+ */
+export function skyAt(pal: StopPalette, t: number): string {
+  const [top, mid, bottom] = skyStops(pal);
+  const u = Math.min(1, Math.max(0, t));
+  return u < SKY_MID_AT
+    ? mixHex(top, mid, u / SKY_MID_AT)
+    : mixHex(mid, bottom, (u - SKY_MID_AT) / (1 - SKY_MID_AT));
+}
 
 function gradient(
   scene: Phaser.Scene,
@@ -955,19 +989,12 @@ function gradient(
   const [top, mid, bottom] = stops;
   for (let i = 0; i < steps; i++) {
     const t = i / (steps - 1);
-    // THE LOWER LEG IS CURVED, and the curve is the frame's dark half.
-    //
-    // A straight mid -> bottom ramp only reaches the dark end in the last few
-    // percent of the height, so a sky whose bottom stop is near-black still
-    // spends four fifths of its pixels in the light. Measured against `alto-03`,
-    // that is most of why two thirds of our frame sat in one twenty-point box:
-    // the sky is about two thirds of the pixels, so its curve IS the histogram.
-    //
-    // The reference's skies are not linear either - `alto-03` is bright most of
-    // the way down and then hands over to dark land quickly. An exponent below 1
-    // reaches the bottom colour sooner and leaves the top of the frame alone.
-    const lower = ((t - 0.5) * 2) ** SKY_FLOOR_CURVE;
-    const hex = t < 0.5 ? mixHex(top, mid, t * 2) : mixHex(mid, bottom, lower);
+    // Two LINEAR legs meeting at `SKY_MID_AT`. Continuous in value and bounded
+    // in slope - see the note on that constant for the seam this replaced.
+    const hex =
+      t < SKY_MID_AT
+        ? mixHex(top, mid, t / SKY_MID_AT)
+        : mixHex(mid, bottom, (t - SKY_MID_AT) / (1 - SKY_MID_AT));
     g.fillStyle(hexToNum(hex), 1);
     // +2 px of overlap: sub-pixel scaling must never show a seam.
     g.fillRect(0, Math.floor((i * h) / steps), w, Math.ceil(h / steps) + 2);
@@ -1012,7 +1039,24 @@ function celestialBody(
   // reads as a hole rather than as a planet. `withLightness` moves value without
   // touching the hue the haze produced.
   const hazed = atmospheric(pal.colors[2] ?? pal.accent, sky, 0.84);
-  const body = withLightness(hazed, Math.min(96, lightness(sky) + 6));
+  /**
+   * SEPARATED FROM THE SKY AT THE DISC'S OWN HEIGHT, not from the mid stop.
+   *
+   * This used to be `lightness(sky) + 6`, where `sky` is `skyStops[1]` - the
+   * gradient's MIDDLE colour. The disc sits near the top of the frame, where the
+   * sky is a different value entirely, so the +6 landed on top of the local sky:
+   * a critic measured the disc at L*77.7 against a local sky of L*77.8. A ratio
+   * of 1.00:1. Pure hue difference, zero value difference - invisible on a
+   * child's tablet at half brightness, and invisible to a colour-blind child
+   * always. It was called "the single most wasted element on screen" and it was
+   * right.
+   *
+   * 14 L* is about four value steps: clearly a body, still hazed back behind
+   * everything in front of it.
+   */
+  const localSky = skyAt(pal, cy / Math.max(1, h));
+  const target = lightness(localSky);
+  const body = withLightness(hazed, target > 50 ? Math.max(4, target - 14) : Math.min(96, target + 14));
 
   const c = scene.add.container(0, 0);
   // THE ADDITIVE GLOW IS GONE. It was a second light source in a frame whose
