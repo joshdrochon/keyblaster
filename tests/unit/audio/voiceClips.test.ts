@@ -62,6 +62,10 @@ class CountingDucker implements Ducker {
 // ---------------------------------------------------------------------------
 
 class FakeMediaElement implements VoiceMediaElement {
+  /** A fake context accepts the fake itself; see `VoiceMediaElement.source`. */
+  get source(): unknown {
+    return this;
+  }
   currentTime = 0;
   plays = 0;
   pauses = 0;
@@ -376,10 +380,17 @@ describe("AC-21.4 / the brief: a clip is routed through the graph and faded for 
     expect(opened.get("mars.beaconFlavor")?.plays).toBe(1);
   });
 
-  it("the media element itself is handed to the context, not a copy of the url", () => {
+  it("the element's OWN `source` is what the context is handed, not the adapter", () => {
+    // A real `createMediaElementSource` throws on anything that is not a
+    // genuine HTMLMediaElement, and the throw is caught - so getting this wrong
+    // does not fail, it silently sends every line to Web Speech instead. Caught
+    // in a live browser by tests/e2e/shadow-clips.spec.ts; asserted here so it
+    // cannot come back without the unit suite noticing.
     const { ctx, graph, opened } = build(["mars.beaconFlavor"]);
     graph.voice.speak(line("mars.beaconFlavor"));
-    expect(ctx.mediaElements).toEqual([opened.get("mars.beaconFlavor")]);
+    const element = opened.get("mars.beaconFlavor");
+    expect(ctx.mediaElements).toEqual([element?.source]);
+    expect(ctx.mediaElements[0]).toBe(element);
   });
 
   it("speaking a clip ducks the music and ambient buses (AC-21.4)", () => {

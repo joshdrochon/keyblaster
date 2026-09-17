@@ -180,3 +180,97 @@ describe("L-6e.4 can fail: retention", () => {
     expect(ret.controls.noInterleave.what).toMatch(/noRetention/);
   });
 });
+
+describe("V-22.4 can fail: silhouette separation", () => {
+  /** The shape the position-anchored probe writes, healthy. */
+  const healthy = () => ({
+    measure: "tests/gauntlet/silhouette.mjs measureSilhouettes",
+    negativeControl:
+      "tests/unit/gauntlet/silhouette.test.ts — the vignette applied to a synthetic frame drives this measure to 0.000 while the superseded Otsu measure reports ~0.27",
+    frames: 5,
+    objectsMeasured: 10,
+    shipReadings: 5,
+    unmeasurable: [],
+    byBand: { top: { n: 3, min: 0.31 }, middle: { n: 4, min: 0.22 }, bottom: { n: 3, min: 0.44 } },
+    minSeparation: 0.22,
+    weakest: { id: "rock-0-dust", separation: 0.22 },
+  });
+
+  it("passes a capture where every object separates from its background", async () => {
+    const r = await run("V-22.4", "desaturated-silhouettes.json", healthy());
+    expect(r.status).toBe(STATUS.PASS);
+  });
+
+  it("NEGATIVE CONTROL: the contour count that shipped first is rejected", async () => {
+    // `{"contours": 14}` — no producer, no method, no objects. It passed a
+    // [3, 60] window for two rounds.
+    const r = await run("V-22.4", "desaturated-silhouettes.json", { contours: 14 });
+    expect(r.status).toBe(STATUS.FAIL);
+    expect(r.detail).toContain("cannot answer AC-22.4");
+  });
+
+  it("NEGATIVE CONTROL: an artifact from the adaptive Otsu measure is rejected on provenance", async () => {
+    // This is the false pass being closed. The NUMBER is healthy — 0.239 is
+    // four times the bar — and it is the number that measure produced on a
+    // frame whose play area had been crushed flat. Reject the method, not the
+    // number, because no threshold can tell those two apart.
+    const r = await run("V-22.4", "desaturated-silhouettes.json", {
+      method: "desaturate, Otsu threshold, connected components in an object-sized area band",
+      minSeparation: 0.239,
+      regionsMeasured: 40,
+      objectsMeasured: 40,
+      frames: 5,
+    });
+    expect(r.status).toBe(STATUS.FAIL);
+    expect(r.detail).toContain("Otsu segmentation cannot answer");
+  });
+
+  it("NEGATIVE CONTROL: an artifact with no re-runnable control is rejected", async () => {
+    const d = healthy() as Record<string, unknown>;
+    delete d.negativeControl;
+    const r = await run("V-22.4", "desaturated-silhouettes.json", d);
+    expect(r.status).toBe(STATUS.FAIL);
+    expect(r.detail).toContain("re-runnable negative control");
+  });
+
+  it("NEGATIVE CONTROL: a capture that never located the ship is rejected", async () => {
+    // AC-22.4 names the rocket as well as the asteroids, and the measure this
+    // replaces could not find either.
+    const r = await run("V-22.4", "desaturated-silhouettes.json", { ...healthy(), shipReadings: 2 });
+    expect(r.status).toBe(STATUS.FAIL);
+    expect(r.detail).toContain("names the rocket");
+  });
+
+  it("NEGATIVE CONTROL: an almost-empty sky is rejected", async () => {
+    const r = await run("V-22.4", "desaturated-silhouettes.json", { ...healthy(), objectsMeasured: 4 });
+    expect(r.status).toBe(STATUS.FAIL);
+    expect(r.detail).toContain("the belt was empty");
+  });
+
+  it("NEGATIVE CONTROL: a minimum taken over what happened to be measurable is rejected", async () => {
+    const r = await run("V-22.4", "desaturated-silhouettes.json", {
+      ...healthy(),
+      unmeasurable: [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }],
+    });
+    expect(r.status).toBe(STATUS.FAIL);
+    expect(r.detail).toContain("is not a minimum");
+  });
+
+  it("NEGATIVE CONTROL: one object that dissolved into its background is rejected", async () => {
+    const r = await run("V-22.4", "desaturated-silhouettes.json", {
+      ...healthy(),
+      minSeparation: 0.002,
+      weakest: { id: "ship", separation: 0.002 },
+    });
+    expect(r.status).toBe(STATUS.FAIL);
+  });
+
+  it("the live capture is RED, and that is a real finding about the art (escalated)", async () => {
+    // Not a defect in the check. A rock tracked down the frame reads 0.373 at
+    // the top and 0.0002 as it crosses into the near-terrain band: inside 101.1
+    // against outside 101.1. See gauntlet/escalations.md.
+    const r = await run("V-22.4", "desaturated-silhouettes.json", live("desaturated-silhouettes.json"));
+    expect(r.status).toBe(STATUS.FAIL);
+    expect(r.detail).toContain("by band");
+  });
+});

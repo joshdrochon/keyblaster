@@ -95,7 +95,7 @@
     "title": "Every registered Phaser scene has a screen-inventory row, and vice versa",
     "source": "tests/gauntlet/rubric.mjs (D78 / architecture section 10.2)",
     "state": "FALSE-PASS",
-    "why": "Reports 27 scenes where there are 17 (it walks lib/ and support/ helpers), asserts nothing itself, and defers to G-trace, which passes non-strict. It has no failing branch.",
+    "why": "DISCHARGED 2026-09-16 — the item now asserts D78 itself instead of deferring to G-trace, counts the 17 scenes boot.ts actually registers (it walked lib/ and support/ for 27), and closes the two escapes D78 had: a scene mapped to the empty row \"\", and a Phaser scene registered from outside src/game/scenes (LanternShotScene). Six negative controls in tests/unit/gauntlet/traceAndScenes.test.ts reintroduce each defect against a scratch tree and assert the item goes red. KEPT ONLY UNTIL THE GAUNTLET IS RE-RUN: report.md still carries the old row.",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -109,7 +109,7 @@
     "title": "trace-check green: every D has an AC, every AC an ASSERTING test, every scene a row",
     "source": "tests/gauntlet/rubric.mjs (D61 / D78 / architecture section 10.2)",
     "state": "FALSE-PASS",
-    "why": "\"Every AC has a test\" is a substring scan over concatenated test sources, and the --strict flag that would enforce it is never passed by the gauntlet.",
+    "why": "DISCHARGED 2026-09-16 — the gauntlet now runs trace-check with --strict, and the AC->test linkage is graded by citationStrength from scripts/tickets.mjs (STRONG only: the id must be in a test TITLE) instead of a substring scan that counted a comment. It is RED as a result: 11 ACs have no test asserting them, listed in gauntlet/escalations.md. npm test still runs the non-strict form, so no merge is turned red. Negative controls in tests/unit/gauntlet/traceAndScenes.test.ts. KEPT ONLY UNTIL THE GAUNTLET IS RE-RUN.",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -124,7 +124,7 @@
     "title": "No dead time > 2 s during flight, on a measure that can exceed 2 s",
     "source": "tests/gauntlet/rubric.mjs (D77 / AC-6e.3)",
     "state": "FALSE-PASS",
-    "why": "deadtime.json is quantised to the harness's own 120ms tick and reports exactly 120; the anti-vacuity control asserts <= 2000 where it needed > 0.",
+    "why": "DISCHARGED 2026-09-16 — deadtime.json now comes from simulateBelt (one serial typist, event-driven clock, measurementResolutionMs 0) over six belts x 3 player speeds x 40 seeds, not from simulateStage's 120 ms tick. The rubric rejects the parallel-clearing harness, rejects a reading equal to its own resolution, and REQUIRES an in-artifact negative control that breached 2000 ms: removing FlightScene.trySpawn:955's empty-board fast path takes the same route to 3738 ms. Controls in tests/unit/simulation/coreLoop.test.ts and tests/unit/gauntlet/coreLoopItems.test.ts. KEPT ONLY UNTIL THE GAUNTLET IS RE-RUN.",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -139,7 +139,7 @@
     "title": "The retention pipeline reports improvement for a learner who improves, over the whole route",
     "source": "tests/gauntlet/rubric.mjs (D77 / AC-6e.4 / D50)",
     "state": "FALSE-PASS",
-    "why": "retention.json's \"trends upward\" follows arithmetically from 0.72 ** record.hits in the player model; the engine contributes nothing to the number.",
+    "why": "DISCHARGED 2026-09-16 — retention.json now measures only words HIT IN MORE THAN ONE STOP (a within-stage repeat is not a delayed re-test), over all six belts rather than three, from simulateBelt. Two controls are run and written into the artifact, and the rubric fails if either stops failing: a learner pinned at the recognition floor must not read as improving, and removing the D21/D23 retention interleave must CUT the re-met word count (88 -> 28 on the same seed, so the engine supplies roughly two thirds of the line and the content pools' overlap supplies the rest). The item is retitled to what the evidence supports. KEPT ONLY UNTIL THE GAUNTLET IS RE-RUN.",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -155,7 +155,7 @@
     "title": "Silhouettes read when desaturated, measured where the objects are",
     "source": "tests/gauntlet/rubric.mjs (D60#4 / AC-22.4)",
     "state": "FALSE-PASS",
-    "why": "Contour count replaced with per-region background separation, but the art lane reports it still scores 0.239 on a known vignette regression where a position-aware probe scored 0.002 — Otsu is adaptive and re-splits a crushed frame. Kept open deliberately: the lane declined to tune the threshold to catch that one defect, which is how a check becomes green and meaningless.",
+    "why": "DISCHARGED 2026-09-16 — the check was rewritten and is now RED on the art, which is a real finding, not a false pass. The measure is position-anchored (tests/gauntlet/silhouette.mjs measureSilhouettes): the scene is asked where each rock and the ship are and the desaturated frame is measured there, so nothing adapts and the measurement cannot migrate. Negative control, browser-free and re-runnable: `npx vitest run tests/unit/gauntlet/silhouette.test.ts` — the same vignette drives this measure to 0.000 while the superseded Otsu measure on identical pixels still reports ~0.27. Live capture: a rock reads 0.373 at the top of the frame and 0.0002 (inside 101.1 vs outside 101.1) once it crosses the near-terrain band; see the V-22.4 entry in gauntlet/escalations.md. THIS ENTRY IS KEPT ONLY UNTIL THE GAUNTLET IS RE-RUN, because report.md still carries the old green row; deleting it before then would let a stale PASS read as DONE.",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -479,6 +479,16 @@
     "refs": []
   },
   {
+    "id": "KB-ESC-gauntlet-known-false-passes-json-five-entrie",
+    "kind": "escalation",
+    "title": "gauntlet/known-false-passes.json — five entries are discharged but cannot be deleted yet",
+    "source": "gauntlet/escalations.md:1540",
+    "state": "BLOCKED",
+    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
+    "evidence": [],
+    "refs": []
+  },
+  {
     "id": "KB-ESC-l-6e-1-input-to-visual-latency-16-7-ms-one-f",
     "kind": "escalation",
     "title": "L-6e.1 — Input-to-visual latency <= 16.7 ms (one frame)",
@@ -521,6 +531,18 @@
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
     "refs": []
+  },
+  {
+    "id": "KB-ESC-v-22-4-the-check-now-measures-what-it-names-",
+    "kind": "escalation",
+    "title": "V-22.4 — the check now measures what it names, and the art fails it: a rock reads 0.0002 in the near-terrain band",
+    "source": "gauntlet/escalations.md:1479",
+    "state": "BLOCKED",
+    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
+    "evidence": [],
+    "refs": [
+      "V-22.4"
+    ]
   },
   {
     "id": "KB-ESC-warp-beacon-results-ending-lane-four-decisio",
@@ -978,6 +1000,7 @@
     ],
     "evidence": [
       "tests/e2e/audio-wiring.spec.ts",
+      "tests/e2e/shadow-clips.spec.ts",
       "tests/unit/audio/evidence.test.ts",
       "tests/unit/audio/graph.test.ts",
       "tests/unit/audio/voice.test.ts",
@@ -1292,7 +1315,7 @@
     "title": "Per-planet ambient bed exists, crossfades, and follows the running game",
     "source": "tests/gauntlet/rubric.mjs (D62 / AC-21.1)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1307,7 +1330,7 @@
     "title": "All ten events have >= 3 SFX variants, rotate, and are reached by game code",
     "source": "tests/gauntlet/rubric.mjs (D62 / AC-21.3)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1322,7 +1345,7 @@
     "title": "Music ducks by >= 6 dB while Shadow speaks, on the live graph",
     "source": "tests/gauntlet/rubric.mjs (D62 / AC-21.4)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1337,7 +1360,7 @@
     "title": "Shadow speaks via Web Speech system voice; zero network TTS at runtime",
     "source": "tests/gauntlet/rubric.mjs (D88 / AC-21.5)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1352,7 +1375,7 @@
     "title": "Coach notes are spoken after the text renders, display identical either way",
     "source": "tests/gauntlet/rubric.mjs (D88 / AC-21.6)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1367,7 +1390,7 @@
     "title": "The game is audible: cues reach the bus, sliders move it, silence never crashes",
     "source": "tests/gauntlet/rubric.mjs (audit.md 1.2 / AC-19.1 / AC-6e.2)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1382,7 +1405,7 @@
     "title": "Engine coverage >= 95% lines/branches/functions/statements",
     "source": "tests/gauntlet/rubric.mjs (D55 / CLAUDE.md)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1396,7 +1419,7 @@
     "title": "src/engine imports neither Phaser nor the DOM",
     "source": "tests/gauntlet/rubric.mjs (CLAUDE.md HARD RULES / architecture section 2)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1408,7 +1431,7 @@
     "title": "No red failure state, lives counter, or 'wrong' sound",
     "source": "tests/gauntlet/rubric.mjs (D28 / D31 / design brief 'Do not')",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1423,7 +1446,7 @@
     "title": "Exactly one drawShadow and one drawLantern implementation",
     "source": "tests/gauntlet/rubric.mjs (D91 / AC-25.1 / D83)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1439,7 +1462,7 @@
     "title": "No PII field and no analytics SDK anywhere in src/",
     "source": "tests/gauntlet/rubric.mjs (D43 / AC-18.2 / NFR-3)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1454,7 +1477,7 @@
     "title": "No raster asset referenced from src/ (all art is vector in code)",
     "source": "tests/gauntlet/rubric.mjs (D83 / D84 / CLAUDE.md)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1469,7 +1492,7 @@
     "title": "No API-key-shaped string in the client bundle",
     "source": "tests/gauntlet/rubric.mjs (NFR-4 / CLAUDE.md)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1481,7 +1504,7 @@
     "title": "At least 5 parallax layers at distinct scroll speeds",
     "source": "tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (config half))",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1496,7 +1519,7 @@
     "title": "Layer-debug overlay shows the five speeds actually moving",
     "source": "tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (visual half))",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1511,7 +1534,7 @@
     "title": "Idle frame is never still (two Title shots 1s apart differ > 2%)",
     "source": "tests/gauntlet/rubric.mjs (D60#2 / AC-22.2)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1526,7 +1549,7 @@
     "title": "Sky gradient shifts across a stage (deltaE > 10)",
     "source": "tests/gauntlet/rubric.mjs (D60#3 / AC-22.3)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1541,7 +1564,7 @@
     "title": "Zero Linear easing anywhere in tween configs",
     "source": "tests/gauntlet/rubric.mjs (D60#5 / AC-22.5)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1556,7 +1579,7 @@
     "title": "Blast, hit and warp have distinct particle signatures",
     "source": "tests/gauntlet/rubric.mjs (D60#6 / AC-22.6)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1571,7 +1594,7 @@
     "title": "Each stage palette is 5-7 colours plus exactly one accent",
     "source": "tests/gauntlet/rubric.mjs (D60#7 / AC-22.7)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],
@@ -1586,7 +1609,7 @@
     "title": "Word plate text contrast >= 4.5:1",
     "source": "tests/gauntlet/rubric.mjs (D60#8 / AC-22.8)",
     "state": "UNVERIFIED",
-    "why": "reported PASS, but report.md predates the newest file in src/ by 1.6h",
+    "why": "reported PASS, but report.md predates the newest file in src/ by 1.7h",
     "evidence": [
       "gauntlet/report.md (STALE)"
     ],

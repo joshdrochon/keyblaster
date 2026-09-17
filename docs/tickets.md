@@ -4,12 +4,12 @@
      computed from evidence on each run, and a hand-typed status is the
      exact failure this board exists to prevent. -->
 
-Generated: 2026-09-17T01:21:10.754Z
-Tickets: **323**
+Generated: 2026-09-17T01:26:23.337Z
+Tickets: **325**
 
 | DONE | OPEN | UNVERIFIED | FALSE-PASS | BLOCKED | EXEMPT |
 |---|---|---|---|---|---|
-| 172 | 23 | 43 | 10 | 35 | 40 |
+| 172 | 23 | 43 | 10 | 37 | 40 |
 
 **DONE** means an assertion names it and the evidence is fresher than the
 code. **UNVERIFIED** means something claims it but the binding is weak or
@@ -240,7 +240,7 @@ measure its claim — read those first.
 | DONE | `KB-D91` | Shadow reference approved: `design-reference/refs/shadow-sheet.png`. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:76 |
 | DONE | `KB-D95` | Spanish and Hindi content is **withheld from the shipped menu** for the hackathon build. | cited by at least one acceptance criterion in the PRD | docs/decision-log.md:116 |
 
-## escalation (29) — 1 DONE · 28 BLOCKED
+## escalation (31) — 1 DONE · 30 BLOCKED
 
 | state | id | title | why | source |
 |---|---|---|---|---|
@@ -267,10 +267,12 @@ measure its claim — read those first.
 | BLOCKED | `KB-ESC-e-world-6-two-critics-disagree-about-hue-the` | E-world-6 — Two critics disagree about hue. | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1360 |
 | BLOCKED | `KB-ESC-foundation-lane-boot-render-title-decisions-` | FOUNDATION lane (boot / render / Title) — decisions taken, review requested | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:321 |
 | BLOCKED | `KB-ESC-g-trace-turning-on-strict-makes-the-board-re` | G-trace — turning on `--strict` makes the board red: 11 ACs have no test that asserts them | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1401 |
+| BLOCKED | `KB-ESC-gauntlet-known-false-passes-json-five-entrie` | gauntlet/known-false-passes.json — five entries are discharged but cannot be deleted yet | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1540 |
 | BLOCKED | `KB-ESC-l-6e-1-input-to-visual-latency-16-7-ms-one-f` | L-6e.1 — Input-to-visual latency <= 16.7 ms (one frame) | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:601 |
 | BLOCKED | `KB-ESC-p-22-9-60-fps-p95-frame-time-16-7-ms-over-a-` | P-22.9 — 60 fps: p95 frame time <= 16.7 ms over a 60 s scripted flight | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:547 |
 | BLOCKED | `KB-ESC-the-e2e-suite-s-verdict-is-load-dependent-at` | The e2e suite's verdict is load-dependent at three workers | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:795 |
 | BLOCKED | `KB-ESC-two-shadows-the-reference-compare-pass-did-n` | Two Shadows — the reference-compare pass did not cover what menus draw | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:559 |
+| BLOCKED | `KB-ESC-v-22-4-the-check-now-measures-what-it-names-` | V-22.4 — the check now measures what it names, and the art fails it: a rock reads 0.0002 in the near-terrain band | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:1479 |
 | BLOCKED | `KB-ESC-warp-beacon-results-ending-lane-four-decisio` | Warp / Beacon / Results / Ending lane — four decisions and one measurement | awaiting a user decision — add **Resolved:** to its section to close it | gauntlet/escalations.md:331 |
 | DONE | `KB-ESC-process-the-loop-asked-the-user-a-blocking-q` | PROCESS — the loop asked the user a blocking question (fixed) | marked resolved in gauntlet/escalations.md | gauntlet/escalations.md:108 |
 
@@ -314,11 +316,11 @@ measure its claim — read those first.
 
 | state | id | title | why | source |
 |---|---|---|---|---|
-| FALSE-PASS | `KB-G-scenes` | Every registered Phaser scene has a screen-inventory row, and vice versa | Reports 27 scenes where there are 17 (it walks lib/ and support/ helpers), asserts nothing itself, and defers to G-trace, which passes non-… | tests/gauntlet/rubric.mjs (D78 / architecture section 10.2) |
-| FALSE-PASS | `KB-G-trace` | trace-check green: every D has an AC, every AC an ASSERTING test, every scene a row | "Every AC has a test" is a substring scan over concatenated test sources, and the --strict flag that would enforce it is never passed by th… | tests/gauntlet/rubric.mjs (D61 / D78 / architecture section 10.2) |
-| FALSE-PASS | `KB-L-6e.3` | No dead time > 2 s during flight, on a measure that can exceed 2 s | deadtime.json is quantised to the harness's own 120ms tick and reports exactly 120; the anti-vacuity control asserts <= 2000 where it neede… | tests/gauntlet/rubric.mjs (D77 / AC-6e.3) |
-| FALSE-PASS | `KB-L-6e.4` | The retention pipeline reports improvement for a learner who improves, over the whole route | retention.json's "trends upward" follows arithmetically from 0.72 ** record.hits in the player model; the engine contributes nothing to the… | tests/gauntlet/rubric.mjs (D77 / AC-6e.4 / D50) |
-| FALSE-PASS | `KB-V-22.4` | Silhouettes read when desaturated, measured where the objects are | Contour count replaced with per-region background separation, but the art lane reports it still scores 0.239 on a known vignette regression… | tests/gauntlet/rubric.mjs (D60#4 / AC-22.4) |
+| FALSE-PASS | `KB-G-scenes` | Every registered Phaser scene has a screen-inventory row, and vice versa | DISCHARGED 2026-09-16 — the item now asserts D78 itself instead of deferring to G-trace, counts the 17 scenes boot.ts actually registers (i… | tests/gauntlet/rubric.mjs (D78 / architecture section 10.2) |
+| FALSE-PASS | `KB-G-trace` | trace-check green: every D has an AC, every AC an ASSERTING test, every scene a row | DISCHARGED 2026-09-16 — the gauntlet now runs trace-check with --strict, and the AC->test linkage is graded by citationStrength from script… | tests/gauntlet/rubric.mjs (D61 / D78 / architecture section 10.2) |
+| FALSE-PASS | `KB-L-6e.3` | No dead time > 2 s during flight, on a measure that can exceed 2 s | DISCHARGED 2026-09-16 — deadtime.json now comes from simulateBelt (one serial typist, event-driven clock, measurementResolutionMs 0) over s… | tests/gauntlet/rubric.mjs (D77 / AC-6e.3) |
+| FALSE-PASS | `KB-L-6e.4` | The retention pipeline reports improvement for a learner who improves, over the whole route | DISCHARGED 2026-09-16 — retention.json now measures only words HIT IN MORE THAN ONE STOP (a within-stage repeat is not a delayed re-test), … | tests/gauntlet/rubric.mjs (D77 / AC-6e.4 / D50) |
+| FALSE-PASS | `KB-V-22.4` | Silhouettes read when desaturated, measured where the objects are | DISCHARGED 2026-09-16 — the check was rewritten and is now RED on the art, which is a real finding, not a false pass. | tests/gauntlet/rubric.mjs (D60#4 / AC-22.4) |
 | BLOCKED | `KB-L-6e.1` | Input-to-visual latency <= 16.7 ms (one frame) | escalated — awaiting a decision in gauntlet/escalations.md | tests/gauntlet/rubric.mjs (D77 / AC-6e.1) |
 | BLOCKED | `KB-P-22.9` | 60 fps: p95 frame time <= 16.7 ms over a 60 s scripted flight | escalated — awaiting a decision in gauntlet/escalations.md | tests/gauntlet/rubric.mjs (D60#9 / AC-22.9 / NFR-1) |
 | OPEN | `KB-A-21.2` | Music has >= 3 intensity layers driven by live asteroids and combo | built: music intensity layer count; wired: the index moved on live HUD liveCount/combo during real play | tests/gauntlet/rubric.mjs (D62 / AC-21.2) |
@@ -326,27 +328,27 @@ measure its claim — read those first.
 | OPEN | `KB-R-lantern` | Vector Lantern matches design-reference/refs/lantern-topdown.png | judge verdict is stale: approved a 167607-byte render, current is 175974 (5.0% drift). | tests/gauntlet/rubric.mjs (D90 / art-direction.md section 5) |
 | OPEN | `KB-R-shadow` | Vector Shadow matches design-reference/refs/shadow-sheet.png | judge verdict is stale: approved a 115640-byte render, current is 140179 (21.2% drift). | tests/gauntlet/rubric.mjs (D91 / art-direction.md section 6) |
 | OPEN | `KB-R-world` | The flight screen has a named visual reference to be judged against | flight frame and reference both exist but no judge verdict recorded - a reference compare is never auto-passed (D85) | tests/gauntlet/rubric.mjs (D59 / D60 / art-direction.md section 0) |
-| UNVERIFIED | `KB-A-21.1` | Per-planet ambient bed exists, crossfades, and follows the running game | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D62 / AC-21.1) |
-| UNVERIFIED | `KB-A-21.3` | All ten events have >= 3 SFX variants, rotate, and are reached by game code | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D62 / AC-21.3) |
-| UNVERIFIED | `KB-A-21.4` | Music ducks by >= 6 dB while Shadow speaks, on the live graph | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D62 / AC-21.4) |
-| UNVERIFIED | `KB-A-21.5` | Shadow speaks via Web Speech system voice; zero network TTS at runtime | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D88 / AC-21.5) |
-| UNVERIFIED | `KB-A-21.6` | Coach notes are spoken after the text renders, display identical either way | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D88 / AC-21.6) |
-| UNVERIFIED | `KB-A-21.8` | The game is audible: cues reach the bus, sliders move it, silence never crashes | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (audit.md 1.2 / AC-19.1 / AC-6e.2) |
-| UNVERIFIED | `KB-G-coverage` | Engine coverage >= 95% lines/branches/functions/statements | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D55 / CLAUDE.md) |
-| UNVERIFIED | `KB-G-engine-purity` | src/engine imports neither Phaser nor the DOM | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (CLAUDE.md HARD RULES / architecture section 2) |
-| UNVERIFIED | `KB-G-nored` | No red failure state, lives counter, or 'wrong' sound | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D28 / D31 / design brief 'Do not') |
-| UNVERIFIED | `KB-G-one-shadow` | Exactly one drawShadow and one drawLantern implementation | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D91 / AC-25.1 / D83) |
-| UNVERIFIED | `KB-G-pii` | No PII field and no analytics SDK anywhere in src/ | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D43 / AC-18.2 / NFR-3) |
-| UNVERIFIED | `KB-G-raster` | No raster asset referenced from src/ (all art is vector in code) | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D83 / D84 / CLAUDE.md) |
-| UNVERIFIED | `KB-G-secrets` | No API-key-shaped string in the client bundle | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (NFR-4 / CLAUDE.md) |
-| UNVERIFIED | `KB-V-22.1a` | At least 5 parallax layers at distinct scroll speeds | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (config half)) |
-| UNVERIFIED | `KB-V-22.1b` | Layer-debug overlay shows the five speeds actually moving | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (visual half)) |
-| UNVERIFIED | `KB-V-22.2` | Idle frame is never still (two Title shots 1s apart differ > 2%) | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#2 / AC-22.2) |
-| UNVERIFIED | `KB-V-22.3` | Sky gradient shifts across a stage (deltaE > 10) | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#3 / AC-22.3) |
-| UNVERIFIED | `KB-V-22.5` | Zero Linear easing anywhere in tween configs | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#5 / AC-22.5) |
-| UNVERIFIED | `KB-V-22.6` | Blast, hit and warp have distinct particle signatures | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#6 / AC-22.6) |
-| UNVERIFIED | `KB-V-22.7` | Each stage palette is 5-7 colours plus exactly one accent | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#7 / AC-22.7) |
-| UNVERIFIED | `KB-V-22.8` | Word plate text contrast >= 4.5:1 | reported PASS, but report.md predates the newest file in src/ by 1.6h | tests/gauntlet/rubric.mjs (D60#8 / AC-22.8) |
+| UNVERIFIED | `KB-A-21.1` | Per-planet ambient bed exists, crossfades, and follows the running game | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D62 / AC-21.1) |
+| UNVERIFIED | `KB-A-21.3` | All ten events have >= 3 SFX variants, rotate, and are reached by game code | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D62 / AC-21.3) |
+| UNVERIFIED | `KB-A-21.4` | Music ducks by >= 6 dB while Shadow speaks, on the live graph | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D62 / AC-21.4) |
+| UNVERIFIED | `KB-A-21.5` | Shadow speaks via Web Speech system voice; zero network TTS at runtime | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D88 / AC-21.5) |
+| UNVERIFIED | `KB-A-21.6` | Coach notes are spoken after the text renders, display identical either way | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D88 / AC-21.6) |
+| UNVERIFIED | `KB-A-21.8` | The game is audible: cues reach the bus, sliders move it, silence never crashes | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (audit.md 1.2 / AC-19.1 / AC-6e.2) |
+| UNVERIFIED | `KB-G-coverage` | Engine coverage >= 95% lines/branches/functions/statements | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D55 / CLAUDE.md) |
+| UNVERIFIED | `KB-G-engine-purity` | src/engine imports neither Phaser nor the DOM | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (CLAUDE.md HARD RULES / architecture section 2) |
+| UNVERIFIED | `KB-G-nored` | No red failure state, lives counter, or 'wrong' sound | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D28 / D31 / design brief 'Do not') |
+| UNVERIFIED | `KB-G-one-shadow` | Exactly one drawShadow and one drawLantern implementation | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D91 / AC-25.1 / D83) |
+| UNVERIFIED | `KB-G-pii` | No PII field and no analytics SDK anywhere in src/ | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D43 / AC-18.2 / NFR-3) |
+| UNVERIFIED | `KB-G-raster` | No raster asset referenced from src/ (all art is vector in code) | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D83 / D84 / CLAUDE.md) |
+| UNVERIFIED | `KB-G-secrets` | No API-key-shaped string in the client bundle | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (NFR-4 / CLAUDE.md) |
+| UNVERIFIED | `KB-V-22.1a` | At least 5 parallax layers at distinct scroll speeds | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (config half)) |
+| UNVERIFIED | `KB-V-22.1b` | Layer-debug overlay shows the five speeds actually moving | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D60#1 / AC-22.1 (visual half)) |
+| UNVERIFIED | `KB-V-22.2` | Idle frame is never still (two Title shots 1s apart differ > 2%) | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D60#2 / AC-22.2) |
+| UNVERIFIED | `KB-V-22.3` | Sky gradient shifts across a stage (deltaE > 10) | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D60#3 / AC-22.3) |
+| UNVERIFIED | `KB-V-22.5` | Zero Linear easing anywhere in tween configs | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D60#5 / AC-22.5) |
+| UNVERIFIED | `KB-V-22.6` | Blast, hit and warp have distinct particle signatures | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D60#6 / AC-22.6) |
+| UNVERIFIED | `KB-V-22.7` | Each stage palette is 5-7 colours plus exactly one accent | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D60#7 / AC-22.7) |
+| UNVERIFIED | `KB-V-22.8` | Word plate text contrast >= 4.5:1 | reported PASS, but report.md predates the newest file in src/ by 1.7h | tests/gauntlet/rubric.mjs (D60#8 / AC-22.8) |
 
 ## screen (21) — 16 DONE · 5 EXEMPT
 

@@ -48,6 +48,21 @@ import type { CancelTimer, Scheduler, VoiceClipHandle, VoiceClipPlayer } from ".
  * type is wide enough to notice.
  */
 export interface VoiceMediaElement {
+  /**
+   * The object the AUDIO CONTEXT has to be handed to route this clip.
+   *
+   * It is separate from the element itself because a real
+   * `createMediaElementSource` accepts nothing but a genuine
+   * `HTMLMediaElement` - hand it the adapter that wraps one and it throws,
+   * the clip path silently returns null, and every line falls back to Web
+   * Speech while looking perfectly wired. That is exactly what happened, and
+   * `tests/e2e/shadow-clips.spec.ts` is what caught it, because it is the only
+   * test that runs against a live AudioContext.
+   *
+   * For the browser adapter this is the `<audio>` element. For a fake it is
+   * whatever the fake context will accept, usually the fake itself.
+   */
+  readonly source: unknown;
   play(): unknown;
   pause(): void;
   currentTime: number;
@@ -119,7 +134,7 @@ export function createVoiceClipPlayer(
     if (element === null) return null;
     let source: AudioNodeLike;
     try {
-      source = createSource.call(ctx, element);
+      source = createSource.call(ctx, element.source);
     } catch {
       // A context that has a method but refuses this element. Quieter game,
       // never a thrown error out of a scene's keystroke handler.

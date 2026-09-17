@@ -1473,3 +1473,88 @@ ordinary work.
 Not "every criterion maps to a test, enforced by trace-check". Say: **"95 of 106
 acceptance criteria are asserted by a test named for them; 11 are not, and they
 are listed in gauntlet/escalations.md."**
+
+---
+
+## V-22.4 — the check now measures what it names, and the art fails it: a rock reads 0.0002 in the near-terrain band
+
+- **Escalated:** 2026-09-16 (false-pass remediation lane)
+- **Source:** D60#4 / AC-22.4
+- **Attempts:** n/a — the check was fixed, not the art. The art finding belongs to the art lane and is a real defect, not a threshold argument.
+- **Evidence:** `gauntlet/evidence/desaturated-silhouettes.json`; negative control `tests/unit/gauntlet/silhouette.test.ts`; rubric controls `tests/unit/gauntlet/coreLoopItems.test.ts`.
+
+### What changed in the check
+
+This item has now had three measures. The first two were green and neither could answer AC-22.4 ("rocket and asteroids identifiable by silhouette"):
+
+| | Measure | Why it could not fail for the right reason |
+|---|---|---|
+| 1 | connected-region count, pass on any count in [3, 60]; whole artifact was `{"contours": 14}` | says nothing about whether any region IS a rock. A frame with the Lantern failing to render and thirteen dust blobs scores the same number. |
+| 2 | per-region background separation off a **global Otsu** binarisation | **adaptive**. Run against a floor vignette that crushed the play area to a 0.002 object/background step, it scored **0.239** — it re-split the crushed frame and reported on terrain edges elsewhere in the picture. |
+
+The lane that shipped (2) deliberately refused to move the threshold until 0.239 failed, and was right: a number fitted to one known defect catches that defect and passes the next. The defect was never the threshold — it was that the measurement was free to migrate to a different part of the image.
+
+**Measure 3 is position-anchored.** The scene is asked where each rock and the ship are (`__kbFlight.state()` for the rocks; `FlightScene.ts:169,570-571` for the ship's anchor) and the desaturated frame is measured *there*: mean luma in the object's core disc against mean luma in a background ring just outside it, excluding other objects and every word plate. Nothing is segmented and no threshold is chosen from the data.
+
+**The bar did not move.** 0.06 is the same threshold measure 2 used.
+
+**The negative control is a unit test, not a sentence.** `tests/unit/gauntlet/silhouette.test.ts` builds a synthetic frame, applies the vignette to it, and asserts this measure reports **0.000** while the superseded Otsu measure on the identical pixels still reports **~0.27**. It runs in vitest in milliseconds with no browser:
+
+```
+npx vitest run tests/unit/gauntlet/silhouette.test.ts --coverage.enabled=false
+```
+
+### The finding: the item is RED, on the art
+
+One rock, tracked down the frame in a single live capture (Mars, five frames a second apart):
+
+| rock y (of 540) | inside | outside | separation |
+|---|---|---|---|
+| 97 | 99.0 | 194.1 | 0.373 |
+| 197 | 99.3 | 186.7 | 0.343 |
+| 245 | 101.1 | 171.9 | 0.278 |
+| 292 | 99.1 | 139.6 | 0.159 |
+| 349 | **101.1** | **101.1** | **0.0002** |
+
+The rock's own luma never moves. The background comes up to meet it. By the time a rock reaches the middle band it is sitting in the near-terrain's own luma band and, with the colour gone, it is not there at all. The ship reads 0.44–0.50 throughout and is fine.
+
+This is the same defect the art lane already escalated from the other direction: *"67.8% of our frame sits inside L\* 60–80, one 20-point box, against Alto's 17.4%."* Debris and near-terrain share a value. AC-22.4 is the acceptance criterion that names the consequence.
+
+### Options
+
+| | Option | Cost | Verdict |
+|---|---|---|---|
+| A | Leave V-22.4 red. Hand the finding to the art lane: separate debris luma from the near-terrain band, or give debris an outline/rim light in the value channel. | The board carries a red item until the depth ramp lands. The art lane's own escalation is already about this. | **Lean.** It is one defect, named, with the band and the numbers. |
+| B | Lower the bar below 0.0002. | Free. | This is measure 2's mistake with the sign flipped. Rejected. |
+| C | Measure only the top third, where rocks still read. | Cheap. | The bottom of the frame is where the player is looking. Rejected. |
+| D | Exempt debris and assert only the ship. | Cheap. | AC-22.4 names the asteroids first. Rejected. |
+
+**Lean: A.** The fix is in `src/game/render/*`, which this lane must not touch (the art lane is live there). The check is correct, the control proves it can fail, and the number is actionable: **debris needs to leave L\* 60–80 where the near-terrain lives, or carry a value-channel edge.**
+
+### What the write-up may say
+
+Not "silhouettes read when desaturated". Say: **"the ship reads at 0.44–0.50 object/background luminance separation throughout; debris reads 0.37 against the sky and collapses to 0.00 once it crosses the near-terrain band, which is measured in `gauntlet/evidence/desaturated-silhouettes.json` and open."**
+
+---
+
+## gauntlet/known-false-passes.json — five entries are discharged but cannot be deleted yet
+
+- **Escalated:** 2026-09-16 (false-pass remediation lane)
+- **Source:** `scripts/tickets.mjs` knownFalsePasses / D85
+- **Attempts:** n/a — a bookkeeping decision with a test coupling behind it.
+
+All five entries (`V-22.4`, `G-scenes`, `G-trace`, `L-6e.3`, `L-6e.4`) now have negative controls that show the check going red, so by the file's own doctrine — *"keeps a ticket marked FALSE-PASS until someone proves the check honest"* — they are discharged. Their `why` text has been rewritten to say so and to name the control that re-runs the proof. The **state** was deliberately left FALSE-PASS, for two reasons:
+
+1. **`gauntlet/report.md` is stale.** It still carries the green rows from before this lane, and `rubricState` reads it. Deleting the entries today makes the board read those stale PASSes as DONE (or at best UNVERIFIED). The entries are the only thing currently holding the pessimistic line. **They should be deleted immediately after the next full gauntlet run**, at which point `V-22.4` and `G-trace` will correctly report FAIL from the report itself.
+
+2. **Two tests in `tests/unit/tickets/tickets.test.ts` need the list to be non-empty.** "a rubric item that does not measure its claim is FALSE-PASS, not DONE" and "FALSE-PASS propagates from a rubric item up through its AC to its FR" both use the live list as their fixture, so emptying the file turns them red. That is a mechanism test bound to live data.
+
+### Options
+
+| | Option | Cost | Verdict |
+|---|---|---|---|
+| A | Leave the entries, rewritten, until the next gauntlet run; then delete them. | The board calls five fixed checks false passes for one more cycle. | **Lean, and what shipped.** Pessimistic, which is the file's stated safe direction, and it breaks nothing. |
+| B | Delete now and re-base the two tickets tests on a synthetic fixture (`rubricState` is exported; a mechanism test should not read live findings). | Small, correct, and it is the tickets lane's file while that lane is in flight. | Right in substance. Do it with the deletion in (A), not instead of it. |
+| C | Delete now and leave the two tests red. | Free. | A red merge. Rejected. |
+
+**Action for the lead:** run `npm run test:e2e` then `npm run gauntlet`, then empty this file and take option B in the same change.

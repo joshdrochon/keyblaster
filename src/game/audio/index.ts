@@ -161,6 +161,9 @@ function adaptMediaElement(element: unknown): VoiceMediaElement {
     removeEventListener(type: string, listener: () => void): void;
   };
   return {
+    // The RAW element, which is the only thing `createMediaElementSource` will
+    // accept. Handing it this adapter object instead is a silent fallback.
+    source: element,
     play: () => el.play(),
     pause: () => el.pause(),
     get currentTime(): number {
