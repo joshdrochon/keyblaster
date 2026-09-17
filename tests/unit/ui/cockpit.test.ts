@@ -6,6 +6,7 @@ import {
   compositeOver,
   contrastRatio,
 } from "@engine/contrast/index.js";
+import { PALETTE_STOP_IDS, paletteAt } from "@game/render/palette";
 import { INK } from "@game/ui/theme";
 import {
   KNOB,
@@ -13,10 +14,12 @@ import {
   PANEL,
   READOUT_SURFACE,
   SWITCH,
+  TEXT_SURFACES,
   detentStops,
   knobAngleDeg,
   knobTickAngles,
   labelInk,
+  labelSpan,
   lampAlpha,
   leverTip,
   polar,
@@ -226,78 +229,129 @@ describe("the panel frame", () => {
  * EVERY (ink, surface) PAIR THE CONSOLE CAN DRAW, as a cross product rather
  * than as a list somebody remembered to extend.
  *
- * The accent is the only value that changes at runtime - #FFC857 normally and
- * #FFFFFF under the colourblind palette (AC-19.1's e2e asserts both) - so both
- * are measured, on the darkest and the lightest the panel gets.
+ * THE ACCENTS COME OUT OF THE PALETTE, not out of a literal here. A value is
+ * printed in `uiStyle.accent`, which is the stop's plate accent - #FFC857 on
+ * Earth and #FFD98A under the colourblind variant (D41 separates the two by
+ * luminance; `palette.ts` documents why the UI reads `plateAccent` and the
+ * world reads `colorblind.accent`). Hard-coding "amber or white" here would
+ * measure a colour the screen never draws and miss the one it does.
  */
-const ACCENTS = ["#FFC857", "#FFFFFF"] as const;
-
-/** The face at its lightest: lit by the cabin bloom `chrome.ts` paints. */
-const LIT_FACE = compositeOver(INK.accent, 0.08, LABEL_SURFACE);
+const ACCENTS: string[] = [
+  ...new Set(
+    PALETTE_STOP_IDS.flatMap((stop) => [
+      paletteAt(stop, false).accent,
+      paletteAt(stop, true).accent,
+    ]),
+  ),
+];
 
 describe("V-22.8 every label and value on the console clears 4.5:1", () => {
-  it.each([
-    ["focused label on the lit face", labelInk(true), LIT_FACE],
-    ["unfocused label on the lit face", labelInk(false), LIT_FACE],
-    ["focused label on the face", labelInk(true), PANEL.face],
-    ["unfocused label on the face", labelInk(false), PANEL.face],
-    ["focused label in a bay", labelInk(true), PANEL.bay],
-    ["unfocused label in a bay", labelInk(false), PANEL.bay],
-  ])("%s", (_name, ink, surface) => {
-    expect(contrastRatio(ink, surface)).toBeGreaterThanOrEqual(TEXT_MIN_CONTRAST);
+  it("has more than one accent to measure, on every stop, both modes", () => {
+    // A cross product over an empty or single-valued set is the same failure
+    // as measuring nothing. Settings is dressed from Earth today; it reads the
+    // stop palette, so all seven are measured.
+    expect(PALETTE_STOP_IDS.length).toBeGreaterThanOrEqual(7);
+    expect(ACCENTS.length).toBeGreaterThan(1);
+    expect(TEXT_SURFACES.length).toBeGreaterThanOrEqual(5);
   });
 
-  it.each(ACCENTS)("a value printed behind glass in %s clears the bar", (accent) => {
-    expect(
-      contrastRatio(readoutInk(accent), READOUT_SURFACE),
-    ).toBeGreaterThanOrEqual(TEXT_MIN_CONTRAST);
+  it.each(TEXT_SURFACES)(
+    "both label inks clear the bar on surface %s",
+    (surface) => {
+      for (const focused of [true, false]) {
+        expect(
+          contrastRatio(labelInk(focused), surface),
+          `${labelInk(focused)} on ${surface}`,
+        ).toBeGreaterThanOrEqual(TEXT_MIN_CONTRAST);
+      }
+      // And with the cabin bloom `chrome.ts` washes over the top of the panel.
+      const lit = compositeOver(INK.accent, 0.08, surface);
+      for (const focused of [true, false]) {
+        expect(
+          contrastRatio(labelInk(focused), lit),
+          `${labelInk(focused)} on lit ${surface}`,
+        ).toBeGreaterThanOrEqual(TEXT_MIN_CONTRAST);
+      }
+    },
+  );
+
+  it("every accent the game can hand this panel is legible behind glass", () => {
+    for (const accent of ACCENTS) {
+      expect(
+        contrastRatio(readoutInk(accent), READOUT_SURFACE),
+        `${accent} on glass`,
+      ).toBeGreaterThanOrEqual(TEXT_MIN_CONTRAST);
+    }
   });
 
-  it.each(ACCENTS)("a lit lamp in %s does not wash the glass out", (accent) => {
-    // The lamp burns THROUGH the glass under the value, so the worst case for
-    // a readout is not bare glass - it is glass with the lamp on behind it.
-    const burning = compositeOver(accent, lampAlpha(true), READOUT_SURFACE);
-    // Amber-on-amber is the trap: a lit lamp must never be the surface a value
-    // is printed on. The console draws the state word on the FACE beside the
-    // lamp for exactly this reason, so that is the pair measured.
-    expect(contrastRatio(readoutInk(accent), burning)).toBeLessThan(
-      TEXT_MIN_CONTRAST,
-    );
-    expect(contrastRatio(labelInk(true), PANEL.face)).toBeGreaterThanOrEqual(
+  it("no value is ever printed on a lit lamp, which is why none is", () => {
+    for (const accent of ACCENTS) {
+      // The trap this rules out: amber on amber. A burning lamp is a SURFACE,
+      // and the switch prints its word in a separate unlit window beside it
+      // precisely because this pair does not clear the bar.
+      const burning = compositeOver(accent, lampAlpha(true), READOUT_SURFACE);
+      expect(contrastRatio(readoutInk(accent), burning)).toBeLessThan(
+        TEXT_MIN_CONTRAST,
+      );
+    }
+    expect(READOUT_SURFACE).not.toBe(PANEL.face);
+    expect(contrastRatio(labelInk(true), LABEL_SURFACE)).toBeGreaterThanOrEqual(
       TEXT_MIN_CONTRAST,
     );
   });
 
   it("NEGATIVE CONTROL: the faint ink fails on this panel, as it must", () => {
     // Without this, "everything passes" would be indistinguishable from
-    // "nothing is measured". `INK.textFaint` is 3.90:1 on the console face and
+    // "nothing is measured". `INK.textFaint` is 3.64:1 on the console face and
     // is the ink a dim engraved legend would reach for first.
     expect(contrastRatio(INK.textFaint, PANEL.face)).toBeLessThan(
       TEXT_MIN_CONTRAST,
     );
-    // And the hardware is not a text surface: white on a lit knob facet is
-    // 5.41:1, but amber on it is 3.68:1, so no value may be printed there.
-    expect(contrastRatio("#FFC857", PANEL.knobLit)).toBeLessThan(
+    // And the hardware is not a text surface: nothing may be printed on the
+    // lit facet of a knob, where even white only reaches 4.41:1.
+    expect(contrastRatio(INK.text, PANEL.knobLit)).toBeLessThan(
       TEXT_MIN_CONTRAST,
     );
+    expect(TEXT_SURFACES).not.toContain(PANEL.knobLit);
   });
 
   it("the recesses are darker than the face they are cut into", () => {
     // A panel darker than its own cutouts is a hole, not a surface - and it is
-    // what makes the labels the brightest thing left on screen.
+    // what made the glass readouts vanish on the first pass.
     const lum = (hex: string): number => contrastRatio(hex, "#000000");
-    expect(lum(PANEL.bay)).toBeLessThan(lum(PANEL.face));
+    expect(lum(PANEL.faceShade)).toBeLessThan(lum(PANEL.face));
+    expect(lum(PANEL.bay)).toBeLessThan(lum(PANEL.faceShade));
     expect(lum(PANEL.glass)).toBeLessThan(lum(PANEL.bay));
     expect(lum(PANEL.faceLit)).toBeGreaterThan(lum(PANEL.face));
-    expect(lum(PANEL.faceShade)).toBeLessThan(lum(PANEL.face));
     expect(lum(PANEL.knobLit)).toBeGreaterThan(lum(PANEL.knob));
     expect(lum(PANEL.knobShade)).toBeLessThan(lum(PANEL.knob));
+    // The knob's rim is lighter than anything it sits on, which is what makes
+    // a top light read, and its white pointer is lighter still.
+    expect(lum(PANEL.pointer)).toBeGreaterThan(lum(PANEL.knobLit));
   });
 });
 
 // ---------------------------------------------------------------------------
-// D83 / D84, and the rules that keep the fiction from eating the usability
+// A label may never reach the hardware
 // ---------------------------------------------------------------------------
+
+describe("the label column", () => {
+  it("stops short of the hardware by a whole gap", () => {
+    // "how you type hindi" printed straight through the chevron beside it the
+    // moment `wider letters` was on, because the label column was a fixed
+    // fraction of the module width rather than the space actually left.
+    expect(labelSpan(530, 28, 20)).toBe(482);
+    expect(labelSpan(530, 28, 20) + 28 + 20).toBeLessThanOrEqual(530);
+  });
+
+  it("never collapses the label to nothing, however wide the hardware", () => {
+    // A 300 px readout on a narrow module would otherwise ask for a negative
+    // wrap width, and Phaser answers that with one character per line.
+    expect(labelSpan(60, 28, 20)).toBe(120);
+    expect(labelSpan(-400, 28, 20)).toBe(120);
+    expect(labelSpan(60, 28, 20, 90)).toBe(90);
+  });
+});
 
 describe("how the console is allowed to be drawn", () => {
   it("is vector, in code: no raster is referenced (D83/D84)", () => {

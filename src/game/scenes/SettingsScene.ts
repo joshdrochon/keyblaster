@@ -7,9 +7,10 @@ import {
   type Settings,
 } from "@engine/types";
 import { MenuScene } from "@game/ui/MenuScene";
-import { type Control, MenuButton } from "@game/ui/controls";
+import { type Control } from "@game/ui/controls";
 import {
   KnobRow,
+  PanelButton,
   type SelectorChoice,
   SelectorRow,
   SwitchRow,
@@ -76,7 +77,7 @@ import { audioFrom } from "@game/audio/wiring";
  */
 /** Where the first control sits, and how much panel shows around the stack. */
 const TOP = 228;
-const ROW_GAP = 14;
+const ROW_GAP = 18;
 const BEZEL = 26;
 
 export class SettingsScene extends MenuScene {
@@ -328,7 +329,7 @@ export class SettingsScene extends MenuScene {
 
     y += 24;
     advanceRight(
-      new MenuButton(
+      new PanelButton(
         this,
         this.uiStyle,
         "settings.resetProgress",

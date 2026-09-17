@@ -219,3 +219,108 @@ describe("the music bus drives itself from game state", () => {
     expect(music.index).toBe(0);
   });
 });
+
+describe("UR-10: an intensity change never steps a layer gain", () => {
+  // THE POP THE USER REPORTED. "theres a pop every so often in the game like
+  // its being looped. Should be continous."
+  //
+  // `setFromState` runs every frame off the live asteroid count, so the index
+  // changes whenever the belt's pressure crosses a threshold - and it can
+  // cross back while the previous 1400 ms ramp is still moving. Restarting the
+  // crossfade from the OLD TARGET INDEX rather than from where the gains
+  // actually are makes the next frame write `layerTargetGains(oldTarget)`,
+  // and every in-flight layer snaps to its destination in one frame.
+  //
+  // MEASURED. Offline render in Chromium of the same layers under the two gain
+  // trajectories, differenced (identical oscillators, so the difference IS the
+  // artifact): 1.49e-8 in the 2 ms before the interrupt, 0.0154 one sample
+  // later, peaking at 0.0184 - 23% of the music bus RMS (0.0799). Zero to a
+  // quarter of the mix in one sample is a click.
+  //
+  // The bar below is the ramp's OWN largest per-frame move, measured in the
+  // test rather than written down. A gain trajectory that never moves faster
+  // than its own smooth ramp cannot click. There is nothing here to weaken:
+  // loosening the bar means measuring a different ramp.
+
+  const FRAME_MS = 1000 / 60;
+
+  /** Every layer gain, as the nodes actually hold it. */
+  const gainsOf = (music: MusicBus): number[] => music.layerGains().map((n) => n.gain.value);
+
+  /** Largest single-frame move of any layer while stepping `frames` frames. */
+  const maxFrameStep = (music: MusicBus, frames: number): number => {
+    let prev = gainsOf(music);
+    let worst = 0;
+    for (let f = 0; f < frames; f++) {
+      music.advance(FRAME_MS);
+      const now = gainsOf(music);
+      for (let i = 0; i < now.length; i++) worst = Math.max(worst, Math.abs((now[i] ?? 0) - (prev[i] ?? 0)));
+      prev = now;
+    }
+    return worst;
+  };
+
+  /** The reference: how fast an UNINTERRUPTED ramp ever moves a layer. */
+  const smoothRampStep = (): number => {
+    const { music } = build();
+    music.setIndex(1);
+    const a = maxFrameStep(music, 120);
+    music.setIndex(2);
+    return Math.max(a, maxFrameStep(music, 120));
+  };
+
+  it("UR-10: interrupting a ramp does not snap the layer gains", () => {
+    const bar = smoothRampStep();
+    const { music } = build();
+
+    music.setIndex(2);
+    maxFrameStep(music, 42); // ~700 ms: halfway up, gains mid-flight
+    const before = gainsOf(music);
+
+    music.setIndex(1); // the belt clears while the ramp is still moving
+    music.advance(FRAME_MS);
+    const after = gainsOf(music);
+
+    const jump = Math.max(...after.map((v, i) => Math.abs(v - (before[i] ?? 0))));
+    expect(jump).toBeLessThanOrEqual(bar);
+  });
+
+  it("UR-10: no frame of a thrashing belt moves a gain faster than the ramp does", () => {
+    // The real shape of the bug: pressure oscillating around a threshold, which
+    // is what a belt being cleared and refilled actually does.
+    const bar = smoothRampStep();
+    const { music } = build();
+    let prev = gainsOf(music);
+    let worst = 0;
+    let worstAt = -1;
+
+    for (let f = 0; f < 900; f++) {
+      // Live asteroids sweeping up and down across both thresholds (4 and 8).
+      const live = 3 + Math.round(3 * (1 + Math.sin(f / 7)));
+      music.setFromState(live, 0);
+      music.advance(FRAME_MS);
+      const now = gainsOf(music);
+      for (let i = 0; i < now.length; i++) {
+        const d = Math.abs((now[i] ?? 0) - (prev[i] ?? 0));
+        if (d > worst) { worst = d; worstAt = f; }
+      }
+      prev = now;
+    }
+    expect({ worst, worstAt }).toMatchObject({ worstAt: expect.any(Number) });
+    expect(worst).toBeLessThanOrEqual(bar);
+  });
+
+  it("UR-10: the ramp still gets all the way there, so this is not just a slower ramp", () => {
+    const { music } = build();
+    music.setIndex(2);
+    for (let f = 0; f < 200; f++) music.advance(FRAME_MS);
+    expect(gainsOf(music).map((v) => +v.toFixed(5))).toEqual(layerTargetGains(2).map((v) => +v.toFixed(5)));
+
+    // And an interrupted move still lands exactly on its new target.
+    music.setIndex(1);
+    for (let f = 0; f < 20; f++) music.advance(FRAME_MS);
+    music.setIndex(0);
+    for (let f = 0; f < 200; f++) music.advance(FRAME_MS);
+    expect(gainsOf(music).map((v) => +v.toFixed(5))).toEqual(layerTargetGains(0).map((v) => +v.toFixed(5)));
+  });
+});

@@ -272,6 +272,25 @@ export function detentStops(
   return out;
 }
 
+/**
+ * How much width is left for a control's engraved label once its hardware has
+ * taken the right of the module.
+ *
+ * `hardwareLeft` is the left edge of the leftmost thing on the right - a
+ * readout window, or the chevron beside one. The label gets everything to the
+ * left of it minus the module's own padding and one gap, and never less than
+ * `floor`, because a label squeezed to nothing is not a smaller label, it is a
+ * column of single letters.
+ */
+export function labelSpan(
+  hardwareLeft: number,
+  padX: number,
+  gap: number,
+  floor = 120,
+): number {
+  return Math.max(floor, hardwareLeft - padX - gap);
+}
+
 // -- panel frame ------------------------------------------------------------
 
 export interface Rect {

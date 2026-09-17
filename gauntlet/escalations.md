@@ -2801,3 +2801,126 @@ tonight.
   and deliberate as far as anyone can tell; recorded because a first draft of
   the overflow test failed on it and the temptation is to silently widen the
   tolerance.
+
+## UR-11 cockpit settings — four calls taken, per D94
+
+- **Escalated:** 2026-09-16
+- **Source:** `gauntlet/user-reported.json` UR-11 ("the menu should look like the inside of a space ship... maybe a knob"), D83 (vector in code), D84 (refs looked at, never loaded), AC-18.1, AC-22.8, D41.
+- **Status:** SHIPPED with the documented behaviour. Nothing here blocked; all four are review items.
+- **Evidence:** `gauntlet/evidence/screens/settings.png` (default state), `tests/unit/ui/cockpit.test.ts` (32 assertions, four mutants confirmed caught), `tests/e2e/settings.spec.ts` (four new keyboard/legibility tests).
+
+### 1. There is no VOICE knob, and the ticket asks for one
+
+The brief lists "music, sfx, voice" as the continuous values. `Settings` in
+`src/engine/types.ts` has `musicVolume` and `sfxVolume` and nothing else, and
+the voice bus is owned by `src/game/audio/*` — a live lane this one may not
+touch.
+
+| Option | Cost | Risk |
+|---|---|---|
+| Ship two knobs, as today | none | the ticket's third control is absent |
+| Add `voiceVolume` to `Settings` + wire the bus | engine type + persistence migration + audio lane | two lanes editing the audio graph the same night |
+| Fake it: a third knob writing `sfxVolume` | trivial | a control that lies; worse than absent |
+
+**Lean: ship two, add the third when the audio lane is free.** The knob itself
+is `KnobRow` and takes six lines to add; the missing half is a real volume bus
+and a schema field, and inventing either from this lane is how a migration
+lands untested.
+
+### 2. The selector shows POSITION LAMPS, not a sliding shuttle
+
+The brief asked for "a selector with physical positions". The first pass drew
+exactly that — a milled track with a shuttle that slides between detents — and
+the capture showed the problem immediately: a small filled track with a marker
+sliding along it **is a pill slider**, which is the shape this whole ticket
+exists to remove, printed under all five option rows. It now draws one lamp per
+choice on an engraved hairline, with the current one burning.
+
+| Option | Reads as | Verdict |
+|---|---|---|
+| Detent track + shuttle | a second, smaller slider | rejected on the capture |
+| Row of position lamps | a mode indicator | **shipped** |
+| Rotary selector dial | a second knob, confusable with the volume knobs | rejected: the vocabulary has to differ per control TYPE |
+
+**Lean: keep the lamps.** Open question for review: a row with one choice (both
+language rows, D95) shows one lone lamp. It is honest and it is consistent with
+the four-lamp rows, but it can read as a stray dot.
+
+### 3. `PanelButton` is new; `MenuButton` was left alone
+
+"Reset progress" was the last web-form shape on the panel, so it is now a raised
+key with a lit bevel. `MenuButton` is on six other screens and was **not**
+touched — so the game now has two button looks. The alternative was to re-dress
+`MenuButton` globally, which is a cross-lane art change this lane may not make.
+
+**Lean: accept the split now, re-dress `MenuButton` when the art lane is free.**
+
+### 4. The pill slider, on/off row and option picker were DELETED, not kept
+
+`SliderRow`, `ToggleRow` and `OptionRow` are gone from `src/game/ui/controls.ts`.
+Settings was the only screen using any of them. Leaving them beside the new kit
+is how the next screen quietly gets a pill slider back, so
+`tests/unit/ui/cockpit.test.ts` now fails if any of the three names returns. If
+another lane wants a generic slider, that is a deliberate decision to take, not
+an import to reach for.
+
+---
+
+## E-MUSIC-1 — There is no music. The structure is built; nobody composed anything.
+
+**User:** *"I didnt here any melodys, did we write music for the game?"* No.
+
+### What exists
+
+`src/game/audio/music.ts` implements **AC-21.2 correctly**: three cumulative
+intensity layers (`bed`, `pulse`, `drive`), the intensity index a pure function
+of live game state, equal-power crossfades, layers that stack rather than swap
+so a change reads as the same piece getting busier. That is good work and it
+should not be thrown away.
+
+### What does not exist
+
+Any music. Each "layer" is a **sustained chord of oscillators** — the field is
+`partialsHz` and the comment says *"A chord, not a note, so a layer has body."*
+No melody, no rhythm, no progression, no theme. It is ambient texture.
+
+`D63` specified *"composed files with intensity layers"*. The implementation
+note explains why it is not: *"No key and no composer exists yet, so the layers
+are synthesised here."* **That reason is stale** — there is an ElevenLabs key
+now. But it is also not sufficient, because:
+
+### The blocker, measured
+
+| endpoint | result |
+|---|---|
+| `POST /v1/music` | **402** `paid_plan_required` — "Music API is not available for free users" |
+| `POST /v1/music/compose` | **402**, same |
+| `POST /v1/sound-generation` | **200**, 65KB for 4s, and it supports `loop: true` |
+
+So generated ambient BEDS are available today and would also fix `UR-10`'s loop
+seam at the source (a generated seamless loop instead of procedural noise that
+clicks at the wrap). Composed MUSIC needs a paid plan.
+
+### Why this is worth more than it looks
+
+A judge forms an impression of production value in roughly fifteen seconds.
+Drone-and-silence reads as unfinished even when everything around it is
+polished. `D62` sets the audio bar at "Disneyland-level immersion" — this is the
+single largest gap against a bar we set ourselves, and it is the only remaining
+one where the fix is *buying a thing* rather than solving a problem.
+
+### Options
+
+| | | cost | gets |
+|---|---|---|---|
+| A | Upgrade ElevenLabs (~$5 Starter), generate 3 intensity layers per stop | ~$5 + generation | Real composed music, straight into the layer structure that already exists |
+| B | Generate loopable sound beds on the free tier, hand-write a melodic layer in Web Audio | $0 | Atmosphere improves, still no theme |
+| C | Source royalty-free tracks | $0–small | Real music, not ours, needs licence checking for a public demo |
+
+**Lean: A.** The architecture is finished and waiting for content — the swap
+point is named in the file. Five dollars against a $5K runner-up prize on a
+hackathon where we set our own audio bar at "Disneyland-level" is the cheapest
+trade on the board.
+
+**Status: blocked on the user.** Upgrading a paid plan is theirs, the same as
+deploy. Tracked as `UR-12-no-music`.

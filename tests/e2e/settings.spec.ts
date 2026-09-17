@@ -56,6 +56,124 @@ test.describe("row 11 - settings", () => {
     await assertVisibleFocus(page, SETTINGS);
   });
 
+  /**
+   * UR-11: the console has to be as operable as the form it replaced.
+   *
+   * A knob, a thrown lever and a detented selector are all HARDWARE shapes, and
+   * the cheap way to build them is to make them draggable. This game has one
+   * input (D37), so these three assertions are the ones that would catch a
+   * beautiful panel nobody can use: the ring is drawn at EVERY stop of a full
+   * lap, every control answers Left/Right, and every control still says what it
+   * is set to in words.
+   */
+  test("UR-11 / AC-18.1 the focus ring is drawn on EVERY control of the console", async ({
+    page,
+  }) => {
+    await seed(page, [{ name: "Ana" }], SETTINGS);
+    const ids = await items(page, SETTINGS).evaluateAll((nodes) =>
+      nodes.map((n) => n.getAttribute("data-id") ?? ""),
+    );
+    expect(ids.length).toBeGreaterThanOrEqual(10);
+
+    const seen: string[] = [];
+    for (let i = 0; i < ids.length; i += 1) {
+      // Not "focus is visible somewhere": exactly one item is focused, the ring
+      // is drawn, and the focused item is the one the walk is standing on.
+      await assertVisibleFocus(page, SETTINGS);
+      const at = await screen(page, SETTINGS).getAttribute("data-focus");
+      expect(at).toBe(ids[i]);
+      seen.push(at ?? "");
+      await press(page, "ArrowDown");
+    }
+    // A full lap reaches every control exactly once and comes back to the top.
+    expect(new Set(seen).size).toBe(ids.length);
+    expect(await screen(page, SETTINGS).getAttribute("data-focus")).toBe(ids[0]);
+  });
+
+  test("UR-11 / AC-18.1 every console control is turned by the arrow keys alone", async ({
+    page,
+  }) => {
+    test.slow();
+    await seed(page, [{ name: "Ana" }], SETTINGS);
+    // Ids are re-read after each change: the typography rows restart the scene.
+    const adjustable = await items(page, SETTINGS).evaluateAll((nodes) =>
+      nodes
+        .filter((n) => n.getAttribute("role") !== "button")
+        .map((n) => n.getAttribute("data-id") ?? ""),
+    );
+    expect(adjustable.length).toBeGreaterThanOrEqual(9);
+
+    for (const id of adjustable) {
+      const before = await item(page, SETTINGS, id).getAttribute("data-value");
+      await adjust(page, id, "ArrowRight");
+      const after = await item(page, SETTINGS, id).getAttribute("data-value");
+      // A row whose only choice is the one it is on cannot change - the two
+      // language rows ship one language (D95) - but it must still be REACHED
+      // and must still report a value. Everything else has to move.
+      expect(after, `${id} reports no value`).toBeTruthy();
+      if (!/Lang$/.test(id)) {
+        expect(after, `${id} did not answer ArrowRight`).not.toBe(before);
+      }
+    }
+  });
+
+  test("UR-11 a knob reaches both ends and NEVER wraps round", async ({ page }) => {
+    // The failure a rotary control invites and the pill slider could not have:
+    // one press too many at full volume putting the music back to silent.
+    test.slow();
+    await seed(page, [{ name: "Ana" }], SETTINGS);
+    const music = item(page, SETTINGS, "settings.music");
+
+    await adjust(page, "settings.music", "ArrowRight", 8);
+    await expect(music).toHaveAttribute("data-value", "100%");
+    expect((await settings(page))["musicVolume"]).toBe(1);
+    // Four more presses past the stop. A wrapping knob reads 0% here.
+    await press(page, "ArrowRight", 4);
+    await expect(music).toHaveAttribute("data-value", "100%");
+    expect((await settings(page))["musicVolume"]).toBe(1);
+
+    await press(page, "ArrowLeft", 14);
+    await expect(music).toHaveAttribute("data-value", "0%");
+    expect((await settings(page))["musicVolume"]).toBe(0);
+    await press(page, "ArrowLeft", 3);
+    await expect(music).toHaveAttribute("data-value", "0%");
+  });
+
+  test("UR-11 every control still SAYS what it is set to, in words", async ({
+    page,
+  }) => {
+    // The bar the fiction may not cost: a beautiful knob whose value a
+    // seven-year-old cannot read is worse than the slider it replaced. Every
+    // control keeps a printed value, and a switch keeps the WORD - so the lamp
+    // is never the only thing carrying the state (D41: not colour alone).
+    await seed(page, [{ name: "Ana" }], SETTINGS);
+    const rows = await items(page, SETTINGS).evaluateAll((nodes) =>
+      nodes.map((n) => ({
+        id: n.getAttribute("data-id") ?? "",
+        role: n.getAttribute("role") ?? "",
+        value: n.getAttribute("data-value"),
+        text: n.textContent ?? "",
+      })),
+    );
+    for (const row of rows) {
+      if (row.role === "button") continue;
+      expect(row.value, `${row.id} has no printed value`).toBeTruthy();
+      expect(row.text, `${row.id} does not read its value out`).toContain(
+        row.value ?? "",
+      );
+    }
+    // The volume knobs read as a percentage, exactly as they did before.
+    expect(rows.find((r) => r.id === "settings.music")?.value).toMatch(/^\d+%$/);
+    // The switches read as words a child knows.
+    for (const id of [
+      "settings.reducedMotion",
+      "settings.colorblind",
+      "settings.letterSpacing",
+    ]) {
+      expect(rows.find((r) => r.id === id)?.value).toBe("off");
+    }
+  });
+
   test("AC-18.2 no email field exists on settings", async ({ page }) => {
     await seed(page, [{ name: "Ana" }], SETTINGS);
     await assertNoEmailField(page);

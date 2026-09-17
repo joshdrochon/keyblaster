@@ -140,12 +140,34 @@ export function layerTargetGains(index: number): number[] {
  * `layerTargetGains(to)`; in between, layers that are up in both stay up.
  */
 export function layerGainsDuringChange(from: number, to: number, t: number): number[] {
+  return crossfadeGains(layerTargetGains(from), layerTargetGains(to), t);
+}
+
+/**
+ * The same equal-power move, but between two sets of ACTUAL GAINS rather than
+ * two indices.
+ *
+ * UR-10 - WHY THIS EXISTS. `layerGainsDuringChange` can only start a move from
+ * a place the layers might not be. Every intensity change before this one may
+ * still have been in flight, so the honest starting point is the gain each
+ * layer is holding right now, not the target of the move being abandoned. Read
+ * against `t`:
+ *
+ *   t = 0  ->  exactly `from`, i.e. exactly where the layers already are
+ *   t = 1  ->  exactly `to`
+ *
+ * so a move can be interrupted at any instant and the gain a layer is holding
+ * never changes in that instant. That is the whole fix: continuity at t=0.
+ */
+export function crossfadeGains(
+  from: readonly number[],
+  to: readonly number[],
+  t: number,
+): number[] {
   const fade = equalPowerCrossfade(clamp(t, 0, 1));
-  const a = layerTargetGains(from);
-  const b = layerTargetGains(to);
   return MUSIC_LAYERS.map((_, i) => {
-    const ga = a[i] ?? 0;
-    const gb = b[i] ?? 0;
+    const ga = from[i] ?? 0;
+    const gb = to[i] ?? 0;
     // A layer that is up in both indices does not move at all; only the layers
     // that differ are crossfaded, which is what makes this feel like one piece
     // of music getting busier rather than a cut between two tracks.
@@ -173,7 +195,13 @@ interface LayerVoice {
 export class MusicBus {
   private readonly voices: LayerVoice[] = [];
   private currentIndex = 0;
-  private fromIndex = 0;
+  /**
+   * Where the layers were when the move in flight started - the GAINS, not an
+   * index. See `crossfadeGains`: holding the index instead is what let an
+   * interrupted ramp snap every layer to its old destination in one frame
+   * (UR-10).
+   */
+  private fromGains: number[] = MUSIC_LAYERS.map(() => 0);
   private elapsedMs = INTENSITY_RAMP_MS;
   private rampMs = INTENSITY_RAMP_MS;
 
@@ -219,7 +247,10 @@ export class MusicBus {
   setIndex(index: number, rampMs = INTENSITY_RAMP_MS): void {
     const target = clamp(Math.floor(index), 0, MAX_INTENSITY_INDEX);
     if (target === this.currentIndex) return;
-    this.fromIndex = this.currentIndex;
+    // Start the new move from WHERE THE LAYERS ARE, not from the target of the
+    // move being abandoned. Reading the nodes rather than recomputing from an
+    // index is the point: whatever the last frame wrote is the truth.
+    this.fromGains = this.voices.map((v) => v.gain.gain.value);
     this.currentIndex = target;
     this.rampMs = Math.max(1, rampMs);
     this.elapsedMs = 0;
@@ -229,7 +260,7 @@ export class MusicBus {
     if (!Number.isFinite(dtMs) || dtMs < 0) return;
     this.elapsedMs = Math.min(this.rampMs, this.elapsedMs + dtMs);
     const t = progress(this.elapsedMs, this.rampMs);
-    this.applyGains(layerGainsDuringChange(this.fromIndex, this.currentIndex, t));
+    this.applyGains(crossfadeGains(this.fromGains, layerTargetGains(this.currentIndex), t));
   }
 
   private applyGains(gains: readonly number[]): void {

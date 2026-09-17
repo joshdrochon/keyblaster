@@ -13,6 +13,7 @@ import {
   knobAngleDeg,
   knobTickAngles,
   labelInk,
+  labelSpan,
   lampAlpha,
   leverTip,
   polar,
@@ -21,7 +22,7 @@ import {
   stepValue,
 } from "./panel.js";
 import { INK, SPACE, TYPE, rowHeight } from "./theme.js";
-import { uiText } from "./text.js";
+import { plateWidth, uiText } from "./text.js";
 
 /**
  * THE CONSOLE, DRAWN (UR-11; D83 vector-in-code; D84 refs are looked at, never
@@ -47,7 +48,7 @@ import { uiText } from "./text.js";
  *  3. LEGIBILITY BEFORE PROP REALISM. Every control keeps its printed value:
  *     the knob keeps the "70%" the pill slider had, the toggle keeps the word
  *     "on", the selector keeps the name of the thing it is set to - each behind
- *     glass, in the accent, at 12.8:1. A knob whose value a seven-year-old
+ *     glass, in the accent, at 13.1:1. A knob whose value a seven-year-old
  *     cannot read is worse than the slider it replaced.
  *
  * The light comes from ABOVE, once, for the whole panel: every `Lit` token is a
@@ -61,14 +62,13 @@ import { uiText } from "./text.js";
 
 const HW = {
   /** Knob body radius; the detent arc sits outside it. */
-  knobR: 34,
-  arcInner: 8,
-  arcOuter: 17,
+  knobR: 38,
+  arcInner: 9,
+  arcOuter: 19,
   /** The switch guard. */
-  guardW: 50,
-  guardH: 78,
-  lampH: 20,
-  leverCap: 8,
+  guardW: 58,
+  guardH: 82,
+  leverCap: 9,
   /** The selector's position lamps. */
   lampSize: 13,
   /** A readout window. */
@@ -170,56 +170,64 @@ function drawKnob(
   const value = clamp01(value01);
   const ticks = knobTickAngles();
 
-  castShadowCircle(g, cx, cy, r + 2);
+  castShadowCircle(g, cx, cy, r + 3);
 
   // The detented arc. Ticks up to the value burn in the accent; the rest are
-  // engraved marks. The arc is OUTSIDE the knob so the hand never covers it.
+  // engraved marks. The arc is OUTSIDE the knob so a hand on the knob never
+  // covers the one part of it that says how far round it is.
   ticks.forEach((deg, i) => {
     const lit = i / (ticks.length - 1) <= value + 1e-9;
     const a = polar(cx, cy, r + HW.arcInner, deg);
     const b = polar(cx, cy, r + HW.arcOuter, deg);
     g.lineStyle(
-      lit ? 4 : 3,
+      lit ? 5 : 3,
       hexToNum(lit ? accent : PANEL.tick),
-      lit ? (focused ? 1 : 0.88) : 0.85,
+      lit ? (focused ? 1 : 0.9) : 0.8,
     );
     g.lineBetween(a.x, a.y, b.x, b.y);
   });
 
-  // Skirt, body, and the flat facet on top where the light lands.
-  g.fillStyle(hexToNum(PANEL.knobShade), 1);
-  g.fillCircle(cx, cy, r);
-  g.fillStyle(hexToNum(PANEL.knob), 1);
-  g.fillCircle(cx, cy, r - 3);
+  // THE VALUE STRUCTURE IS WHAT MAKES THE POINTER READ. Lit rim, dark skirt,
+  // mid-grey face, white pointer: four steps, in that order, so the pointer is
+  // the brightest thing inside the knob by a long way. The first pass put a
+  // near-white facet on top and a white pointer on it, and the pointer - the
+  // only part that carries the value - was the one thing you could not see.
   g.fillStyle(hexToNum(PANEL.knobLit), 1);
-  g.fillCircle(cx - 2, cy - 3, r - 9);
-  g.lineStyle(2, hexToNum(PANEL.knobShade), 0.75);
-  g.strokeCircle(cx - 2, cy - 3, r - 9);
+  g.fillCircle(cx, cy, r);
+  // The body sits a little low in its rim, so the lit metal shows along the
+  // TOP edge: one light, from above, for the whole panel.
+  g.fillStyle(hexToNum(PANEL.knobShade), 1);
+  g.fillCircle(cx, cy + 2, r - 2);
+  g.fillStyle(hexToNum(PANEL.knob), 1);
+  g.fillCircle(cx, cy + 2, r - 8);
   if (focused) {
-    g.lineStyle(3, hexToNum(accent), 0.9);
+    g.lineStyle(3, hexToNum(accent), 0.95);
     g.strokeCircle(cx, cy, r + 1);
   }
 
   // The pointer: a tapered facet from the collar to the rim, in the brightest
-  // metal on the panel so it reads against both the lit and shaded halves.
+  // metal on the panel.
   const deg = knobAngleDeg(value);
-  const along = { x: Math.sin((deg * Math.PI) / 180), y: -Math.cos((deg * Math.PI) / 180) };
+  const along = {
+    x: Math.sin((deg * Math.PI) / 180),
+    y: -Math.cos((deg * Math.PI) / 180),
+  };
   const perp = { x: -along.y, y: along.x };
-  const base = polar(cx, cy, 5, deg);
-  const tip = polar(cx, cy, r - 5, deg);
+  const base = polar(cx, cy + 2, 4, deg);
+  const tip = polar(cx, cy + 2, r - 9, deg);
   g.fillStyle(hexToNum(PANEL.pointer), 1);
   g.fillPoints(
     [
-      new Phaser.Geom.Point(base.x + perp.x * 5, base.y + perp.y * 5),
-      new Phaser.Geom.Point(tip.x + perp.x * 2.5, tip.y + perp.y * 2.5),
-      new Phaser.Geom.Point(tip.x - perp.x * 2.5, tip.y - perp.y * 2.5),
-      new Phaser.Geom.Point(base.x - perp.x * 5, base.y - perp.y * 5),
+      new Phaser.Geom.Point(base.x + perp.x * 6, base.y + perp.y * 6),
+      new Phaser.Geom.Point(tip.x + perp.x * 3, tip.y + perp.y * 3),
+      new Phaser.Geom.Point(tip.x - perp.x * 3, tip.y - perp.y * 3),
+      new Phaser.Geom.Point(base.x - perp.x * 6, base.y - perp.y * 6),
     ],
     true,
   );
   // The collar the pointer turns on.
   g.fillStyle(hexToNum(PANEL.knobShade), 1);
-  g.fillCircle(cx, cy, 4);
+  g.fillCircle(cx, cy + 2, 5);
 }
 
 /**
@@ -244,57 +252,60 @@ function drawSwitch(
   const x = cx - w / 2;
   const y = cy - h / 2;
 
-  // The glow behind the guard, spilling onto the panel face. This is the thing
-  // the reference plate does that a flat "on" caption cannot: the switch lights
-  // the metal around it.
+  // The glow spilling onto the panel around a switch that is on. This is the
+  // thing the reference plate does that a flat "on" caption cannot: the switch
+  // lights the metal it is screwed to.
   if (on) {
     g.fillStyle(hexToNum(accent), 0.18);
-    g.fillRoundedRect(x - 9, y - 7, w + 18, h + 18, 20);
+    g.fillRoundedRect(x - 9, y - 7, w + 18, h + 18, 22);
     g.fillStyle(hexToNum(accent), 0.09);
-    g.fillRoundedRect(x - 18, y - 14, w + 36, h + 32, 26);
+    g.fillRoundedRect(x - 19, y - 15, w + 38, h + 34, 28);
   }
 
-  // A RAISED metal guard, not a recess. The first pass cut the guard into the
-  // same dark the control's own plate was drawn in, so the whole switch was one
-  // dark shape with a white dot in it.
+  // A RAISED metal guard, not a recess. The first pass cut the guard from the
+  // same dark its own module was drawn in, so the whole switch was one dark
+  // shape with a white dot floating in it.
   g.fillStyle(hexToNum(PANEL.shadow), SHADOW_ALPHA);
-  g.fillRoundedRect(x + 1, y + 5, w, h, 14);
+  g.fillRoundedRect(x + 2, y + 6, w, h, 16);
   g.fillStyle(hexToNum(PANEL.knobShade), 1);
-  g.fillRoundedRect(x, y, w, h, 14);
+  g.fillRoundedRect(x, y, w, h, 16);
   g.fillStyle(hexToNum(PANEL.knob), 1);
-  g.fillRoundedRect(x, y, w, h - 4, 14);
-  g.lineStyle(2, hexToNum(focused ? accent : PANEL.knobLit), focused ? 1 : 0.55);
-  g.strokeRoundedRect(x, y, w, h - 4, 14);
+  g.fillRoundedRect(x, y, w, h - 5, 16);
+  g.lineStyle(2, hexToNum(focused ? accent : PANEL.knobLit), focused ? 1 : 0.5);
+  g.strokeRoundedRect(x, y, w, h - 5, 16);
 
-  // The slot the lever travels in, milled through the guard.
+  // THE SLOT IS THE LAMP. A separate lamp square had to go somewhere the lever
+  // never covered, which left no room for a throw worth looking at; backlighting
+  // the whole window instead means the lit state is the biggest thing on the
+  // control and the lever still has the full slot to swing in.
+  const sx = x + 8;
+  const sy = y + 7;
+  const sw = w - 16;
+  const sh = h - 22;
   g.fillStyle(hexToNum(PANEL.glass), 1);
-  g.fillRoundedRect(x + 7, y + 7, w - 14, h - 18, 9);
-
-  // The lamp at the foot of the slot, where the lever never covers it. Off, it
-  // is still a bulb behind glass with a lit rim - a lamp you cannot see is a
-  // lamp a child cannot learn to read.
-  const lampY = y + h - HW.lampH - 12;
-  const lampX = x + 11;
-  const lampW = w - 22;
+  g.fillRoundedRect(sx, sy, sw, sh, 10);
   g.fillStyle(hexToNum(accent), lampAlpha(on));
-  g.fillRoundedRect(lampX, lampY, lampW, HW.lampH, 5);
-  g.lineStyle(2, hexToNum(on ? accent : PANEL.lip), 1);
-  g.strokeRoundedRect(lampX, lampY, lampW, HW.lampH, 5);
+  g.fillRoundedRect(sx, sy, sw, sh, 10);
+  g.lineStyle(2, hexToNum(PANEL.knobShade), 1);
+  g.strokeRoundedRect(sx, sy, sw, sh, 10);
 
-  // The lever, thrown. A BRIGHT shaft with a dark collar, as on the reference
-  // plate: it has to be the lightest thing in the slot or the throw is invisible.
-  const pivot = { x: cx, y: cy + 2 };
+  // The lever: a bright shaft inside a dark outline, and a white cap inside a
+  // dark ring. Both halves matter - the bright core is what reads against a
+  // dark slot, the dark outline is what reads against a burning one.
+  const pivot = { x: cx, y: cy + 1 };
   const tip = leverTip(pivot.x, pivot.y, on);
-  g.lineStyle(16, hexToNum(PANEL.knobShade), 1);
+  g.lineStyle(17, hexToNum(PANEL.knobShade), 1);
   g.lineBetween(pivot.x, pivot.y, tip.x, tip.y);
   g.lineStyle(11, hexToNum(PANEL.knobLit), 1);
   g.lineBetween(pivot.x, pivot.y, tip.x, tip.y);
+  g.fillStyle(hexToNum(PANEL.knobShade), 1);
+  g.fillCircle(tip.x, tip.y, HW.leverCap + 2);
   g.fillStyle(hexToNum(PANEL.pointer), 1);
   g.fillCircle(tip.x, tip.y, HW.leverCap);
   g.fillStyle(hexToNum(PANEL.knobShade), 1);
-  g.fillCircle(pivot.x, pivot.y, 10);
+  g.fillCircle(pivot.x, pivot.y, 11);
   g.fillStyle(hexToNum(PANEL.knob), 1);
-  g.fillCircle(pivot.x, pivot.y, 7);
+  g.fillCircle(pivot.x, pivot.y, 8);
 }
 
 /**
@@ -319,7 +330,12 @@ function drawPositionLamps(
   focused: boolean,
 ): void {
   const size = HW.lampSize;
-  const stops = detentStops(x, w, count, size / 2 + 2);
+  // Clustered at a fixed pitch and centred, NOT spread across the readout's
+  // width: two lamps at opposite ends of a 240 px window read as two unrelated
+  // dots rather than as two positions of one control.
+  const pitch = size + 10;
+  const groupW = Math.max(size, count * pitch - 10);
+  const stops = detentStops(x + (w - groupW) / 2, groupW, count, size / 2);
   if (stops.length === 0) return;
 
   // The engraved index line the lamps are set into: a hairline, never a filled
@@ -396,9 +412,9 @@ export function drawConsoleFace(
 // ---------------------------------------------------------------------------
 
 /**
- * What every control on this panel shares: a milled bay, an engraved label on
- * the left, and its hardware in a column down the right so the eye reads one
- * instrument stack rather than eight unrelated widgets.
+ * What every control on this panel shares: a module plate bolted to the face,
+ * an engraved label down the left, and its hardware in a column down the right
+ * so the eye reads one instrument stack rather than nine unrelated widgets.
  */
 abstract class PanelControl extends Control {
   protected readonly title: Phaser.GameObjects.Text;
@@ -412,7 +428,6 @@ abstract class PanelControl extends Control {
     depth: number,
     label: string,
     width: number,
-    labelWrap: number,
   ) {
     super(scene, style, id, x, y, depth);
     this.adjustable = true;
@@ -422,15 +437,37 @@ abstract class PanelControl extends Control {
       lang: style.lang,
       uppercase: style.uppercase,
       increasedLetterSpacing: style.increasedLetterSpacing,
-      wrapWidth: labelWrap,
+      wrapWidth: width,
     });
     this.container.add(this.title);
   }
 
   /**
-   * The recess this control sits in. A bay is DARK AT THE TOP and LIT ALONG THE
-   * BOTTOM, which is what tells the eye it is cut into the face rather than
-   * sitting on it - the inverse of the shadow every knob and shuttle casts.
+   * Wrap the label so it CANNOT reach the hardware, measured rather than
+   * guessed at a fraction of the module width.
+   *
+   * WHY IT LOOPS. `uiText` applies D41 letter spacing with `setLetterSpacing`,
+   * which Phaser adds AFTER it has word-wrapped - so a label wrapped to 340 px
+   * measures wider than 340 px the moment "wider letters" is on, and
+   * "how you type hindi" printed straight through the chevron beside it. The
+   * wrap width is the request; `width` is what was actually drawn, so the only
+   * honest fit is to re-wrap until the drawn width is inside the span.
+   */
+  protected fitLabel(hardwareLeft: number): void {
+    const span = labelSpan(hardwareLeft, SPACE.rowPadX, SPACE.gap);
+    let wrap = span;
+    this.title.setWordWrapWidth(wrap, true);
+    for (let i = 0; i < 12 && this.title.width > span && wrap > 100; i += 1) {
+      wrap -= Math.max(8, Math.round(this.title.width - span));
+      this.title.setWordWrapWidth(wrap, true);
+    }
+  }
+
+  /**
+   * The module plate this control's hardware is mounted on. It is DARK ALONG
+   * THE TOP EDGE and LIT ALONG THE BOTTOM, which is what tells the eye it is
+   * set into the face under a light from above - the exact inverse of the
+   * shadow every knob, key and switch guard casts downward.
    */
   protected paintBay(): void {
     this.g.clear();
@@ -535,7 +572,6 @@ export class KnobRow extends PanelControl {
       depth,
       options.label,
       options.width,
-      options.width * 0.4,
     );
     this.value = clamp01(options.value);
     this.step = options.step ?? KNOB.step;
@@ -549,6 +585,7 @@ export class KnobRow extends PanelControl {
         HW.glassPadX * 2,
     );
     this.glassX = this.knobCx - KNOB_SPAN / 2 - SPACE.gap - this.glassW;
+    this.fitLabel(this.glassX);
 
     this.readout = uiText(scene, 0, 0, this.format(this.value), {
       size: TYPE.label,
@@ -657,7 +694,6 @@ export class SwitchRow extends PanelControl {
       depth,
       options.label,
       options.width,
-      options.width * 0.46,
     );
     this.value = options.value;
     this.onChange = options.onChange;
@@ -670,6 +706,7 @@ export class SwitchRow extends PanelControl {
       this.measureWidest([this.word(true), this.word(false)]) + HW.glassPadX * 2,
     );
     this.glassX = this.switchCx - HW.guardW / 2 - SPACE.gap - this.glassW;
+    this.fitLabel(this.glassX);
 
     this.state = uiText(scene, 0, 0, this.word(this.value), {
       size: TYPE.label,
@@ -800,7 +837,6 @@ export class SelectorRow<T extends string> extends PanelControl {
       depth,
       options.label,
       options.width,
-      options.width * 0.42,
     );
     this.choices = options.choices;
     this.onChange = options.onChange;
@@ -815,6 +851,8 @@ export class SelectorRow<T extends string> extends PanelControl {
     );
     // A chevron's reach plus its breathing room, each side of the window.
     this.glassX = this.boxW - SPACE.rowPadX - 26 - this.glassW;
+    // The LEFT chevron is the leftmost hardware on this row, not the window.
+    this.fitLabel(this.glassX - 26);
 
     this.readout = uiText(scene, 0, 0, this.currentLabel(), {
       size: TYPE.label,
@@ -919,4 +957,98 @@ export class SelectorRow<T extends string> extends PanelControl {
     // belongs in the mirror, not only on the canvas.
     return this.note ? { ...base, detail: this.note.text } : base;
   }
+}
+
+// -- panel key --------------------------------------------------------------
+
+export interface PanelButtonOptions {
+  readonly label: string;
+  readonly minWidth?: number;
+  readonly onPress: () => void;
+}
+
+/**
+ * A KEY ON THE PANEL, for the one action this screen has.
+ *
+ * `MenuButton` is the rest of the game's button and it is left exactly as it
+ * is - it is on six other screens. But a web-form button in the middle of a
+ * milled console is the loudest remaining tell that this is a menu, so the one
+ * on this panel is a key: a raised cap with a lit bevel, sitting in its own
+ * shadow, under the same light as every other piece of hardware here.
+ *
+ * It is NOT red and NOT flagged, in keeping with D31 / AC-22b.1: reset progress
+ * is drawn in the same calm ink as everything else and asks twice instead.
+ */
+export class PanelButton extends Control {
+  private readonly text: Phaser.GameObjects.Text;
+  private readonly label: string;
+  private readonly onPress: () => void;
+
+  constructor(
+    scene: Phaser.Scene,
+    style: ControlStyle,
+    id: string,
+    x: number,
+    y: number,
+    depth: number,
+    options: PanelButtonOptions,
+  ) {
+    super(scene, style, id, x, y, depth);
+    this.label = options.label;
+    this.onPress = options.onPress;
+    this.text = uiText(scene, 0, 0, options.label, {
+      size: TYPE.body,
+      lang: style.lang,
+      uppercase: style.uppercase,
+      increasedLetterSpacing: style.increasedLetterSpacing,
+    });
+    this.boxW = plateWidth(this.text, SPACE.rowPadX, options.minWidth ?? 220);
+    this.boxH = rowHeight(TYPE.body, style.lang) + 6;
+    this.text.setPosition(
+      Math.round((this.boxW - this.text.width) / 2),
+      Math.round((this.boxH - 5 - this.text.height) / 2),
+    );
+    this.container.add(this.text);
+    this.redraw();
+  }
+
+  override activate(): void {
+    this.onPress();
+  }
+
+  protected redraw(): void {
+    this.g.clear();
+    const r = SPACE.radius;
+    g_key(this.g, this.boxW, this.boxH, r, this.focused, this.style.accent);
+    // Always the full-strength ink: focus is carried by the ring, the lit bevel
+    // and the raised cap, never by dimming the only word on the key.
+    this.text.setColor(INK.text);
+  }
+
+  toMirror(): MirrorItem {
+    return { id: this.id, role: "button", label: this.label };
+  }
+}
+
+/** The key's material, kept out of the class so it reads as one shape. */
+function g_key(
+  g: Phaser.GameObjects.Graphics,
+  w: number,
+  h: number,
+  r: number,
+  focused: boolean,
+  accent: string,
+): void {
+  g.fillStyle(hexToNum(PANEL.shadow), SHADOW_ALPHA);
+  g.fillRoundedRect(1, 5, w, h, r);
+  g.fillStyle(hexToNum(PANEL.knobShade), 1);
+  g.fillRoundedRect(0, 0, w, h, r);
+  g.fillStyle(hexToNum(focused ? PANEL.faceShade : PANEL.bay), 1);
+  g.fillRoundedRect(0, 0, w, h - 5, r);
+  g.lineStyle(
+    focused ? 3 : 2,
+    hexToNum(focused ? accent : PANEL.knobLit),
+    focused ? 1 : 0.45,
+  );
+  g.strokeRoundedRect(0, 0, w, h - 5, r);
 }

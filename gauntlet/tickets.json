@@ -571,6 +571,16 @@
     ]
   },
   {
+    "id": "KB-ESC-e-music-1-there-is-no-music-the-structure-is",
+    "kind": "escalation",
+    "title": "E-MUSIC-1 — There is no music.",
+    "source": "gauntlet/escalations.md:2869",
+    "state": "BLOCKED",
+    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
+    "evidence": [],
+    "refs": []
+  },
+  {
     "id": "KB-ESC-e-playable-path-four-decisions-taken-on-the-",
     "kind": "escalation",
     "title": "E-playable-path · Four decisions taken on the `fix/playable-path` lane",
@@ -803,6 +813,18 @@
     "why": "awaiting a user decision — add **Resolved:** to its section to close it",
     "evidence": [],
     "refs": []
+  },
+  {
+    "id": "KB-ESC-ur-11-cockpit-settings-four-calls-taken-per-",
+    "kind": "escalation",
+    "title": "UR-11 cockpit settings — four calls taken, per D94",
+    "source": "gauntlet/escalations.md:2805",
+    "state": "BLOCKED",
+    "why": "awaiting a user decision — add **Resolved:** to its section to close it",
+    "evidence": [],
+    "refs": [
+      "D94"
+    ]
   },
   {
     "id": "KB-ESC-v-22-4-the-check-now-measures-what-it-names-",
@@ -1234,6 +1256,18 @@
     "why": "reported 1x by the user: \"in the settings, the menu should look like the inside of a space ship.\"",
     "evidence": [
       "User supplied a screenshot of the music slider as the example of what to replace."
+    ],
+    "refs": []
+  },
+  {
+    "id": "KB-UR-12-no-music",
+    "kind": "user-reported",
+    "title": "There is no music.",
+    "source": "gauntlet/user-reported.json",
+    "state": "OPEN",
+    "why": "reported 1x by the user: \"How are we doing on music as well, did we get that settled? ...\"",
+    "evidence": [
+      "Verified: /v1/music and /v1/music/compose both return 402 paid_plan_required. /v1/sound-generation DOES work on the free tier and supports loop:true, which is the fix for UR-10's seam. The swap point is already built and named in music.ts: 'Replacing the oscillator stack in buildLayerVoice with three looping AudioBufferSourceNodes is the whole change.'"
     ],
     "refs": []
   },
