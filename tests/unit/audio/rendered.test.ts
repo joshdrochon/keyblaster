@@ -51,6 +51,7 @@ import { KeystrokeTone, WORD_OPENING_SEMITONES, frequencyFor } from "../../../sr
 import { SHADOW_CHIRP, chirpDurationMs, chirpPeakGain, chirpSeparation, playChirp } from "../../../src/game/audio/chirp.js";
 import { DUCK_ATTACK_MS, buildAudioGraph, busSpec } from "../../../src/game/audio/graph.js";
 import { installAudio, type ChannelHandler } from "../../../src/game/audio/wiring.js";
+import { MAX_INTENSITY_INDEX } from "../../../src/game/audio/music.js";
 import { seededRandom } from "../../../src/game/audio/context.js";
 import { fakeVoiceEnvironment } from "./fakes.js";
 
@@ -1208,5 +1209,140 @@ describe("UR-46: the duck is real, and the evidence no longer pretends to hear i
     // What the ducker COMMITTED is knowable on any context, and that is what
     // the artifact reports now.
     expect(graph.ducker.scheduledReductionDb()["music"]).toBeLessThanOrEqual(-6);
+  });
+});
+
+/**
+ * A-21.2 - THE INTENSITY INDEX, DRIVEN THE WAY THE GAME DRIVES IT.
+ *
+ * The rubric item failed on its WIRED predicate: "the index moved on live HUD
+ * liveCount/combo during real play". It turned out the index moves perfectly and
+ * the EVIDENCE was being deleted - two specs in `audio-wiring.spec.ts` both
+ * wrote `evidence["music"]`, and the later one assigned over the top of the
+ * earlier, dropping `hudSamples`, `indicesObserved` and `drivenBy` before the
+ * artifact was written.
+ *
+ * That is an evidence bug, and fixing evidence does not prove a feature. So this
+ * proves the feature, here, on the shipping path: the real graph, the real
+ * wiring, and HUD payloads of exactly the shape `FlightScene.snapshot()` emits,
+ * on exactly the channel `boot.ts` subscribes. Nothing in this block calls
+ * `MusicBus` directly - if the HUD field names drifted, or the subscription were
+ * dropped, this goes red and no artifact can hide it.
+ */
+describe("A-21.2: the music index follows live asteroids and combo", () => {
+  const HUD_EVENT = "kb:flight:hud";
+
+  class FakeChannel {
+    private readonly handlers = new Map<string, Set<ChannelHandler>>();
+    on(event: string, handler: ChannelHandler): void {
+      const set = this.handlers.get(event) ?? new Set<ChannelHandler>();
+      set.add(handler);
+      this.handlers.set(event, set);
+    }
+    off(event: string, handler: ChannelHandler): void {
+      this.handlers.get(event)?.delete(handler);
+    }
+    emit(event: string, payload?: unknown): void {
+      for (const handler of [...(this.handlers.get(event) ?? [])]) handler(payload);
+    }
+  }
+
+  /** Exactly the fields `FlightScene.snapshot()` puts on the HUD event. */
+  const hud = (liveCount: number, combo: number): Record<string, unknown> => ({
+    stopName: "Mars",
+    wpm: 24,
+    accuracy: 0.9,
+    combo,
+    multiplier: 1,
+    score: 100,
+    hull: 3,
+    maxHull: 3,
+    liveCount,
+    accent: "#F26A4B",
+    plate: "#101826",
+    plateText: "#F7F3E8",
+  });
+
+  const flyStage = (
+    stream: ReadonlyArray<{ live: number; combo: number }>,
+  ): { indices: number[]; hudSamples: number; samples: Float32Array } => {
+    const ctx = new OfflineAudioContextLike(SR);
+    const graph = buildAudioGraph(ctx, {
+      voiceEnv: fakeVoiceEnvironment(null).env,
+      rand: seededRandom(0x7ac41b),
+    });
+    const channel = new FakeChannel();
+    const service = installAudio({
+      graph,
+      events: channel,
+      hudEvent: HUD_EVENT,
+      registry: { get: () => undefined, set: () => undefined },
+    });
+    graph.setBusGain("ambient", 0);
+
+    // The HUD publishes about every 100 ms; the graph is advanced every frame.
+    let next = 0;
+    const samples = ctx.render(stream.length * 0.1 + 0.5, (startTime, dtMs) => {
+      graph.advance(dtMs);
+      while (next < stream.length && startTime >= next * 0.1) {
+        const step = stream[next] as { live: number; combo: number };
+        channel.emit(HUD_EVENT, hud(step.live, step.combo));
+        next += 1;
+      }
+    });
+    const snap = service.snapshot();
+    return { indices: [...snap.musicIndices], hudSamples: snap.hudSamples, samples };
+  };
+
+  it("a belt that fills and empties moves the index through every layer", () => {
+    // A real stage: the board fills, a combo builds, rocks are cleared. The
+    // thresholds are pressure 4 and 8 (INTENSITY_THRESHOLDS), and pressure is
+    // asteroids + half the combo.
+    const stream: Array<{ live: number; combo: number }> = [];
+    for (const live of [0, 1, 2, 3, 5, 6, 8, 10, 7, 4, 2, 0]) {
+      for (let hold = 0; hold < 16; hold++) stream.push({ live, combo: Math.min(10, live) });
+    }
+    const flown = flyStage(stream);
+
+    expect(flown.hudSamples).toBe(stream.length);
+    // The predicate A-21.2 actually asks for, measured here rather than read
+    // out of a file: the index MOVED, through more than one value.
+    expect(flown.indices.length).toBeGreaterThanOrEqual(2);
+    // And it reached the top layer, so all three really are reachable in play.
+    expect(flown.indices).toContain(0);
+    expect(Math.max(...flown.indices)).toBe(MAX_INTENSITY_INDEX);
+  });
+
+  it("an empty board never leaves index 0, so the index is not just counting frames", () => {
+    const flown = flyStage(Array.from({ length: 60 }, () => ({ live: 0, combo: 0 })));
+    expect(flown.hudSamples).toBe(60);
+    expect(flown.indices).toEqual([0]);
+  });
+
+  /**
+   * UR-10's HAZARD, RE-CHECKED HERE BECAUSE THIS IS WHERE IT WOULD RETURN.
+   *
+   * `setFromState` runs on every HUD sample, and the live count crosses a
+   * threshold repeatedly during a real stage - so an intensity ramp is
+   * constantly being interrupted by the next one. That is exactly the shape
+   * that snapped 23% of the mix in one frame before `crossfadeGains` started
+   * every move from where the layers ARE. Rendered over a board that oscillates
+   * across both thresholds, the output has to stay continuous.
+   */
+  it("UR-10: a board thrashing across both thresholds still does not click", () => {
+    const stream: Array<{ live: number; combo: number }> = [];
+    // Deliberately faster than a stage really changes: cross a threshold every
+    // 300 ms, well inside the 1400 ms ramp, for twelve seconds.
+    for (let i = 0; i < 40; i++) {
+      const live = i % 2 === 0 ? 2 : 9;
+      for (let hold = 0; hold < 3; hold++) stream.push({ live, combo: live });
+    }
+    const flown = flyStage(stream);
+    expect(flown.indices.length).toBeGreaterThanOrEqual(2);
+
+    const worst = largestStep(flown.samples);
+    const ownStep = stepQuantile(flown.samples, 0.999);
+    // Against the signal's own step distribution, as every click test here is.
+    expect(worst.step).toBeLessThan(ownStep * 4);
   });
 });

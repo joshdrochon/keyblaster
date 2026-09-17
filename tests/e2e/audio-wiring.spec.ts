@@ -108,6 +108,28 @@ interface WiringSnapshot {
  * Everything the run observed. Accumulated across the serial tests and written
  * once. Keys are read literally by tests/gauntlet/rubric.mjs.
  */
+/**
+ * MERGE INTO AN EVIDENCE KEY, NEVER OVERWRITE IT (A-21.2).
+ *
+ * Two specs in this file legitimately have something to say about `music`: spec
+ * 3 measures the intensity index against the live HUD stream, spec 10 proves
+ * the composed track was really fetched and decoded. Spec 10 ran later and
+ * assigned `evidence["music"] = { stop, source, ... }`, which DELETED
+ * `hudSamples`, `indicesObserved` and `drivenBy` - the three fields rubric item
+ * A-21.2 reads. So A-21.2 failed its wired predicate while the feature worked
+ * perfectly: the index moves, and the evidence of it was being overwritten
+ * before the file was written.
+ *
+ * It had happened once before and been patched in place - `voice` spreads its
+ * previous value at the second write site - which is how a hazard survives to
+ * bite a second key. This is the structural version: every writer merges, so no
+ * spec can silently drop another's fields whatever order they run in.
+ */
+function record(key: string, fields: Record<string, unknown>): void {
+  const previous = (evidence[key] ?? {}) as Record<string, unknown>;
+  evidence[key] = { ...previous, ...fields };
+}
+
 const evidence: Record<string, unknown> = {
   generatedBy: "tests/e2e/audio-wiring.spec.ts",
   note:
@@ -133,8 +155,37 @@ test.afterAll(() => {
   evidence["eventsReached"] = TEN_EVENTS.filter(
     (e) => (eventsSeen[e]?.count ?? 0) > 0 && (eventsSeen[e]?.via.length ?? 0) > 0,
   );
+  /**
+   * THE ARTIFACT MUST STILL CARRY WHAT THE RUBRIC READS (A-21.2).
+   *
+   * A-21.2's wired predicate failed for weeks against a working feature, because
+   * a later spec assigned over `evidence["music"]` and deleted the three fields
+   * it reads. `record()` merges now, so it cannot happen the same way - but the
+   * reason it went unnoticed is that NOTHING checked the artifact was complete
+   * before writing it. This does. It names the fields rather than running the
+   * rubric, because a missing field and a failing threshold are different
+   * problems and only the first one is this file's fault.
+   */
+  const REQUIRED: Record<string, readonly string[]> = {
+    music: ["drivenBy", "hudSamples", "indicesObserved"],
+    ambient: ["stops", "crossfades", "crossfadedOnSceneTransition"],
+    flightCue: ["cuesRouted", "distinctCues"],
+    voice: ["transport"],
+  };
+  const missing: string[] = [];
+  for (const [key, fields] of Object.entries(REQUIRED)) {
+    const block = evidence[key] as Record<string, unknown> | undefined;
+    for (const field of fields) {
+      if (block === undefined || block[field] === undefined) missing.push(`${key}.${field}`);
+    }
+  }
+
   mkdirSync(EVIDENCE_DIR, { recursive: true });
   writeFileSync(join(EVIDENCE_DIR, ARTIFACT), `${JSON.stringify(evidence, null, 2)}\n`);
+
+  // Written first, then asserted: a partial artifact is more useful to read
+  // than none, and the rubric will report it honestly either way.
+  expect(missing, "evidence fields the audio rubric reads went missing").toEqual([]);
 });
 
 // ---------------------------------------------------------------------------
@@ -263,10 +314,10 @@ test("D62 / audit.md 1.2: a real game boot produces a live audio system on a rea
   expect(after.ambientStops[0]).toBe("earth");
 
   evidence["boot"] = { ...boot, framesAfterASecond: after.frames };
-  evidence["voice"] = {
+  record("voice", {
     transport: after.voiceTransport,
     browserSpeechApiPresent: boot.speechApiPresent,
-  };
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -332,7 +383,7 @@ test("AC-21.3 uiNav: menu movement is audible, and the master bus moves air", as
   expect(after.played["uiNav"]).toBeGreaterThan(before.played["uiNav"] ?? 0);
   expect(after.reachedVia["uiNav"]).toContain("ui:nav");
 
-  evidence["uiNav"] = {
+  record("uiNav", {
     playsBefore: before.played["uiNav"] ?? 0,
     playsAfter: after.played["uiNav"],
     via: after.reachedVia["uiNav"],
@@ -340,7 +391,7 @@ test("AC-21.3 uiNav: menu movement is audible, and the master bus moves air", as
     // matters is that the bus carries signal at all.
     masterRmsPeak: peak,
     audible: peak > 0,
-  };
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -453,7 +504,7 @@ test("AC-6e.2 / AC-21.1 / AC-21.2 / AC-21.3: a real flight cue produces a schedu
     return { combo: s?.combo ?? 0, live: s?.rocks.length ?? 0, hull: s?.hull ?? 0 };
   });
 
-  evidence["flightCue"] = {
+  record("flightCue", {
     scene: "Flight",
     stop: "mars",
     typedWord: word,
@@ -468,19 +519,19 @@ test("AC-6e.2 / AC-21.1 / AC-21.2 / AC-21.3: a real flight cue produces a schedu
     // Each entry is a sound that was scheduled on the real context, with the
     // values that went to the nodes and the clock it went at.
     scheduled: after.recent.slice(-12),
-  };
-  evidence["ambient"] = {
+  });
+  record("ambient", {
     stops: after.ambientStops,
     crossfades: after.ambientCrossfades,
     crossfadedOnSceneTransition: after.ambientCrossfades >= 1,
-  };
-  evidence["music"] = {
+  });
+  record("music", {
     drivenBy: "FLIGHT_EVENTS.hud (liveCount, combo)",
     hudSamples: after.hudSamples,
     indicesObserved: after.musicIndices,
     indexNow: after.musicIndex,
     liveStateAtRead: hud,
-  };
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -546,7 +597,7 @@ test("AC-21.3 / AC-21.6: the warp spools, stings, and speaks its note after the 
   );
   expect(noteOnScreen.length).toBeGreaterThan(0);
 
-  evidence["warp"] = {
+  record("warp", {
     sentence,
     chargePlays: after.played["warpCharge"],
     warpPlays: after.played["warp"],
@@ -554,15 +605,15 @@ test("AC-21.3 / AC-21.6: the warp spools, stings, and speaks its note after the 
       warpCharge: after.reachedVia["warpCharge"],
       warp: after.reachedVia["warp"],
     },
-  };
-  evidence["coachNote"] = {
+  });
+  record("coachNote", {
     order: after.coachNoteOrder,
     spoken: after.spoken.filter((s) => s.kind === "coachNote"),
     textRendered: noteOnScreen,
     // AC-21.6's second half: the display carries the text and nothing a
     // renderer could branch on, so it cannot differ with or without speech.
     displayFields: ["text"],
-  };
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -592,11 +643,11 @@ test("AC-21.3 beacon: the reward bell rings when the lamp lights", async ({ page
   recordEvents(after);
   expect(after.reachedVia["beacon"]).toContain("beacon-scene:lit");
 
-  evidence["beacon"] = {
+  record("beacon", {
     plays: after.played["beacon"],
     via: after.reachedVia["beacon"],
     ambientStops: after.ambientStops,
-  };
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -722,7 +773,7 @@ test("AC-21.4 / AC-21.5: Shadow's pre-flight line ducks the live music bus", asy
     expect(released[id]).toBeCloseTo(resting[id] ?? 0, 2);
   }
 
-  evidence["duck"] = {
+  record("duck", {
     measuredOnLiveGraph: true,
     method: "drove the running game's SidechainDucker and sampled the real AudioParam after the ramp",
     restingGain: resting,
@@ -733,12 +784,11 @@ test("AC-21.4 / AC-21.5: Shadow's pre-flight line ducks the live music bus", asy
     /** The dB tolerance applied for float32 rounding on a real AudioParam. */
     float32SlopDb: FLOAT32_DB_SLOP,
     releasedToResting: true,
-  };
-  evidence["voice"] = {
-    ...(evidence["voice"] as Record<string, unknown>),
+  });
+  record("voice", {
     transport: spoke.voiceTransport,
     spokenLines: spoke.spoken,
-  };
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -819,7 +869,7 @@ test("AC-19.1: the settings volume sliders move the live bus gains", async ({ pa
     return store.activeProfile()?.settings ?? null;
   });
 
-  evidence["settings"] = {
+  record("settings", {
     openingGains: opening,
     afterMusicSlider: afterMusic,
     afterSfxSlider: muted,
@@ -828,7 +878,7 @@ test("AC-19.1: the settings volume sliders move the live bus gains", async ({ pa
     musicGainFollowedSlider: afterMusic.music < opening.music,
     sfxGainFollowedSlider: muted.sfx < opening.sfx,
     mutedSurvived: survived.ok,
-  };
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -864,12 +914,12 @@ test("D88: the game boots, plays and stays up with no AudioContext at all", asyn
   expect(result.played["uiNav"]).toBe(10);
   expect(errors).toEqual([]);
 
-  evidence["noAudioContext"] = {
+  record("noAudioContext", {
     contextKind: result.contextKind,
     uiNavPlays: result.played["uiNav"],
     pageErrors: errors,
     degradedSilently: errors.length === 0,
-  };
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -894,12 +944,12 @@ test("AC-21.5: a whole session makes zero TTS network calls", async ({ page }) =
   expect(s.spoken.length).toBeGreaterThan(0);
   expect(external).toEqual([]);
 
-  evidence["network"] = {
+  record("network", {
     externalRequests: external,
     ttsNetworkCalls: external.filter((u) => /tts|speech|voice|elevenlabs/i.test(u)).length,
     linesSpokenDuringSession: s.spoken.length,
     transport: s.voiceTransport,
-  };
+  });
 });
 
 
@@ -961,11 +1011,11 @@ test("E-MUSIC-1 / UR-12: a real boot fetches the stop's composed track and plays
   expect(graph.sourceKind).toBe("track");
   expect(graph.trackId).toBe("earth");
 
-  evidence["music"] = {
+  record("music", {
     stop: s.musicTrack,
     source: s.musicSource,
     shippedTracks: s.musicTrackIds,
     fetched: musicRequests,
     contextSampleRate: graph.sampleRate,
-  };
+  });
 });

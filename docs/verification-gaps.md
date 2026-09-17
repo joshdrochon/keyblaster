@@ -1,13 +1,13 @@
-# The check and the thing: eighteen ways this codebase lied to itself
+# The check and the thing: nineteen ways this codebase lied to itself
 
-Written 2026-09-17, after a night in which eighteen separate defects
+Written 2026-09-17, after a night in which nineteen separate defects
 turned out to be the same defect.
 
 Nine had a green test, two had a red one, and one was a picture a person judged. None of the tests
 were wrong about what they asserted. They were wrong about **what they were
 asserting it against.**
 
-This document exists because the nineteenth instance is cheaper to prevent
+This document exists because the twentieth instance is cheaper to prevent
 than to find, and because "we have 2891 passing tests" stopped being reassuring at
 about the third one.
 
@@ -29,7 +29,7 @@ that binding.
 
 ---
 
-## The eighteen
+## The nineteen
 
 | # | What was green | What shipped | Found by |
 |---|---|---|---|
@@ -90,6 +90,22 @@ sweeping" sounds like a matter of thoroughness — a bit less coverage, a bit
 more risk. It is not. Uranus would have reported the defect as *fixed* while
 five stops were broken, with no hint that anything was wrong. A sampled gate
 does not give you a weaker answer; it gives you a random one.
+
+| 19 | `A-21.2`, "music has >= 3 intensity layers driven by live asteroids and combo", reporting the wiring dead | **The wiring was fine and the artifact was truncated.** Two specs both write `evidence["music"]`. One measures the index against the live HUD stream and writes `drivenBy`, `hudSamples`, `indicesObserved` — exactly the three fields the rubric reads. The other proves the composed track was fetched and **assigns over the whole key**. It runs later, so it deleted the first spec's fields before the file was written. The same clobber had already eaten the `voice` key once and been patched in place at that one call site, which is how the hazard survived to bite a second | The audio lane, checking whether the failure was in the feature or the evidence before touching any audio code |
+
+**Instance 19 is a different animal from the eighteen above it, and worth
+separating.** Every earlier instance is a check bound to the wrong thing: the
+wrong screen, the wrong boot, the wrong stop, an assertion that could not fail.
+This one is a **correct check, reading a correct artifact, that a later writer
+silently truncated.** The binding was right the whole time and something
+downstream destroyed it.
+
+That matters because the guard is different. "Is this check testing the right
+object?" would never have caught it. Only "is the artifact still complete when
+it lands?" does. The fix was structural — all fourteen writers now merge
+through one helper, and the artifact writer asserts the fields the rubric reads
+are present before writing — rather than the one-line spread that had patched
+the previous occurrence and left the trap armed.
 
 Instance 11 is the worst thing in this document. The other ten are checks that
 measured the wrong thing; this one is a **human** looking at the wrong thing,
@@ -173,6 +189,6 @@ All of that machinery verifies **internal consistency**. None of it verifies
 that the thing being checked is the thing being shipped. That binding is
 maintained by attention, and attention is exactly what a green suite spends.
 
-Every one of the eighteen was ultimately found the same way: by someone looking at
+Every one of the nineteen was ultimately found the same way: by someone looking at
 the actual artifact — a screen, a waveform, a route, a rendered page — rather
 than at a result. That is the cheapest available guard and the easiest to skip.
