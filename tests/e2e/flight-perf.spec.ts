@@ -125,16 +125,33 @@ async function bootFlight(page: Page, options: BootOptions = {}): Promise<void> 
 const state = (page: Page): Promise<FlightState> =>
   page.evaluate(() => window.__kbFlight?.state() as FlightState);
 
-test("P-22.9 / AC-22.9: p95 frame time over a scripted 60 s flight", async ({
-  page,
-}) => {
+/**
+ * SWEPT, NOT SAMPLED (coding-standards rule 5).
+ *
+ * This spec booted `maxLive: 5` alone for as long as it has existed, and that
+ * was a fair worst case at the time: the difficulty controller's knob never
+ * reached the running game, so every belt ran at the floor of 2 and a depth of
+ * 5 was already generous. Closing that wiring changed what the shipping game
+ * can produce - a route now climbs to 7, and time-weighted occupancy goes from
+ * 1.00 rocks to 3.4-3.9. The board the budget has to survive is no longer the
+ * board this spec was measuring.
+ *
+ * So it runs at both the depth it always did and the deepest the game can now
+ * reach. 5 keeps writing `frametime.json`, which the rubric reads by name.
+ */
+for (const maxLive of [5, 7] as const) {
+  const evidenceFile = maxLive === 5 ? "frametime.json" : `frametime-maxlive${maxLive}.json`;
+
+  test(`P-22.9 / AC-22.9: p95 frame time over a scripted 60 s flight (maxLive ${maxLive})`, async ({
+    page,
+  }) => {
   test.setTimeout(180_000);
   const durationMs = 60_000;
 
   await bootFlight(page, {
     stageWordCount: 400,
     stageDurationMs: durationMs,
-    knobs: { maxLive: 5 },
+    knobs: { maxLive },
   });
 
   await page.evaluate(() => {
@@ -203,7 +220,8 @@ test("P-22.9 / AC-22.9: p95 frame time over a scripted 60 s flight", async ({
     p95Interval: number;
   };
 
-  writeEvidence("frametime.json", {
+  writeEvidence(evidenceFile, {
+    maxLive,
     p95Ms: Number(measured.p95Work.toFixed(2)),
     p95FrameIntervalMs: Number(measured.p95Interval.toFixed(2)),
     frames: measured.frames,
@@ -220,7 +238,8 @@ test("P-22.9 / AC-22.9: p95 frame time over a scripted 60 s flight", async ({
   const flown = await state(page);
   expect(flown.hits).toBeGreaterThan(5); // it was a flight, not an idle screen
   expect(measured.p95Work).toBeLessThanOrEqual(16.7);
-});
+  });
+}
 
 test("L-6e.1 / AC-6e.1: p95 keydown-to-render latency", async ({ page }) => {
   test.setTimeout(240_000);
