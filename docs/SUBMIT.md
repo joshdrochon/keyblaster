@@ -18,6 +18,17 @@ Every visual item passes. Every guardrail passes, including `G-secrets` (no
 API-key-shaped string in the client bundle) and `G-coverage` at
 99.92 / 99.14 / 100 / 99.92 against a 95% gate.
 
+**The game is completable, and that was measured rather than assumed.** The
+one spec that makes the survivability claim about the scene a child actually
+flies — Title to a placed beacon, keyboard only — stalled once during a
+3-worker run, then passed **three times out of three** when run on its own.
+Cause, by inspection: the spec types on a wall clock through a browser round
+trip, so under contention the simulated child slows down while the rocks keep
+falling. That makes the check **harsher than reality, never kinder** — it can
+raise a false alarm, it cannot hide a real stall. Recorded, not patched, two
+days from a deadline. The real number is unchanged: 3 stalls in 240 belts for
+a grade-2 pilot, all at Jupiter.
+
 **The three failures are all honest, and none is a product defect:**
 
 | item | why it is red |
