@@ -63,6 +63,7 @@ Invoke with the Agent tool, `subagent_type: "game-mechanics"`.
 | 1.5 | Blast/impact feel. User: "not satisfying at all." | unassigned | Particles, screen-shake, sound on destruction. Judged by a critic, not asserted. |
 | 1.6 | Audio: no overlapping speech; interrupted audio eases to silence rather than cutting. | unassigned | Drill test with two overlapping triggers. |
 | 1.7 | Warp progress bar eases instead of jolting, and charges audibly. | unassigned | |
+| 1.8 | **Play the rendered Shadow voice.** 29 mp3s are in `src/content/audio/voice/` with a manifest, rendered with Liam at stability 0.92 (male, light, mechanical — the user's brief). NOTHING in `src/` reads them; the game still uses the Web Speech stand-in (D88). Needs a file-playback `VoiceTransport` alongside `webSpeechTransport`/`adaptiveTransport` in `src/game/audio/voice.ts`, falling back to Web Speech when a file is missing. | unassigned | A test proves the file transport is selected when the manifest has the line, and that it falls back when it does not. Overlap and ease-to-silence rules (1.6) apply to it too. |
 
 ## P2 — checks that are currently lying. 16 tickets are FALSE-PASS.
 

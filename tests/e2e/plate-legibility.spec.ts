@@ -275,13 +275,19 @@ test.describe("AC-22.8: word plates are never occluded", () => {
       seed: 0x9102,
     });
 
+    // Frozen first: five sequential spawns is five CDP round trips, and on a
+    // running belt the rock placed first would have fallen past the breach line
+    // - and taken a hull mark with it - before the fifth arrived.
+    await freezeFlight(page);
+
     // Five rocks stacked into one column: every plate has at least one later
-    // rock over it, which is the pile-up a busy belt actually produces.
+    // rock over it, which is the pile-up a busy belt actually produces. Placed
+    // high, so no part of the stack is near the bottom of the screen.
     const words = ["dust", "rivers", "moons", "canyon", "polar"];
     for (const [i, word] of words.entries()) {
-      await spawnAt(page, word, { x: 960, y: 240 + i * 60 });
+      await spawnAt(page, word, { x: 960, y: 140 + i * 48 });
     }
-    await waitFrames(page, 4);
+    await waitFrames(page, 2);
 
     const state = await flightState(page);
     expect(state.rocks.length).toBeGreaterThanOrEqual(words.length);

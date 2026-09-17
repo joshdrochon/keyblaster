@@ -1,0 +1,175 @@
+{
+  "renderedAt": "2026-09-17T00:42:42.787Z",
+  "model": "eleven_flash_v2_5",
+  "voiceId": "TX3LPaxmHKxFdv7VOQHJ",
+  "lines": [
+    {
+      "id": "earth.preflightLine",
+      "file": "earth.preflightLine.mp3",
+      "chars": 49,
+      "bytes": 56886
+    },
+    {
+      "id": "earth.beaconHeadline",
+      "file": "earth.beaconHeadline.mp3",
+      "chars": 12,
+      "bytes": 14254
+    },
+    {
+      "id": "earth.beaconState",
+      "file": "earth.beaconState.mp3",
+      "chars": 6,
+      "bytes": 13000
+    },
+    {
+      "id": "earth.beaconFlavor",
+      "file": "earth.beaconFlavor.mp3",
+      "chars": 29,
+      "bytes": 27211
+    },
+    {
+      "id": "mars.preflightLine",
+      "file": "mars.preflightLine.mp3",
+      "chars": 99,
+      "bytes": 111639
+    },
+    {
+      "id": "mars.beaconHeadline",
+      "file": "mars.beaconHeadline.mp3",
+      "chars": 11,
+      "bytes": 16762
+    },
+    {
+      "id": "mars.beaconState",
+      "file": "mars.beaconState.mp3",
+      "chars": 6,
+      "bytes": 11328
+    },
+    {
+      "id": "mars.beaconFlavor",
+      "file": "mars.beaconFlavor.mp3",
+      "chars": 50,
+      "bytes": 48527
+    },
+    {
+      "id": "jupiter.preflightLine",
+      "file": "jupiter.preflightLine.mp3",
+      "chars": 95,
+      "bytes": 112475
+    },
+    {
+      "id": "jupiter.beaconHeadline",
+      "file": "jupiter.beaconHeadline.mp3",
+      "chars": 14,
+      "bytes": 16762
+    },
+    {
+      "id": "jupiter.beaconState",
+      "file": "jupiter.beaconState.mp3",
+      "chars": 6,
+      "bytes": 11328
+    },
+    {
+      "id": "jupiter.beaconFlavor",
+      "file": "jupiter.beaconFlavor.mp3",
+      "chars": 53,
+      "bytes": 44347
+    },
+    {
+      "id": "saturn.preflightLine",
+      "file": "saturn.preflightLine.mp3",
+      "chars": 90,
+      "bytes": 91159
+    },
+    {
+      "id": "saturn.beaconHeadline",
+      "file": "saturn.beaconHeadline.mp3",
+      "chars": 13,
+      "bytes": 16762
+    },
+    {
+      "id": "saturn.beaconState",
+      "file": "saturn.beaconState.mp3",
+      "chars": 6,
+      "bytes": 11328
+    },
+    {
+      "id": "saturn.beaconFlavor",
+      "file": "saturn.beaconFlavor.mp3",
+      "chars": 48,
+      "bytes": 44347
+    },
+    {
+      "id": "uranus.preflightLine",
+      "file": "uranus.preflightLine.mp3",
+      "chars": 76,
+      "bytes": 72351
+    },
+    {
+      "id": "uranus.beaconHeadline",
+      "file": "uranus.beaconHeadline.mp3",
+      "chars": 13,
+      "bytes": 18016
+    },
+    {
+      "id": "uranus.beaconState",
+      "file": "uranus.beaconState.mp3",
+      "chars": 6,
+      "bytes": 11328
+    },
+    {
+      "id": "uranus.beaconFlavor",
+      "file": "uranus.beaconFlavor.mp3",
+      "chars": 30,
+      "bytes": 30973
+    },
+    {
+      "id": "neptune.preflightLine",
+      "file": "neptune.preflightLine.mp3",
+      "chars": 59,
+      "bytes": 61902
+    },
+    {
+      "id": "neptune.beaconHeadline",
+      "file": "neptune.beaconHeadline.mp3",
+      "chars": 14,
+      "bytes": 18016
+    },
+    {
+      "id": "neptune.beaconState",
+      "file": "neptune.beaconState.mp3",
+      "chars": 6,
+      "bytes": 11328
+    },
+    {
+      "id": "neptune.beaconFlavor",
+      "file": "neptune.beaconFlavor.mp3",
+      "chars": 48,
+      "bytes": 41839
+    },
+    {
+      "id": "pluto.preflightLine",
+      "file": "pluto.preflightLine.mp3",
+      "chars": 70,
+      "bytes": 87397
+    },
+    {
+      "id": "pluto.beaconHeadline",
+      "file": "pluto.beaconHeadline.mp3",
+      "chars": 12,
+      "bytes": 15926
+    },
+    {
+      "id": "pluto.beaconState",
+      "file": "pluto.beaconState.mp3",
+      "chars": 6,
+      "bytes": 11328
+    },
+    {
+      "id": "pluto.beaconFlavor",
+      "file": "pluto.beaconFlavor.mp3",
+      "chars": 67,
+      "bytes": 76948
+    }
+  ]
+}

@@ -91,9 +91,19 @@ async function render(line) {
       body: JSON.stringify({
         text: line.text,
         model_id: MODEL,
-        // Shadow is warm and steady, never theatrical (D66). Low style, high
-        // stability: he is a calm co-pilot talking to a seven-year-old.
-        voice_settings: { stability: 0.55, similarity_boost: 0.75, style: 0.15 },
+        // Shadow is a SMALL ROBOT (D66, D91: charcoal body, pale-blue eyes,
+        // antenna). Male, light rather than deep, and slightly mechanical in
+        // delivery. `stability` is the lever that matters: near 1.0 flattens
+        // prosody toward monotone, which is what reads as machine. `style` at
+        // zero keeps any performance out of it. Warmth has to come from the
+        // WORDS, not the delivery — a robot that emotes is a cartoon, and the
+        // character sheet is a little utility bot, not a mascot.
+        voice_settings: {
+          stability: Number(value("stability", "0.92")),
+          similarity_boost: 0.75,
+          style: 0,
+          use_speaker_boost: false,
+        },
       }),
     },
   );
