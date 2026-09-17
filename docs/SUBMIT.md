@@ -1,7 +1,10 @@
 # What is left, in order
 
-Deadline: **Fri 2026-09-18 23:59 CDT**. Rewritten 2026-09-17 ~03:30, after a
-full night of lane work and five blind critiques.
+Deadline: **Fri 2026-09-18 23:59 CDT**. Written 2026-09-17 ~06:10, after a full
+night of lane work, five blind critiques and eight commits.
+
+**The current build is playable right now at http://localhost:4180** — rebuilt
+at 05:47 from the committed tree, so it contains everything below.
 
 This is the only document you need to read first. Everything else is backlog.
 
@@ -27,7 +30,7 @@ sentence is built from words you just typed.
 
 ---
 
-## 2. Four things only you can judge, ~20 minutes total
+## 2. Five things only you can judge, ~30 minutes total
 
 These are all blocked on a human. Nothing else in the project is.
 
@@ -58,9 +61,19 @@ software-rendered, so every frame-time number in this repo describes
 SwiftShader, not your GPU. If it regresses, the render scale drops to 1.5 via
 one constant with a test already in place.
 
+**e. Judge three pictures.** `R-world`, `R-lantern` and `R-shadow` are
+reference-compares, and D85 forbids auto-passing one — a machine may never
+mark these green. All three are currently FAIL for want of your eye:
+
+| item | why it needs you |
+|---|---|
+| `R-world` | **Never judgeable before tonight.** The frame it compares was a screenshot of the Title screen. It is now the real flight screen |
+| `R-lantern` | Verdict is **stale** — it approved a render that has since drifted 6.8% |
+| `R-shadow` | Verdict is **stale** — 21.2% drift |
+
 ---
 
-## 3. Where the art stands, and one decision for you
+## 3. Where the art stands, and two decisions for you
 
 **a. Saturn and Pluto: the ice is back, the bodies are dark. One call for you.**
 
@@ -135,12 +148,13 @@ Not the tests — the game. Earth to Pluto, as a child would.
 
 The board will say ~46 user tickets and thousands of green assertions. Do not
 trust that over your own eyes. **Read `docs/verification-gaps.md` first**: it
-records FOURTEEN instances, found in one night, of a check that exercises
+records NINETEEN instances, found in one night, of a check that exercises
 something adjacent to the shipped thing, passes, and is believed. The worst:
 the image a human judged all world art against was a screenshot of the TITLE
 SCREEN, which voids every prior visual-rubric judgement. A close second: the
 asteroid-visibility probe reported PASSING numbers from three frames that
-contained no asteroid at all.
+contained no asteroid at all. And one that is its own category — a correct
+check, reading a correct artifact, that a later writer silently truncated.
 
 Everything that mattered tonight was found by someone looking at the artifact.
 
@@ -163,6 +177,14 @@ Everything that mattered tonight was found by someone looking at the artifact.
   are there so you can *disagree*, not so you can unblock anything. The
   decisions that genuinely need you are in section 2 and section 3 of this
   document, and there are five of them, not sixty-three.
+
+- **`AC-6e.5` needs a one-line ruling.** It is the last acceptance criterion
+  with no test, and it cannot have one: its thresholds were never chosen (the
+  PRD literally reads "median session >= N min, replay rate >= M%") and it
+  measures real children choosing to keep playing, which no harness produces.
+  Building telemetry for it would violate `G-pii`, which currently passes
+  *because* we have none. Lean: mark it EXEMPT, as `AC-12b.3` already is.
+  Written up in `gauntlet/escalations.md`.
 
 - **Electron**: asked about, advised against before the deadline. Trackpad
   haptics need a native addon plus notarization, and it risks the deployed URL

@@ -135,19 +135,58 @@ export async function bootFlight(page: Page, options: BootOptions = {}): Promise
    * way: the scene boots, the state reads, the assertions run, and the pixels
    * belong to a different program.
    */
-  const canvases = await page.evaluate(() =>
-    [...document.querySelectorAll("canvas")]
-      .filter((c) => (c as HTMLElement).dataset["testid"] !== "viewport-backdrop")
-      .map((c) => ({
+  const layout = await page.evaluate(() => {
+    const all = [...document.querySelectorAll("canvas")];
+    const describe = (c: Element): { width: number; y: number; height: number } => {
+      const r = c.getBoundingClientRect();
+      return {
         width: (c as HTMLCanvasElement).width,
-        y: Math.round(c.getBoundingClientRect().y),
-      })),
-  );
-  if (canvases.length !== 1) {
+        y: Math.round(r.y),
+        height: Math.round(r.height),
+      };
+    };
+    return {
+      games: all
+        .filter((c) => (c as HTMLElement).dataset["testid"] !== "viewport-backdrop")
+        .map(describe),
+      backdrops: all
+        .filter((c) => (c as HTMLElement).dataset["testid"] === "viewport-backdrop")
+        .map(describe),
+      viewH: window.innerHeight,
+    };
+  });
+  if (layout.games.length !== 1) {
     throw new Error(
-      `${canvases.length} game canvases on the page, expected 1: ${JSON.stringify(canvases)}. ` +
+      `${layout.games.length} game canvases on the page, expected 1: ${JSON.stringify(layout)}. ` +
         "The app entry booted alongside this one - see muteHmr. Every pixel measured " +
         "from here would belong to whichever game won the race.",
+    );
+  }
+  /**
+   * AND IT HAS TO BE ON SCREEN.
+   *
+   * `#app` is `display:grid; place-items:center` and the viewport backdrop is
+   * absolutely positioned so it does not take a grid row. When that goes wrong -
+   * a second backdrop, or one that has not had its positioning applied yet - the
+   * two canvases become two ROWS and the game is pushed entirely below the fold.
+   * Caught in a 3-worker run as `{"y":720, "height":720, "viewH":720}`: the
+   * game's top edge exactly at the bottom of the window.
+   *
+   * Every pixel this harness measures is a screenshot clipped to that canvas, so
+   * a canvas off the fold is a measurement of nothing. Asserted at BOOT, with
+   * the geometry, rather than surfacing later as a Playwright clip error in the
+   * middle of somebody's rubric item.
+   */
+  const game = layout.games[0];
+  if (game !== undefined && game.y >= layout.viewH) {
+    throw new Error(
+      `the game canvas is below the fold: ${JSON.stringify(layout)}. Two canvases have ` +
+        "become two grid rows; nothing measured from a clip to this canvas is the game.",
+    );
+  }
+  if (layout.backdrops.length > 1) {
+    throw new Error(
+      `${layout.backdrops.length} viewport backdrops on the page: ${JSON.stringify(layout)}.`,
     );
   }
 }
@@ -183,10 +222,41 @@ export async function flightCanvasBox(
       ?.canvas;
     if (canvas === undefined) return null;
     const r = canvas.getBoundingClientRect();
-    return { x: r.x, y: r.y, width: r.width, height: r.height };
+    return {
+      x: r.x,
+      y: r.y,
+      width: r.width,
+      height: r.height,
+      viewW: window.innerWidth,
+      viewH: window.innerHeight,
+    };
   });
   if (box === null) throw new Error("the flight game has no canvas");
-  return box;
+
+  /**
+   * CLAMPED TO THE VIEWPORT, because `page.screenshot({ clip })` refuses a
+   * rectangle that reaches outside the image: "Clipped area is either empty or
+   * outside the resulting image". A canvas can sit partly outside it - during a
+   * resize, or before layout has settled - and every caller here feeds this box
+   * straight to `clip`, so the failure surfaces as a Playwright error in the
+   * middle of a measurement rather than as anything diagnosable.
+   *
+   * Clamped rather than asserted: a few pixels off the edge is not a defect, and
+   * the measurements that use this are fractional across the canvas. A box with
+   * NO overlap at all is a different thing and throws, because measuring it
+   * would return whatever happened to be at the origin.
+   */
+  const x = Math.max(0, Math.min(box.x, box.viewW));
+  const y = Math.max(0, Math.min(box.y, box.viewH));
+  const width = Math.max(0, Math.min(box.x + box.width, box.viewW) - x);
+  const height = Math.max(0, Math.min(box.y + box.height, box.viewH) - y);
+  if (width < 1 || height < 1) {
+    throw new Error(
+      `the game canvas is not on screen: ${JSON.stringify(box)}. Nothing measured ` +
+        "from a screenshot clipped to it would be the game.",
+    );
+  }
+  return { x, y, width, height };
 }
 
 /** Put a KNOWN word on the belt, optionally at a KNOWN place. */
@@ -247,4 +317,160 @@ export async function freezeFlight(page: Page, paused = true): Promise<void> {
     if (stop) flight.scene.pause();
     else flight.scene.resume();
   }, paused);
+}
+
+/**
+ * ========================= THE BELT HOLDS ONE ROCK =========================
+ *
+ * Three specs in three files failed with one root cause, and a fourth was
+ * suspected. Each assumed a rock would be there at the moment it looked:
+ *
+ *   world-frame-invariants  read `rocks[0]`, typed its first letter, and asked
+ *                           the iris what it did - "nothing was blasted"
+ *   the audio lane's spec   typed a whole word (which DESTROYS the rock), waited
+ *                           400 ms, then read once and hoped a replacement had
+ *                           spawned AND fallen into frame
+ *
+ * The belt holds ONE word rock (`gauntlet/evidence/belt-concurrency.json`
+ * measures `floor(fallTime / expectedClearMs) == 1` at every pilot speed), and
+ * that rock spends the first part of its life above the visible frame and then
+ * leaves at the breach line. So "is a rock available right now" is false a
+ * large fraction of the time, more so on a loaded machine - which is why these
+ * looked like flakes and were not.
+ *
+ * TWO RULES, both learned the hard way in this file's history:
+ *
+ *   NEVER CONDITIONAL. If no rock arrives, this THROWS with what the belt was
+ *   doing. A silent skip is how an assertion stops meaning anything - the audio
+ *   lane found an `if (canister !== null)` that had been quietly skipping a
+ *   whole cue for who knows how long.
+ *
+ *   WAIT ON THE THING, NOT ON A CLOCK. Every wait below is on the state that
+ *   has to be true (a rock exists; `hits` went up), never on a duration that
+ *   somebody guessed. `waitForTimeout` is how the specs above were written and
+ *   it is why they were load-dependent.
+ */
+
+/** What the belt was doing, for a failure message that is worth reading. */
+async function beltSummary(page: Page): Promise<string> {
+  const live = await page.evaluate(() => {
+    const s = window.__kbFlight?.state();
+    if (s === undefined) return null;
+    return {
+      stalled: s.stalled,
+      stageComplete: s.stageComplete,
+      hull: `${s.hull}/${s.maxHull}`,
+      hits: s.hits,
+      maxLive: s.maxLive,
+      rocks: s.rocks.map((r) => ({ word: r.word, y: Math.round(r.y), size: r.sizePx })),
+    };
+  });
+  return live === null ? "no flight debug api on the page" : JSON.stringify(live);
+}
+
+export interface BlastableOptions {
+  readonly timeout?: number;
+  /**
+   * Require the rock to be FULLY inside the 1080-tall design frame. On by
+   * default: a rock above the top of the picture is typeable but invisible, and
+   * a spec measuring pixels wants one it can see.
+   */
+  readonly onScreen?: boolean;
+}
+
+/**
+ * Wait until the belt is carrying a rock that can be blasted, and return it.
+ *
+ * Throws with the belt's state if none arrives - see the rules above.
+ */
+export async function waitForBlastableRock(
+  page: Page,
+  options: BlastableOptions = {},
+): Promise<RockView> {
+  const { timeout = 25_000, onScreen = true } = options;
+  const handle = await page
+    .waitForFunction(
+      (needOnScreen: boolean) => {
+        const live = window.__kbFlight?.state();
+        if (live === undefined || live.stalled || live.stageComplete) return null;
+        const usable = live.rocks.find(
+          (r) =>
+            !needOnScreen || (r.y - r.sizePx / 2 > 0 && r.y + r.sizePx / 2 < 1080),
+        );
+        return usable ?? null;
+      },
+      onScreen,
+      { timeout, polling: "raf" },
+    )
+    .catch(() => null);
+  if (handle === null) {
+    throw new Error(
+      `no blastable rock arrived within ${timeout}ms. The belt: ${await beltSummary(page)}`,
+    );
+  }
+  return (await handle.jsonValue()) as RockView;
+}
+
+/**
+ * Destroy one rock with real keystrokes, and return the word that was blasted.
+ *
+ * THE WHOLE TYPING HAPPENS IN ONE `page.evaluate`, and that is the other half of
+ * the fix. `world-frame-invariants` read the board, took `rocks[0].word[0]`, and
+ * then dispatched it a round trip later - by which time the board could hold a
+ * different rock whose first letter is different, so the keystroke was a typo,
+ * nothing locked, and the loop that followed typed an empty string. Reading the
+ * lock LIVE, in the same task as the keystrokes, removes that window.
+ *
+ * The first letter resolves the lock among every live rock (AC-2.1 guarantees
+ * distinct first letters), so the remainder is typed from the word the game
+ * CHOSE rather than the one the spec picked.
+ */
+export async function blastOneRock(
+  page: Page,
+  options: BlastableOptions = {},
+): Promise<string> {
+  const target = await waitForBlastableRock(page, options);
+  const before = await page.evaluate(() => window.__kbFlight?.state().hits ?? 0);
+
+  const typed = await page.evaluate((wanted: string) => {
+    const api = window.__kbFlight;
+    if (api === undefined) return null;
+    const press = (ch: string): void => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: ch, code: `Key${ch.toUpperCase()}`, bubbles: true }),
+      );
+    };
+    // Re-read: `wanted` came from the wait and is one round trip old. If it has
+    // left the board, take whatever is live now rather than typing at a ghost.
+    const live = api.state();
+    const rock = live.rocks.find((r) => r.word === wanted) ?? live.rocks[0];
+    if (rock === undefined) return null;
+    press(rock.word[0] as string);
+    const locked = api.state();
+    const chosen = locked.rocks.find((r) => r.id === locked.lockedId);
+    if (chosen === undefined) return null;
+    for (const ch of chosen.word.slice(locked.typed.length)) press(ch);
+    return chosen.word;
+  }, target.word);
+
+  if (typed === null) {
+    throw new Error(`the keystrokes locked nothing. The belt: ${await beltSummary(page)}`);
+  }
+
+  // Wait on the BLAST, not on frames: `hits` is what "the ship fired" means.
+  await page
+    .waitForFunction(
+      (was: number) => (window.__kbFlight?.state().hits ?? 0) > was,
+      before,
+      { timeout: 15_000, polling: "raf" },
+    )
+    .catch(() => null);
+  const after = await page.evaluate(() => window.__kbFlight?.state().hits ?? 0);
+  if (after <= before) {
+    throw new Error(
+      `typed "${typed}" and nothing was blasted (hits ${before} -> ${after}). ` +
+        `The belt: ${await beltSummary(page)}`,
+    );
+  }
+  return typed;
 }

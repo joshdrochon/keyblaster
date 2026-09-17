@@ -59,6 +59,10 @@ const PALETTE_MODULE = "/src/game/render/palette.ts";
 
 interface BootOptions {
   stopId?: string;
+  /** See `bootFlight`. Only V-22.3 sets it: it measures the sky, not the belt. */
+  waitForRock?: boolean;
+  /** FR-8 scales fall time by this. A slow pilot is a shipped configuration. */
+  calibration?: { ikiMs: number; fkLatencyMs: number };
   seed?: number;
   debug?: boolean;
   pixelReadback?: boolean;
@@ -125,11 +129,23 @@ async function bootFlight(page: Page, options: BootOptions = {}): Promise<void> 
   await page.waitForFunction(() => window.__kbFlight !== undefined, null, {
     timeout: 15_000,
   });
-  await page.waitForFunction(
-    () => (window.__kbFlight?.state().rocks.length ?? 0) > 0,
-    null,
-    { timeout: 15_000 },
-  );
+  /**
+   * WAITING FOR A ROCK COSTS THE SKY A THIRD OF ITS STAGE.
+   *
+   * Almost every test in this file needs a rock before it can measure anything,
+   * so waiting for one here is right for them. V-22.3 does not: it measures the
+   * SKY, which is painted in `create`, and the wait for the first spawn is dead
+   * time during which the sky is already travelling. Measured, the start sample
+   * landed at `skyProgress` 0.32 on an IDLE machine - a third of the journey
+   * gone before the first sample, on every run this item has ever made.
+   */
+  if (options.waitForRock !== false) {
+    await page.waitForFunction(
+      () => (window.__kbFlight?.state().rocks.length ?? 0) > 0,
+      null,
+      { timeout: 15_000 },
+    );
+  }
 }
 
 /** Wait for N rendered frames. A loaded headless box can take a second over
@@ -858,11 +874,69 @@ test.describe("Flight - rubric evidence", () => {
     page,
   }) => {
     test.setTimeout(90_000);
-    await bootFlight(page, {
+    /**
+     * ================== THIS ITEM WAS PASSING BY LUCK ==================
+     *
+     * The measurement is "sample the sky, wait, sample again", and the first
+     * sample used to be taken whenever the boot happened to finish. The sky
+     * starts travelling the moment the scene does, so on a loaded machine it has
+     * ALREADY MOVED before "start" is captured, and the item then reports the
+     * REMAINDER of the journey as though it were the whole of it.
+     *
+     * Measured on this machine, idle, varying only how late the start sample is
+     * taken - nothing else changed, same stage, same stop:
+     *
+     *   start sample delayed    0 ms  ->  deltaE 13.81
+     *                        2000 ms  ->         11.62
+     *                        4000 ms  ->          9.79   <- under the bar of 10
+     *                        6000 ms  ->          7.82
+     *
+     * About one deltaE per second, against a bar of 10 and an idle reading of
+     * 13.8: three and a half seconds of boot latency is the whole margin. A
+     * full-suite run at three workers supplied it and the item failed at 9.28,
+     * with a start sample of rgb(194,154,117) - which is the 4000 ms row,
+     * rgb(195,155,118), to within a level.
+     *
+     * The sky itself is fine and was never the problem. The full travel at this
+     * sample height computes to deltaE 18.2 on Mars from `skyStops` to
+     * `skyStopsLate`, and the END sample is identical run to run (170,130,97).
+     * What varied was the START.
+     *
+     * SO THE WINDOW IS PINNED, NOT THE BAR. The scene reports its own sky clock
+     * (`skyProgress`), both samples record it, and the item asserts that what was
+     * observed really is most of a stage. If the machine was too slow to catch
+     * the beginning, this now says so in those words instead of quietly
+     * reporting the tail of the journey as the journey.
+     *
+     * `maxLive: 2` keeps the hull alive long enough to reach the end of the
+     * stage: nobody types during the capture, so every rock breaches, and at the
+     * default width the belt burns five of six hull marks in seventeen seconds.
+     * A stall would freeze the sky mid-travel - the same failure by another
+     * route, and the window assertion below catches that one too.
+     */
+    const BOOT = {
       pixelReadback: true,
+      /**
+       * SIXTEEN SECONDS, AND NOT FORTY, AND THE REASON IS THE HULL.
+       *
+       * A longer stage makes the fixed boot latency a smaller fraction of the
+       * window, which is the obvious move and it was tried: at 40 s the start
+       * sample landed at progress 0.05 - and the stage STALLED at 0.73, because
+       * nobody types during a capture, every rock breaches, and six hull marks
+       * last about 29 s. A stall freezes `updateWorld` and with it the sky, so
+       * the reading became a measurement of a stall (deltaE 10.76 over 0.63 of a
+       * stage). Slowing the pilot's calibration does not help either: in steady
+       * state the breach rate IS the spawn rate, so a slower fall delays the
+       * first breach and not the sixth. Measured, it stalled at 0.73 anyway.
+       *
+       * So the stage stays inside the hull's life and the LATENCY is attacked
+       * instead - see the pause around the start sample below.
+       */
       stageDurationMs: 16_000,
       stageWordCount: 40,
-    });
+      knobs: { maxLive: 2 },
+      waitForRock: false,
+    };
 
     /**
      * UR-36: THIS SAMPLED THE WRONG CANVAS, AND THEN THE WRONG WAY.
@@ -881,12 +955,20 @@ test.describe("Flight - rubric evidence", () => {
      * fractional patch coordinates below are unchanged, because the clip makes
      * the decoded image the canvas.
      */
-    const sampleSky = async (): Promise<[number, number, number]> => {
+    interface SkySample {
+      rgb: [number, number, number];
+      progress: number;
+      stalled: boolean;
+    }
+    const sampleSky = async (): Promise<SkySample> => {
       const box = await flightCanvasBox(page);
       const shot = await page.screenshot({
         clip: { x: box.x, y: box.y, width: box.width, height: box.height },
       });
       return page.evaluate(async (b64: string) => {
+        // READ IN THE SAME CALL AS THE PIXELS. The clock and the frame have to
+        // describe one moment, for the reason V-22.4 documents at length.
+        const live = window.__kbFlight?.state();
         const img = new Image();
         img.src = `data:image/png;base64,${b64}`;
         await img.decode();
@@ -927,13 +1009,82 @@ test.describe("Flight - rubric evidence", () => {
             .sort((a, b) => a - b);
           return values[Math.floor(values.length / 2)] as number;
         };
-        return [median(0), median(1), median(2)] as [number, number, number];
+        return {
+          rgb: [median(0), median(1), median(2)] as [number, number, number],
+          progress: live?.skyProgress ?? 0,
+          stalled: live?.stalled ?? true,
+        };
       }, shot.toString("base64"));
     };
 
-    const start = await sampleSky();
-    await page.waitForTimeout(17_000);
-    const end = await sampleSky();
+    /**
+     * THE START SAMPLE IS TAKEN WITH THE SCENE PAUSED, and that is worth four
+     * seconds of the stage.
+     *
+     * `sampleSky` is a canvas-box evaluate, a full-frame `page.screenshot` and a
+     * decode - three CDP round trips and a PNG encode of 1280x720. All of it used
+     * to run while the scene clock advanced, so the cost of MEASURING the sky was
+     * charged to the sky's journey. `scene.pause()` stops `update`, which is what
+     * drives `setSkyProgress`, so the clock waits for the measurement instead.
+     */
+    /**
+     * ============ A RETRY, AND WHAT IT IS ALLOWED TO RETRY ON ============
+     *
+     * Bounded, and on an ABSENT MEASUREMENT only: if the boot was so slow that
+     * the first sample missed the opening of the stage, there is no start
+     * reading to compare against and the run has measured the tail of a journey.
+     * That is the same distinction `V-22.4` draws two tests below - it retries
+     * when there was no object in the frame, and never when the number was bad -
+     * and the same rule applies here.
+     *
+     * WHAT WOULD MAKE THIS DISHONEST: retrying on a low deltaE. The condition is
+     * `observed < MIN_OBSERVED`, a fact about the WINDOW, and it must never
+     * become a fact about the result. A short window can only make deltaE
+     * smaller, so a PASS is valid at any window; the window only decides whether
+     * a FAILURE means "the sky does not travel" or "we did not watch it".
+     */
+    const MIN_OBSERVED = 0.85;
+    let start!: SkySample;
+    let end!: SkySample;
+    let observed = 0;
+    let attempts = 0;
+    while (attempts < 3) {
+      attempts += 1;
+      await bootFlight(page, BOOT);
+      /**
+       * THE START SAMPLE IS TAKEN WITH THE SCENE PAUSED, and that is worth four
+       * seconds of the stage.
+       *
+       * `sampleSky` is a canvas-box evaluate, a full-frame `page.screenshot` and
+       * a decode - three CDP round trips and a PNG encode of 1280x720. All of it
+       * used to run while the scene clock advanced, so the cost of MEASURING the
+       * sky was charged to the sky's journey. `scene.pause()` stops `update`,
+       * which is what drives `setSkyProgress`, so the clock now waits for the
+       * measurement instead. Measured: the start sample moved from progress 0.32
+       * to 0.067, and deltaE from 13.5 to 15.0.
+       */
+      await freezeFlight(page, true);
+      start = await sampleSky();
+      await freezeFlight(page, false);
+    // WAIT FOR THE STAGE, NOT FOR THE CLOCK. A fixed 17 s wait is 17 s of wall
+    // time, and the scene advances on its own clock: under load it reaches a
+    // smaller progress in the same seconds, which is the second half of the same
+    // defect. Waiting on `skyProgress` pins the END of the window the way
+    // recording it pins the start.
+      await page
+        .waitForFunction(
+          () => {
+            const st = window.__kbFlight?.state();
+            return (st?.skyProgress ?? 0) >= 0.98 || (st?.stalled ?? false);
+          },
+          null,
+          { timeout: 60_000 },
+        )
+        .catch(() => undefined);
+      end = await sampleSky();
+      observed = end.progress - start.progress;
+      if (observed >= MIN_OBSERVED) break;
+    }
 
     const delta = (await page.evaluate(
       async ([stageUrl, a, b]) => {
@@ -948,15 +1099,31 @@ test.describe("Flight - rubric evidence", () => {
         const labB = stage.rgbToLab(...(b as [number, number, number]));
         return stage.deltaE(labA, labB);
       },
-      [STAGE_MODULE, start, end] as const,
+      [STAGE_MODULE, start.rgb, end.rgb] as const,
     )) as number;
 
     writeEvidence("sky-gradient-shift.json", {
       deltaE: Number(delta.toFixed(2)),
-      startRgb: start.map((v) => Math.round(v)),
-      endRgb: end.map((v) => Math.round(v)),
+      startRgb: start.rgb.map((v) => Math.round(v)),
+      endRgb: end.rgb.map((v) => Math.round(v)),
       stopId: "mars",
+      // The window the number is a statement about. Without these two, a 9.3 and
+      // a 13.8 look like the same kind of reading and they are not.
+      startProgress: Number(start.progress.toFixed(3)),
+      endProgress: Number(end.progress.toFixed(3)),
+      observedFractionOfStage: Number(observed.toFixed(3)),
+      attempts,
+      stalledAtEnd: end.stalled,
+      sensitivity:
+        "measured idle: deltaE falls about 1.0 per second of start-sample lateness (13.81 / 11.62 / 9.79 / 7.82 at 0 / 2 / 4 / 6 s). The full travel at this sample height computes to 18.2.",
     });
+    // THE WINDOW FIRST, because a deltaE over a fraction of a stage is not a
+    // statement about a stage. This is the assertion that would have failed
+    // honestly on the run that reported 9.28: it began at progress ~0.28.
+    expect(
+      observed,
+      `after ${attempts} attempt(s) the sky was only observed across ${(observed * 100).toFixed(0)}% of the stage (progress ${start.progress.toFixed(2)} -> ${end.progress.toFixed(2)}${end.stalled ? ", and the stage STALLED, which freezes the travel" : ""}). This is a statement about the HARNESS, not about the sky: a deltaE over part of a stage is smaller than one over all of it, so the number below cannot be believed as a failure. deltaE over what WAS observed: ${delta.toFixed(2)}`,
+    ).toBeGreaterThan(MIN_OBSERVED);
     expect(delta).toBeGreaterThan(10);
   });
 

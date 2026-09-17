@@ -601,6 +601,18 @@ export function buildTickets() {
     } else if (bound.some((b) => b.state === STATE.OPEN)) {
       state = STATE.OPEN;
       why = `rubric item ${bound.find((b) => b.state === STATE.OPEN).id} is failing`;
+    } else if (bound.some((b) => b.state === STATE.BLOCKED)) {
+      // THE SAME HOLE THE STALENESS PILLAR HAD, one state along. rubricState
+      // maps an ESCALATED item to BLOCKED correctly, and this chain then threw
+      // that away: it tested FALSE_PASS, OPEN and UNVERIFIED and fell through
+      // to DONE for everything else. So an AC went DONE the moment its rubric
+      // item stopped FAILING and started AWAITING A HUMAN — which is the one
+      // transition that means less is known, not more.
+      //
+      // Caught by tickets.test.ts D-13 when R-lantern went FAIL -> ESC! and
+      // KB-AC-24.2 flipped to DONE with nobody having looked at the Lantern.
+      state = STATE.BLOCKED;
+      why = `the rubric item covering it (${bound.find((b) => b.state === STATE.BLOCKED).id}) is escalated and awaiting a decision`;
     } else if (bound.some((b) => b.state === STATE.UNVERIFIED)) {
       // The staleness pillar. Without this case the rubric item's freshness
       // check was computed and then thrown away here, so an AC could be DONE -

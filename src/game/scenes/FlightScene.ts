@@ -292,6 +292,27 @@ export interface FlightDebugState {
   readonly knobChanges: number;
   /** The gap the belt is currently holding between rocks, ms (@engine/pacing). */
   readonly spawnGapMs: number;
+  /**
+   * AC-22.3's clock: how far through the stage the SKY TRAVEL has got, 0..1.
+   *
+   * Exposed because `V-22.3` could not otherwise tell a real reading from a
+   * late one. It samples the sky twice and compares, and the first sample is
+   * taken whenever the boot happens to finish - so on a loaded machine the sky
+   * has already travelled before "start" is captured and the item reports the
+   * REMAINDER of the journey as though it were the whole of it. Measured, the
+   * cost is about one deltaE per second of lateness against a bar of 10:
+   *
+   *   start sample delayed   0 ms -> deltaE 13.81
+   *                       2000 ms -> 11.62
+   *                       4000 ms ->  9.79    <- under the bar
+   *                       6000 ms ->  7.82
+   *
+   * It is `Math.min(1, elapsedMs / stageDurationMs)` clamped exactly as
+   * `updateWorld` clamps it, and it FREEZES when the stage stalls or completes,
+   * because that is when the sky stops travelling - which is the other way this
+   * measurement can be wrong, and the spec now asserts against both.
+   */
+  readonly skyProgress: number;
   readonly rocks: readonly {
     readonly id: string;
     readonly word: string;
@@ -2529,6 +2550,7 @@ export class FlightScene extends Phaser.Scene {
           hitStopUntilMs: this.hitStopUntilMs,
           knobChanges: this.knobChanges,
           spawnGapMs: this.lastSpawnGapMs,
+          skyProgress: Math.max(0, this.skyPaintedAt),
           rocks: this.rocks.map((r) => ({
             id: r.id,
             word: r.word,

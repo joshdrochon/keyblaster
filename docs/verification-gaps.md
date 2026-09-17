@@ -1,13 +1,13 @@
-# The check and the thing: nineteen ways this codebase lied to itself
+# The check and the thing: twenty ways this codebase lied to itself
 
-Written 2026-09-17, after a night in which nineteen separate defects
+Written 2026-09-17, after a night in which twenty separate defects
 turned out to be the same defect.
 
 Nine had a green test, two had a red one, and one was a picture a person judged. None of the tests
 were wrong about what they asserted. They were wrong about **what they were
 asserting it against.**
 
-This document exists because the twentieth instance is cheaper to prevent
+This document exists because the twenty-first instance is cheaper to prevent
 than to find, and because "we have 2891 passing tests" stopped being reassuring at
 about the third one.
 
@@ -29,7 +29,7 @@ that binding.
 
 ---
 
-## The nineteen
+## The twenty
 
 | # | What was green | What shipped | Found by |
 |---|---|---|---|
@@ -106,6 +106,25 @@ it lands?" does. The fix was structural — all fourteen writers now merge
 through one helper, and the artifact writer asserts the fields the rubric reads
 are present before writing — rather than the one-line spread that had patched
 the previous occurrence and left the trap armed.
+
+| 20 | Every pixel measurement in the flight harness — contrast, silhouette separation, sky travel, plate legibility | **The game canvas was entirely below the fold.** `flightCanvasBox` reported `{x:0, y:720, width:1280, height:720}` against a viewport 720 tall: the canvas's top edge exactly at the window's bottom. `#app` is `display:grid; place-items:center` with the backdrop absolutely positioned so it takes no row; when that goes wrong the two canvases become two ROWS and the game is pushed off screen. Every measurement in that run was a clip to a canvas nobody could see, and the only symptom was `page.screenshot` complaining the clipped area was empty | The flight lane, clamping a rect to the viewport — the clamp then failed loudly with the real condition |
+
+Instance 20 completes a set worth naming, because all three arrived in one
+night and all three are the same failure wearing different clothes:
+
+1. **Two games.** The harness booted a second `Phaser.Game`, and which one the
+   tests read was a race (instance 17).
+2. **The wrong canvas.** State and pixels read in separate round trips, so the
+   numbers described a different moment than the picture (instance 14).
+3. **The canvas off the fold.** The right game, the right canvas, rendered
+   entirely below the visible window.
+
+Every one of them was **invisible to every assertion**, because in all three
+cases the scene booted, the state read correctly, and the numbers came back
+well-formed. Nothing in a test suite notices that the thing it is measuring is
+not the thing on screen. The guard that catches all three is the same and it is
+embarrassingly cheap: at boot, assert there is exactly one game canvas, at most
+one backdrop, and that it is actually on screen.
 
 Instance 11 is the worst thing in this document. The other ten are checks that
 measured the wrong thing; this one is a **human** looking at the wrong thing,
@@ -189,6 +208,6 @@ All of that machinery verifies **internal consistency**. None of it verifies
 that the thing being checked is the thing being shipped. That binding is
 maintained by attention, and attention is exactly what a green suite spends.
 
-Every one of the nineteen was ultimately found the same way: by someone looking at
+Every one of the twenty was ultimately found the same way: by someone looking at
 the actual artifact — a screen, a waveform, a route, a rendered page — rather
 than at a result. That is the cheapest available guard and the easiest to skip.

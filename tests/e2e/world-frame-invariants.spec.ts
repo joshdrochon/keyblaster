@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { bootFlight, flightState, waitFrames } from "./support/flightBoot";
+import { blastOneRock, bootFlight, flightState, waitFrames } from "./support/flightBoot";
 
 /**
  * FOUR ACs that describe what the flight frame does, and had no test naming them.
@@ -346,26 +346,23 @@ test("AC-24.1: the iris opens when the ship fires, and closes again", async ({ p
     scene.drawIris = (g, open) => { scene.__irisLog.push(open); original(g, open); };
   })()`);
 
-  // Type the word the game LOCKED, not the word we picked: the first keystroke
-  // resolves the lock among every live rock, and typing at a rock the lock did
-  // not choose produces typos and no blast.
-  const before = await flightState(page);
-  await page.evaluate((first) => {
-    const press = (ch: string): void => {
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: ch, code: `Key${ch.toUpperCase()}` }),
-      );
-    };
-    press(first);
-    const api = window.__kbFlight!;
-    const state = api.state();
-    const locked = state.rocks.find((r) => r.id === state.lockedId);
-    for (const ch of (locked?.word ?? "").slice(state.typed.length)) press(ch);
-  }, before.rocks[0]!.word[0]!);
-  await waitFrames(page, 90);
-
-  const after = await flightState(page);
-  expect(after.hits, "nothing was blasted, so the ship never fired").toBeGreaterThan(0);
+  /**
+   * `blastOneRock` rather than a hand-rolled read-then-type.
+   *
+   * This used to read the board, take `rocks[0].word[0]`, and dispatch it a
+   * round trip later. The belt holds ONE rock and it spends part of its life
+   * above the frame, so by the time the keystroke landed the board could hold a
+   * different rock with a different first letter: the press became a typo,
+   * nothing locked, and the loop after it typed an empty string. The spec then
+   * reported "nothing was blasted, so the ship never fired" - which was true,
+   * and was a fact about the harness.
+   *
+   * The helper waits for a blastable rock (on the thing, never on a clock),
+   * types the whole word inside one task so nothing can go stale between the
+   * lock and the letters, and waits for `hits` to actually move. If no rock ever
+   * arrives it throws with what the belt was doing rather than skipping.
+   */
+  await blastOneRock(page);
 
   const log = (await page.evaluate(`${SCENE}.__irisLog`)) as number[];
   expect(log.length, "firing never touched the iris").toBeGreaterThan(0);
