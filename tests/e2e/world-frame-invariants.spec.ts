@@ -86,7 +86,10 @@ async function clearBelt(page: Page): Promise<void> {
 test("AC-1.1: the ship's x/y never change across a stage, while the camera and the bob do", async ({
   page,
 }) => {
-  test.setTimeout(300_000);
+  // 600 frames of a PLAYED belt. Headless frame rate drops hard when the suite
+  // runs three workers wide, and this test buys its evidence in frames, not in
+  // seconds - so the budget is generous on purpose.
+  test.setTimeout(420_000);
   // A long stage with a big word budget: the belt is played hard below, and a
   // stage that COMPLETES tears the scene down mid-measurement.
   await bootFlight(page, { seed: 7, stageDurationMs: 300_000, stageWordCount: 500 });

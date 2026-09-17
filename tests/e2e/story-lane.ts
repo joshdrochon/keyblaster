@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import { freezeReloads } from "./support/lane.js";
 
 /**
  * Shared driver for the four story screens (Earth activation, Director map,
@@ -116,6 +117,12 @@ export async function mount(
   data: StoryData = {},
 ): Promise<void> {
   if (page.url() === "about:blank" || !page.url().includes("scene=")) {
+    // The dev server is shared and several lanes edit `src/` at once. A save
+    // anywhere pushes a full reload to every open page, which destroys the
+    // execution context mid-assertion and reads as a flaky test - the most
+    // dangerous kind of red, because the tempting fix is to weaken whatever
+    // assertion happened to be running. Stub the HMR socket instead.
+    await freezeReloads(page);
     await page.goto(`/?scene=${key}`);
   }
   await page.waitForFunction(() => window.__kb !== undefined, null, { timeout: 60_000 });

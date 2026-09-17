@@ -1405,7 +1405,7 @@ Critic B measured the bar. Any future visual critique must sample BOTH sides.
 - **Attempts:** n/a — this is a decision, not a fix-and-retry item. The measurement is correct; what to do about the eleven is a call about what the submission claims.
 - **Evidence:** `node scripts/trace-check.mjs --strict` (exit 1); `tests/unit/gauntlet/traceAndScenes.test.ts`.
 
-<!-- G-trace-strict-unlinked: 11 -->
+<!-- G-trace-strict-unlinked: 1 -->
 <!-- The marker above is read by tests/unit/gauntlet/traceAndScenes.test.ts. It may
      never be LOWER than the live count: a new AC arriving with no test turns that
      test red. It may be higher after a lane closes one. Update it when you close
@@ -1447,6 +1447,32 @@ which is exactly what a citation looks like after the assertion it described was
 deleted: **AC-6d.1**, **AC-6d.1b**, **AC-25.1**. AC-6d.1 is the live example the
 ticket board already flags: it read as covered on the strength of tests titled
 `AC-6d.1c`, a longer id.
+
+### UPDATE 2026-09-16 — ten of the eleven are closed; one is not closable
+
+`--strict` now reads **104/105 asserted by a named test, 1 not named at all**.
+The ten that closed, and where their tests live:
+
+| AC | Test | Watched failing by |
+|---|---|---|
+| AC-13.3 | `tests/unit/coach/aiOutputFilter.test.ts` | disabling the validator's allowlist gate, then bypassing the validator entirely in `pipeline.settle` |
+| AC-1.1 | `tests/e2e/world-frame-invariants.spec.ts` | moving the idle-bob tween from `shipBody` onto the ship's own container |
+| AC-1.2 | `tests/e2e/world-frame-invariants.spec.ts` | removing `parallax.update()` from `FlightScene.advanceLayers` |
+| AC-17.3 | `tests/e2e/beacon-persist-blink.spec.ts` | dropping `withStoredProgress`; separately, pinning the beacon pulse to a constant |
+| AC-23.1 | `tests/unit/gauntlet/rasterScan.test.ts` | adding a `.png` literal and a `design-reference/` glob to a file in `src/` |
+| AC-24.1 | `tests/e2e/world-frame-invariants.spec.ts` | deleting the third focusing ring; opening the iris to 0.5 instead of 1; pinning the aim target to 0 |
+| AC-24.3 | `tests/e2e/world-frame-invariants.spec.ts` | adding a `Text` object to the ship body |
+| AC-6d.1 | `tests/unit/catalog/unlocks.test.ts` | adding a `priceCoins` field to a skin and a "30 minutes of play, or buy it now" unlock string |
+| AC-6d.1b | `tests/unit/catalog/unlocks.test.ts` | moving a ship's threshold from 5 to 4 beacons and deleting a skin |
+| AC-25.1 | `tests/unit/appearance/shadow.test.ts` | recolouring Shadow's body cream, his rim pale blue and his flank port brown |
+
+**AC-6e.5 is still open and will stay open**: its targets were never chosen. It
+has its own entry below; do not close it with a number nobody picked.
+
+**Two findings came out of the work, both filed below**: `U-ships` (no ship or
+skin can ever be unlocked) and the note in `U-ships` about the two unrelated
+ship colour tables. AC-13.3 was NOT a finding — the allowlist filter is on the
+live path; see that entry's test header.
 
 One AC is exempt, explicitly and with a reason, in `TEST_EXEMPT`: **AC-12b.3**,
 the NASA debris-source research closure, already exempt from relation 2 on
@@ -1755,6 +1781,31 @@ all, so certainly nothing sells them. Its tests assert the real, useful content
 of the claim (mastery-only milestones in config, no price field, no purchase or
 play-time machinery anywhere in `src/`), which stays true whichever way this
 escalation goes.
+
+### A second, smaller finding in the same area: the chosen ship is never flown
+
+There are TWO unrelated ship colour tables, and both say they are the four base
+ships of AC-24.3 / D79:
+
+| Where | What it holds | Who reads it |
+|---|---|---|
+| `src/game/ui/catalog.ts` `SHIPS` | hull/stripe/glass/lens hex per `ship-1..4` | `ProfilePickerScene` (via `liveryFor`) and `ProfileCreateScene`, for the tiles |
+| `src/game/render/lantern.ts` `LANTERN_COLORWAYS` + `STRIPE` | `coral` / `teal` / `amber` / `rose` | `TitleScene`, `WarpScene`, `LanternShotScene` |
+
+Their colours are different (`#FF6B4A` vs `#E8695A`, and so on) and **nothing
+maps a `shipId` to a `LanternColorway`**. `drawLantern` is never called with the
+profile's ship, so every Lantern in the game is the default `coral` one; and the
+ship the child actually flies is a third drawing, `FlightScene.drawLantern`, with
+its own hard-coded cream-and-coral hull that reads neither table.
+
+So a child who unlocks and selects ship-3 (were unlocking possible) would see a
+purple tile on the picker and fly the same cream-and-coral ship as everyone
+else. `tests/e2e/world-frame-invariants.spec.ts` asserts the part of AC-24.3
+that holds - four colourways exist, no text is baked into the hull, a passed-in
+name renders - and deliberately does not assert that the four reach the player.
+
+Fixing this is one function (`colorwayFor(shipId)`) plus passing it through; it
+is listed here rather than done because the flight and art lanes own those files.
 
 ### Options
 

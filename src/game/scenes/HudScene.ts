@@ -119,19 +119,28 @@ export class HudScene extends Phaser.Scene {
    * with the HUD on top of the panel the player was trying to read.
    *
    * Asked here rather than added to each exit because there are several exits
-   * and the next one written would be a new leak. Paused and sleeping both
-   * count as alive: the pause menu freezes the belt (and the readouts stay, on
-   * purpose - it is a pause, not an exit), and D30's warp break keeps Flight
-   * running underneath it.
+   * and the next one written would be a new leak. Paused and sleeping still
+   * count as ALIVE - the pause menu freezes the belt rather than ending it, and
+   * D30's warp break keeps Flight running underneath - so the scene survives;
+   * it just stops drawing. See the note on visibility below.
    */
   override update(): void {
     const flight = SCENE_KEYS.flight;
     if (this.scene.manager.keys[flight] === undefined) return;
-    const alive =
-      this.scene.isActive(flight) ||
-      this.scene.isPaused(flight) ||
-      this.scene.isSleeping(flight);
-    if (!alive) this.scene.stop();
+    const running = this.scene.isActive(flight);
+    const alive = running || this.scene.isPaused(flight) || this.scene.isSleeping(flight);
+    if (!alive) {
+      this.scene.stop();
+      return;
+    }
+    // A HUD that is drawn while the belt is NOT running is a HUD drawn over
+    // whatever replaced it. The pause menu freezes Flight and the Settings
+    // panel opens over that, and the readouts sat on top of both - a real
+    // playthrough found them over the Settings panel with the controls
+    // underneath. The frozen belt itself is still visible behind the overlay,
+    // which is what makes a pause read as a pause; the instruments are part of
+    // flying, and nobody is flying.
+    if (this.scene.isVisible() !== running) this.scene.setVisible(running);
   }
 
   private plate(

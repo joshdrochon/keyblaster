@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { activeScenes, freezeReloads, settle, waitForScene } from "./support/lane.js";
-import { mount } from "./story-lane.js";
+import { activeScenes, settle, waitForScene } from "./support/lane.js";
+import { mount, remount, setStoredCalibration } from "./story-lane.js";
 
 /**
  * ONE PLACE AT A TIME.
@@ -23,9 +23,18 @@ import { mount } from "./story-lane.js";
 
 test.describe.configure({ mode: "default", timeout: 300_000 });
 
+/**
+ * Get to a live belt the way the game does, without the twenty-second ritual.
+ *
+ * Pre-flight now measures any pilot the game has no baseline for (D51), which
+ * is correct and is the point of the other lane's fix - but this spec is about
+ * scene lifetimes, so it hands the profile a baseline first and takes the
+ * returning-pilot path.
+ */
 async function toFlight(page: import("@playwright/test").Page): Promise<void> {
-  await freezeReloads(page);
   await mount(page, "Preflight", { stopId: "mars" });
+  await setStoredCalibration(page, { ikiMs: 412, fkLatencyMs: 538 });
+  await remount(page, "Preflight", { stopId: "mars" });
   await waitForScene(page, "Flight", 120_000);
   await settle(page, 1200);
 }
@@ -74,8 +83,15 @@ test("opening Settings from the pause menu leaves nothing drawing over it", asyn
   const scenes = await activeScenes(page);
   expect(scenes, "Settings did not open").toContain("Settings");
   // Flight is PAUSED under the overlay on purpose - it is a pause, not an exit
-  // - so it is correctly absent from the active list. The HUD was not.
-  expect(scenes, "the HUD is drawn over the Settings panel").not.toContain("Hud");
+  // - so it is correctly absent from the active list. The HUD was not: it was
+  // still being drawn, in the top corners, over the panel.
+  const hudDrawn = await page.evaluate(() => {
+    const s = window.__kb?.game.scene.getScene("Hud") as
+      | { scene: { isVisible(): boolean } }
+      | null;
+    return s !== null && s.scene.isVisible();
+  });
+  expect(hudDrawn, "the HUD is drawn over the Settings panel").toBe(false);
 
   // And the panel has the keyboard: a leaked scene underneath is what made
   // Left / Right / Tab do nothing at all.
@@ -105,9 +121,11 @@ test("a stale place scene does not survive the next transition", async ({ page }
   // whichever route happened to produce it that evening.
   await page.evaluate(() => {
     const game = window.__kb?.game as unknown as {
-      scene: { launch(key: string, data?: unknown): void };
+      scene: { start(key: string, data?: unknown): void };
     };
-    game.scene.launch("Briefing", { stopId: "mars" });
+    // SceneManager.start, not ScenePlugin.start: it starts the scene and stops
+    // nothing, which is exactly the state every reported leak was in.
+    game.scene.start("Briefing", { stopId: "mars" });
   });
   await settle(page, 900);
   expect(await activeScenes(page), "the leak was not induced").toContain("Briefing");
