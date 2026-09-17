@@ -16,6 +16,9 @@ npx tsc --noEmit
 echo "pre-commit: unit suite"
 npx vitest run tests/unit --coverage.enabled=false --reporter=dot
 
+echo "pre-commit: no-user-quotes"
+node scripts/no-user-quotes.mjs >/dev/null
+
 echo "pre-commit: trace-check"
 node scripts/trace-check.mjs >/dev/null
 
@@ -26,6 +29,9 @@ node scripts/trace-check.mjs >/dev/null
 # `npm run tickets:check` is the one that fails on unfinished work.
 echo "pre-commit: tickets"
 node scripts/tickets.mjs >/dev/null
-git add gauntlet/tickets.json docs/tickets.md
+# The board is generated and NO LONGER TRACKED - it is internal process record
+# and the repo ships to the judges. Regenerating it still matters (a stale board
+# is a lying board), but it is not staged, and `git add` on an ignored path
+# fails the hook. See .gitignore.
 
 echo "pre-commit: green"

@@ -18,7 +18,7 @@
  * A change to `render/parallax.ts` lands on FOURTEEN screens, and three separate
  * defects reached a player through the twelve nobody was looking at: the pale
  * near-plane slabs (seen first on the Title, months after they shipped on every
- * menu), the upside-down floor vignette, and the edge bars the user reported
+ * menu), the upside-down floor vignette, and the edge bars reported from play
  * three times. None of those was subtle. They were simply never rendered where
  * anyone would see them.
  *

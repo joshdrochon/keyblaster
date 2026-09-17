@@ -170,13 +170,12 @@ function towardLight(points: readonly Vec[], light: number, px: number): Vec[] {
  * The first two failed structurally. A plane that wraps every tile height can
  * only be a partial fill, and a partial fill repeated vertically is a band with
  * sky above and below it; and near-black mass lane-guarded out of the word
- * column collapses onto the frame's edges and reads as a border. Six user
+ * column collapses onto the frame's edges and reads as a border. Six playtest
  * reports came out of those two facts.
  *
- * The third failed on taste, which is the user's to call and they called it
- * after looking three times: "still trying to understand what this light portion
- * is on the right of the screen. At this point just remove it, and remove those
- * horizontal shapes (which are supposed to be?) they just look noisy."
+ * The third failed on taste, after three rounds of review: the bright right-hand
+ * portion never resolved into a readable object, and the horizontal forms beside
+ * it read as noise rather than structure. Both were cut.
  *
  * The depth planes are not empty - they carry DEBRIS at their own ramp value,
  * which is why `depthRamp` and `BANDS_BEHIND_DEBRIS` survive untouched. What
@@ -203,27 +202,13 @@ export function dustTile(w: number, h: number, fill: string, rand: () => number)
   return out;
 }
 
-/** Starfield. One tile's worth, so the sky wraps with everything else. */
-export function starTile(
-  w: number,
-  h: number,
-  tint: string,
-  count: number,
-  rand: () => number,
-): TileOp[] {
-  const out: TileOp[] = [];
-  for (let i = 0; i < count; i++) {
-    out.push({
-      kind: "circle",
-      color: tint,
-      alpha: 0.25 + rand() * 0.55,
-      x: rand() * w,
-      y: rand() * h,
-      r: 0.8 + rand() * 1.6,
-    });
-  }
-  return out;
-}
+/**
+ * `starTile` is gone (UR-14). Stars are no longer tiled, wrapped or scrolled -
+ * they are a PINNED field that twinkles, in `starField.ts`. A player put it
+ * plainly: "the stars should not actually be moving in the parallax", and they
+ * are right about the physics as well as the look. Nothing at interstellar
+ * distance has perceptible parallax.
+ */
 
 /** Foreground motes and glints: sparse, blurred BY SIZE, never by a filter. */
 export function moteTile(

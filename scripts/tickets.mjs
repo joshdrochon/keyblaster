@@ -499,7 +499,7 @@ export function rubricState({ result, falsePass, stale, ageMs, staleReason }) {
   return { state: STATE.OPEN, why: status };
 }
 
-/** Defects the user reported by looking at the game. See the block that uses it. */
+/** Defects reported from play rather than by a check. See the block that uses it. */
 function userReported() {
   const raw = readIf("gauntlet/user-reported.json");
   if (!raw) return [];

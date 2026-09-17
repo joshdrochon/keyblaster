@@ -22,3 +22,19 @@ kbdbg.mjs
 pw.*.ts
 pw.*.mjs
 pw.*.config.ts
+
+# INTERNAL BUILD PROCESS — never goes to GitHub.
+# These are our working artifacts, not the product: the user's own verbatim bug
+# reports, the escalation write-ups, the computed ticket board and the judge's
+# working notes. They are load-bearing for scripts/tickets.mjs and the gauntlet,
+# so they stay ON DISK and are simply untracked.
+gauntlet/user-reported.json
+gauntlet/queue.md
+gauntlet/tickets.json
+gauntlet/known-false-passes.json
+gauntlet/judge-notes.md
+gauntlet/judge-verdicts.json
+gauntlet/escalations.md
+docs/tickets.md
+docs/audit.md
+docs/coverage-audit.md

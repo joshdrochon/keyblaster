@@ -118,13 +118,13 @@ import {
   dustTile,
   moteTile,
   planeMaterialColor,
-  starTile,
   veilFor,
   veilTile,
   wrapXY,
   wrapY,
   type Rect,
 } from "./tiles.js";
+import { buildStarField, type StarField } from "./starField.js";
 import { debrisTypesFor } from "./asteroid.js";
 import { TEX, ensureTextures } from "./textures.js";
 
@@ -548,9 +548,26 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   // setSkyProgress. Graphics has no gradient fill, so a gradient is a stack of
   // 1px-tall strips - one draw, no texture memory, and it is genuinely vector.
   let skyLate: Phaser.GameObjects.Graphics | null = null;
+  let starField: StarField | null = null;
   if (decorate.has("sky")) {
     const skyLayer = layerOf("sky").container;
     skyLayer.add(gradient(scene, W, H, skyStops(pal)));
+    /**
+     * THE STARS ARE PINNED (UR-14). They live on the sky container, which
+     * `PINNED` holds at (0, 0) forever, so they neither scroll nor take the
+     * camera sway - see `starField.ts` for why a sliding starfield is wrong
+     * about distance as well as about the look. They twinkle instead, and that
+     * twinkle is what keeps AC-22.2 true for this layer.
+     */
+    starField = buildStarField(
+      scene,
+      W,
+      H,
+      mixHex(skyStops(pal)[0], "#FFFFFF", 0.75),
+      90,
+      rand,
+    );
+    skyLayer.add(starField.graphics);
     skyLate = gradient(scene, W, H, skyStopsLate(pal)).setAlpha(0);
     skyLayer.add(skyLate);
     // NOTE: the bloom around the light is drawn ONCE, by `sunDisc` on the
@@ -565,8 +582,6 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
     // Starfield first, so the planet occludes it. Wrapped like everything else:
     // it used to be drawn once across -H..H, which is not periodic, so the stars
     // were themselves a source of the seam jolt.
-    const starTint = mixHex(skyStops(pal)[0], "#FFFFFF", 0.75);
-    c.add(drawOps(scene, wrapY(starTile(W, H, starTint, 90, rand), H)));
     for (const dy of [0, -H]) c.add(celestialBody(scene, pal, W, H, dy));
     // WORLD-BAR item 4: the source itself, in frame. The planet alone is not
     // it - a large dark disc reads as an object the light falls on, which is
@@ -587,9 +602,9 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
      *
      * It carried terrain, then ring planes and a planet limb. All three are
      * gone. The terrain removal was structural (D97: a landform needs ground and
-     * this game has none). The space forms went for a plainer reason - the user
-     * looked at them three times and said "remove it, and remove those
-     * horizontal shapes, they just look noisy".
+     * this game has none). The space forms went for a plainer reason - across
+     * three rounds of review the limb and the horizontal forms kept reading as
+     * noise rather than structure, so they were cut.
      *
      * What is left here is decorative debris at distance, coloured by this
      * plane's ramp value. The ramp is still what makes the planes read as
@@ -704,10 +719,10 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
     // the reference's foreground is along the bottom. Every version of that idea
     // - generated boxes, then authored wall profiles, then interrupted authored
     // wall profiles with different rhythms on each side - produced the same
-    // thing, and a player reported it three times in the same words: "the bars
-    // on the left and right... should be one seamless screen."
+    // thing, and it was reported three times: the left and right edges read as
+    // bars rather than as one seamless screen.
     //
-    // They were right and the idea was wrong. Anything that occupies both
+    // That verdict was correct and the idea was wrong. Anything that occupies both
     // vertical edges of a frame at most heights IS a border, whatever is drawn
     // inside it, and on a dark stop it is a LIGHTER border because the near
     // plane there sits above the sky by rule (art-direction section 2). Making
@@ -774,8 +789,8 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
          *      "acon".
          *   2. Therefore near-black mass can only live in the outer 40%.
          *   3. Filling the outer 40% at most heights IS A BORDER, which is the
-         *      defect a player reported three times in the words "the bars on
-         *      the left and right... should be one seamless screen".
+         *      defect reported three times: the left and right edges reading as
+         *      bars instead of one seamless screen.
          *
          * Measured on the Title, as the fraction of rows where the edge band
          * differs from the middle of the picture:
@@ -869,6 +884,7 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
         p.offset = mod(p.offset + (p.base + p.rate * worldSpeed) * crossScale * (dt / 1000), W);
         p.container.x = p.offset;
       }
+      starField?.update(elapsedMs, reducedMotion);
       if (weather !== null) {
         // The weather crosses every plane, so it moves on its own clock rather
         // than on any one layer's: a touch faster than the near field, with a
@@ -924,6 +940,8 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
       extras.length = 0;
       driftPlanes.length = 0;
       veilContainer = null;
+      starField?.destroy();
+      starField = null;
       weather = null;
     },
   };

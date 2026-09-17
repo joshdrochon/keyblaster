@@ -3,8 +3,8 @@
 **Goal: 100%.** This file says exactly what 100% means, so that "done" is a
 computed fact and not an opinion. Deadline: **Fri 2026-09-18 23:59 CDT**.
 
-The user's assessment on the morning of Sep 16 was that the game was **~20% there,
-visually and in every other facet**. That number is the baseline. This document is
+The review baseline on the morning of Sep 16 put the game at roughly **20% of
+the intended bar**, visually and otherwise. That number is the baseline. This document is
 what closing the remaining 80% consists of.
 
 ## The measure

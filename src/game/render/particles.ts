@@ -31,8 +31,8 @@ export const PARTICLES: readonly ParticleSpec[] = [
     // Rock breaking: chunks fly outward, are heavy, tumble, and keep the
     // rock's colour so the player sees WHICH rock died.
     //
-    // The numbers moved once, after a player said the explosions "are not
-    // satisfying at all", and they moved for a reason each. 8 shards at 90-220
+    // The numbers moved once, after the explosions were reported as
+    // unsatisfying, and they moved for a reason each. 8 shards at 90-220
     // px/s read as a puff: the count was below the art direction's own "6-10
     // shards" only at the low end of the roll, and the speed range was narrow
     // enough that they all left together, so there was no spray. 16 shards over
