@@ -181,7 +181,11 @@ export class EndingScene extends Phaser.Scene {
       h: b.h,
       activate: () => this.toResults(),
     };
-    this.menu = createKeyboardMenu(this, this.ring, [target]);
+    this.menu = createKeyboardMenu(this, this.ring, [target], {
+      // DELIBERATELY NOT ESCAPABLE (UR-86). This is the end of the route;
+      // its one control is the way out.
+      onBack: () => {},
+    });
     this.shadowLineDrawn = latchOnRender(
       this,
       () =>

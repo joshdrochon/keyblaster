@@ -366,8 +366,21 @@ export type MenuAxis = "horizontal" | "vertical";
 
 export interface KeyboardMenuOptions {
   readonly axis?: MenuAxis;
-  /** Escape / Backspace. AC-18.1: every screen is returnable by keyboard. */
-  readonly onBack?: () => void;
+  /**
+   * Escape / Backspace. AC-18.1: every screen is returnable by keyboard.
+   *
+   * REQUIRED, AND THAT IS THE FIX (UR-86). It was optional, and six of the
+   * seven screens on this kit simply never passed one - including the MAP,
+   * which is the hub: every route out of it goes deeper, so Escape doing
+   * nothing left a child with no way back to the title at all. An optional
+   * back is an opt-in promise, and AC-18.1 is not optional.
+   *
+   * A screen that must NOT be escapable still has to say so: pass a no-op with
+   * the reason beside it. Warp is mid-jump; Results and Beacon would let a
+   * child rewind story state that has already been written. Those are
+   * decisions, and now they are written down instead of missing.
+   */
+  readonly onBack: () => void;
   readonly wrap?: boolean;
   readonly startIndex?: number;
 }
@@ -420,7 +433,7 @@ export function createKeyboardMenu(
   scene: Phaser.Scene,
   ring: FocusRing,
   targets: readonly FocusTarget[],
-  options: KeyboardMenuOptions = {},
+  options: KeyboardMenuOptions,
 ): KeyboardMenu {
   const axis = options.axis ?? "vertical";
   const wrap = options.wrap ?? true;

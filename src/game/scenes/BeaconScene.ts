@@ -144,7 +144,13 @@ export class BeaconScene extends Phaser.Scene {
       activate: () => this.advance(),
     };
     hud.add(this.buildButton());
-    this.menu = createKeyboardMenu(this, this.ring, [target]);
+    this.menu = createKeyboardMenu(this, this.ring, [target], {
+      // DELIBERATELY NOT ESCAPABLE (UR-86). The beacon is already placed and
+      // the stop is already written to the profile; Escape here would read as
+      // "undo that", and there is nothing to undo it to. Continue is the only
+      // way on, and it is the only control on the screen.
+      onBack: () => {},
+    });
     this.focusRingDrawn = latchOnRender(this, () => this.ring.graphics.visible);
 
     this.publish();

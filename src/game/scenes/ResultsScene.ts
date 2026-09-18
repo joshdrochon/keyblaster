@@ -404,7 +404,11 @@ export class ResultsScene extends Phaser.Scene {
     );
 
     this.ring = createFocusRing(this, layer("hud").depth + 1);
-    this.menu = createKeyboardMenu(this, this.ring, []);
+    this.menu = createKeyboardMenu(this, this.ring, [], {
+      // DELIBERATELY NOT ESCAPABLE (UR-86). The run is over and scored. Going
+      // "back" would mean back into a belt that has already been banked.
+      onBack: () => {},
+    });
     this.renderBoard();
 
     this.publish();

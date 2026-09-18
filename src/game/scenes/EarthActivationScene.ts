@@ -121,7 +121,39 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
     this.statusPlate = null;
   }
 
+  /**
+   * Back to the map, from anywhere on this screen (UR-86).
+   *
+   * One function, two callers: the Escape key below and the focus menu that
+   * only exists after the ritual is finished.
+   */
+  private leaveToMap(): void {
+    goTo(this, SCENE_KEYS.map, {
+      ctx: this.story.ctx,
+      progress: this.story.progress,
+      shipName: this.story.shipName,
+      lang: this.story.lang,
+      newProfile: this.story.newProfile,
+    });
+  }
+
   create(): void {
+    // ESCAPE WORKS DURING THE RITUAL, NOT ONLY AFTER IT (UR-86).
+    //
+    // The focus menu - and so the kit's Escape handling - is not built until
+    // the beacon is lit, so for the whole typing phase this screen had no way
+    // out at all. That is the same defect as UR-31, which found the ritual is a
+    // HARD GATE with no timeout: a child who cannot type the prompt word never
+    // reaches the belt. A timeout answered the stuck case; this answers the
+    // child who simply wants to leave.
+    //
+    // Bound on the scene rather than through the menu because the menu does not
+    // exist yet. `lib/typedWord.ts` already ignores Escape, so this takes a key
+    // nothing else on the screen wants.
+    this.input.keyboard?.on("keydown-ESC", () => {
+      this.leaveToMap();
+    });
+
     const { text, ctx } = this.story;
     const pal = paletteAt("earth", ctx.colorblindPalette);
     const bundle = stageBundle("earth");
@@ -479,7 +511,13 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
       ease: EASE.pop,
     });
     const ring = createFocusRing(this, 30);
-    this.menu = createKeyboardMenu(this, ring, [target]);
+    this.menu = createKeyboardMenu(this, ring, [target], {
+      // Back to the map. The activation is a ritual a child can leave: nothing
+      // has been written yet, so leaving costs them nothing (UR-86).
+      onBack: () => {
+        this.leaveToMap();
+      },
+    });
   }
 
   override update(time: number, delta: number): void {

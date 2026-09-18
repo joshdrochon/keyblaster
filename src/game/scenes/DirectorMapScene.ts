@@ -334,6 +334,19 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     this.menu = createKeyboardMenu(this, ring, targets, {
       axis: "horizontal",
       startIndex: startIndex === -1 ? 0 : startIndex,
+      // ESCAPE LEAVES THE MAP (UR-86). `onBack` is OPTIONAL on this kit, and
+      // this screen never passed one, so Escape did nothing and the map was a
+      // dead end: every route out of it goes deeper - a stop, the log, the
+      // settings - and there was no way back to the title at all. AC-18.1 says
+      // every screen is returnable by keyboard, and the map was not.
+      //
+      // Six of the seven screens on this kit pass no `onBack`. The other five
+      // are deliberate: Warp is mid-jump, Results and Beacon would let a child
+      // rewind story state that has already been written. The map is the hub,
+      // so it is the one that was simply missed.
+      onBack: () => {
+        goTo(this, SCENE_KEYS.title, this.forward());
+      },
     });
     this.events.on("kb-focus", (_index: number, target: FocusTarget | undefined) => {
       if (target !== undefined) this.select(target.id);
