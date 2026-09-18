@@ -738,8 +738,20 @@ export class TextField extends Control {
         repeat: -1,
       });
     }
+    // THE CARET GOES WHERE THE NEXT LETTER GOES (UR-87).
+    //
+    // It was always drawn past the END of `entry`, and when the field is empty
+    // `entry` holds the PLACEHOLDER - so focusing an empty name box put the
+    // caret after "Pilot Name", as though a child were about to type the
+    // eleventh character of a word they had not written. The placeholder is
+    // copy to be typed OVER, so the caret belongs at its first letter.
+    //
+    // `this.value`, not the rendered string: the rendered string is the
+    // placeholder exactly when the value is empty, which is the one case this
+    // has to tell apart.
+    const typed = this.value !== "";
     this.caret.setPosition(
-      this.entry.x + this.entry.width + 6,
+      this.entry.x + (typed ? this.entry.width + 6 : 0),
       this.entry.y + this.entry.height * 0.1,
     );
   }
