@@ -83,6 +83,56 @@ describe("UR-51: the difficulty knob reaches the belt, and comes back", () => {
     expect(FLIGHT).toMatch(/fallTimeMs\(\{[\s\S]{0,400}?knobs: this\.controller\.knobs/);
   });
 
+  it("UR-83: the belt also opens on the STOP, or there is no progression at all", () => {
+    /**
+     * The same defect shape as the knob itself, one layer up and six months
+     * later. `stageIndexOf` has been in `@engine/types` since the route was
+     * built and `grep -rn stageIndexOf src/engine/controller` returned NOTHING -
+     * so Mars and Pluto were the same board for an equally good typist, every
+     * test of the controller passed, and the owner reported "no challenge" five
+     * times.
+     *
+     * WATCHED FAILING, with the real text: drop `stopId` from the
+     * `createController` call and this goes red while the whole engine suite
+     * stays green - which is exactly the shape of the defect it is aimed at.
+     * The route-level consequence is measured in
+     * `tests/unit/simulation/launchRoute.test.ts`: without it a grade-2 pilot
+     * opens Saturn at 2 instead of 3, and every stop after it likewise.
+     */
+    expect(FLIGHT).toMatch(/createController\(\{[\s\S]{0,300}?stopId: this\.cfg\.stopId/);
+  });
+
+  it("UR-83: the OPENING gates the board, or a late stop starts on six rocks", () => {
+    // A per-stop floor is a promise to put several rocks on a child at second
+    // zero unless the belt opens gradually. `trySpawn` must gate on the RAMPED
+    // cap and not on the raw knob.
+    //
+    // WATCHED FAILING, with the real text: restore
+    // `if (this.rocks.length >= this.controller.knobs.maxLive) return;` and
+    // this goes red; `tests/unit/controller/stopBand.test.ts` records what the
+    // board then does (`the instant the belt opens: expected 2 to be 1`).
+    expect(FLIGHT).toMatch(/if \(this\.rocks\.length >= this\.liveCap\(now\)\) return;/);
+    expect(FLIGHT).toMatch(/rampedMaxLive\([\s\S]{0,200}?stageRampMs\(this\.calibration\.ikiMs\)/);
+  });
+
+  it("UR-83: every rock gets its OWN share of the budget, from the seeded stream", () => {
+    // Without this the belt is a metronome at a low knob - fall time is a
+    // near-deterministic function of length and ease. The draw must come from
+    // the per-rock stream rather than `this.rng`, because a DECLINED spawn must
+    // leave the seeded stream exactly as it found it (AC-22.8's retry).
+    //
+    // WATCHED FAILING, with the real text: drop `spread` from the `fallTimeMs`
+    // call and this goes red while `tests/unit/fallTime/fallTime.test.ts` stays
+    // green, because every assertion there calls the engine directly.
+    expect(FLIGHT).toMatch(/fallTimeMs\(\{[\s\S]{0,600}?spread: draws\.spread/);
+    expect(FLIGHT).toMatch(/const draws = this\.rockDraws\(this\.spawnedCount\)/);
+    expect(FLIGHT).toMatch(/private rockDraws\(index: number\)/);
+    // And it is NOT taken off `this.rng`, which would move every column.
+    const draws = /private rockDraws\(index: number\)[\s\S]*?\n  \}/.exec(FLIGHT)?.[0] ?? "";
+    expect(draws.length, "rockDraws not found").toBeGreaterThan(80);
+    expect(draws).not.toContain("this.rng");
+  });
+
   it("UR-51: the knob is WRITTEN at stage end and at a stall, not only computed", () => {
     // Two call sites, because a belt ends two ways and only one of them runs
     // `checkStageEnd`. WATCHED FAILING, with the real text: delete either call

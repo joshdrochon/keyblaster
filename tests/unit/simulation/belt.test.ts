@@ -399,7 +399,16 @@ describe("D17 / D27 / AC-4.3: the grade-2 child, before and after", () => {
     // not re-baselining the claim: the claim is `after.stalls === 0`, it is
     // untouched below, and it is still met.
     //
-    // MEASURED, 100 seeds: before 10 (was 55), passByOnly 7, hullOnly 0,
+    // ================== UR-83 MOVED BOTH CONTROL ARMS AGAIN =================
+    // UR-83 gives every rock its own share of FR-8's budget
+    // (`@engine/fallTime.fallSpreadFactor`). For THIS pilot the spread is
+    // one-directional by construction - the downward half is scaled by
+    // `headroomEarned`, which is zero at 600 ms - so some of their rocks are
+    // granted up to 1.3x the budget and none are granted less. Fewer belts end
+    // under them on the broken hull, which is the only direction this change
+    // can move a grade-2 child.
+    //
+    // MEASURED, 100 seeds: before 7 (was 10, was 55), passByOnly 7, hullOnly 0,
     // after 0, withCanisters 0.
     expect(before.stalls).toBeGreaterThan(5);
     expect(before.stalls).toBeLessThanOrEqual(15);
@@ -411,10 +420,20 @@ describe("D17 / D27 / AC-4.3: the grade-2 child, before and after", () => {
     // And it is the HULL doing it, not the trajectory change riding along.
     expect(hullOnly.stalls).toBe(0);
     // The pass-by ALONE still does not fix it - 7 belts in 100 against the 0 the
-    // hull change reaches. It was `> 30` when `before` was 55; the ratio it is
-    // really asserting (the pass-by closes well under half the gap) is unchanged.
+    // hull change reaches. It was `> 30` when `before` was 55.
+    //
+    // THE SECOND ARM WEAKENED FROM `<` TO `<=`, AND IT IS WORTH SAYING WHY
+    // RATHER THAN QUIETLY DOING IT. It used to read `passByOnly < before`, on
+    // 7 against 10. With UR-83's fall-time spread both arms land on 7: the
+    // pass-by now closes NONE of the gap at this seed count, where before it
+    // closed three belts of ten. That is a WEAKER statement about the pass-by
+    // and a STRONGER statement about what this test is actually for - "it is
+    // the HULL doing it, not the trajectory change riding along", which is the
+    // `hullOnly.stalls === 0` line above and is untouched. Three belts in a
+    // hundred was never a separation this harness could resolve; pretending it
+    // was is how a control becomes a coincidence.
     expect(passByOnly.stalls).toBeGreaterThan(3);
-    expect(passByOnly.stalls).toBeLessThan(before.stalls);
+    expect(passByOnly.stalls).toBeLessThanOrEqual(before.stalls);
     expect(withCanisters.stalls).toBe(0);
 
     mkdirSync("gauntlet/evidence", { recursive: true });
@@ -530,9 +549,26 @@ describe("D51 / AC-11.2: the game has to find out how fast the child types", () 
       adaptiveCalibration: false,
     });
     expect(unmeasured.stalls).toBe(STALL_SEEDS);
-    // Not "a low hit rate". NOTHING is cleared: every word is unreachable, so
-    // the belt is not hard, it is impossible.
-    expect(unmeasured.meanHitRate).toBe(0);
+    // NOT "a low hit rate" - the belt is not hard, it is impossible. Every one
+    // of a hundred belts ends under this child, which is the claim and is
+    // asserted above as an absolute.
+    //
+    // ================== UR-83 MOVED THE HIT RATE OFF EXACTLY ZERO ===========
+    // This read `toBe(0)`: at a 350 ms belief against a 600 ms child, every
+    // word was unreachable and nothing was ever cleared. UR-83's fall-time
+    // spread grants some rocks up to 1.3x FR-8's budget - one-directional for
+    // this pilot, because the downward half is scaled by `headroomEarned` and
+    // that is zero at 600 ms - and 1.3x is enough for the short words. Run
+    // against the current code the old assertion reads
+    //
+    //     expected 0.2698786453484597 to be +0
+    //
+    // So a quarter of the rocks are now reachable and the belt is still
+    // unflyable: 0.27 against the 0.948 this stage's own hull demands
+    // (`survivableHitRate`). The claim is restated against that bar rather than
+    // against zero, because "impossible" is what the bar means and zero was
+    // only ever the most extreme way of being under it.
+    expect(unmeasured.meanHitRate).toBeLessThan(survivableHitRate(WORDS) / 2);
     expect(unmeasured.endIkiMs).toBe(DEFAULT_CALIBRATION.ikiMs);
   });
 

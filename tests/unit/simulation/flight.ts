@@ -59,13 +59,16 @@ import {
 import {
   DEFAULT_CALIBRATION,
   type Calibration,
+  type StopId,
   type WordRecord,
 } from "@engine/types.js";
 import {
   type ControllerState,
   createController,
   hitRate,
+  rampedMaxLive,
   recordOutcome,
+  stageRampMs,
 } from "@engine/controller/index.js";
 import type { Knobs } from "@engine/controller/knobs.js";
 import { expectedClearMs, observedBiasMs, spawnGapMs } from "@engine/pacing/index.js";
@@ -306,6 +309,30 @@ export function calibrationOf(player: SimPlayer): Calibration {
 export interface BeltConfig {
   stopIndex: number;
   /**
+   * WHICH STOP THIS BELT IS (UR-83). The controller reads it for the per-stop
+   * `maxLive` band (`@engine/controller/stopBand`), which is the whole of the
+   * route's progression.
+   *
+   * OPTIONAL, and absent is FR-10's global 2..7 - the pre-UR-83 belt, which is
+   * what every harness that only ever flew ONE pool (`belt.test.ts` flies Mars
+   * at stopIndex 1 for every run) is actually measuring. A file that wants the
+   * route's own progression has to name the stop, and `launchRoute.test.ts`
+   * does.
+   */
+  stopId?: StopId;
+  /**
+   * UR-83's intra-stage ramp: the board opens at one rock and widens to the
+   * knob over `stageRampMs` of this belt's own clock. ON by default because it
+   * ships; OFF is the negative control, and it is what the belt did before.
+   */
+  stageRamp?: boolean;
+  /**
+   * UR-83's per-rock fall-time spread. ON by default because it ships. Each
+   * rock takes one draw from the SAME seeded `rng` the column and the picker
+   * use, so a replay is identical.
+   */
+  fallSpread?: boolean;
+  /**
    * What the GAME believes about this player's hands when the belt opens.
    *
    * THE SHIPPED DEFAULT, on purpose. A profile that has not been measured flies
@@ -527,8 +554,43 @@ export function simulateBelt(
     retentionPool: (cfg.noRetention ?? false) ? [] : cfg.retentionPool,
     book,
   });
-  let controller: ControllerState = createController({ knobs: cfg.knobs ?? {} });
+  let controller: ControllerState = createController({
+    knobs: cfg.knobs ?? {},
+    // UR-83: the belt is flown inside this stop's band. `FlightScene.create`
+    // passes exactly this (`tests/unit/flight/knobWiring.test.ts` asserts it).
+    stopId: cfg.stopId ?? null,
+  });
   let nextBook: WordBook = { ...book };
+  const rampOn = cfg.stageRamp ?? true;
+  const spreadOn = cfg.fallSpread ?? true;
+  /**
+   * The cap the BOARD may use right now: the knob, held back by UR-83's
+   * opening for the first `stageRampMs` of the belt. The scene computes exactly
+   * this in `trySpawn`. It reads the BELIEF's interval, not the player's true
+   * one, for the same reason fall time does - the game knows what it measured.
+   */
+  const liveCap = (): number =>
+    rampOn
+      ? rampedMaxLive(controller.knobs.maxLive, nowMs, stageRampMs(calibration.ikiMs))
+      : controller.knobs.maxLive;
+  /**
+   * When the opening next widens the board by one, or null once it is over.
+   *
+   * The event loop below jumps to "the next thing that happens", and during the
+   * opening the next thing that happens can be the opening itself - a board
+   * sitting at the ramp's cap with spawns pending has no other event until a
+   * rock resolves. Leaving it out would not deadlock (a live rock always has a
+   * deadline) but it would report a board that widened LATE, which is the one
+   * number this harness exists to measure.
+   */
+  const nextRampStepMs = (): number | null => {
+    if (!rampOn) return null;
+    const top = controller.knobs.maxLive;
+    const at = liveCap();
+    if (at >= top || top <= 1) return null;
+    const rampMs = stageRampMs(calibration.ikiMs);
+    return (rampMs * at) / (top - 1);
+  };
 
   const maxHull = cfg.maxHull ?? hullForStage(cfg.spawnCount);
   const spawns: BeltSpawn[] = [];
@@ -667,7 +729,7 @@ export function simulateBelt(
     //    and never early UNLESS the board is empty - AC-6e.3's fast path, which
     //    is what stops a longer gap from turning into dead air.
     const boardEmpty = live.length === 0 && (cfg.emptyBoardFastPath ?? true);
-    if (pending() && live.length < controller.knobs.maxLive && (boardEmpty || nowMs >= nextSpawnAtMs)) {
+    if (pending() && live.length < liveCap() && (boardEmpty || nowMs >= nextSpawnAtMs)) {
       const outcome = pickNext(selection, {
         live: live.map((r) => r.word),
         book: nextBook,
@@ -684,9 +746,15 @@ export function simulateBelt(
       selection = outcome.state;
       const word = outcome.word;
       const record = nextBook[word] ?? blankRecord();
+      // UR-83: ONE DRAW, AT SPAWN, FROM THE SEEDED STREAM. The spread is a
+      // property of the rock and not of the frame, so a replay of this seed
+      // gets the identical belt. `FlightScene.spawnRock` draws its own from a
+      // dedicated seeded stream for the same reason.
+      const spread = spreadOn ? rng() : undefined;
       const fall = fallTimeMs({
         word,
         ease: record.ease,
+        spread,
         calibration: fallCalibration(calibration),
         // UR-51: the fall budget is sized for the queue the controller is
         // asking for. The scene passes exactly this (`FlightScene.spawnRock`);
@@ -771,7 +839,9 @@ export function simulateBelt(
     const candidates: number[] = [];
     if (busy !== null) candidates.push(busy.doneAtMs);
     for (const r of live) candidates.push(r.deadlineMs);
-    if (pending() && live.length < controller.knobs.maxLive) candidates.push(nextSpawnAtMs);
+    if (pending() && live.length < liveCap()) candidates.push(nextSpawnAtMs);
+    const ramp = nextRampStepMs();
+    if (pending() && ramp !== null) candidates.push(ramp);
     const next = Math.min(...candidates.filter((t) => t > nowMs));
     if (!Number.isFinite(next)) break;
     advanceTo(next);

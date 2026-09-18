@@ -21,6 +21,48 @@ export const LENGTH_BIAS_MIN: LengthBias = -1;
 export const LENGTH_BIAS_MAX: LengthBias = 1;
 
 /**
+ * A closed sub-range of FR-10's 2..7 that the primary knob may move inside
+ * (UR-83).
+ *
+ * ================== WHY THE RANGE IS NO LONGER ALWAYS GLOBAL ==============
+ * `maxLive` was a single 2..7 range for the whole route, and the controller is
+ * 100% adaptive - so Mars and Pluto were the SAME BOARD for an equally good
+ * typist, and a fresh pilot's first belt at any stop opened at the gentlest
+ * setting the game has. Six stops' worth of progression rested on the pools
+ * alone. `./stopBand.ts` derives one of these per stop; everything in this file
+ * takes it as a parameter and defaults to `GLOBAL_LIVE_BAND`, so every caller
+ * that has no stop in hand is byte-for-byte the rule it was.
+ *
+ * IT IS A RANGE AND NEVER A SCHEDULE. The stop sets the two ends; the adaptive
+ * controller still decides where inside them this particular child sits, on
+ * exactly the evidence it used before. Adjacent stops' bands OVERLAP, so a
+ * strong pilot on an early stop and a weak pilot on a late one can meet in the
+ * middle - nobody is handed a difficulty for being at a stop.
+ */
+export interface LiveBand {
+  readonly floor: number;
+  readonly ceiling: number;
+}
+
+/** FR-10's own 2..7: the band every caller without a stop still flies. */
+export const GLOBAL_LIVE_BAND: LiveBand = {
+  floor: MAX_LIVE_MIN,
+  ceiling: MAX_LIVE_MAX,
+};
+
+/**
+ * Force a band inside FR-10's range and the right way round.
+ *
+ * Total, like `clampKnobs`: a corrupt band reads as the global range rather
+ * than as a reversed interval that would clamp every knob onto one number.
+ */
+export function clampBand(band: LiveBand): LiveBand {
+  const floor = clampInt(band.floor, MAX_LIVE_MIN, MAX_LIVE_MAX);
+  const ceiling = clampInt(band.ceiling, MAX_LIVE_MIN, MAX_LIVE_MAX);
+  return floor <= ceiling ? { floor, ceiling } : { floor: ceiling, ceiling: floor };
+}
+
+/**
  * The complete knob set. Adding a field here is a spec change: AC-10.4 asserts
  * this shape, so a scroll-speed knob cannot be introduced without failing a
  * test that names the AC.
@@ -149,9 +191,10 @@ export function asLengthBias(value: number): LengthBias {
  * older schema version; we clamp rather than throw, because a corrupt knob
  * must never stop a child's game (CLAUDE.md, same spirit as AC-13.1 prod mode).
  */
-export function clampKnobs(knobs: Knobs): Knobs {
+export function clampKnobs(knobs: Knobs, band: LiveBand = GLOBAL_LIVE_BAND): Knobs {
+  const b = clampBand(band);
   return {
-    maxLive: clampInt(knobs.maxLive, MAX_LIVE_MIN, MAX_LIVE_MAX),
+    maxLive: clampInt(knobs.maxLive, b.floor, b.ceiling),
     lengthBias: asLengthBias(knobs.lengthBias),
   };
 }
@@ -164,9 +207,10 @@ export function clampKnobs(knobs: Knobs): Knobs {
  * its bound (PRD FR-10: "knob choice alternates primary -> secondary when
  * primary is at its bound").
  */
-export function tightenStep(knobs: Knobs): KnobChange | null {
-  const k = clampKnobs(knobs);
-  if (k.maxLive < MAX_LIVE_MAX) {
+export function tightenStep(knobs: Knobs, band: LiveBand = GLOBAL_LIVE_BAND): KnobChange | null {
+  const b = clampBand(band);
+  const k = clampKnobs(knobs, b);
+  if (k.maxLive < b.ceiling) {
     return { knob: "maxLive", from: k.maxLive, to: k.maxLive + 1 };
   }
   if (k.lengthBias < LENGTH_BIAS_MAX) {
@@ -187,23 +231,29 @@ export function tightenStep(knobs: Knobs): KnobChange | null {
  * and stay there, so maxLive ends up carrying the steady-state control. That is
  * what D53 means by calling maxLive the primary knob.
  */
-export function loosenStep(knobs: Knobs): KnobChange | null {
-  const k = clampKnobs(knobs);
+export function loosenStep(knobs: Knobs, band: LiveBand = GLOBAL_LIVE_BAND): KnobChange | null {
+  const b = clampBand(band);
+  const k = clampKnobs(knobs, b);
   if (k.lengthBias > LENGTH_BIAS_MIN) {
     return { knob: "lengthBias", from: k.lengthBias, to: k.lengthBias - 1 };
   }
-  if (k.maxLive > MAX_LIVE_MIN) {
+  if (k.maxLive > b.floor) {
     return { knob: "maxLive", from: k.maxLive, to: k.maxLive - 1 };
   }
   return null;
 }
 
 /** Apply a step. `null` is the hold case and returns the knobs untouched. */
-export function applyChange(knobs: Knobs, change: KnobChange | null): Knobs {
-  const k = clampKnobs(knobs);
+export function applyChange(
+  knobs: Knobs,
+  change: KnobChange | null,
+  band: LiveBand = GLOBAL_LIVE_BAND,
+): Knobs {
+  const b = clampBand(band);
+  const k = clampKnobs(knobs, b);
   if (change === null) return k;
   return change.knob === "maxLive"
-    ? { maxLive: clampInt(change.to, MAX_LIVE_MIN, MAX_LIVE_MAX), lengthBias: k.lengthBias }
+    ? { maxLive: clampInt(change.to, b.floor, b.ceiling), lengthBias: k.lengthBias }
     : { maxLive: k.maxLive, lengthBias: asLengthBias(change.to) };
 }
 

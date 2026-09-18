@@ -252,6 +252,100 @@ export function fallTimeIkiMs(ikiMs: number): number {
 export const FALL_TIME_MIN_MS = 2500;
 export const FALL_TIME_MAX_MS = 14000;
 
+// ---------------------------------------------------------------------------
+// PER-ROCK SPREAD (UR-83)
+// ---------------------------------------------------------------------------
+
+/**
+ * How much SLOWER than FR-8's budget a rock may be granted, as a fraction.
+ *
+ * ================== THE REPORT ==================
+ * "Some rocks should fly by fast - a second or two to type - and some slower."
+ * They do not. A rock's fall time is a near-deterministic function of its
+ * length and its ease, so at a low knob setting, where ease is near 1.0 for
+ * everything and the pools are length-tight, every rock on the board falls at
+ * about the same speed. A belt with no variance is a metronome, and a metronome
+ * is the thing the owner has been calling boring.
+ *
+ * ================== WHY IT IS A MULTIPLE AND NOT MILLISECONDS ============
+ * Because it has to scale off the same measured interval the rest of this file
+ * does. A flat "+/- 900 ms" is a huge change for a fast pilot's 2.8 s rock and
+ * noise on a grade-2 pilot's 9 s one, which is the SAME defect
+ * `RECOGNITION_BASE_MS` had before UR-72: one imagined reader's numbers applied
+ * to every child. A multiple of the whole expression keeps D19's split intact -
+ * length is still motor cost, ease is still recognition cost, their ratio is
+ * FR-8's ratio - and it means a fast typist's "slow rock" is still quick in
+ * absolute terms, and a slow typist's "fast rock" is still one they can reach.
+ *
+ * ================== FR-8'S BOUNDS ARE UNTOUCHED ==================
+ * The spread is applied inside `rawFallTimeMs`, i.e. BEFORE `clampFallTime`, so
+ * the 2500 ms floor and the 14000 ms ceiling (each scaled by the queue depth,
+ * as they already were) bound the result exactly as they did. Nothing here can
+ * produce a rock outside FR-8's window.
+ */
+export const FALL_SPREAD_UP = 0.3;
+
+/**
+ * How much FASTER than FR-8's budget a rock may be granted, as a fraction -
+ * and it is EARNED, which is the whole safety argument.
+ *
+ * The downward half is scaled by `headroomEarned`, the same axis
+ * `keystrokeHeadroom` and `recognitionBaseMs` ratchet on. So:
+ *
+ *     iki      260*   350    440    520    600+
+ *     range    0.70   0.70   0.81   0.90   1.00   .. 1.30
+ *              -----  -----  -----  -----  ----
+ *              (the fastest rock this pilot can be handed, as a multiple)
+ *
+ * A pilot measured at `HEADROOM_SLOW_IKI_MS` or slower is NEVER handed a rock
+ * shorter than FR-8's budget: their spread runs 1.00 to 1.30, i.e. entirely in
+ * the direction that gives time back. That is not a hope about a simulation -
+ * it is arithmetic, and it means the variance cannot raise the grade-2 stall
+ * rate at any knob setting, on any stop, for any word.
+ *
+ * Symmetric with `FALL_SPREAD_UP` at the fast end, so a pilot who has earned
+ * the whole range gets a belt whose rocks run 0.70x to 1.30x - a factor of
+ * nearly two between the quickest and the slowest rock on the same board, which
+ * is what "some fly by, some are slow" has to mean to be visible.
+ *
+ * ================== 0.3 IS MEASURED, NOT CHOSEN ==================
+ * It is the widest spread that costs NO pilot a belt anywhere on the route.
+ * The route sweep (40 seeds x 6 belts x 5 pilots, the real controller carried
+ * stop to stop) reads 0 stalls out of 240 for every pilot at 0.3. At 0.45 the
+ * identical sweep reads
+ *
+ *     median  3 stalls at jupiter      slow  2 stalls at saturn
+ *
+ * and it is the MEDIAN pilot that breaks first, not the grade-2 one - the
+ * `earned` scaling exempts the tail completely, so the pilot at risk is the one
+ * at FR-8's own default interval who has earned the whole ratchet and types at
+ * 93% accuracy. The 0.02 of margin that width bought at the ceiling (0.426 ->
+ * 0.406 for a ~100% pilot at Mars' ceiling) is not worth a belt.
+ */
+export const FALL_SPREAD_DOWN = 0.3;
+
+/**
+ * The multiple this rock's fall budget is scaled by, from one uniform draw.
+ *
+ * `spread` is a 0..1 sample from the belt's own SEEDED rng, taken once at spawn
+ * and stored on the rock, so a replay of the same seed is identical - the rule
+ * `@engine/spawn` follows for the column and `FlightScene` follows for the
+ * drift phase. `undefined` returns exactly 1, so every caller that does not
+ * draw one flies FR-8's budget byte for byte; that is what keeps
+ * `tests/unit/fallTime/fallTime.test.ts`'s `toBe` sweeps meaningful.
+ *
+ * Total: a non-finite draw reads as the CENTRE rather than as NaN, because a
+ * corrupt sample must never be able to hand a child a rock with no deadline.
+ */
+export function fallSpreadFactor(spread?: number, ikiMs?: number): number {
+  if (spread === undefined || !Number.isFinite(spread)) return 1;
+  const u = Math.min(1, Math.max(0, spread));
+  const t = 2 * u - 1;
+  if (t >= 0) return 1 + t * FALL_SPREAD_UP;
+  const earned = headroomEarned(ikiMs ?? DEFAULT_CALIBRATION.ikiMs);
+  return 1 + t * FALL_SPREAD_DOWN * earned;
+}
+
 /**
  * How much of the ratchet this player's measured typing speed has earned, 0..1.
  *
@@ -514,14 +608,23 @@ export interface FallTimeInput {
    * `MAX_LIVE_MIN`, i.e. FR-8's budget exactly as written.
    */
   readonly knobs?: Pick<Knobs, "maxLive">;
+  /**
+   * This rock's own 0..1 draw from the belt's seeded rng (UR-83), taken once at
+   * spawn. Absent means no spread at all, i.e. FR-8's budget exactly as
+   * written. See `fallSpreadFactor`.
+   */
+  readonly spread?: number;
 }
 
 /**
  * AC-8.1: the formula exactly as documented, with the clamps holding.
  * Pure and total - no clock, no randomness, no NaN escapes.
  */
-export function fallTimeMs({ word, ease, calibration, knobs }: FallTimeInput): number {
-  return clampFallTime(rawFallTimeMs({ word, ease, calibration, knobs }), fallBudgetFactor(knobs));
+export function fallTimeMs({ word, ease, calibration, knobs, spread }: FallTimeInput): number {
+  return clampFallTime(
+    rawFallTimeMs({ word, ease, calibration, knobs, spread }),
+    fallBudgetFactor(knobs),
+  );
 }
 
 /**
@@ -529,14 +632,21 @@ export function fallTimeMs({ word, ease, calibration, knobs }: FallTimeInput): n
  * Useful because a word pinned at a clamp bound tells the controller that the
  * fall-time knob has no headroom left for that word.
  */
-export function rawFallTimeMs({ word, ease, calibration, knobs }: FallTimeInput): number {
+export function rawFallTimeMs({
+  word,
+  ease,
+  calibration,
+  knobs,
+  spread,
+}: FallTimeInput): number {
   const iki = calibration?.ikiMs ?? DEFAULT_CALIBRATION.ikiMs;
   const live = knobs?.maxLive ?? MAX_LIVE_MIN;
   const headroom = keystrokeHeadroom(live, iki);
   return (
     (keystrokeBudgetMs(word.length, iki, headroom) +
       recognitionBudgetMs(ease, recognitionBaseMs(live, iki))) *
-    fallBudgetFactor(knobs)
+    fallBudgetFactor(knobs) *
+    fallSpreadFactor(spread, iki)
   );
 }
 

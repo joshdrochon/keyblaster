@@ -226,6 +226,20 @@ describe("FR-8 / FR-9 / D51: what was learned last time changes this time", () =
 
   it("AC-9.3 / D23: the schedule a stop wrote is still binding at the next stop", () => {
     const storage = new FakeStorage();
+    // TWO SESSIONS AT MARS, and the second one is the point of the file: it
+    // opens the store, reads the book the first one wrote, and flies on top of
+    // it. A word is scheduled past the next stop once its ease drops below
+    // 1.2 (`intervalStages`), which takes four hits, and 58 spawns over a
+    // 40-word pool give a given word four exposures only sometimes.
+    //
+    // IT USED TO BE ONE SESSION AND A LUCKY SEED, and that is what this change
+    // replaces. Measured across ten seeds after UR-83 shifted the seeded
+    // stream, ONE belt reaches four hits on 4 seeds of 10 (seed 4242, the one
+    // this file has always used, now peaks at three) - so the old shape was a
+    // coin flip that happened to be landing the right way up. Two sessions
+    // reach it on every seed, and two sessions is also the more honest model of
+    // the claim: it is about a book that outlives a session.
+    session(storage, "mars", 4242);
     session(storage, "mars", 4242);
     const book = bookOf((openStore(storage).activeProfile() as Profile).words, LANG);
 

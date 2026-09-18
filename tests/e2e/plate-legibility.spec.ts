@@ -903,11 +903,15 @@ test.describe("AC-22.8: word plates are never occluded", () => {
       };
       // A LONG word at the very top. Fall time grows with word length (FR-8),
       // so this is the rock with the most frames in it.
-      // spinPerSec 0.15 is the FASTEST a shipped rock turns - `spawnRock` draws
-      // it from `(rng() - 0.5) * 0.3`. Stated rather than left to the seed,
-      // because this seed's rock turned at 0.0008 rad/s and the assertion below
-      // was measuring a rock that was not tumbling.
-      window.__kbFlight?.spawn(word, { x: 800, y: -40, spinPerSec: 0.15 });
+      // spinPerSec 0.9 is the FASTEST a shipped rock turns - UR-83 widened
+      // `spawnRock`'s draw from `(rng() - 0.5) * 0.3` (a top speed of 0.15, one
+      // revolution every 42 seconds, which nobody could see) to
+      // `rockSpinPerSec`, whose ceiling is `ROCK_SPIN_MAX_RAD_PER_SEC`. Stated
+      // rather than left to the seed, because this seed's rock turned at
+      // 0.0008 rad/s and the assertion below was measuring a rock that was not
+      // tumbling - and at the new ceiling it is the hardest case for the claim
+      // that the WORD stays level while its rock turns.
+      window.__kbFlight?.spawn(word, { x: 800, y: -40, spinPerSec: 0.9 });
       const out: { offsetY: number; centreErr: number; rotation: number }[] = [];
       await new Promise<void>((resolve) => {
         let frames = 0;

@@ -1,5 +1,6 @@
 import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
-import { SKY_PLATE, TYPE } from "@game/ui/theme";
+import { SKY_PLATE, SPACE, STEP, TYPE } from "@game/ui/theme";
+import { layer } from "@game/render/layers";
 import {
   GUTTER,
   HEADER_LINES,
@@ -98,20 +99,176 @@ export const lampY = (): number => ROUTE_Y - NODE_R - LAMP_RISE;
 
 /** Ink top of the caption, measured from the disc's limb. */
 export const CAPTION_GAP = 26;
-/** Centre of the per-stop star row, measured from the disc's limb. */
-export const STAR_ROW_GAP = 116;
 export const STAR_R = 14;
 
 /**
- * The caption's plate is two lines of `TYPE.label` plus `skyText`'s padding.
- * Declared rather than measured: the parallax is built before the type is, so a
- * zone that depended on the drawn bounds would have to be recomputed after the
- * fact - the same trap `titleLayout.ts` documents.
+ * The caption's own plate padding, as `DirectorMapScene` draws it.
+ *
+ * DECLARED HERE RATHER THAN AT THE CALL SITE because three things now measure
+ * off it - the keep-clear zone, the star row and the focus ring's box - and a
+ * pad that lives in the `skyText` options object is a number only the drawing
+ * knows. `SKY_PLATE.padY` is 12; this caption has always drawn 8, and the
+ * difference used to be absorbed silently by `captionPlateH` over-estimating.
  */
-export const captionPlateH = (): number => Math.round(TYPE.label * 1.56) * 2 + SKY_PLATE.padY * 2;
+export const CAPTION_PAD_X = 16;
+export const CAPTION_PAD_Y = 8;
+
+/** One drawn line of the caption, at `TYPE.label` on the shared line height. */
+export const CAPTION_LINE_H = Math.round(TYPE.label * 1.56);
+
+/**
+ * THE CAPTION IS ONE LINE.
+ *
+ * ================== WHY IT WAS TWO ==================
+ * It was the stop's name and, under it, a status word: "Locked" on a locked
+ * stop, "Beacon Lit" on a charted one. Both were removed:
+ *
+ *   "Locked"      is now a LOCK MARK beside the name (`LOCK_SIZE` below, drawn
+ *                 by `ui/chrome.paintLockGlyph`). A word that repeats for six
+ *                 of seven stops is a column of the same word, not a status.
+ *   "Beacon Lit"  is gone outright. There is a lit beacon DRAWN over a charted
+ *                 planet already; the caption said the picture again.
+ *                 `map.charted` stays in the string table - it is still the
+ *                 right English for the idea, and nothing is gained by
+ *                 deleting a translated line to prove a screen stopped using
+ *                 it - it simply has no reader on this screen.
+ *
+ * The height is declared rather than measured: the parallax is built before the
+ * type is, so a zone that depended on the drawn bounds would have to be
+ * recomputed after the fact - the same trap `titleLayout.ts` documents. The
+ * FOCUS RING does measure, because it is built after the type and even air is
+ * the whole point of it (`nodeRingBox`).
+ */
+export const CAPTION_LINES = 1;
+export const captionPlateH = (): number => CAPTION_LINE_H * CAPTION_LINES + CAPTION_PAD_Y * 2;
+
+/** Top edge of the caption's plate. */
+export const captionPlateTop = (): number => ROUTE_Y + NODE_R + CAPTION_GAP - CAPTION_PAD_Y;
+/** Bottom edge of the caption's plate. */
+export const captionPlateBottom = (): number => captionPlateTop() + captionPlateH();
+
+/**
+ * THE LOCK MARK, which replaced the word "Locked".
+ *
+ * Size off the TYPE scale and gap off the SPACING scale, not off two numbers
+ * picked beside the label - that is the rule `theme.ts` states and the reason
+ * `SPACE.rowPadX` cost an hour. `TYPE.caption` (20) against a `TYPE.label` (24)
+ * word is the same one-step-down relationship the header block uses between its
+ * heading and its subheading, so the mark reads as belonging to the name rather
+ * than as a second thing beside it.
+ *
+ * The ink is `INK.textDim`: the SAME token the locked caption's own text uses,
+ * so the mark and the word it sits beside are one colour and D31 holds - this
+ * is "not yet", said quietly, never a refusal drawn in red.
+ */
+export const LOCK_SIZE = TYPE.caption;
+export const LOCK_GAP = STEP.hair;
+/** How much horizontal room the mark and its gap take from the name. */
+export const lockAdvance = (): number => LOCK_SIZE + LOCK_GAP;
+
+/**
+ * Centre of the per-stop star row, measured from the disc's limb.
+ *
+ * DERIVED FROM THE CAPTION, not a number of its own. It was 116, which cleared
+ * a TWO-line caption plate; the caption is one line now, so a literal here
+ * would have left a 37 px hole under every charted stop and the screen would
+ * have read as though something had failed to draw. One unit of air
+ * (`SPACE.gap`) between the plate's bottom edge and the top of a star.
+ */
+export const STAR_ROW_GAP =
+  CAPTION_GAP - CAPTION_PAD_Y + captionPlateH() + SPACE.gap + STAR_R;
 
 /** The lowest ink hanging off a node: the star row's bottom edge. */
 export const nodeBlockBottom = (): number => ROUTE_Y + NODE_R + STAR_ROW_GAP + STAR_R;
+
+// ---------------------------------------------------------------------------
+// UR-105: the discs drew UNDER the mote plane
+// ---------------------------------------------------------------------------
+
+/**
+ * THE DEPTH THE MAP'S OWN INK DRAWS AT.
+ *
+ * ================== WHAT WAS REPORTED ==================
+ * A gold accent diamond sat ON Saturn's disc. It is the same family of defect
+ * as UR-52 and it survived UR-52's fix, because `mapKeepClear` only steers the
+ * things that ASK for it: `parallax.ts` passes `keepClear` to the four DEBRIS
+ * planes and NOT to `nearField`'s light tile (the motes, glints and accent
+ * diamonds), which is drawn at `NEAR_LIGHT_DEPTH` - a hair under `nearField`,
+ * i.e. 4.99. The discs drew at 4. So the diamond was genuinely in front of the
+ * planet and no zone was ever going to move it.
+ *
+ * FIXED AT THE LAYER, not on the sprite. The map's own ink now draws ABOVE
+ * every plane this screen decorates, read out of `render/layers.ts` rather than
+ * typed here, so a plane that moves in that table takes this with it. It stays
+ * BELOW `shipFx` (6), which is where the Lantern and the beacon lamps are and
+ * where they belong: the ship passes in front of the planet it hovers over.
+ */
+export const NODE_DEPTH = layer("nearField").depth + 0.5;
+/** The route line, immediately under the discs it joins. */
+export const ROUTE_DEPTH = NODE_DEPTH - 0.1;
+
+/**
+ * The selected planet's glow (UR-92), which replaced the focus ring.
+ *
+ * Under the disc, so the planet sits on its own halo rather than inside a
+ * coloured box. Three soft rings with a squared falloff, reaching `GLOW_REACH`
+ * past the disc - wide enough to read as light and too soft to read as an
+ * outline, which is the whole reason the ring went.
+ */
+export const GLOW_DEPTH = NODE_DEPTH - 0.05;
+export const GLOW_RINGS = 16;
+export const GLOW_REACH = 34;
+export const GLOW_ALPHA = 0.30;
+/** A locked stop still shows selection, quietly: looking is not unlocking. */
+export const GLOW_ALPHA_LOCKED = 0.24;
+
+// ---------------------------------------------------------------------------
+// The focus ring's box
+// ---------------------------------------------------------------------------
+
+/** Air between the node's ink and the focus ring's box, on all four sides. */
+export const RING_PAD = STEP.tight;
+
+/**
+ * THE FOCUS RING WRAPS THE DISC AND THE NAME PLATE AS ONE BOX.
+ *
+ * It was `{ x: n.x - NODE_R - 14, y: ROUTE_Y - NODE_R - 14, w/h: (NODE_R+14)*2 }`
+ * - a square around the disc alone. That was defensible while the status word
+ * made the caption a block of its own; with the caption down to one line the
+ * name reads as the node's label, and a ring that stops above it says the name
+ * is not part of the thing being chosen.
+ *
+ * THE CAPTION'S WIDTH IS MEASURED, NOT DECLARED. Every other number on this
+ * screen is declared because the parallax is built before the type is - but
+ * this box is built in `create()` AFTER the captions are drawn, and "even air
+ * on all four sides" is a claim about the drawn plate, not about an upper
+ * bound. "Neptune" and "Mars" are not the same width; a declared half-width
+ * would give one of them even air and the other a margin.
+ *
+ * The disc is measured to its DARK RIM (`NODE_R + NODE_RIM`), which is the
+ * planet's drawn edge - the old box was struck off `NODE_R`, so its 14 px of
+ * air was really 6.
+ */
+export function nodeRingBox(
+  i: number,
+  caption: { readonly halfW: number; readonly bottom: number },
+): PanelBox {
+  const discEdge = NODE_R + NODE_RIM;
+  const halfW = Math.max(discEdge, caption.halfW) + RING_PAD;
+  const top = ROUTE_Y - discEdge - RING_PAD;
+  return {
+    x: nodeX(i) - halfW,
+    y: top,
+    w: halfW * 2,
+    h: caption.bottom + RING_PAD - top,
+  };
+}
+
+/** The declared caption box, for the zones and for a test with no Phaser. */
+export const captionBoxDeclared = (): { halfW: number; bottom: number } => ({
+  halfW: nodeStep() / 2,
+  bottom: captionPlateBottom(),
+});
 
 // ---------------------------------------------------------------------------
 // The header block
@@ -176,10 +333,80 @@ export const SHIP_ABOVE_ORIGIN = LANTERN_ABOVE_ORIGIN;
 export const SHIP_EXHAUST = false;
 
 /**
- * The ship's origin y. One line for all seven stops: the ship changes x, never
- * y, so the route reads as a row rather than as a wobble.
+ * The ship's ORIGIN y - not its top and not its centre. One line for all seven
+ * stops: the ship changes x, never y, so the route reads as a row rather than
+ * as a wobble.
+ *
+ * ================== WHY IT MOVED FROM 334 ==================
+ * The ship hovered too high: 79.8 px of empty sky between its nozzle and the
+ * planet it was supposed to be hovering over, which reads as a ship parked in
+ * the header rather than as a cursor sitting on a stop.
+ *
+ * THE NUMBER IS DERIVED, AND THE DERIVATION IS THE POINT. `drawLantern` puts
+ * the rig's ORIGIN at (x, y) and the ship hangs 58% of its height ABOVE that
+ * origin (`LANTERN_ABOVE_ORIGIN`), so `SHIP_Y` is neither edge and the gap
+ * cannot be read off it. `shipBox` is the only honest reader:
+ *
+ *   k            = SHIP_H / LANTERN_DESIGN_HEIGHT = 96 / 425
+ *   ship bottom  = SHIP_Y + NOZZLE_BOTTOM * k     = SHIP_Y + 40.207
+ *   disc top     = ROUTE_Y - NODE_R               = 454
+ *
+ * ================== THE GAP IS A BAND, BECAUSE THE SHIP BOBS ==================
+ * `drawLantern` gives an idle rig a `y: { from: y - 2, to: y + 2 }` tween - art
+ * direction section 5's "gentle 2 px bob on a 3 s sine" - and it runs under
+ * reduced motion too. So there is no single gap; there is a 4 px band, and the
+ * number to solve for is the WHOLE band rather than the rest position:
+ *
+ *   gap(SHIP_Y) spans [411.79 - SHIP_Y, 415.79 - SHIP_Y]
+ *   inside 10..15  =>  400.79 <= SHIP_Y <= 401.79
+ *
+ * 401 puts the band at 10.79 .. 14.79, so the nozzle is between 10 and 15 px
+ * over the limb at EVERY point of the bob rather than only at rest. The first
+ * value measured, 400, read 13.79 at rest and 15.79 at the top of the bob - out
+ * of range for a third of every three-second cycle, which is exactly the kind
+ * of thing a still capture cannot show and the browser probe did.
+ *
+ * Nothing else about the ship moved: `SHIP_H`, `SHIP_SCALE`, `SHIP_EXHAUST`,
+ * the bob and the livery are all untouched, and x is still `nodeX(i)`.
+ *
+ * ================== WHAT THIS COSTS, AND WHERE IT IS LOGGED ==================
+ * The beacon lamp on a CHARTED stop floats `LAMP_RISE` above the same limb, so
+ * the band the ship has just moved into is the band the lamp is in: its halo
+ * reaches `lampY() - LAMP_HALO_MAX` = 388 and the nozzle is now at 441.2, so
+ * the ship overlaps the lamp by 53.2 px (55.2 at the bottom of the bob) at
+ * whichever charted stop is selected.
+ * The old `SHIP_Y` cleared it, and that clearance is what `mapLayout.test.ts`
+ * used to assert. It cannot be kept AND a 10-15 px hover: there is 66 px
+ * between the halo's top and the disc, and the ship is 96 px tall.
+ *
+ * gauntlet/escalations.md carries the options and a lean. Nothing here silently
+ * drops the constraint - the test below now measures the overlap instead of
+ * denying it, so a later change cannot make it worse unnoticed.
  */
-export const SHIP_Y = 334;
+export const SHIP_Y = 401;
+
+/**
+ * The idle bob's amplitude, in px.
+ *
+ * RESTATED, NOT IMPORTED, exactly as `SHADOW_R` is and for the same reason:
+ * `render/lantern.ts` draws the tween and pulls in Phaser, so a node unit test
+ * cannot load it. `mapLayout.test.ts` parses the tween out of that file and
+ * fails if this restatement drifts - a clearance measured against a bob nobody
+ * checks is a clearance that quietly stops clearing.
+ */
+export const SHIP_BOB = 2;
+
+/** The nozzle's y at rest: the ship's lowest drawn ink. */
+export const shipBottom = (): number => SHIP_Y + lanternDesignBox(SHIP_EXHAUST).bottom * SHIP_SCALE;
+/** The planet's lit limb, i.e. the top of the disc the ship hovers over. */
+export const discTop = (): number => ROUTE_Y - NODE_R;
+/** The air the report is about, at rest: nozzle to limb. */
+export const shipDiscGap = (): number => discTop() - shipBottom();
+/** The same air across the whole bob - the number the 10-15 has to hold for. */
+export const shipDiscGapRange = (): { min: number; max: number } => ({
+  min: shipDiscGap() - SHIP_BOB,
+  max: shipDiscGap() + SHIP_BOB,
+});
 
 /**
  * The ship's drawn box when it hovers over stop `i`.
@@ -357,7 +584,7 @@ export function mapKeepClear(): readonly KeepClearShape[] {
   const k = keepClear();
   const panel = panelBox();
   const step = nodeStep();
-  const capTop = ROUTE_Y + NODE_R + CAPTION_GAP - SKY_PLATE.padY;
+  const capTop = captionPlateTop();
   const starHalf = STAR_R * 2.6 + STAR_R;
 
   for (let i = 0; i < STOP_IDS.length; i += 1) {

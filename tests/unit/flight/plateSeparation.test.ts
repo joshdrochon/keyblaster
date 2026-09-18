@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   type LivePlateTrack,
   type PlateTrack,
+  ROCK_ANGLE_MAX_PX,
   ROCK_DRIFT_PX,
   hasCleanColumn,
   spawnX,
@@ -114,6 +115,25 @@ import {
  * over every frame of every board finds both far more of it and a far worse
  * worst case, which is the point of sweeping.
  *
+ * ================== UR-83 PUT THE ROCKS ON AN ANGLE ==================
+ * A rock's column now SLIDES up to `ROCK_ANGLE_MAX_PX` over its fall, so the
+ * keep-out's old arithmetic - a band centred on where the other rock started -
+ * is no longer a guarantee about where either rock is. `plateKeepOuts` widens
+ * every band by both rocks' travel to cover it.
+ *
+ * WATCHED FAILING, with the real number: put `plateKeepOuts` back to
+ * `other.homeX +/- reach` - the band that is exactly right for two rocks that
+ * keep their columns - and this same sweep, with the angle modelled below,
+ * reads
+ *
+ *   the belt put a word over a word: 479 boards, worst 53.9% of "chunks" and
+ *   "thin" (saturn, maxLive 7, fast, spacing 1, saturated, seed 2)
+ *   expected 0.5392569435095811 to be +0
+ *
+ * 479 of 3456 boards, and half a word gone. That is the guarantee the angle
+ * would have quietly broken, and it is why `travelPx` is on `PlateTrack` and on
+ * every live plate the scene hands over.
+ *
  *   npx vitest run tests/unit/flight/plateSeparation.test.ts --coverage.enabled=false
  */
 
@@ -178,9 +198,25 @@ const PILOTS: readonly Pilot[] = [
 // One rock's whole life, as rectangles
 // ---------------------------------------------------------------------------
 
+/**
+ * `FlightScene.rockDraws`, restated. UR-83 gives every rock two draws made
+ * BEFORE the column rule runs - its fall-time spread and how far its column
+ * slides on the way down - and they come from their own stream seeded by
+ * (stage seed, rock index) rather than from `this.rng`, so that a DECLINED tick
+ * costs nothing and `this.rng`'s order is untouched. A harness that drew them
+ * from `rng` would fly a different belt AND shift every column.
+ */
+function rockDraws(seed: number, index: number): { spread: number; travelPx: number } {
+  const rng = mulberry32((seed ^ 0x5f3a9c2b) + index * 0x9e3779b1);
+  const spread = rng();
+  return { spread, travelPx: (rng() - 0.5) * 2 * ROCK_ANGLE_MAX_PX };
+}
+
 interface SimRock {
   readonly word: string;
   readonly homeX: number;
+  /** UR-83: signed px this column slides over the whole fall. */
+  readonly travelPx: number;
   readonly driftPhase: number;
   readonly spawnedAtMs: number;
   readonly fallMs: number;
@@ -203,7 +239,13 @@ function plateRectAt(rock: SimRock, atMs: number): {
   const progress = rock.fallMs > 0 ? (atMs - rock.spawnedAtMs) / rock.fallMs : 1;
   const clamped = Math.max(0, Math.min(1, progress));
   const rockY = rock.rockFromY + (rock.rockToY - rock.rockFromY) * clamped;
-  const x = rock.homeX + Math.sin(atMs / 1400 + rock.driftPhase) * ROCK_DRIFT_PX;
+  // UR-83's angle, exactly as `updateRocks` applies it: a CONSTANT sideways
+  // rate over the same clamped progress the y uses, so the rock has been on
+  // this line since it entered the frame.
+  const x =
+    rock.homeX +
+    rock.travelPx * clamped +
+    Math.sin(atMs / 1400 + rock.driftPhase) * ROCK_DRIFT_PX;
   const y = rockY + rock.plateOffsetY;
   return {
     left: x - rock.plateHalfW,
@@ -398,6 +440,10 @@ function flyBoard(spec: BoardSpec): BoardResult {
       }
       const word = outcome.word;
       const record = book[word] ?? blankRecord();
+      // UR-83: the two per-rock draws, derived the way the scene derives them,
+      // BEFORE the decline - fall time feeds the vertical test and the travel
+      // feeds the keep-out, and a declined tick must re-derive the same pair.
+      const draws = rockDraws(spec.seed, spawned);
       const letters = [...word].length;
       const sizePx = asteroidSizePx(letters);
       const offsetY = plateOffsetY(sizePx, spec.style);
@@ -411,6 +457,7 @@ function flyBoard(spec: BoardSpec): BoardResult {
           ikiMs: Math.max(spec.pilot.calibration.ikiMs, DEFAULT_CALIBRATION.ikiMs),
         },
         knobs: controller.knobs,
+        spread: draws.spread,
       });
 
       const track: PlateTrack = {
@@ -420,9 +467,11 @@ function flyBoard(spec: BoardSpec): BoardResult {
         toY: BREACH_Y + offsetY,
         spawnedAtMs: nowMs,
         fallMs,
+        travelPx: draws.travelPx,
       };
       const livePlates: readonly LivePlateTrack[] = live.map((r) => ({
         homeX: r.homeX,
+        travelPx: r.travelPx,
         halfWidthPx: r.plateHalfW,
         halfHeightPx: r.plateHalfH,
         fromY: r.rockFromY + r.plateOffsetY,
@@ -457,6 +506,7 @@ function flyBoard(spec: BoardSpec): BoardResult {
       const rock: SimRock = {
         word,
         homeX,
+        travelPx: draws.travelPx,
         driftPhase: rng() * Math.PI * 2,
         spawnedAtMs: nowMs,
         fallMs,
@@ -734,9 +784,34 @@ describe("UR-23 / AC-22.8: a word plate never covers another word plate", () => 
       "laneSpec no longer forwards the live plates, so the keep-out has nothing to avoid",
     ).toBe(true);
     expect(
-      /rock\.homeX \+ Math\.sin\([^)]*\) \* ROCK_DRIFT_PX/.test(source),
+      /Math\.sin\([^)]*\) \* ROCK_DRIFT_PX/.test(source),
       "updateRocks sways a rock by a literal rather than by ROCK_DRIFT_PX, so " +
         "the keep-out is sized for a drift the scene may not be using",
+    ).toBe(true);
+    // UR-83: THE ANGLE IS DECLARED TO THE RULE AND APPLIED AS A CONSTANT RATE.
+    // WATCHED FAILING, by reverting each line in `FlightScene.ts`:
+    //
+    //   with `travelPx` dropped from the arriving track: @engine/spawn sizes
+    //   every band for a column this rock does not keep: expected false to be true
+    //
+    //   with `travelPx` dropped from `livePlateTracks`: the keep-out avoids
+    //   where the live rocks STARTED rather than where they go: expected false
+    //   to be true
+    expect(
+      /rock\.travelPx \* Math\.max\(0, Math\.min\(1, t\)\)/.test(source),
+      "updateRocks no longer slides an angled rock at a constant rate over its " +
+        "own fall progress, so the angle is not the straight line the keep-out " +
+        "reserved a band for",
+    ).toBe(true);
+    expect(
+      /travelPx: rock\.travelPx/.test(source),
+      "livePlateTracks no longer tells the column rule how far a live rock's " +
+        "column slides, so the keep-out is sized for a board this scene does not draw",
+    ).toBe(true);
+    expect(
+      /travelPx: draws\.travelPx,\s*\};\s*const spec = this\.laneSpec/.test(source),
+      "spawnRock no longer declares the arriving rock's angle to the column " +
+        "rule before the column is chosen",
     ).toBe(true);
   });
 

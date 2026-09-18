@@ -6,18 +6,29 @@ import { ensureTextures, fillShape, starPoints } from "@game/render/textures";
 import { DUR, INK, SKY_PLATE, SPACE, TYPE } from "@game/ui/theme";
 import { headerText } from "@game/ui/grid";
 import { drawHint } from "@game/ui/hintLine";
+import { paintLockGlyph } from "@game/ui/chrome";
 import { typographyOf } from "./lib/typography";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import { LANTERN_DESIGN_HEIGHT, type LanternLivery, type LanternRig } from "@game/render/lantern";
 import {
   CAPTION_GAP,
+  CAPTION_PAD_X,
+  CAPTION_PAD_Y,
   CHIP,
   LAMP_RISE,
+  LOCK_SIZE,
   MAP_HEADER_PAD_Y,
+  GLOW_ALPHA,
+  GLOW_ALPHA_LOCKED,
+  GLOW_DEPTH,
+  GLOW_REACH,
+  GLOW_RINGS,
+  NODE_DEPTH,
   NODE_R,
   NODE_RIM,
   PANEL_PAD,
   PANEL_STAR_R,
+  ROUTE_DEPTH,
   ROUTE_X0,
   ROUTE_Y,
   SHADOW_SCALE,
@@ -26,7 +37,9 @@ import {
   STAR_R,
   STAR_ROW_GAP,
   chipX,
+  lockAdvance,
   mapKeepClear,
+  nodeRingBox,
   nodeStep,
   nodeX,
   panelBox,
@@ -41,6 +54,7 @@ import {
 import { STOP_IDS, isBeltStop, type StopId, type StopProgress } from "@engine/types";
 import {
   createFocusRing,
+  type FocusRing,
   createKeyboardMenu,
   label,
   plate,
@@ -110,6 +124,14 @@ interface NodeView {
   readonly locked: boolean;
   readonly accent: string;
   readonly beacon: Phaser.GameObjects.Graphics;
+  /**
+   * The name plate's DRAWN half-width and bottom edge.
+   *
+   * Measured, and kept, because the focus ring wraps the disc AND the plate as
+   * one box with even air on all four sides, and "Mars" and "Neptune" are not
+   * the same width. See `mapLayout.nodeRingBox`.
+   */
+  readonly caption: { readonly halfW: number; readonly bottom: number };
 }
 
 export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
@@ -141,6 +163,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   private shipLivery: LanternLivery | undefined = undefined;
   private shipTween: Phaser.Tweens.Tween | null = null;
   private selected: StopId = "earth";
+  /** The selected planet's halo (UR-92). One Graphics, repainted on select. */
+  private glow: Phaser.GameObjects.Graphics | null = null;
   /** How many star glyphs the screen has actually drawn (D27 evidence). */
   private starGlyphs = 0;
 
@@ -246,7 +270,9 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       },
     );
 
-    this.routeG = this.add.graphics().setDepth(3);
+    // UR-105 again: the route is the map's ink too, so it rides with the discs
+    // rather than staying at 3, under the mote plane the discs just left.
+    this.routeG = this.add.graphics().setDepth(ROUTE_DEPTH);
     this.buildNodes();
 
     // --- the personal-best board (D43) -----------------------------------
@@ -315,21 +341,60 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       depth: 11,
     });
 
+    // Created before the focus order, so the first `select` has something to
+    // paint into. Under the discs (`GLOW_DEPTH`).
+    this.glow = this.add.graphics().setDepth(GLOW_DEPTH);
     this.buildLantern(ctx.reducedMotion);
 
     // --- focus order: seven stops, then the two entry points --------------
-    const targets: FocusTarget[] = this.nodes.map((n) => ({
+    //
+    // THE RING WRAPS THE DISC AND THE NAME PLATE AS ONE BOX (`nodeRingBox`).
+    // It was a square around the disc alone, which was defensible while the
+    // status word made the caption a block of its own; with the caption down to
+    // one line the name IS the node's label, and a ring stopping above it says
+    // the name is not part of the thing being chosen.
+    //
+    // This rectangle is also the pointer's hit area - the kit builds one zone
+    // per target from the same numbers, deliberately, so that what the ring
+    // says is clickable and what is clickable are one rectangle. Locked stops
+    // keep both: the keyboard can focus Pluto from day one (AC-22b.1, D31) and
+    // the mouse behaves the same way.
+    const targets: FocusTarget[] = this.nodes.map((n, i) => ({
       id: n.stopId,
-      x: n.x - NODE_R - 14,
-      y: ROUTE_Y - NODE_R - 14,
-      w: (NODE_R + 14) * 2,
-      h: (NODE_R + 14) * 2,
+      ...nodeRingBox(i, n.caption),
       locked: n.locked,
       activate: () => this.travel(n),
     }));
     targets.push(...this.buildChips());
 
-    const ring = createFocusRing(this, 40);
+    // THE SHIP IS THE FOCUS INDICATOR ON A PLANET (UR-92).
+    //
+    // The ring around a stop was the third thing on this screen saying which
+    // stop is selected - the Lantern already hovers over it and the detail
+    // panel below already names it - and it was the least attractive of the
+    // three. The owner asked for it to go.
+    //
+    // IT IS HIDDEN, NOT DELETED, AND ONLY OVER A PLANET. The two chips at the
+    // top right share this focus order and the ship does not hover over them,
+    // so removing the ring outright would leave a keyboard user with no visible
+    // focus at all up there - AC-18.1. The box itself is untouched either way:
+    // the kit builds the pointer hit area from these same numbers.
+    //
+    // The ship is a POSITION cue, not a colour one, so it still reads for a
+    // colour-blind child - which is the property the ring was carrying.
+    const painted = createFocusRing(this, 40);
+    const stopTargets = new Set<string>(this.nodes.map((n) => n.stopId));
+    const ring: FocusRing = {
+      graphics: painted.graphics,
+      moveTo: (target) => {
+        const overAStop = stopTargets.has(target.id);
+        painted.graphics.setVisible(!overAStop);
+        if (!overAStop) painted.moveTo(target);
+      },
+      destroy: () => {
+        painted.destroy();
+      },
+    };
     const startIndex = Math.max(
       0,
       this.nodes.findIndex((n) => !n.locked && !n.charted),
@@ -402,6 +467,49 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
 
   /** Move the ship to stop `i`. Eased, because a cursor that teleports reads
    *  as a redraw rather than as a ship (AC-22.5; D41 stills it). */
+  /**
+   * The selected planet's glow (UR-92).
+   *
+   * What replaced the ring. The Lantern says which stop is selected by being
+   * over it, and this says the same thing on the disc itself - so the cue is
+   * still there when the eye is on the planet rather than above it.
+   *
+   * SOFT, AND UNDER THE DISC. Three rings of the stop's own accent at low
+   * alpha, drawn at `NODE_DEPTH - 0.1` so the planet sits on top of its own
+   * halo rather than inside a coloured box. It is the stop's accent rather
+   * than the UI gold because the glow belongs to the planet, and a locked
+   * stop's is dimmer still - it is a "you are looking at this", never a "this
+   * is available".
+   */
+  private paintSelectionGlow(i: number): void {
+    const node = this.nodes[i];
+    if (this.glow === null || node === undefined) return;
+    this.glow.clear();
+    const x = nodeX(i);
+    // THE GLOW IS THE SELECTION GOLD, NOT THE STOP'S ACCENT (UR-92).
+    //
+    // The accent was the first version and it fails exactly where it is needed:
+    // a locked stop's accent is near-grey, so a soft halo of it over a dark
+    // grey disc is invisible, and the locked stops are most of this screen. The
+    // gold is what selection is drawn in everywhere else in the game, it reads
+    // on every disc, and as a soft halo it is nothing like the hard gold box
+    // this replaced.
+    const alpha = node.locked ? GLOW_ALPHA_LOCKED : GLOW_ALPHA;
+    // OUTERMOST FIRST. The first version drew the bright inner ring and then
+    // painted the wide dim ones on top of it, which is the opposite of a glow:
+    // the brightest part ended up underneath. Largest to smallest, each one a
+    // little stronger, so the light gathers towards the disc.
+    for (let ring = GLOW_RINGS; ring >= 1; ring -= 1) {
+      const t = ring / GLOW_RINGS;
+      // SQUARED FALLOFF over many thin rings. Three rings with a linear ramp
+      // drew a solid gold rim - a ring by another name, which is what this
+      // replaced. The light has to fade, so each step is faint and there are
+      // enough of them that the steps are not visible.
+      this.glow.fillStyle(hexToNum(INK.accent), alpha * (1 - t) ** 2);
+      this.glow.fillCircle(x, ROUTE_Y, NODE_R + GLOW_REACH * t);
+    }
+  }
+
   private moveShipTo(i: number): void {
     const ship = this.lantern;
     if (ship === null) return;
@@ -462,7 +570,12 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
 
       // The planet disc. A locked stop keeps its silhouette and loses its
       // colour: it is still recognisably Pluto, just not lit yet.
-      const disc = this.add.graphics().setDepth(4);
+      //
+      // `NODE_DEPTH`, NOT 4 (UR-105: a gold accent diamond sat on Saturn).
+      // `mapLayout` carries the reasoning: the mote plane draws at 4.99 and
+      // never asked `keepClear` for permission, so the only fix that works for
+      // every stop is the depth the discs are on, read out of the layer table.
+      const disc = this.add.graphics().setDepth(NODE_DEPTH);
       // The lit face of the planet. Earth's sky role is night navy, which on a
       // navy chart reads as a hole rather than a world, so its atmosphere role
       // wins where a palette defines one.
@@ -483,45 +596,75 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
 
       const beacon = this.add.graphics().setDepth(6);
 
-      // THE CAPTION IS ONE BLOCK ON ONE PLATE, and its words come from the
-      // same `routeView` entry as the disc above it.
+      // THE CAPTION IS THE PLANET'S NAME, ON ONE LINE, AND NOTHING ELSE.
       //
-      // Both lines used to be INK.locked - the dimmest ink in the theme - on
-      // open chart sky, measured at 1.4:1. A child aged seven cannot read that,
-      // and "Locked" was the word they could not read under a lamp that said
-      // they had finished. "Not yet" is still said by the DIMMER of two legible
-      // inks, never by an illegible one (D31: not-yet, never denied).
-      const status = locked
-        ? this.story.text.text("map.locked")
-        : charted
-          ? this.story.text.text("map.charted")
-          : "";
-      skyText(
-        this,
-        x,
-        ROUTE_Y + NODE_R + CAPTION_GAP,
-        status === "" ? this.stopName(stopId) : `${this.stopName(stopId)}\n${status}`,
-        {
-          screen: "map",
-          id: `map.stop.${stopId}`,
-          size: TYPE.label,
-          color: locked ? INK.textDim : INK.text,
-          align: "center",
-          lang: this.story.lang,
-          depth: 7,
-          originX: 0.5,
-          padX: 16,
-          padY: 8,
-        },
-      );
+      // ================== WHAT CAME OFF IT ==================
+      // "Locked"      six of seven stops carried the same word on a second
+      //               line. A word repeated down a row is not a status, and it
+      //               was the thing making every caption two lines tall. It is
+      //               a LOCK MARK beside the name now (`paintLockGlyph`), drawn
+      //               in the same `INK.textDim` the name itself is drawn in, so
+      //               the two read as one label. D31 still holds: no cross, no
+      //               bar, no red - not yet, never denied.
+      // "Beacon Lit"  a charted planet already has a LIT BEACON drawn over it,
+      //               pulsing. The caption said the picture again. `map.charted`
+      //               stays in the string table with no reader on this screen.
+      //
+      // The colour rule is unchanged and still load-bearing: both lines used to
+      // be INK.locked, the dimmest ink in the theme, on open chart sky at
+      // 1.4:1. `INK.textDim` is the DIMMER of two legible inks, never an
+      // illegible one.
+      const cap = skyText(this, x, ROUTE_Y + NODE_R + CAPTION_GAP, this.stopName(stopId), {
+        screen: "map",
+        id: `map.stop.${stopId}`,
+        size: TYPE.label,
+        color: locked ? INK.textDim : INK.text,
+        align: "center",
+        lang: this.story.lang,
+        depth: 7,
+        originX: 0.5,
+        padX: CAPTION_PAD_X,
+        padY: CAPTION_PAD_Y,
+      });
+
+      if (locked) {
+        // THE MARK LIVES IN THE TEXT'S OWN LEFT PADDING, and that is the whole
+        // trick. `skyText` paints its plate around `text.getBounds()`, so
+        // reserving the room on the Text is what makes the plate grow to cover
+        // the mark and STAY CENTRED on the node - a second plate painted beside
+        // it here would be the tenth bespoke rounded rect `platePainters`
+        // exists to catch, and a mark drawn outside the plate would sit on open
+        // sky at the one contrast the sky plates were introduced to fix.
+        //
+        // `setText` re-runs the plate's layout against the new bounds; it is
+        // the kit's own re-layout hook, not a redraw invented here.
+        cap.text.setPadding({ left: lockAdvance() });
+        cap.setText(this.stopName(stopId));
+        const b = cap.text.getBounds();
+        paintLockGlyph(
+          this.add.graphics().setDepth(7),
+          { x: b.x, y: b.centerY - LOCK_SIZE / 2, w: LOCK_SIZE, h: LOCK_SIZE },
+          INK.textDim,
+        );
+      }
+
+      // WHAT THE FOCUS RING IS GOING TO BE BUILT AROUND, measured now, while
+      // the type exists. See `mapLayout.nodeRingBox` for why this one number on
+      // this screen is measured rather than declared.
+      const capBounds = cap.text.getBounds();
+      const caption = {
+        halfW: capBounds.width / 2 + CAPTION_PAD_X,
+        bottom: capBounds.y + capBounds.height + CAPTION_PAD_Y,
+      };
 
       if (!locked && charted && isBeltStop(stopId)) {
         // D27: each charted stop shows its star rating, right on the map.
         // Earth is exempt by construction: it has no belt, so it has no hull
         // hits and therefore no rating (types.ts, BELT_STOP_IDS). Drawing three
         // empty stars under Earth would invent a nought out of nothing.
-        // BELOW the caption plate, not through it. The plate is two lines of
-        // TYPE.label plus padding - about 78px - so the stars start after it.
+        // BELOW the caption plate, not through it. `STAR_ROW_GAP` is derived
+        // from the caption's height, so the row followed it up when the caption
+        // lost its second line instead of leaving a 37 px hole.
         this.drawStars(
           this.add.graphics().setDepth(7),
           x,
@@ -532,7 +675,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
         );
       }
 
-      this.nodes.push({ stopId, x, charted, locked, accent: pal.accent, beacon });
+      this.nodes.push({ stopId, x, charted, locked, accent: pal.accent, beacon, caption });
     });
   }
 
@@ -581,6 +724,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     const stop = stopId as StopId;
     this.selected = stop;
     this.moveShipTo(STOP_IDS.indexOf(stop));
+    this.paintSelectionGlow(this.nodes.findIndex((n) => n.stopId === stop));
     const { text, progress } = this.story;
     const entry: StopProgress = progressFor(progress, stop);
     const bundle = hasStageBundle(stop) ? stageBundle(stop) : null;

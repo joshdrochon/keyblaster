@@ -3,26 +3,51 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { GAME_WIDTH } from "@game/sceneKeys";
-import { SKY_PLATE } from "@game/ui/theme";
+import { SKY_PLATE, SPACE, STEP, TYPE, TYPE_SIZES } from "@game/ui/theme";
 import { GUTTER, HINT_CONTRACT, contentRight, contentWidth, headerText } from "@game/ui/grid";
 import { rectsOverlap } from "@game/ui/layout";
 import { hintInk } from "@game/ui/hintLine";
-import { LANTERN_PLUME_LENGTH, lanternDesignBox } from "@game/render/lanternGeometry";
+import { layer } from "@game/render/layers";
 import {
+  LANTERN_DESIGN_HEIGHT,
+  LANTERN_PLUME_LENGTH,
+  lanternDesignBox,
+} from "@game/render/lanternGeometry";
+import {
+  CAPTION_GAP,
+  CAPTION_LINES,
+  CAPTION_LINE_H,
+  CAPTION_PAD_Y,
   LAMP_HALO_MAX,
+  LOCK_GAP,
+  LOCK_SIZE,
   MAP_HEADER_PAD_Y,
+  NODE_DEPTH,
   NODE_R,
+  NODE_RIM,
   PANEL_STAR_R,
+  RING_PAD,
+  ROUTE_DEPTH,
   ROUTE_X0,
   ROUTE_Y,
   SHADOW_BAY_GAP,
   SHADOW_R,
   SHIP_EXHAUST,
   SHIP_H,
+  SHIP_SCALE,
+  SHIP_BOB,
   SHIP_Y,
+  STAR_R,
+  STAR_ROW_GAP,
+  captionBoxDeclared,
+  captionPlateBottom,
+  captionPlateH,
+  captionPlateTop,
   headerBottom,
   lampY,
+  lockAdvance,
   nodeBlockBottom,
+  nodeRingBox,
   nodeStep,
   nodeX,
   panelBox,
@@ -32,8 +57,11 @@ import {
   routeX1,
   shadowBox,
   shipBox,
+  shipDiscGap,
+  shipDiscGapRange,
   starsCentreForRight,
 } from "@game/scenes/support/mapLayout";
+import { SCENE_STRING_KEYS } from "@game/scenes/lib/strings";
 import { STOP_IDS } from "@engine/types";
 
 /**
@@ -90,6 +118,75 @@ import { STOP_IDS } from "@engine/types";
  *   -> "the route is symmetric about the frame's centre line":
  *      `expected 1495.7142857142858 to be 1710`.
  *
+ * ================== AND THE SIX CHANGES OF 2026-09-18 ==================
+ * Same rule, same runs. Every number here was printed by a red vitest.
+ *
+ *   `SHIP_Y` back to 334, the value that hovered too high
+ *   -> "the ship hovers 10-15 px over the planet", all seven stops:
+ *      `earth: ship bottom 374.2, disc top 454: expected 79.7929411764706 to
+ *      be less than or equal to 15`
+ *   -> and "the ship's overlap with the beacon lamp is measured, not denied":
+ *      `earth: the ship no longer enters the lamp halo at all: expected
+ *      -13.792941176470606 to be greater than 0`.
+ *
+ *   `SHIP_H` 96 -> 160
+ *   -> "nothing else about the ship moved": `expected 160 to be 96`, and
+ *      "the ship hovers 10-15 px over the planet": `earth: ship bottom 467.0,
+ *      disc top 454: expected -13.011764705882342 to be greater than or equal
+ *      to 10`.
+ *
+ *   `CAPTION_LINES` back to 2
+ *   -> "the plate is one line of TYPE.label plus the caption's own padding":
+ *      `expected 2 to be 1`.
+ *
+ *   `STAR_ROW_GAP` back to the literal 116 that cleared a two-line caption
+ *   -> "the star row follows the caption": `expected 116 to be 105`, and
+ *      "the lowest ink on a node came up with it": `expected 24 to be greater
+ *      than 24`.
+ *
+ *   the caption's `padX` back to the literal 16
+ *   -> "the padding is the padding the scene actually draws with":
+ *      `expected 'import Phaser from "phaser";\nimport …' to contain
+ *      'padX: CAPTION_PAD_X'`.
+ *
+ *   `map.charted` pasted back into the caption
+ *   -> "no status word is drawn under a planet's name": `expected 'import
+ *      Phaser …' not to contain 'text("map.charted")'`.
+ *
+ *   `LOCK_SIZE` 20 -> 19, i.e. a size that is not on the scale
+ *   -> "its size is on the type scale and its gap is on the spacing scale":
+ *      `expected [ 128, 72, 52, 44, 36, 30, 24, 20 ] to include 19`.
+ *
+ *   `INK.textDim` swapped for `INK.locked` at the `paintLockGlyph` call
+ *   -> "the scene draws it, in the ink the locked name is drawn in":
+ *      `expected 'import Phaser …' to match /paintLockGlyph\([\s\S]{0,220}
+ *      INK\.tex…/`.
+ *
+ *   the shackle's arc cut short at `Math.PI * 1.6`, i.e. a lock hanging open
+ *   -> "D31: it is not-yet, never denied": `expected 'export function
+ *      lockGlyphParts(box: R…' to contain 'Math.PI * 2'`.
+ *
+ *   `NODE_DEPTH` back to 4, the depth the discs shipped at
+ *   -> "it clears the light tile too, which is the one that carries the
+ *      diamonds": `expected 4 to be greater than 4.99`. This is the gold
+ *      diamond on Saturn, as arithmetic.
+ *   -> and `ROUTE_DEPTH` back to 3: "the map's ink is above every plane this
+ *      screen decorates": `midField draws over the route: expected 3 to be
+ *      greater than 3`.
+ *
+ *   `NODE_DEPTH` at 6.5, i.e. in front of the ship
+ *   -> "the ship still passes in FRONT of the planet it hovers over":
+ *      `expected 6.5 to be less than 6`.
+ *
+ *   `nodeRingBox` back to the square around the disc alone
+ *   -> "the box holds the disc AND the plate": `expected 560 to be greater
+ *      than 617`, and "the air is even on all four sides": `Mars: expected 2
+ *      to be 12`, `Neptune: expected -36 to be 12`.
+ *
+ *   `nodeRingBox`'s x shifted by half the lock's advance without re-centring
+ *   -> "it is still centred on the stop it belongs to": `earth: expected 220
+ *      to be close to 210, received difference is 10`.
+ *
  *   npx vitest run tests/unit/scenes/mapLayout.test.ts --coverage.enabled=false
  */
 
@@ -134,14 +231,81 @@ describe("UR-53: the Lantern hovers above the current planet", () => {
     ).toBeGreaterThan(headerBottom());
   });
 
-  it.each(ALL_STOPS)("%s: the ship clears the beacon lamp", (id, i) => {
+  it.each(ALL_STOPS)("%s: the ship hovers 10-15 px over the planet", (id, i) => {
+    // UR-77: the ship hovered too high. `SHIP_Y` 334 put the nozzle at
+    // 374.2 with the disc's limb at 454 - 79.8 px of empty sky, which reads as
+    // a ship parked under the header rather than as a cursor on a stop.
+    //
+    // Struck off `shipBox`, not off `SHIP_Y`. `SHIP_Y` is the rig's ORIGIN and
+    // the ship hangs 58% of its height above it, so the gap is not visible in
+    // the constant and a test that read it would be testing a number rather
+    // than a drawing.
+    // AND IT IS THE WHOLE BOB THAT HAS TO BE IN RANGE, not the rest position.
+    // The rig bobs 2 px either way on a 3 s sine and does so under reduced
+    // motion too, so a `SHIP_Y` solved for the rest gap alone is out of range
+    // for a third of every cycle - which a still capture cannot show. The
+    // browser probe read 15.79 at the top of the bob with the first value.
+    const box = shipBox(i);
+    const gap = (ROUTE_Y - NODE_R) - (box.y + box.h);
+    const band = shipDiscGapRange();
+    expect(gap).toBeCloseTo(shipDiscGap(), 6);
+    expect(band.min, `${id}: at the bottom of the bob the ship is ${band.min.toFixed(2)} px over`)
+      .toBeGreaterThanOrEqual(10);
+    expect(band.max, `${id}: at the top of the bob the ship is ${band.max.toFixed(2)} px over`)
+      .toBeLessThanOrEqual(15);
+    // ...and one y for all seven, so the route reads as a row.
+    expect(gap, `${id}`).toBeCloseTo(shipDiscGap(), 6);
+  });
+
+  it("the bob this is solved against is the bob the ship is drawn with", () => {
+    // `render/lantern.ts` pulls in Phaser and cannot be imported here, so
+    // `SHIP_BOB` is a restatement - and a restatement nobody checks is how a
+    // clearance quietly stops clearing anything (`SHADOW_R`, above).
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/render/lantern.ts"),
+      "utf8",
+    );
+    const m = /y: \{ from: y - (\d+(?:\.\d+)?), to: y \+ (\d+(?:\.\d+)?) \}/.exec(src);
+    expect(m?.[1], "lantern.ts no longer bobs an idle rig this way").toBeDefined();
+    expect(Number(m?.[1])).toBe(SHIP_BOB);
+    expect(Number(m?.[2])).toBe(SHIP_BOB);
+  });
+
+  it("nothing else about the ship moved", () => {
+    // The brief was explicit: not its scale, not its bob, not its livery, not
+    // its x. Only the two that are geometry can be asserted here; the bob and
+    // the livery are `buildLantern`'s options and are read by
+    // `tests/unit/arch/liveryReaders.test.ts`.
+    expect(SHIP_H).toBe(96);
+    expect(SHIP_SCALE).toBe(SHIP_H / LANTERN_DESIGN_HEIGHT);
+    expect(SHIP_EXHAUST).toBe(false);
+    for (const [, i] of ALL_STOPS) expect(shipBox(i).x + shipBox(i).w / 2).toBeCloseTo(nodeX(i), 6);
+  });
+
+  it.each(ALL_STOPS)("%s: the ship's overlap with the beacon lamp is measured, not denied", (id, i) => {
+    // ================== THIS CASE USED TO ASSERT THE OPPOSITE ==================
+    // It was `ship bottom < lampY() - LAMP_HALO_MAX`, and it was right: at
+    // `SHIP_Y` 334 the ship cleared the lamp. A 10-15 px hover cannot. There
+    // are 66 px between the halo's top (388) and the disc (454) and the ship is
+    // 96 px tall, so the two constraints are arithmetically exclusive, and the
+    // hover is the one the owner asked for.
+    //
+    // gauntlet/escalations.md carries the four options and the lean (tuck the
+    // lamp onto the limb next; it is not this lane's to move). What is NOT
+    // acceptable is deleting the case, so it measures the cost instead: a later
+    // edit that makes the overlap worse fails here rather than passing quietly.
     const box = shipBox(i);
     const haloTop = lampY() - LAMP_HALO_MAX;
+    const overlap = box.y + box.h + SHIP_BOB - haloTop;
+    expect(overlap, `${id}: the ship no longer enters the lamp halo at all`).toBeGreaterThan(0);
     expect(
-      box.y + box.h,
-      `${id}: ship bottom ${(box.y + box.h).toFixed(1)} overlaps the lamp halo, ` +
-        `which starts at ${haloTop}`,
-    ).toBeLessThan(haloTop);
+      overlap,
+      `${id}: the ship reaches ${overlap.toFixed(2)} px into the lamp halo at the bottom ` +
+        `of its bob, worse than the 55.21 logged in gauntlet/escalations.md`,
+    ).toBeLessThanOrEqual(55.21);
+    // The nozzle still stops short of the planet itself, bob included - the
+    // ship hovers over the lamp, it does not land on the world.
+    expect(box.y + box.h + SHIP_BOB).toBeLessThan(ROUTE_Y - NODE_R);
   });
 
   it("the ship's box is the drawing, plume included", () => {
@@ -291,5 +455,250 @@ describe("UR-54: the map is on the one grid", () => {
       expect(box.y + box.h, id).toBeLessThan(ROUTE_Y - NODE_R);
       expect(SHIP_Y, id).toBeGreaterThan(headerBottom());
     }
+  });
+});
+
+/**
+ * THE CAPTION LOST ITS SECOND LINE, AND EVERYTHING UNDER IT HAD TO FOLLOW.
+ *
+ * The status word under a planet's name was the reported defect - six copies of
+ * "Locked" down a row, and "Beacon Lit" repeating a lit beacon that is drawn
+ * over the planet. Taking it off is one line in the scene; the reason it is a
+ * geometry change is that FOUR things were measured off a two-line plate: the
+ * keep-clear zone, the star row, the lowest ink on a node, and now the focus
+ * ring's box.
+ */
+describe("the caption is one line", () => {
+  it("the plate is one line of TYPE.label plus the caption's own padding", () => {
+    expect(CAPTION_LINES).toBe(1);
+    expect(captionPlateH()).toBe(CAPTION_LINE_H + CAPTION_PAD_Y * 2);
+    // NEGATIVE CONTROL: the two-line plate it replaced. Without this the case
+    // above is satisfied by any self-consistent pair of numbers.
+    expect(CAPTION_LINE_H * 2 + CAPTION_PAD_Y * 2 - captionPlateH()).toBe(CAPTION_LINE_H);
+  });
+
+  it("the padding is the padding the scene actually draws with", () => {
+    // It used to be `SKY_PLATE.padY` (12) in the layout and 8 at the call site,
+    // and the difference was absorbed silently by the zone over-estimating. A
+    // ring with even air cannot absorb anything, so the two are one number now.
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/scenes/DirectorMapScene.ts"),
+      "utf8",
+    );
+    expect(src).toContain("padX: CAPTION_PAD_X");
+    expect(src).toContain("padY: CAPTION_PAD_Y");
+    expect(src).not.toContain("padX: 16,");
+  });
+
+  it("no status word is drawn under a planet's name", () => {
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/scenes/DirectorMapScene.ts"),
+      "utf8",
+    );
+    // "Beacon lit" is gone from this screen outright...
+    expect(src).not.toContain('text("map.charted")');
+    // ...and the two-line join that built the caption is gone with it.
+    expect(src).not.toMatch(/\$\{this\.stopName\(stopId\)\}\\n/);
+    // `map.locked` still has ONE reader - the board's action line, where "fly
+    // here" turns into "locked" - and that is not a caption under a planet.
+    expect(src.match(/text\("map\.locked"\)/g) ?? []).toHaveLength(1);
+  });
+
+  it("the string stays in the table, with no reader on this screen", () => {
+    // Deleting a translated line to prove a screen stopped using it costs the
+    // three languages and gains nothing.
+    expect(SCENE_STRING_KEYS).toContain("map.charted");
+  });
+
+  it("the star row follows the caption instead of sitting where it used to", () => {
+    // It was 116, which cleared TWO lines. A literal would have left a hole the
+    // height of the line that was removed.
+    expect(STAR_ROW_GAP).toBe(
+      CAPTION_GAP - CAPTION_PAD_Y + captionPlateH() + SPACE.gap + STAR_R,
+    );
+    // One unit of air between the plate's bottom edge and the top of a star.
+    const starTop = ROUTE_Y + NODE_R + STAR_ROW_GAP - STAR_R;
+    expect(starTop - captionPlateBottom()).toBe(SPACE.gap);
+    expect(STAR_ROW_GAP).toBeLessThan(116);
+  });
+
+  it("the lowest ink on a node came up with it, and still clears the board", () => {
+    expect(nodeBlockBottom()).toBe(ROUTE_Y + NODE_R + STAR_ROW_GAP + STAR_R);
+    expect(nodeBlockBottom()).toBeLessThan(panelBox().y);
+    // It shipped at 676, one caption line lower. The air over the board is what
+    // that line was taking, so it has to come back.
+    expect(panelBox().y - nodeBlockBottom()).toBeGreaterThan(700 - 676);
+  });
+});
+
+/**
+ * THE LOCK MARK, AND WHY ITS TWO NUMBERS ARE TOKENS.
+ *
+ * "Small, deliberate beside the label" is not a thing a test can see. What it
+ * CAN hold is that neither number was picked beside the label: the size is on
+ * the type scale and the gap is on the spacing scale, which is the rule
+ * `theme.ts` states and the one `SPACE.rowPadX` cost an hour for breaking.
+ */
+describe("the lock mark replaces the word", () => {
+  it("its size is on the type scale and its gap is on the spacing scale", () => {
+    expect(TYPE_SIZES).toContain(LOCK_SIZE);
+    expect(Object.values(STEP)).toContain(LOCK_GAP);
+    // One step under the word it sits beside, which is the same relationship
+    // the header block uses between its heading and its subheading.
+    expect(LOCK_SIZE).toBeLessThan(TYPE.label);
+    expect(lockAdvance()).toBe(LOCK_SIZE + LOCK_GAP);
+  });
+
+  it("the scene draws it, in the ink the locked name is drawn in", () => {
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/scenes/DirectorMapScene.ts"),
+      "utf8",
+    );
+    expect(src).toContain("paintLockGlyph(");
+    // ONE token for the mark and the word. A second ink here is how a mark
+    // beside a label comes to read as a warning stuck to it.
+    expect(src).toMatch(/paintLockGlyph\([\s\S]{0,220}INK\.textDim/);
+    expect(src).toContain("color: locked ? INK.textDim : INK.text");
+  });
+
+  it("it is vector, drawn in code (D83)", () => {
+    const chrome = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/ui/chrome.ts"),
+      "utf8",
+    );
+    expect(chrome).toContain("export function paintLockGlyph");
+    expect(chrome).not.toMatch(/paintLockGlyph[\s\S]{0,400}scene\.add\.(image|sprite)/);
+  });
+
+  it("D31: it is not-yet, never denied - no cross, no bar, no red", () => {
+    const chrome = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/ui/chrome.ts"),
+      "utf8",
+    );
+    const mark = chrome.slice(chrome.indexOf("export function lockGlyphParts"));
+    const body = mark.slice(0, mark.indexOf("\n/**", 1));
+    expect(body).not.toMatch(/INK\.(bad|danger|error|warn)/);
+    // The shackle is a closed half-circle standing on the body. A padlock drawn
+    // hanging open would read as "you may go", which is the opposite of true.
+    expect(body).toContain("Math.PI * 2");
+  });
+});
+
+/**
+ * UR-105: A GOLD DIAMOND SAT ON SATURN.
+ *
+ * Fixed at the LAYER. `mapKeepClear` could never have moved it: `parallax.ts`
+ * hands `keepClear` to the four DEBRIS planes and not to `nearField`'s light
+ * tile - the motes, glints and accent diamonds - which draws a hair under
+ * `nearField` at 4.99. The discs drew at 4.
+ */
+describe("UR-105: the discs draw above the mote plane", () => {
+  it("the map's ink is above every plane this screen decorates", () => {
+    const decorated = ["sky", "farField", "midField", "nearField"] as const;
+    for (const id of decorated) {
+      expect(NODE_DEPTH, `${id} draws over the planets`).toBeGreaterThan(layer(id).depth);
+      expect(ROUTE_DEPTH, `${id} draws over the route`).toBeGreaterThan(layer(id).depth);
+    }
+    // NEGATIVE CONTROL: the depth that shipped. Without it this passes for any
+    // number above 5 and the fix would look like a preference.
+    expect(4).toBeLessThan(layer("nearField").depth);
+  });
+
+  it("it clears the light tile too, which is the one that carries the diamonds", () => {
+    // `parallax.NEAR_LIGHT_DEPTH` is `layer("nearField").depth - 0.01`, restated
+    // here for the same reason `SHADOW_R` is - the file it lives in imports
+    // Phaser - and checked against the source so the restatement cannot drift.
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/render/parallax.ts"),
+      "utf8",
+    );
+    const m = /const NEAR_LIGHT_DEPTH = layer\("nearField"\)\.depth - (\d+(?:\.\d+)?);/.exec(src);
+    expect(m?.[1], "parallax.ts no longer declares NEAR_LIGHT_DEPTH this way").toBeDefined();
+    expect(NODE_DEPTH).toBeGreaterThan(layer("nearField").depth - Number(m?.[1]));
+  });
+
+  it("the ship still passes in FRONT of the planet it hovers over", () => {
+    expect(NODE_DEPTH).toBeLessThan(layer("shipFx").depth);
+    expect(ROUTE_DEPTH).toBeLessThan(NODE_DEPTH);
+  });
+
+  it("the scene uses the layer constants, not a literal depth", () => {
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/scenes/DirectorMapScene.ts"),
+      "utf8",
+    );
+    expect(src).toContain("setDepth(NODE_DEPTH)");
+    expect(src).toContain("setDepth(ROUTE_DEPTH)");
+    expect(src).not.toContain("this.add.graphics().setDepth(4)");
+  });
+});
+
+/**
+ * THE FOCUS RING WRAPS THE DISC AND THE NAME PLATE AS ONE BOX.
+ *
+ * Ordered after the caption on purpose: the box's height is the caption's
+ * bottom edge, so this could not be settled until the caption was one line.
+ */
+describe("the focus ring's box", () => {
+  const CAPTIONS = [
+    { name: "Mars, the narrowest name", halfW: 58, bottom: captionPlateBottom() },
+    { name: "Neptune, the widest", halfW: 96, bottom: captionPlateBottom() },
+    { name: "a caption narrower than the disc", halfW: 20, bottom: captionPlateBottom() },
+  ] as const;
+
+  it.each(CAPTIONS.map((c) => [c.name, c] as const))(
+    "%s: the box holds the disc AND the plate",
+    (_name, cap) => {
+      const box = nodeRingBox(3, cap);
+      const discEdge = NODE_R + NODE_RIM;
+      // The disc, to its dark rim - the drawn edge, not `NODE_R`. The box that
+      // shipped was struck off `NODE_R + 14`, so its 14 px of air was really 6.
+      expect(box.y).toBeLessThan(ROUTE_Y - discEdge);
+      expect(box.x).toBeLessThanOrEqual(nodeX(3) - discEdge);
+      expect(box.x + box.w).toBeGreaterThanOrEqual(nodeX(3) + discEdge);
+      // ...and the name plate, which the old box stopped 100 px above.
+      expect(box.y + box.h).toBeGreaterThan(cap.bottom);
+      expect(box.x).toBeLessThanOrEqual(nodeX(3) - cap.halfW);
+    },
+  );
+
+  it.each(CAPTIONS.map((c) => [c.name, c] as const))(
+    "%s: the air is even on all four sides",
+    (_name, cap) => {
+      const box = nodeRingBox(3, cap);
+      const discEdge = NODE_R + NODE_RIM;
+      const inkLeft = nodeX(3) - Math.max(discEdge, cap.halfW);
+      const inkRight = nodeX(3) + Math.max(discEdge, cap.halfW);
+      expect(inkLeft - box.x).toBe(RING_PAD);
+      expect(box.x + box.w - inkRight).toBe(RING_PAD);
+      expect(ROUTE_Y - discEdge - box.y).toBe(RING_PAD);
+      expect(box.y + box.h - cap.bottom).toBe(RING_PAD);
+    },
+  );
+
+  it("it is still centred on the stop it belongs to, at every stop", () => {
+    for (const [id, i] of ALL_STOPS) {
+      const box = nodeRingBox(i, captionBoxDeclared());
+      expect(box.x + box.w / 2, id).toBeCloseTo(nodeX(i), 6);
+    }
+  });
+
+  it("NEGATIVE CONTROL: the square that shipped missed the name entirely", () => {
+    // `{ y: ROUTE_Y - NODE_R - 14, h: (NODE_R + 14) * 2 }`.
+    const shipped = { y: ROUTE_Y - NODE_R - 14, h: (NODE_R + 14) * 2 };
+    expect(shipped.y + shipped.h).toBeLessThan(captionPlateTop());
+  });
+
+  it("the scene builds it from the layout, and measures the caption", () => {
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/scenes/DirectorMapScene.ts"),
+      "utf8",
+    );
+    expect(src).toContain("nodeRingBox(i, n.caption)");
+    expect(src).not.toMatch(/x: n\.x - NODE_R - 14/);
+    // The plate's width is MEASURED off the drawn text: "Mars" and "Neptune"
+    // are not the same width, and a declared half-width would give one of them
+    // even air and the other a margin.
+    expect(src).toContain("cap.text.getBounds()");
   });
 });

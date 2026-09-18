@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  FALL_SPREAD_DOWN,
+  FALL_SPREAD_UP,
   FALL_TIME_MAX_MS,
   FALL_TIME_MIN_MS,
+  fallSpreadFactor,
   HEADROOM_SLOW_IKI_MS,
   KEYSTROKE_BUDGET_FACTOR,
   KEYSTROKE_HEADROOM_MIN,
@@ -1222,6 +1225,164 @@ describe("UR-72 / FR-8: the reading budget follows the reader", () => {
     expect(rawFallTimeMs({ word: "a".repeat(13), ease: EASE_NEW, calibration: grade2 })).toBe(14100);
     expect(fallTimeMs({ word: "a".repeat(13), ease: EASE_NEW, calibration: grade2 })).toBe(
       FALL_TIME_MAX_MS,
+    );
+  });
+});
+
+/**
+ * UR-83: A BELT AT A LOW KNOB IS A METRONOME, AND THAT IS THE REPORT.
+ *
+ * "Some rocks should fly by fast - a second or two to type - and some slower."
+ * They did not: fall time is `length * headroom * iki + base * ease`, and at a
+ * low knob setting, where ease is near 1.0 for everything and a pool is
+ * length-tight, that is a near-constant. Two rocks on the same board fell at
+ * about the same speed, every time.
+ *
+ * `fallSpreadFactor` is the property of the ROCK that fixes it: one 0..1 draw
+ * from the belt's seeded rng, taken at spawn, scaling the whole of FR-8's
+ * budget. What is asserted here is that it is a real spread, that it scales off
+ * the same measured interval the rest of this file does, and - the part that
+ * matters - that it cannot cost the supported tail a single millisecond.
+ */
+describe("UR-83 / FR-8: a rock's own share of the budget", () => {
+  const FAST = { ikiMs: 260, fkLatencyMs: 400 };
+  const GRADE2 = { ikiMs: HEADROOM_SLOW_IKI_MS, fkLatencyMs: 700 };
+
+  it("UR-83: no spread at all is FR-8's budget, byte for byte", () => {
+    // The property every `toBe` sweep above rests on. `spread` is optional in
+    // the type, and a caller that does not draw one must get the identical
+    // number it got before this existed.
+    expect(fallSpreadFactor(undefined)).toBe(1);
+    for (const stop of STOP_IDS) {
+      for (const word of stagePoolFor(stop)) {
+        for (const ease of [EASE_MIN, EASE_NEW, EASE_MAX]) {
+          for (const calibration of [DEFAULT_CALIBRATION, FAST, GRADE2]) {
+            expect(rawFallTimeMs({ word, ease, calibration }), `"${word}"`).toBe(
+              rawFallTimeMs({ word, ease, calibration, spread: undefined }),
+            );
+          }
+        }
+      }
+    }
+  });
+
+  it("UR-83: it is a REAL spread - the slowest rock is nearly twice the quickest", () => {
+    /**
+     * WATCHED FAILING, with the real number: return a constant 1 from
+     * `fallSpreadFactor` - the shipped belt - and this reads
+     *
+     *     the belt's quickest and slowest rock differ by 1.00x:
+     *     expected 1 to be greater than 1.7
+     *
+     * i.e. every rock on the board falls at exactly the same speed, which is
+     * the report in one number.
+     */
+    const lo = fallSpreadFactor(0, FAST.ikiMs);
+    const hi = fallSpreadFactor(1, FAST.ikiMs);
+    expect(
+      hi / lo,
+      `the belt's quickest and slowest rock differ by ${(hi / lo).toFixed(2)}x`,
+    ).toBeGreaterThan(1.7);
+    // (The second assertion the control above fires is `expected 0 to be
+    // greater than 0` on the millisecond swing below - a constant factor moves
+    // no rock by any amount.)
+    expect(lo).toBeCloseTo(1 - FALL_SPREAD_DOWN, 10);
+    expect(hi).toBeCloseTo(1 + FALL_SPREAD_UP, 10);
+    // And the CENTRE is FR-8 exactly, so the spread is a spread and not a cut.
+    expect(fallSpreadFactor(0.5, FAST.ikiMs)).toBe(1);
+  });
+
+  it("UR-83: the spread is a MULTIPLE, so it scales off the measured interval", () => {
+    // The coordinator's constraint: "a fast typist's slow rock is still quick
+    // in absolute terms. Do not add a variance that is constant in
+    // milliseconds regardless of who is typing." Measured as a ratio: the ms
+    // the spread moves a rock by is proportional to what the rock cost.
+    const word = "planet";
+    const at = (calibration: { ikiMs: number; fkLatencyMs: number }, spread: number): number =>
+      rawFallTimeMs({ word, ease: EASE_NEW, calibration, spread });
+    const fastSwing = at(FAST, 1) - at(FAST, 0.5);
+    const slowSwing = at(GRADE2, 1) - at(GRADE2, 0.5);
+    // A slower pilot's rocks are budgeted for longer, so their SLOW rock is
+    // slower by more milliseconds - which is what "not constant in ms" means.
+    expect(slowSwing).toBeGreaterThan(fastSwing);
+    // And the proportion is identical, because it is one multiple of the whole
+    // expression: D19's split survives untouched.
+    expect(at(FAST, 1) / at(FAST, 0.5)).toBeCloseTo(at(GRADE2, 1) / at(GRADE2, 0.5), 10);
+  });
+
+  it("UR-83: the supported tail is NEVER handed a shorter fall than FR-8's", () => {
+    /**
+     * THE SAFETY CLAIM, AND IT IS ARITHMETIC RATHER THAN A SIMULATION RESULT.
+     *
+     * The downward half is scaled by `headroomEarned`, which is 0 at
+     * `HEADROOM_SLOW_IKI_MS`, so a pilot measured that slow gets a spread that
+     * runs 1.00 to 1.30 - entirely in the direction that gives time back. No
+     * draw, no word, no ease and no knob setting can produce a rock shorter
+     * than the one they flew before this change.
+     *
+     * WATCHED FAILING, with the real number: drop the `earned` factor from
+     * `fallSpreadFactor` - a symmetric spread for everybody - and this reads
+     *
+     *     grade-2, "launch" at draw 0: expected 5460 to be greater than or
+     *     equal to 7800
+     *
+     * and the route sweep gains stalls for the median and slow pilots too.
+     */
+    for (const stop of STOP_IDS) {
+      for (const word of stagePoolFor(stop)) {
+        const base = rawFallTimeMs({ word, ease: EASE_NEW, calibration: GRADE2 });
+        for (let i = 0; i <= 20; i += 1) {
+          const spread = i / 20;
+          expect(
+            rawFallTimeMs({ word, ease: EASE_NEW, calibration: GRADE2, spread }),
+            `grade-2, "${word}" at draw ${spread}`,
+          ).toBeGreaterThanOrEqual(base);
+        }
+      }
+    }
+    // Stated as the factor itself, at every draw: it is never below 1.
+    for (let i = 0; i <= 100; i += 1) {
+      expect(fallSpreadFactor(i / 100, HEADROOM_SLOW_IKI_MS)).toBeGreaterThanOrEqual(1);
+      expect(fallSpreadFactor(i / 100, HEADROOM_SLOW_IKI_MS + 400)).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("UR-83: FR-8's 2500 ms floor and 14000 ms ceiling still bound every rock", () => {
+    // The spread is applied inside `rawFallTimeMs`, i.e. BEFORE the clamp, so
+    // the bounds - each scaled by the queue depth exactly as UR-51 left them -
+    // are untouched. Swept over every shipped word, every ease, every pilot,
+    // every knob setting and the whole range of the draw.
+    for (const stop of STOP_IDS) {
+      for (const word of stagePoolFor(stop)) {
+        for (const ease of [EASE_MIN, EASE_NEW, EASE_MAX]) {
+          for (const calibration of [FAST, DEFAULT_CALIBRATION, GRADE2]) {
+            for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+              const factor = fallBudgetFactor({ maxLive: live });
+              for (const spread of [0, 0.25, 0.5, 0.75, 1]) {
+                const ms = fallTimeMs({ word, ease, calibration, knobs: { maxLive: live }, spread });
+                expect(ms, `"${word}" at ${live}/${spread}`).toBeGreaterThanOrEqual(
+                  FALL_TIME_MIN_MS * factor,
+                );
+                expect(ms).toBeLessThanOrEqual(FALL_TIME_MAX_MS * factor);
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("UR-83: the draw is total - a corrupt sample is the centre, never NaN", () => {
+    // A rock with a NaN fall time is a rock with no deadline, which is a rock
+    // that never leaves a child's board.
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(fallSpreadFactor(bad, FAST.ikiMs)).toBe(1);
+    }
+    // Out of range clamps rather than extrapolating.
+    expect(fallSpreadFactor(-5, FAST.ikiMs)).toBe(fallSpreadFactor(0, FAST.ikiMs));
+    expect(fallSpreadFactor(5, FAST.ikiMs)).toBe(fallSpreadFactor(1, FAST.ikiMs));
+    expect(Number.isFinite(fallTimeMs({ word: "rock", ease: EASE_NEW, spread: Number.NaN }))).toBe(
+      true,
     );
   });
 });

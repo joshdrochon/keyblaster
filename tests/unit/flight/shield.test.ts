@@ -4,6 +4,7 @@ import {
   HULL_BASE_SPAWNS,
   MIN_HULL,
   hullAfterShield,
+  HULL_PASS_COST,
   hullAfterStrike,
   hullForStage,
   hullMarksLit,
@@ -137,8 +138,24 @@ describe("hullAfterStrike (AC-4.2)", () => {
     expect(hullAfterStrike(99, 9)).toBe(8);
   });
 
-  it("floors a fractional hull rather than propagating it", () => {
-    expect(hullAfterStrike(2.9, 3)).toBe(1);
+  it("propagates a fractional hull rather than flooring it (UR-91)", () => {
+    // THIS ASSERTION IS INVERTED ON PURPOSE. It used to read "floors a
+    // fractional hull rather than propagating it" and expect 1 from 2.9, which
+    // was right while every cost was a whole mark. Half marks exist now - a
+    // rock that passes the ship takes `HULL_PASS_COST` - and flooring the
+    // RUNNING value would throw two of them away entirely, so a child could
+    // miss forever at no cost. The rounding happens once, in `hullMarksLit`,
+    // where the hull is drawn.
+    //
+    // WATCHED FAILING, with the floor restored: expected 1 to be 1.9
+    expect(hullAfterStrike(2.9, 3)).toBe(1.9);
+    // Two passes cost one whole mark between them, which is the rule.
+    const afterOne = hullAfterStrike(3, 3, HULL_PASS_COST);
+    expect(afterOne).toBe(2.5);
+    expect(hullAfterStrike(afterOne, 3, HULL_PASS_COST)).toBe(2);
+    // And a pass can empty a hull that a strike would have emptied too, so
+    // there is no state where a child is alive on a hull of zero.
+    expect(hullAfterStrike(0.5, 3, HULL_PASS_COST)).toBe(0);
   });
 
   it("is monotonically non-increasing across its whole domain", () => {

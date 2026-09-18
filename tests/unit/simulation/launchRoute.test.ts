@@ -17,11 +17,14 @@ import {
 import { BELT_STOP_IDS, DEFAULT_CALIBRATION, type Calibration } from "@engine/types.js";
 import { DEFAULT_KNOBS, MAX_LIVE_MAX, MAX_LIVE_MIN } from "@engine/controller/knobs.js";
 import {
+  type SpawnOutcome,
   clearanceMargin,
   createController,
+  createMarginWindow,
   endStage,
   knobsDiffCount,
   recordOutcome,
+  stopBand,
 } from "@engine/controller/index.js";
 import { DEFAULT_FLIGHT_CONFIG, stagePoolFor } from "@game/flight/stage.js";
 import { survivableHitRate } from "@engine/hull/index.js";
@@ -689,6 +692,19 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
       clearanceMargin({ spawnedAtMs: s.spawnedAtMs, leftAtMs: s.clearedAtMs, fallMs: s.fallMs }),
     );
 
+  /**
+   * ================== UR-83 PUT THE STOP INTO THIS LOOP ==================
+   *
+   * The controller used to be created ONCE for the whole route and carried by
+   * `endStage` alone, which is a faithful model of a controller that has no
+   * stop input - and having no stop input was the defect. `FlightScene.create`
+   * builds a controller PER BELT from the knob the profile holds, and UR-83
+   * gives it `stopId`, so the knob is clamped into that stop's band the moment
+   * the belt opens. This loop does exactly that: the knobs travel stop to stop
+   * (they are what the profile persists), the controller is rebuilt at each
+   * stop with that stop's band, and the windows travel with it because they are
+   * "the last 20 rocks", not "the last 20 rocks of this stop" (D53).
+   */
   function climb(player: SimPlayer, freezeKnob: number | null = null): Step[] {
     const cols = BELT_STOP_IDS.map(() => ({
       maxLive: [] as number[],
@@ -704,16 +720,40 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
     for (let seed = 1; seed <= SEEDS; seed += 1) {
       // A brand-new profile: D18's cold start, which is also UR-51's safety
       // floor. `DEFAULT_KNOBS` is what `blankProfile` writes.
-      let controller = createController({ knobs: DEFAULT_KNOBS });
+      let knobs = DEFAULT_KNOBS;
+      // The rolling windows travel with the knob, because they are "the last 20
+      // rocks" and not "the last 20 rocks of this stop" (D53) - the same reason
+      // `endStage` does not reset them.
+      let carriedOutcomes: readonly SpawnOutcome[] = [];
+      let carriedMargins = createMarginWindow([]);
       let calibration = calibrationOf(player);
       const rng = mulberry32(seed);
       for (let stop = 0; stop < BELT_STOP_IDS.length; stop += 1) {
+        const stopId = BELT_STOP_IDS[stop]!;
+        // The belt the scene opens: the profile's knob, clamped into THIS
+        // stop's band (UR-83). `freezeKnob` bypasses the band on purpose - it
+        // is the pinned-floor control, and a control that the band moved would
+        // not be a control.
+        let controller = createController({
+          knobs,
+          window: carriedOutcomes,
+          margins: carriedMargins,
+          stopId,
+        });
         const opened =
           freezeKnob === null ? controller.knobs : { ...controller.knobs, maxLive: freezeKnob };
+        if (freezeKnob !== null) {
+          controller = createController({
+            knobs: opened,
+            window: carriedOutcomes,
+            margins: carriedMargins,
+          });
+        }
         const result: BeltResult = simulateBelt(
           {
             stopIndex: stop + 1,
-            stagePool: stagePoolFor(BELT_STOP_IDS[stop]!),
+            stopId: freezeKnob === null ? stopId : undefined,
+            stagePool: stagePoolFor(stopId),
             retentionPool: [],
             spawnCount: WORDS,
             calibration,
@@ -747,7 +787,9 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
         });
         next = endStage(next);
         col.moves.push(knobsDiffCount(opened, next.knobs));
-        controller = next;
+        knobs = next.knobs;
+        carriedOutcomes = next.window.outcomes;
+        carriedMargins = next.margins;
       }
     }
     return cols.map((c, i) => ({
@@ -897,24 +939,26 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
     // grade-2 one. WATCHED FAILING: assert `toBe(MAX_LIVE_MAX)` instead and it
     // reads "fast knob: expected 6.3 to be 7".
     //
-    // ================== UR-72 MOVED THE GRADE-2 END OF THIS =================
-    // This used to read `toBe(MAX_LIVE_MIN)`: the throttle pinned the grade-2
-    // pilot at the cold start for the whole route, because their margin never
-    // rose enough to earn a step. UR-72 gives that pilot the reading time their
-    // measured hands need, their margin rises with it (marginP25 0.139 -> 0.196
-    // at Pluto), and the servo lets them off the floor - to a mean of 2.30 by
-    // Pluto, i.e. under a third of one knob step, with ZERO stalls against the 3
-    // on record. Run against the current code the old assertion reads
+    // ================== UR-83 MOVED THE GRADE-2 END OF THIS AGAIN ===========
+    // This has read `toBe(MAX_LIVE_MIN)` and then `< MAX_LIVE_MIN + 1`: the
+    // grade-2 pilot flew the WHOLE ROUTE on the cold start, because the margin
+    // throttle never let them earn a step. That was the right claim while the
+    // controller had no stop input, and it is exactly the defect UR-83 is
+    // about - Mars and Pluto were the same board, for this pilot and for every
+    // other one. Run against the current code the old assertion reads
     //
-    //     grade2 knob: expected 2.3 to be 2
+    //     grade2 knob: expected 5 to be less than 3
     //
-    // A knob that moves for a child whose margin earned it is the controller
-    // working, not the safety floor slipping - the safety claim is stalls and
-    // hit rate, and both are asserted below and improved. What this test needs
-    // is that the pilot stays near the cold start, so that is what it says.
+    // 5 is PLUTO'S FLOOR (`@engine/controller/stopBand`), and that is the whole
+    // change: this pilot is lifted by the STOP rather than by the throttle, and
+    // the throttle still refuses to lift them any further. So the claim is now
+    // the sharper one - the two pilots sit at OPPOSITE ENDS of the same band -
+    // and the safety claims (zero stalls, hit rate above the hull's demand at
+    // every stop) are unchanged, absolute, and asserted below.
+    const pluto = stopBand("pluto");
     const grade2End = last(rows.grade2!).maxLive;
-    expect(grade2End, "grade2 knob").toBeLessThan(MAX_LIVE_MIN + 1);
-    expect(grade2End, "grade2 knob").toBeGreaterThanOrEqual(MAX_LIVE_MIN);
+    expect(grade2End, "grade2 ends the route at Pluto's floor").toBe(pluto.floor);
+    expect(end.maxLive, "fast ends the route at Pluto's ceiling").toBe(pluto.ceiling);
     expect(end.maxLive - grade2End, "knob separation").toBeGreaterThanOrEqual(2);
   });
 
@@ -1015,12 +1059,36 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
     for (const step of atFloor.grade2!) {
       expect(step.stalls, `grade2 at the pinned floor, ${step.stop}`).toBe(0);
     }
-    // 2. AND IT IS NOT BOUGHT WITH A BUSIER BOARD. The knob moves, but under a
-    //    third of one step, and the board stays one-deep.
+    // 2. THE KNOB IS THE STOP'S FLOOR AND NOTHING MORE (UR-83).
+    //
+    //    THIS CLAIM CHANGED AND THE CHANGE IS THE TICKET. It used to be "the
+    //    knob stays under MAX_LIVE_MIN + 1 and the board stays one-deep at
+    //    EVERY stop" - i.e. this child flew the same belt at Pluto as at Mars,
+    //    which is precisely the report UR-83 answers. Run against the current
+    //    code it reads
+    //
+    //        grade2 knob at saturn: expected 3 to be less than 3
+    //
+    //    where 3 is Saturn's own floor. What is still true, and is the part
+    //    that was ever a safety claim, is that the THROTTLE never lifts this
+    //    pilot off the floor the stop puts them on: every stop, every seed,
+    //    within one step of its floor and never at its ceiling.
+    //
+    //    AND THE FIRST BELT IS UNTOUCHED. Mars' floor is `MAX_LIVE_MIN`, so a
+    //    first-time grade-2 child's first belt is the cold start, byte for
+    //    byte the belt measured at zero stalls - asserted separately below,
+    //    because it is the one moment the game has measured nobody.
     for (const step of steps) {
-      expect(step.maxLive, `grade2 knob at ${step.stop}`).toBeLessThan(MAX_LIVE_MIN + 1);
-      expect(step.meanLive, `grade2 board at ${step.stop}`).toBeLessThan(1.3);
+      const band = stopBand(step.stop as Parameters<typeof stopBand>[0]);
+      expect(step.maxLive, `grade2 knob at ${step.stop}`).toBeLessThan(band.floor + 1);
+      expect(step.maxLive, `grade2 knob at ${step.stop}`).toBeGreaterThanOrEqual(band.floor);
     }
+    // THE COLD START, AS AN ABSOLUTE. A child the game has never watched gets
+    // FR-10's own floor and a one-deep board on their first belt, whatever the
+    // rest of the route does.
+    const mars = steps[0]!;
+    expect(mars.maxLive, "grade2's first belt").toBe(MAX_LIVE_MIN);
+    expect(mars.meanLive, "grade2's first board").toBeLessThan(1.3);
     // 3. EVERY STOP CLEARS THE RATE ITS OWN HULL DEMANDS. Stated per stop and
     //    not as an average, because an average can hide one stop under the bar
     //    while another carries it - which is what the 3 Jupiter stalls were.
@@ -1042,6 +1110,10 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
     //    them, not the reading budget. Comparing a route the controller moved
     //    against one it was forbidden to move is not a measurement of UR-72.
     const BEFORE_UR72 = 0.9384;
+    // NOTE FOR THE NEXT PASS: this bar is now cleared on a route where this
+    // pilot's board grows from 1.03 rocks at Mars to 2.78 at Pluto, which is
+    // strictly harder than the flat 1.0x route the 0.9384 was measured on. A
+    // hit rate that went UP while the belt got deeper is the claim.
     const meanHit = steps.reduce((a, b) => a + b.hitRate, 0) / steps.length;
     expect(
       meanHit,

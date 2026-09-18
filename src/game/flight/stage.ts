@@ -156,6 +156,61 @@ export const HIT_STOP_MS = Math.round((HIT_STOP_FRAMES * 1000) / 60);
 export const hitStopMs = (reducedMotion: boolean, holdMs: number = HIT_STOP_MS): number =>
   reducedMotion ? 0 : Math.max(0, holdMs);
 
+// ---------------------------------------------------------------------------
+// HOW FAST A ROCK TUMBLES (UR-83)
+// ---------------------------------------------------------------------------
+
+/**
+ * The slowest a rock turns, rad/s - the floor of the magnitude, not a number
+ * any rock is given.
+ *
+ * A uniform draw centred on zero gives most rocks a spin too slow to see at
+ * all, and "they all look static" is the same complaint as "they all look the
+ * same". Every rock therefore turns at least this much: 0.12 rad/s is about one
+ * turn in 52 seconds, which over a ten-second fall is 69 degrees - a rock that
+ * has visibly moved without being one that spins.
+ */
+export const ROCK_SPIN_MIN_RAD_PER_SEC = 0.12;
+
+/**
+ * The fastest, rad/s.
+ *
+ * ================== WHERE THE CEILING COMES FROM ==================
+ * The WORD does not rotate - `FlightScene.updateRocks` carries the plate to the
+ * rock's position and deliberately never copies its rotation, because the plate
+ * is not a child of the rock (see `PLATE_LAYER_DEPTH`) and a spinning word is
+ * unreadable. So this bounds the SILHOUETTE's legibility rather than the
+ * word's: 0.9 rad/s is 51 degrees a second, about 1.4 turns over a ten-second
+ * fall. A rock that turns once or twice on the way down reads as tumbling; one
+ * that turns five times reads as a pinwheel and its debris type stops being
+ * identifiable, which AC-2.3 and the art direction both want to stay.
+ *
+ * The shipped range was `(rng() - 0.5) * 0.3`, i.e. +/-0.15 rad/s - at the
+ * midpoint of that, one turn every 84 seconds against a fall of ten. The hook
+ * existed and the range was simply too narrow to read.
+ */
+export const ROCK_SPIN_MAX_RAD_PER_SEC = 0.9;
+
+/**
+ * One rock's spin, from one uniform draw.
+ *
+ * The draw's SIGN picks the direction and its MAGNITUDE picks the rate, so the
+ * whole range is spent on how fast rather than half of it on how nearly still.
+ * Deterministic in its argument, so a seeded replay turns identically.
+ *
+ * Total: a non-finite draw reads as the slowest spin rather than as NaN - a
+ * rock with a NaN rotation is an invisible rock, and a corrupt value must never
+ * be able to take a word off a child's screen.
+ */
+export function rockSpinPerSec(draw: number): number {
+  const u = Number.isFinite(draw) ? Math.min(1, Math.max(0, draw)) : 0.5;
+  const t = 2 * u - 1;
+  const magnitude =
+    ROCK_SPIN_MIN_RAD_PER_SEC +
+    Math.abs(t) * (ROCK_SPIN_MAX_RAD_PER_SEC - ROCK_SPIN_MIN_RAD_PER_SEC);
+  return t < 0 ? -magnitude : magnitude;
+}
+
 export interface PaletteColorblind {
   readonly accent: string;
   readonly debris: string;

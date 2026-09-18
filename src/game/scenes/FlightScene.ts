@@ -50,7 +50,9 @@ import {
   createController,
   endStage,
   hitRate,
+  rampedMaxLive,
   recordOutcome,
+  stageRampMs,
 } from "@engine/controller/index.js";
 import {
   expectedClearMs,
@@ -92,6 +94,7 @@ import {
   mulberry32,
   paletteFor,
   retentionPoolFor,
+  rockSpinPerSec,
   stagePoolFor,
 } from "@game/flight/stage.js";
 import { type FlightCopy, createFlightCopy } from "@game/flight/copy.js";
@@ -105,6 +108,7 @@ import {
 } from "@game/flight/blastHistory.js";
 import {
   LAMP_GUTTER_FRACTION,
+  HULL_PASS_COST,
   hullAfterShield,
   hullAfterStrike,
   hullForStage,
@@ -126,6 +130,7 @@ import {
   type LaneSpec,
   type LivePlateTrack,
   type PlateTrack,
+  ROCK_ANGLE_MAX_PX,
   ROCK_DRIFT_PX,
   hasCleanColumn,
   isOnShipLane,
@@ -299,12 +304,23 @@ interface LiveRock {
   readonly homeX: number;
   readonly driftPhase: number;
   readonly spinPerSec: number;
+  /**
+   * UR-83: signed px this rock's column slides between spawn and the breach
+   * line. CONSTANT from spawn - the descent is a straight line at an angle, not
+   * a rock that turns on the way down - and known to `@engine/spawn`'s plate
+   * keep-out, which reserves the whole x range it travels through.
+   */
+  readonly travelPx: number;
   resolved: boolean;
 }
 
 /** Read-only surface the e2e measures through (evidence, never gameplay). */
 export interface FlightDebugState {
   readonly hull: number;
+  /** UR-83: ms since this belt opened - the clock the ramp runs on. */
+  readonly elapsedMs: number;
+  /** UR-83: rocks the board may hold right now, i.e. the knob after the ramp. */
+  readonly liveCap: number;
   readonly score: number;
   readonly combo: number;
   readonly multiplier: number;
@@ -383,6 +399,14 @@ export interface FlightDebugState {
     readonly rockDepth: number;
     /** The rock's own spin, radians. AC-2.3 must be measured on a rock that turns. */
     readonly rockRotation: number;
+    /** UR-83: this rock's own spin rate, rad/s. */
+    readonly spinPerSec: number;
+    /** UR-83: signed px this rock's column slides over its whole fall. */
+    readonly travelPx: number;
+    /** UR-83: the budget this rock was granted, spread included, ms. */
+    readonly fallMs: number;
+    /** AC-2.3: must be 0 for every rock, however fast its rock turns. */
+    readonly plateRotation: number;
     readonly typedCount: number;
     readonly isCanister: boolean;
     /** D21/D23: this word came back, so it is not aimed at the ship. */
@@ -770,8 +794,15 @@ export class FlightScene extends Phaser.Scene {
     // because "a deeper board changes what is on screen" is otherwise not a
     // thing any check can ask. `cfg.knobs` is `{}` on the real path, so the
     // spread leaves the stored pair untouched there.
+    // UR-83: AND WHICH STOP THIS IS. `@engine/controller` had no stop input at
+    // all, so `stageIndexOf` existed in `@engine/types` and the controller
+    // never saw it - Mars and Pluto were the same board for an equally good
+    // typist, and difficulty was 100% adaptive with 0% progression. The stop
+    // supplies the BAND (`@engine/controller/stopBand`); the adaptive rules are
+    // untouched and still decide where inside it this child sits.
     this.controller = createController({
       knobs: { ...(storedKnobs(this) ?? {}), ...this.cfg.knobs },
+      stopId: this.cfg.stopId,
     });
 
     // D46: what "matches" means is i18n's job, not the lock's, so the matcher
@@ -1231,8 +1262,16 @@ export class FlightScene extends Phaser.Scene {
       // widens every band by twice this so two rocks cannot sway into each
       // other's word, and a sway the engine does not know about would be a
       // guarantee about a board this scene does not draw.
+      // UR-83's angle: `travelPx * progress` is a CONSTANT sideways rate fixed
+      // at spawn, so the rock has been on this line since it entered the frame.
+      // It is deliberately the same clamped `progress` the y uses, and nothing
+      // may make it a function of anything else - a rock that changes direction
+      // part-way down reads as being deflected by something, which is a bug
+      // this project has already had reported once.
       rock.container.x =
-        rock.homeX + Math.sin(now / 1400 + rock.driftPhase) * ROCK_DRIFT_PX;
+        rock.homeX +
+        rock.travelPx * Math.max(0, Math.min(1, t)) +
+        Math.sin(now / 1400 + rock.driftPhase) * ROCK_DRIFT_PX;
       rock.container.rotation += rock.spinPerSec * dtSeconds;
       // The plate is not a child of the rock (see PLATE_DEPTH), so it is
       // carried here. Deliberately not rotated: the rock tumbles, the word does
@@ -1254,9 +1293,31 @@ export class FlightScene extends Phaser.Scene {
     rock.plate.setChargeProgress(progress);
   }
 
+  /**
+   * How many rocks the board may hold at this instant (UR-83).
+   *
+   * The knob says how deep this stop's belt gets; the OPENING says how much of
+   * it the first ten seconds are allowed to use. A belt starts at one rock and
+   * widens to the knob over `stageRampMs`, which is a function of the interval
+   * the game has MEASURED - five seconds for a pilot it knows is quick, the
+   * full ten for one it has not measured. Without it a per-stop floor is a
+   * promise to put six rocks on a child at second zero, which is the report
+   * arriving from the other direction.
+   *
+   * It reads the BELIEF's interval rather than the child's true hands, for the
+   * same reason fall time does: the game may only act on what it measured.
+   */
+  private liveCap(now: number): number {
+    return rampedMaxLive(
+      this.controller.knobs.maxLive,
+      now - this.stageStartMs,
+      stageRampMs(this.calibration.ikiMs),
+    );
+  }
+
   private trySpawn(now: number): void {
     if (this.spawnedCount >= this.cfg.stageWordCount) return;
-    if (this.rocks.length >= this.controller.knobs.maxLive) return;
+    if (this.rocks.length >= this.liveCap(now)) return;
     // AC-6e.3: an empty board never waits. A gap with nothing falling and
     // nothing pending is dead time, and dead time is what makes a child leave.
     if (this.rocks.length > 0 && now < this.nextSpawnAtMs) return;
@@ -1415,6 +1476,10 @@ export class FlightScene extends Phaser.Scene {
         toY: rock.toY + rock.plateOffsetY,
         spawnedAtMs: rock.spawnedAtMs,
         fallMs: rock.fallMs,
+        // UR-83: the keep-out cannot hold without this. An angled rock's column
+        // is not its column for the whole fall, and a band sized for where it
+        // STARTED is a guarantee about a board this scene does not draw.
+        travelPx: rock.travelPx,
       }));
   }
 
@@ -1435,10 +1500,42 @@ export class FlightScene extends Phaser.Scene {
    * so a declined tick leaves the scene and the seeded stream exactly as it
    * found them and the same word can be offered again a tick later.
    */
+  /**
+   * The two things about a rock that are decided by chance BEFORE the column
+   * rule runs: how much of FR-8's budget it is granted (UR-83's fall-time
+   * spread) and how far its column slides on the way down (UR-83's angle).
+   *
+   * ================== WHY NOT `this.rng` ==================
+   * Two reasons, and both are properties this file already promises.
+   *
+   * 1. A DECLINED TICK MUST COST NOTHING. `spawnRock` returns false when every
+   *    column would cover a word, and the header above says in as many words
+   *    that a decline leaves the seeded stream exactly as it found it - so the
+   *    same word can be offered again a tick later and be the same rock. Both
+   *    of these are needed BEFORE the decline (fall time feeds the vertical
+   *    test, travel feeds the keep-out), so drawing them from `this.rng` would
+   *    make a decline advance the stream.
+   * 2. `this.rng`'s ORDER IS LOAD-BEARING. `spawnX`'s column draw, the drift
+   *    phase and the spin all come off it in a fixed order that
+   *    `tests/unit/flight/plateSeparation.test.ts` reproduces exactly.
+   *
+   * So this is its own stream, seeded from the STAGE seed and the rock's index,
+   * which makes it a pure function of (seed, index): a replay of the same seed
+   * is identical rock for rock, and a decline re-derives the same pair rather
+   * than consuming anything.
+   */
+  private rockDraws(index: number): { spread: number; travelPx: number } {
+    const rng = mulberry32((this.cfg.seed ^ 0x5f3a9c2b) + index * 0x9e3779b1);
+    const spread = rng();
+    const travel = (rng() - 0.5) * 2 * ROCK_ANGLE_MAX_PX;
+    return { spread, travelPx: travel };
+  }
+
   private spawnRock(word: string, now: number, practice = false): boolean {
     const width = this.scale.width;
     const letters = [...word].length;
     const sizePx = asteroidSizePx(letters);
+    const draws = this.rockDraws(this.spawnedCount);
 
     // ===================== THE PURE PROLOGUE, HOISTED =====================
     // Everything the column rule needs is computed here, above the first
@@ -1463,6 +1560,12 @@ export class FlightScene extends Phaser.Scene {
       // belt drops the back of its own queue - measured at 40 stalls in 40 for
       // a MEDIAN pilot, hit rate 0.214.
       knobs: this.controller.knobs,
+      // UR-83: this rock's own share of the budget. Without it a belt at a low
+      // knob is a metronome - fall time is a near-deterministic function of
+      // length and ease, so every rock falls at about the same speed. It is a
+      // MULTIPLE of the budget, so a fast typist's slow rock is still quick in
+      // absolute terms, and FR-8's 2500/14000 clamp is applied after it.
+      spread: draws.spread,
     });
     const clearEstimateMs = expectedClearMs({
       length: letters,
@@ -1480,6 +1583,10 @@ export class FlightScene extends Phaser.Scene {
       toY: this.breachY + offsetY,
       spawnedAtMs: now,
       fallMs,
+      // UR-83: the angle is declared to the keep-out BEFORE the column is
+      // chosen, so `@engine/spawn` reserves the whole x range this rock will
+      // travel through rather than the column it happens to start in.
+      travelPx: draws.travelPx,
     };
     const spec = this.laneSpec(sizePx, word, track);
     // No column on this board leaves this word readable. Hold it.
@@ -1543,7 +1650,14 @@ export class FlightScene extends Phaser.Scene {
       toY: this.breachY,
       homeX,
       driftPhase: this.rng() * Math.PI * 2,
-      spinPerSec: (this.rng() - 0.5) * 0.3,
+      // UR-83: ONE DRAW, SAME PLACE IN THE STREAM, WIDER RANGE. The shipped
+      // `(rng() - 0.5) * 0.3` is +/-0.15 rad/s - about one turn every 42
+      // seconds against a fall of ten, so no rock visibly turned and no two
+      // rocks turned differently. `rockSpinPerSec` keeps the single draw and
+      // its position (`plateSeparation.test.ts` reproduces this stream rock for
+      // rock) and maps it onto a range a child can see.
+      spinPerSec: rockSpinPerSec(this.rng()),
+      travelPx: draws.travelPx,
       resolved: false,
     };
     this.rocks.push(rock);
@@ -2208,19 +2322,39 @@ export class FlightScene extends Phaser.Scene {
   private passBy(rock: LiveRock, now: number): void {
     this.retireAtBreachLine(rock, now);
 
-    const drift = rock.container.x < this.shipX ? -80 : 80;
+    // A WORD THAT PASSES THE SHIP IS A FAILURE (UR-91, C20).
+    //
+    // This used to cost nothing at all, on the reasoning that the GAME put a
+    // practice word back and must not charge the child for its own decision to
+    // re-teach. The owner reported the consequence: a belt can be finished
+    // without typing, because once a few words are missed most of what is
+    // falling is practice and practice was free. It costs `HULL_PASS_COST` now
+    // - half of a direct hit, because a near miss is not the same event as one.
+    this.combo = comboReducer(this.combo, "hullHit");
+    this.hull = hullAfterStrike(this.hull, this.maxHull, HULL_PASS_COST);
+    this.hullHitsTaken += 1;
+
+    // STRAIGHT DOWN, NOT SIDEWAYS. It used to slide 80 px left or right on the
+    // way out, which reads as the rock being deflected by something. Nothing
+    // deflected it; it simply went past. It keeps the column it fell in.
     for (const target of [rock.container, rock.plate]) {
       this.tweens.add({
         targets: target,
         y: this.scale.height + 160,
-        x: target.x + drift,
         alpha: 0,
         duration: 620,
         ease: "Cubic.Out",
         onComplete: () => target.destroy(),
       });
     }
+
+    // The screen shakes for this too. Half a mark is still a mark the child has
+    // to be told about, and the hull lamp alone is off in the corner.
+    // Smaller than the strike's 6 px: the feedback has to say "that cost you"
+    // without saying "that hit you", because it did not.
+    this.shakeBy(4, 100);
     this.publishHud(true);
+    if (isStalled(this.hull)) this.beginStall();
   }
 
   /** AC-4.2 / D28: shake + one spark burst + a scorch. No flash, no explosion. */
@@ -2791,6 +2925,10 @@ export class FlightScene extends Phaser.Scene {
         const outcome = stageOutcome(this.history, this.calibration);
         return {
           hull: this.hull,
+          // UR-83: the BELT's own clock, so evidence about the opening is
+          // anchored to the belt rather than to when a harness attached.
+          elapsedMs: this.time.now - this.stageStartMs,
+          liveCap: this.liveCap(this.time.now),
           score: this.score,
           combo: this.combo.combo,
           multiplier: hudMultiplierFor(this.combo.combo),
@@ -2834,6 +2972,15 @@ export class FlightScene extends Phaser.Scene {
             // tumbling: a spec that samples a rock which happens not to have
             // rotated passes whether or not the plate is parented to it.
             rockRotation: r.container.rotation,
+            // UR-83's three motion properties, on the evidence surface because
+            // "some rocks fly by and some are slow" and "no two rocks turn
+            // alike" are claims about a BOARD, and a simulation is not a game.
+            // `plateRotation` is the negative one: the rock turns, the word
+            // must not, and that is only checkable where the plate is drawn.
+            spinPerSec: r.spinPerSec,
+            travelPx: r.travelPx,
+            fallMs: r.fallMs,
+            plateRotation: r.plate.rotation,
             typedCount: r.plate.typedCount,
             isCanister: r.isCanister,
             isPractice: r.isPractice,

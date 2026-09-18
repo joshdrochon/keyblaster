@@ -5,6 +5,7 @@ import { starsMayTravel, twinkleAlpha } from "@game/render/starField";
 import { particleSpec } from "@game/render/particles";
 import { DUR, EASE, INK, SPACE } from "./theme.js";
 import type { TrophyGlyphId } from "./catalog.js";
+import type { Rect } from "./layout.js";
 import { type StopPalette, hexToNum } from "@game/render/palette";
 
 /**
@@ -42,6 +43,80 @@ export function strokePlate(
 ): void {
   g.lineStyle(width, color, 1);
   g.strokeRoundedRect(x, y, w, h, radius);
+}
+
+// ---------------------------------------------------------------------------
+// The lock mark
+// ---------------------------------------------------------------------------
+
+/**
+ * A padlock, drawn to fill the box it is handed.
+ *
+ * ================== WHY IT EXISTS ==================
+ * The Director map wrote the WORD "Locked" under six of its seven planet names.
+ * Six copies of one word down a row is not a status - it is a column of the
+ * same word - and it cost every caption a second line, which is what pushed the
+ * name away from its disc and left the focus ring wrapping the disc alone.
+ *
+ * ================== WHY IT IS NOT A REFUSAL ==================
+ * D31 / AC-22b.1: locked is "not yet", never "denied". There is no cross, no
+ * bar and no red anywhere in this mark, and the caller passes the ink - the map
+ * passes `INK.textDim`, the same token the name beside it is drawn in, so the
+ * mark is the quiet half of one label rather than a warning stuck to it. The
+ * shackle is CLOSED, which is what makes it a lock and not a hole; a padlock
+ * hanging open would read as "you may go", which is the opposite of true.
+ *
+ * ================== THE BOX IS THE MARK'S INK BOX ==================
+ * A painter and not a label, for the reason `plate.paintPromptGlyph` gives: a
+ * glyph in a Text is a font's opinion about a shape, and this one has to sit
+ * beside a 24 px word at a size read off the type scale. Every part is a
+ * fraction of the box, so the same function draws a 20 px caption mark and a
+ * 60 px one, and `lockGlyphParts` hands the geometry out so a test can say the
+ * mark FILLS its box rather than merely fitting inside it.
+ */
+export interface LockGlyphParts {
+  /** The lock's body: the full width of the box, sitting on its floor. */
+  readonly body: Rect;
+  /** The shackle: a half-circle standing on the body's top edge. */
+  readonly shackle: {
+    readonly cx: number;
+    readonly cy: number;
+    readonly r: number;
+    readonly lineW: number;
+  };
+  readonly radius: number;
+}
+
+export function lockGlyphParts(box: Rect): LockGlyphParts {
+  // The stroke is a twelfth of the height, floored at 2 so the shackle does not
+  // vanish at caption sizes - the same floor `drawTrophyMark` uses on its line.
+  const lineW = Math.max(2, box.h * 0.12);
+  const r = box.w * 0.27;
+  const cx = box.x + box.w / 2;
+  // The shackle's OUTER edge is the box's top edge, so the mark reaches it.
+  const cy = box.y + lineW / 2 + r;
+  return {
+    body: { x: box.x, y: cy, w: box.w, h: box.y + box.h - cy },
+    shackle: { cx, cy, r, lineW },
+    radius: Math.max(2, box.w * 0.18),
+  };
+}
+
+export function paintLockGlyph(
+  g: Phaser.GameObjects.Graphics,
+  box: Rect,
+  ink: string,
+  alpha = 1,
+): void {
+  const parts = lockGlyphParts(box);
+  const tint = hexToNum(ink);
+  g.lineStyle(parts.shackle.lineW, tint, alpha);
+  g.beginPath();
+  // Screen coordinates, so y grows downward: PI -> 2PI is the TOP half.
+  g.arc(parts.shackle.cx, parts.shackle.cy, parts.shackle.r, Math.PI, Math.PI * 2, false);
+  g.strokePath();
+  g.fillStyle(tint, alpha);
+  g.fillRoundedRect(parts.body.x, parts.body.y, parts.body.w, parts.body.h, parts.radius);
 }
 
 /**

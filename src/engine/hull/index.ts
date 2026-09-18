@@ -100,16 +100,63 @@ export function survivableHitRate(spawnCount: number, maxHull = hullForStage(spa
 /** AC-4.1: hull at every stage start, for a stage of this length. */
 export const startingHull = (spawnCount: number): number => hullForStage(spawnCount);
 
-/** Clamp any hull value into [0, maxHull] and make it whole. */
+/**
+ * What a rock costs, by how it left the board (UR-91, C20).
+ *
+ * A rock that reaches the ship takes a whole mark. A rock that goes PAST the
+ * ship and off the bottom of the screen takes half of one: the word was still
+ * missed, and the owner's rule is that any word which passes the ship is a
+ * failure - but a near miss is not the same event as a hit and must not read
+ * like one.
+ *
+ * C20 IS LOGGED AGAINST THIS FILE'S OWN HEADER. It says "nothing in this file
+ * is a failure count ... there is no lives, no deduction and no penalty
+ * anywhere in the surface (D31, AC-22b.1)", and a practice rock used to pass
+ * the ship for free on exactly that reasoning. The project owner has overruled
+ * it: a belt where words can pass at no cost is a belt a child can finish
+ * without typing, which is what they reported. D31's "not-yet, never denied"
+ * still governs the WORDING and the re-teaching; it no longer governs whether
+ * a missed word costs anything.
+ */
+export const HULL_STRIKE_COST = 1;
+export const HULL_PASS_COST = 0.5;
+
+/**
+ * Clamp any hull value into [0, maxHull] as a whole number of MARKS.
+ *
+ * CEILING, NOT FLOOR, since half marks exist (UR-91). A hull of 0.5 is half a
+ * mark of ship left and a child who is still flying; flooring it would draw an
+ * empty hull over a live run, and "no marks showing" has to mean the run is
+ * over - which is the owner's rule. So a partial mark still reads as a mark,
+ * and zero marks means zero hull exactly.
+ *
+ * Every whole-number case is unchanged, which is why no existing assertion
+ * moved.
+ */
 export function hullMarksLit(hull: number, maxHull: number): number {
   const cap = Math.max(0, Math.floor(maxHull));
   if (!Number.isFinite(hull)) return 0;
-  return Math.max(0, Math.min(cap, Math.floor(hull)));
+  return Math.max(0, Math.min(cap, Math.ceil(hull)));
 }
 
-/** AC-4.2: a rock crossing the breach line costs exactly one. Never below 0. */
-export function hullAfterStrike(hull: number, maxHull: number): number {
-  return Math.max(0, hullMarksLit(hull, maxHull) - 1);
+/**
+ * AC-4.2: a rock leaving the board costs the hull. Never below 0.
+ *
+ * THE RUNNING VALUE IS NOT ROUNDED, and that is the half mark's whole point:
+ * this used to call `hullMarksLit` first, so two half-costs would have been
+ * floored away to nothing. It clamps into the stage's range and subtracts,
+ * leaving fractions intact for the next call. `hullMarksLit` does the rounding,
+ * once, where it is drawn.
+ */
+export function hullAfterStrike(
+  hull: number,
+  maxHull: number,
+  cost: number = HULL_STRIKE_COST,
+): number {
+  const cap = Math.max(0, Math.floor(maxHull));
+  if (!Number.isFinite(hull)) return 0;
+  const held = Math.min(Math.max(0, hull), cap);
+  return Math.max(0, held - Math.max(0, cost));
 }
 
 /** AC-5.2: blasting a canister restores one, capped at the stage's maximum. */

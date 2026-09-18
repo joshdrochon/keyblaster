@@ -40,11 +40,14 @@ import {
   DEFAULT_KNOBS,
   type KnobChange,
   type Knobs,
+  type LiveBand,
   applyChange,
   clampKnobs,
   loosenStep,
   tightenStep,
 } from "./knobs.js";
+import { bandOf } from "./stopBand.js";
+import type { StopId } from "../types.js";
 import {
   type MarginWindow,
   createMarginWindow,
@@ -63,7 +66,9 @@ export {
   CONCURRENCY_TARGET_MAX,
   CONCURRENCY_TARGET_MIN,
   DEFAULT_KNOBS,
+  GLOBAL_LIVE_BAND,
   KNOB_NAMES,
+  clampBand,
   LENGTH_BIAS_MAX,
   LENGTH_BIAS_MIN,
   MAX_LIVE_MAX,
@@ -77,7 +82,23 @@ export {
   loosenStep,
   tightenStep,
 } from "./knobs.js";
-export type { KnobChange, KnobName, Knobs, LengthBias } from "./knobs.js";
+export type { KnobChange, KnobName, Knobs, LengthBias, LiveBand } from "./knobs.js";
+
+export {
+  STOP_BAND_CEILING_LEAD,
+  STOP_BAND_FLOOR_RISE,
+  bandOf,
+  stopBand,
+  stopBandForStage,
+} from "./stopBand.js";
+
+export {
+  RAMP_OPEN_LIVE,
+  STAGE_RAMP_FAST_MS,
+  STAGE_RAMP_SLOW_MS,
+  rampedMaxLive,
+  stageRampMs,
+} from "./ramp.js";
 
 export {
   WINDOW_SIZE,
@@ -227,6 +248,17 @@ export interface StageDecision {
 
 export interface ControllerState {
   readonly knobs: Knobs;
+  /**
+   * The stop this controller is flying, or null for a caller that has none
+   * (UR-83). It is what turns `stageIndexOf` into a band; see `./stopBand.ts`
+   * for why the range and not the value is what a stop decides.
+   */
+  readonly stopId: StopId | null;
+  /**
+   * `bandOf(stopId)`, carried on the state rather than recomputed at each use
+   * so a debug overlay and a test read the same two numbers the decision did.
+   */
+  readonly band: LiveBand;
   readonly window: HitWindow;
   /** Margins of the last `MARGIN_WINDOW_SIZE` rocks to leave the board. */
   readonly margins: MarginWindow;
@@ -242,11 +274,41 @@ export interface ControllerInit {
   readonly knobs?: Partial<Knobs>;
   readonly window?: readonly SpawnOutcome[];
   readonly margins?: MarginWindow;
+  /**
+   * Which stop's belt this controller is about to fly (UR-83).
+   *
+   * OPTIONAL, and omitting it is FR-10's whole 2..7 range - the byte-identical
+   * pre-UR-83 controller. It is optional in the type and required in practice:
+   * `FlightScene` passes `this.cfg.stopId`, and
+   * `tests/unit/flight/knobWiring.test.ts` asserts that it does, because a
+   * field with a writer nobody calls is this repo's most-repeated defect.
+   */
+  readonly stopId?: StopId | null;
 }
 
+/**
+ * THE KNOB IS CLAMPED INTO THE STOP'S BAND THE MOMENT THE BELT OPENS, and this
+ * is the line that makes a stop inherently harder than the one before it.
+ *
+ * The knob arrives from the PROFILE (`storedKnobs`), so it is wherever the
+ * child's whole history left it. Clamping it here means:
+ *
+ *   - a child arriving at Saturn on the cold start is lifted to Saturn's floor,
+ *     rather than flying Saturn on the belt Mars handed them. That is
+ *     progression, and it is the only thing in the controller a pilot cannot
+ *     talk it out of.
+ *   - a strong pilot REPLAYING Mars at maxLive 7 is pushed back down to Mars'
+ *     ceiling of 4, so an early stop cannot be flown at a late stop's board.
+ *   - nothing else moves. The adaptive decision is untouched; it simply has two
+ *     new ends.
+ */
 export function createController(init: ControllerInit = {}): ControllerState {
+  const stopId = init.stopId ?? null;
+  const band = bandOf(stopId);
   return {
-    knobs: clampKnobs({ ...DEFAULT_KNOBS, ...init.knobs }),
+    knobs: clampKnobs({ ...DEFAULT_KNOBS, ...init.knobs }, band),
+    stopId,
+    band,
     window: createWindow(init.window),
     margins: createMarginWindow(init.margins),
     stageSpawned: 0,
@@ -349,7 +411,10 @@ export function decideStage(state: ControllerState): StageDecision {
   // hold on the margin instead of giving the time back (UR-51, D31).
   const marginSaysLoosen = margin !== null && margin < LOOSEN_MARGIN_BELOW;
   if (rolling < LOOSEN_BELOW || marginSaysLoosen) {
-    const change = loosenStep(state.knobs);
+    // The band, not FR-10's floor: a stop's floor is the bottom of the relief
+    // this controller may give, and below it the honest answer is
+    // "at-loosen-floor" rather than a change that `applyChange` would undo.
+    const change = loosenStep(state.knobs, state.band);
     if (change === null) return hold("at-loosen-floor");
     return {
       action: "loosen",
@@ -368,7 +433,7 @@ export function decideStage(state: ControllerState): StageDecision {
     // see `HoldReason` "no-margin".
     if (margin === null) return hold("no-margin");
     if (margin <= TIGHTEN_MARGIN_ABOVE) return hold("margin-tight");
-    const change = tightenStep(state.knobs);
+    const change = tightenStep(state.knobs, state.band);
     if (change === null) return hold("at-tighten-ceiling");
     return {
       action: "tighten",
@@ -391,7 +456,9 @@ export function decideStage(state: ControllerState): StageDecision {
 export function endStage(state: ControllerState): ControllerState {
   const decision = decideStage(state);
   return {
-    knobs: applyChange(state.knobs, decision.change),
+    knobs: applyChange(state.knobs, decision.change, state.band),
+    stopId: state.stopId,
+    band: state.band,
     window: state.window,
     // Rolling for the same reason the hit window is: it is "the last 20 rocks",
     // not "the last 20 rocks of this stage". A stage boundary that wiped the

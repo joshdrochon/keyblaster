@@ -298,6 +298,40 @@ export function spawnX(spec: LaneSpec, rng: () => number, avoidShipLane: boolean
 export const ROCK_DRIFT_PX = 10;
 
 /**
+ * How far a rock's column may SLIDE over its whole fall, px either way (UR-83).
+ *
+ * ================== WHAT AN ANGLE IS AND IS NOT ==================
+ * "Some rocks should come down at an angle rather than straight." An angle here
+ * is a constant sideways rate, fixed the instant the rock is made and never
+ * changed: `x = homeX + travelPx * progress + sway`. A rock that has been
+ * travelling at the same slope since it entered the frame reads as a
+ * trajectory. The same rock turning near the bottom reads as a glitch - the
+ * project has one bug report already for exactly that, an 80 px sideways slide
+ * as a rock passed the ship - so nothing may make `travelPx` a function of
+ * anything but the rock's own spawn draw.
+ *
+ * ================== WHY 60 AND NOT MORE ==================
+ * It is bounded by AC-22.8, not by taste. The plate keep-out reserves a band of
+ * columns around every live plate this rock will come level with, and an
+ * angled rock's x moves monotonically across its whole fall - so the band has
+ * to cover the x range BOTH rocks sweep, which widens every band by
+ * `|travelPx| + |otherTravelPx|`. The playable span is 1280 px at the 16:9
+ * floor and a deep board is already close to spending it, so the angle is
+ * bought out of the board's remaining width.
+ *
+ * MEASURED, on the 3456-board AC-22.8 sweep in
+ * `tests/unit/flight/plateSeparation.test.ts`: at 60 px the guarantee still
+ * holds at zero overlap and the board still uses its whole width. See that
+ * file's header for what the wider settings cost.
+ *
+ * Over a fall of about 950 px this is a slope of a little under 4 degrees -
+ * small as an angle and clearly visible as a drift, which is the right way
+ * round: the rock must not appear to be aimed somewhere other than where it is
+ * going to land.
+ */
+export const ROCK_ANGLE_MAX_PX = 60;
+
+/**
  * One plate's flight, in the terms the column rule needs.
  *
  * `fromY`/`toY` are the PLATE's centre, not the rock's - the plate hangs a
@@ -313,6 +347,13 @@ export interface PlateTrack {
   readonly toY: number;
   readonly spawnedAtMs: number;
   readonly fallMs: number;
+  /**
+   * Signed px this rock's column slides between spawn and the breach line
+   * (UR-83, `ROCK_ANGLE_MAX_PX`). Absent or 0 is the straight fall this rule
+   * was written for, and every caller that omits it gets byte-for-byte the
+   * keep-out it had.
+   */
+  readonly travelPx?: number;
 }
 
 /** A plate already on the belt: a track that has had its column chosen. */
@@ -372,12 +413,45 @@ export function plateKeepOuts(
   driftPx: number = ROCK_DRIFT_PX,
 ): readonly Span[] {
   const out: Span[] = [];
+  const a = travelSpan(incoming);
   for (const other of live) {
     if (!platesCanMeetVertically(incoming, other)) continue;
     const reach = incoming.halfWidthPx + other.halfWidthPx + 2 * Math.max(0, driftPx);
-    out.push({ from: other.homeX - reach, to: other.homeX + reach });
+    const b = travelSpan(other);
+    // THE ANGLE, AND WHY THE BAND IS NOT SYMMETRIC ANY MORE (UR-83).
+    //
+    // The band used to be `otherHomeX +/- reach`, which is exactly right for
+    // two rocks that keep their columns. An angled rock does not: its x slides
+    // monotonically from `homeX` to `homeX + travelPx` across the whole fall,
+    // so two columns the old arithmetic proved could never meet WILL meet if
+    // they slide towards each other.
+    //
+    // What has to be excluded is every `homeX` for which the two x intervals
+    // can come within `reach` at any instant. The incoming rock occupies
+    // `homeX + [a.from, a.to]` and the live one `other.homeX + [b.from, b.to]`,
+    // so the forbidden set is the interval below. It is bounded by the two
+    // rocks' whole travel rather than by their travel over the window they are
+    // actually level in - conservative in the direction that keeps the
+    // guarantee, and the cost is `|travelA| + |travelB|` of board width per
+    // band, which is what bounds `ROCK_ANGLE_MAX_PX`.
+    //
+    // At travel 0 both spans collapse to [0, 0] and this is the old band to the
+    // byte.
+    out.push({
+      from: other.homeX + b.from - a.to - reach,
+      to: other.homeX + b.to - a.from + reach,
+    });
   }
   return out;
+}
+
+/**
+ * The x offsets from its own column that a plate passes through over its fall,
+ * as a closed interval. `[0, 0]` for a rock that falls straight.
+ */
+function travelSpan(track: PlateTrack): Span {
+  const travel = Number.isFinite(track.travelPx ?? 0) ? (track.travelPx ?? 0) : 0;
+  return travel >= 0 ? { from: 0, to: travel } : { from: travel, to: 0 };
 }
 
 /** The parts of `spans` that no block covers. Zero-width leftovers are dropped. */
