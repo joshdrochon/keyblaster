@@ -35,6 +35,7 @@ import { mulberry32, pick } from "./rng.js";
 import {
   LENGTHS_BY_BIAS,
   SPAWNS_PER_STAGE,
+  clearanceMarginOf,
   hitProbability,
   hitRateCeiling,
 } from "./simulated-player.js";
@@ -67,7 +68,15 @@ function simulate(p: number, seed: number): SeedResult {
     for (let i = 0; i < SPAWNS_PER_STAGE; i++) {
       const length = pick(lengths, rng);
       const hit = rng() < hitProbability(p, state.knobs, length);
-      state = recordOutcome(state, hit ? "blasted" : "missed");
+      // UR-51: the controller's throttle is the margin, not the hit rate, so a
+      // simulation that reported only the outcome would exercise a controller
+      // that can never tighten. `clearanceMarginOf` derives the margin from the
+      // service model already in this file; a miss spent its whole budget.
+      state = recordOutcome(
+        state,
+        hit ? "blasted" : "missed",
+        hit ? clearanceMarginOf(state.knobs.maxLive, length) : 0,
+      );
       if (stage >= MEASURE_FROM) {
         spawned += 1;
         if (hit) blasted += 1;

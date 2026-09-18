@@ -24,7 +24,7 @@ import type { Lang } from "../types.js";
 
 /** English is the source table; every other language is typed against it. */
 export const EN = {
-  "title.tagline": "Light the way through the solar system.",
+  "title.tagline": "Type the way through the solar system.",
   "title.play": "play",
   "title.settings": "settings",
   "title.beaconLog": "beacon log",

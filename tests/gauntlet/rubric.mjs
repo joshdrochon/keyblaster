@@ -17,7 +17,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, extname } from "node:path";
+import { join, extname, basename } from "node:path";
 import { parseInventory, sceneNames, sceneRowMap } from "../../scripts/trace-check.mjs";
 
 /**
@@ -1729,9 +1729,40 @@ const guardrails = [
       const stats = report.stats ?? {};
       const failed = (stats.unexpected ?? 0) + (stats.flaky ?? 0);
       const passed = stats.expected ?? 0;
-      // A run that skipped most of the suite is not a whole-suite run.
-      if (passed + failed < 100) {
-        return bad(`only ${passed + failed} tests in the recorded run; that is not the whole suite`, "gauntlet/evidence/e2e-report.json");
+
+      /**
+       * WHICH SPEC FILES the artifact covers, not how many tests it counted.
+       *
+       * The old guard was `passed + failed < 100`, a magic floor that half the
+       * suite clears. It is not hypothetical that the file goes stale: on
+       * 2026-09-17 this artifact was overwritten by single-spec runs THREE
+       * times in one afternoon, by three different lanes, because every
+       * Playwright invocation writes it. Twice it was caught by eye. A floor
+       * cannot tell "the suite ran and passed" from "one lane re-ran nine
+       * specs while debugging", and the second is a very ordinary accident.
+       *
+       * Comparing against the spec files actually on disk makes the check
+       * exact and self-maintaining: add a spec, and a stale artifact starts
+       * failing by name the moment it no longer covers it.
+       */
+      const covered = new Set();
+      const walk = (suite) => {
+        if (typeof suite.file === "string" && suite.file !== "") covered.add(basename(suite.file));
+        for (const child of suite.suites ?? []) walk(child);
+      };
+      for (const suite of report.suites ?? []) walk(suite);
+
+      const onDisk = readdirSync(join(repo, "tests/e2e"))
+        .filter((f) => f.endsWith(".spec.ts"))
+        .sort();
+      const missing = onDisk.filter((f) => !covered.has(f));
+      if (missing.length > 0) {
+        const shown = missing.slice(0, 4).join(", ");
+        const rest = missing.length > 4 ? ` and ${missing.length - 4} more` : "";
+        return bad(
+          `the recorded run covers ${covered.size} of ${onDisk.length} spec files; missing ${shown}${rest}. It is a partial run, not the whole suite`,
+          "gauntlet/evidence/e2e-report.json",
+        );
       }
       if (failed !== 0) {
         return bad(`${failed} of ${passed + failed} e2e tests failing or flaky in a whole-suite run`, "gauntlet/evidence/e2e-report.json");

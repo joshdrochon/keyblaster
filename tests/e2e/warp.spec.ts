@@ -45,8 +45,15 @@ function writeEvidence(name: string, body: string | Buffer): void {
 /** Mars' warp sentence, from src/content/en/mars.json. */
 const MARS_SENTENCE = "Mars is the red planet.";
 
-/** The coach plate, minus the avatar column: Shadow's glow pulses forever. */
-const NOTE_REGION = { x: 390, y: 742, w: 1370, h: 236 } as const;
+/**
+ * The coach plate, minus the avatar column: Shadow's glow pulses forever.
+ *
+ * MOVED WITH THE CARD (UR-63). `COACH` is now `{ x: 96, y: 680, w: 1728,
+ * h: 140 }` - the column gave the bottom of the frame back to the ship - and a
+ * region left at the old y would have diffed two screenshots of the Lantern's
+ * exhaust and called the coach area identical.
+ */
+const NOTE_REGION = { x: 326, y: 680, w: 1498, h: 140 } as const;
 
 type WarpSnapshot = {
   stopId: string;
@@ -267,6 +274,23 @@ test("AC-22.5 the charge meter EASES toward the fill rather than jolting to it",
   // 280 ms tween gets two or three update frames here and forty in a browser.
   // The number that carries the claim is the FLOOR, and the floor for a bar
   // that jolts is zero: `paintMeter` is only ever reached from the tween.
+  //
+  // THIS FLOOR IS A FRAME COUNT, SO IT IS ALSO A STATEMENT ABOUT THE HOST, and
+  // 0 and 1 are different answers rather than degrees of the same one. Both
+  // were forced rather than argued, because the run that produced `Received: 1`
+  // could be read either way:
+  //
+  //   jolt      - `easeMeterTo` made to set `meterShown` and paint directly,
+  //               easing removed      -> Received: 0
+  //   starvation - code untouched, the renderer throttled 20x through CDP
+  //               (`Emulation.setCPUThrottlingRate`) -> Received: 1
+  //
+  // Only the second reproduces what the loaded suite saw, so a 1 here means
+  // the tween ran and the host gave it one frame in 280 ms - the bar eases and
+  // the machine could not draw it. Unthrottled and alone this test passes with
+  // the meter arriving exactly on `chargeFraction`. Do not answer a 1 by
+  // lowering this floor: it would make the jolt above unfalsifiable at 0 vs 1,
+  // which is the only distinction the number exists to draw.
   expect(settled.meterEaseFrames).toBeGreaterThanOrEqual(2);
   // And it ARRIVES. Easing that never reaches the state is a different bug.
   expect(settled.meterShown).toBeCloseTo(settled.chargeFraction, 5);

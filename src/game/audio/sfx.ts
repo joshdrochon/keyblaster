@@ -36,10 +36,15 @@ import {
 } from "./context.js";
 import { label } from "./nullContext.js";
 import {
+  CRUMBLE_MATERIALS,
   CRUMBLE_SECONDS,
+  CRUMBLE_SHAPES,
   CRUMBLE_VARIANTS,
+  UNMAPPED_DEBRIS_MATERIAL,
+  crumbleMaterialFor,
   crumbleSamples,
   crumbleSeed,
+  type CrumbleMaterial,
 } from "./crumble.js";
 
 /** The ten events AC-21.3 names, in the PRD's order. */
@@ -580,6 +585,20 @@ export interface SfxPlayOptions {
    * the keystroke tone (D75) and the music bed.
    */
   readonly pitchSemitones?: number;
+  /**
+   * UR-66 - WHAT THE ROCK THAT JUST DIED WAS MADE OF.
+   *
+   * The `id` of a row in `render/asteroid.ts`'s FR-12b debris table, which is
+   * the only thing in the program that knows whether this was ice or stone.
+   * `crumble.ts` maps it to a material and the blast picks its grain set from
+   * that. Ignored by every event that has no `debris` layer.
+   *
+   * A STOP ID WOULD NOT DO. Jupiter's board carries carbonaceous, silicate,
+   * metal and Trojan rock at once, so a per-stop switch sounds all four the
+   * same. Absent or unrecognised, this falls back to the shipped ice set, so
+   * every existing caller is unchanged.
+   */
+  readonly debrisType?: string;
 }
 
 /** Cap on `SfxPlayOptions.pitchSemitones`. One octave each way. */
@@ -592,6 +611,19 @@ export interface SfxPlayResult {
   /** Start frequency actually scheduled, after reactive pitching. */
   readonly startHz: number;
   readonly durationMs: number;
+  /**
+   * UR-66: the grain set this play actually used, or `null` for an event with
+   * no debris layer. Reported rather than inferred, so a test and the evidence
+   * run can see which material was SOUNDED rather than which one was asked for.
+   */
+  readonly crumbleMaterial: CrumbleMaterial | null;
+  /**
+   * UR-66: which of the material's baked falls this play drew from its bag.
+   * Exposed because "each material hears all six of its own before any repeats"
+   * is a claim about the bags, and nothing measurable on the waveform can tell
+   * a repeated index from a fresh one once the rate jitter has moved it.
+   */
+  readonly crumbleIndex: number | null;
 }
 
 /**
@@ -697,7 +729,16 @@ export class SfxBus {
   private readonly rotations = new Map<SfxEventId, VariantRotation>();
   private noiseBuffer: AudioBufferLike | null = null;
   private readonly plays: SfxPlayResult[] = [];
-  private readonly crumbleRotation: VariantRotation;
+  /**
+   * UR-66: one shuffle bag PER MATERIAL, not one shared bag.
+   *
+   * A shared bag would interleave: three rocky blasts and three icy ones would
+   * between them exhaust the six indices, so a player could hear ice buffers 0,
+   * 3 and 5 and rock buffers 1, 2 and 4 and never get the full six of either.
+   * The bag exists to guarantee every baked fall is heard before any repeats,
+   * and that is a promise about the sound the player is actually hearing.
+   */
+  private readonly crumbleRotations: Map<CrumbleMaterial, VariantRotation>;
   /** The context clock reading the previous voice was scheduled against. */
   private lastClock = Number.NEGATIVE_INFINITY;
   /** How many voices have been scheduled since the clock last moved. */
@@ -711,7 +752,12 @@ export class SfxBus {
     for (const event of SFX_EVENTS) {
       this.rotations.set(event, new VariantRotation(variantsFor(event).length, this.rand));
     }
-    this.crumbleRotation = new VariantRotation(CRUMBLE_VARIANTS, this.rand);
+    // `VariantRotation`'s constructor draws nothing, so the extra bag costs the
+    // shared `rand` stream nothing: a run of ice-only blasts is bit-identical
+    // to the same run before UR-66.
+    this.crumbleRotations = new Map(
+      CRUMBLE_MATERIALS.map((m) => [m, new VariantRotation(CRUMBLE_VARIANTS, this.rand)]),
+    );
   }
 
   /** Which variant this event will use next, without playing it. */
@@ -750,13 +796,25 @@ export class SfxBus {
     const endHz = variant.endHz * pitchRatio;
     const peakGain = clamp(variant.peakGain * intensity * gainScale, 0, 1);
 
-    this.voice(variant, startHz, endHz, peakGain);
+    // UR-66: resolved here rather than inside `voice` so the result can report
+    // the material that was sounded. Recipes with no debris layer report null.
+    const material =
+      variant.debris === undefined ? null : crumbleMaterialFor(options.debrisType);
+
+    // The index comes back OUT of `voice` rather than being drawn here on
+    // purpose: the bag draws from the same `rand` stream as the detune, the
+    // noise offset and the click jitter, so moving the draw earlier would
+    // reshuffle every one of them and a blast would stop rendering the way it
+    // rendered before UR-66.
+    const crumbleIndex = this.voice(variant, startHz, endHz, peakGain, material);
 
     const result: SfxPlayResult = {
       variant,
       peakGain,
       startHz,
       durationMs: variant.durationMs,
+      crumbleMaterial: material,
+      crumbleIndex,
     };
     this.plays.push(result);
     return result;
@@ -807,8 +865,17 @@ export class SfxBus {
     return clock + lookahead + (this.stalledVoices * STALLED_VOICE_SPACING_MS) / 1000;
   }
 
-  /** Builds and schedules the nodes for one play. */
-  private voice(variant: SfxVariant, startHz: number, endHz: number, peakGain: number): void {
+  /**
+   * Builds and schedules the nodes for one play, and reports which baked
+   * crumble it drew (UR-66), or `null` if the recipe has no debris layer.
+   */
+  private voice(
+    variant: SfxVariant,
+    startHz: number,
+    endHz: number,
+    peakGain: number,
+    crumbleMaterial: CrumbleMaterial | null,
+  ): number | null {
     const now = this.startTime();
     const attack = Math.max(0.001, variant.attackMs / 1000);
     const end = now + variant.durationMs / 1000;
@@ -904,10 +971,18 @@ export class SfxBus {
     // UR-48: the granular body. One buffer source for the whole crowd of
     // fragments - see crumble.ts for why the grains are baked rather than built
     // as nodes - with its own gain and its own rate.
+    // UR-66: WHICH grain set - ice or rock - was decided by the debris type the
+    // caller passed and resolved in `play`. The fallback below cannot be
+    // reached from `play`, which resolves a material for exactly the recipes
+    // that have a debris layer; it is here so this method stays correct on its
+    // own rather than on a promise made somewhere else.
+    let crumbleIndex: number | null = null;
     const debris = variant.debris;
     if (debris !== undefined && debris.gain > 0) {
+      const material = crumbleMaterial ?? UNMAPPED_DEBRIS_MATERIAL;
+      crumbleIndex = this.crumbleRotations.get(material)?.next() ?? 0;
       const source = this.ctx.createBufferSource();
-      source.buffer = this.crumble();
+      source.buffer = this.crumble(material, crumbleIndex);
       const rate = 1 + (this.rand() * 2 - 1) * debris.rateJitter;
       source.playbackRate.setValueAtTime(Math.max(0.25, rate), now);
       const at = now + debris.delayMs / 1000;
@@ -952,6 +1027,8 @@ export class SfxBus {
       subOsc.start(now);
       subOsc.stop(subEnd);
     }
+
+    return crumbleIndex;
   }
 
   /**
@@ -973,24 +1050,43 @@ export class SfxBus {
    * and repetition is the whole risk with a granular texture. Every one is heard
    * before any is heard twice.
    */
-  private crumble(): AudioBufferLike {
-    let cached = SfxBus.sharedCrumbles.get(this.ctx);
+  private crumble(material: CrumbleMaterial, index: number): AudioBufferLike {
+    let byMaterial = SfxBus.sharedCrumbles.get(this.ctx);
+    if (byMaterial === undefined) {
+      byMaterial = new Map();
+      SfxBus.sharedCrumbles.set(this.ctx, byMaterial);
+    }
+    let cached = byMaterial.get(material);
     if (cached === undefined) {
       cached = [];
-      SfxBus.sharedCrumbles.set(this.ctx, cached);
+      byMaterial.set(material, cached);
     }
-    const index = this.crumbleRotation.next();
     const existing = cached[index];
     if (existing !== undefined) return existing;
-    const samples = crumbleSamples(this.ctx.sampleRate, crumbleSeed(index));
+    // UR-66: THE SAME SEED FOR BOTH MATERIALS, DELIBERATELY. The per-grain
+    // draws then run in the same order for ice and rock, so fragment n of
+    // buffer i lands at the same instant in both - which is what keeps one
+    // shard schedule correct for both sounds.
+    const samples = crumbleSamples(
+      this.ctx.sampleRate,
+      crumbleSeed(index),
+      CRUMBLE_SHAPES[material],
+    );
     const buffer = this.ctx.createBuffer(1, samples.length, this.ctx.sampleRate);
     buffer.getChannelData(0).set(samples);
     cached[index] = buffer;
     return buffer;
   }
 
-  /** Baked once per context and shared by every blast on it. */
-  private static sharedCrumbles: WeakMap<object, AudioBufferLike[]> = new WeakMap();
+  /**
+   * Baked once per context and shared by every blast on it, per material. A
+   * material is only ever baked if a rock of that material is destroyed, so a
+   * player who never leaves the icy stops pays nothing for the rock set.
+   */
+  private static sharedCrumbles: WeakMap<
+    object,
+    Map<CrumbleMaterial, AudioBufferLike[]>
+  > = new WeakMap();
 
   /** One second of deterministic white noise, generated once and reused. */
   private noise(): AudioBufferLike {

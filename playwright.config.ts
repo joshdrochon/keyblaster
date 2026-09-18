@@ -16,6 +16,69 @@ import path from "node:path";
 const runId = process.env["PW_RUN_ID"] ?? String(process.pid);
 const port = Number(process.env["PW_PORT"] ?? 5183);
 
+
+/**
+ * A PARTIAL RUN MUST NOT OVERWRITE THE WHOLE-SUITE ARTIFACT.
+ *
+ * `gauntlet/evidence/e2e-report.json` is what G-e2e-whole reads to decide
+ * whether the suite passes. Playwright's json reporter rewrites it on EVERY
+ * invocation, including a lane re-running one spec while debugging.
+ *
+ * On 2026-09-17 that file was clobbered FOUR times in one afternoon by four
+ * different lanes. Three of those were noticed and repaired by hand; the
+ * fourth was only caught because a lane happened to keep its own backup. The
+ * hole is not that anyone was careless - it is that being careful was
+ * required at all, on a file every single Playwright command writes.
+ *
+ * So the destination is derived from the command instead of from discipline:
+ * a run that names specs, or filters with -g/--grep/--project/--shard, writes
+ * into its own `test-results/<runId>/` directory. Only an unfiltered run -
+ * the whole suite - is allowed to touch the evidence file.
+ *
+ * Exported for its test. Deliberately pure, taking argv rather than reading
+ * it, because a function that reads process state cannot be swept over cases.
+ */
+export function isFilteredRun(argv: readonly string[]): boolean {
+  const FILTERS = new Set(["-g", "--grep", "--grep-invert", "--project", "--shard"]);
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i] ?? "";
+    if (arg === "--") continue;
+    // `--grep=foo` and `--grep foo` are both filters.
+    if (FILTERS.has(arg)) return true;
+    for (const f of FILTERS) if (arg.startsWith(`${f}=`)) return true;
+    // A bare positional argument is a spec-file or directory filter.
+    // Flags and their attached values are not.
+    if (!arg.startsWith("-")) {
+      const prev = argv[i - 1] ?? "";
+      const takesValue =
+        prev.startsWith("-") && !prev.includes("=") && !BOOLEAN_FLAGS.has(prev);
+      if (!takesValue) return true;
+    }
+  }
+  return false;
+}
+
+/** Flags that never consume the token after them. */
+const BOOLEAN_FLAGS = new Set([
+  "--headed",
+  "--debug",
+  "--ui",
+  "--list",
+  "--quiet",
+  "--last-failed",
+  "--fully-parallel",
+  "--forbid-only",
+  "--ignore-snapshots",
+  "--pass-with-no-tests",
+  "-x",
+]);
+
+export function e2eReportPath(argv: readonly string[], id: string): string {
+  return isFilteredRun(argv)
+    ? `test-results/${id}/e2e-report.json`
+    : "gauntlet/evidence/e2e-report.json";
+}
+
 export default defineConfig({
   testDir: "tests/e2e",
   outputDir: path.join("test-results", runId),
@@ -48,7 +111,7 @@ export default defineConfig({
     // stays not-implemented however green the run was. Run the suite with no
     // --reporter flag, or add json explicitly. Three full green runs produced
     // no artifact before this was noticed.
-    ["json", { outputFile: "gauntlet/evidence/e2e-report.json" }],
+    ["json", { outputFile: e2eReportPath(process.argv.slice(2), runId) }],
   ],
   use: {
     baseURL: `http://localhost:${port}`,

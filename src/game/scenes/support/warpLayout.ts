@@ -22,10 +22,16 @@ import type { Rect } from "@game/ui/layout";
  *
  * The fix is not a depth change - a ship drawn OVER the sentence would cover
  * the destination line and the composed-sentence mark, which live in the
- * panel's top-right corner - it is a BAY: the three stacked cards give up the
- * right ~380 px of the frame and the Lantern stands in it, unoccluded, at full
- * size. `tests/unit/scenes/warpLayout.test.ts` asserts the rectangles are
- * disjoint, so a future width change cannot quietly re-cover it.
+ * panel's top-right corner - it is a CLEAR BAND: the cards give up the bottom
+ * of the frame and the Lantern stands in it, unoccluded.
+ * `tests/unit/scenes/warpLayout.test.ts` asserts the rectangles are disjoint,
+ * so a future height change cannot quietly re-cover it.
+ *
+ * The band was a bay on the RIGHT until UR-63, which is a different sentence
+ * with the same shape and was wrong for a reason worth keeping written down:
+ * the bay was only ever reached by a standalone boot, and the screen a child
+ * gets is the overlay, where the ship is Flight's and stands at the bottom
+ * centre. See `lanternStand`.
  *
  * Everything here is pure: no Phaser, no DOM, numbers in and numbers out.
  */
@@ -41,26 +47,64 @@ import type { Rect } from "@game/ui/layout";
  * changes both of them together, which is what AC-33 asks for; what it forbids
  * is the layout reacting to what the transport returned.
  *
- * WIDTH 1464 AND NOT 1600. What the cards gave up on the right is the
- * Lantern's bay; what they gained on the left is the 64 px between the old
- * x=160 and the product's gutter at 96 (`ui/grid.ts`).
+ * HEIGHT 280 AND NOT 250. A card wraps the sentence, and the sentence is not
+ * always the stop's shipped one: a composed sentence (D09/E-AI-1) can be longer
+ * than anything in `src/content`. At 250 the hint sat at `PANEL.h - 44` = 206,
+ * and a second line of 52 px type starting at 146 reaches 214 - the hint would
+ * have been printed through. 280 fits two lines with 22 px to spare, which
+ * `warpLayout.test.ts` asserts directly rather than trusting the longest string
+ * anybody has counted.
  *
- * HEIGHT 288 AND NOT 250, for the same reason and in the other direction. A
- * narrower card wraps sooner, and the sentence is not always the stop's shipped
- * one: a composed sentence (D09/E-AI-1) can be longer than anything in
- * `src/content`. At 250 the hint sat at `PANEL.h - 44` = 206, and a second line
- * of 52 px type starting at 146 reaches 214 - the hint would have been printed
- * through. 288 fits two lines with 30 px to spare, which `warpLayout.test.ts`
- * asserts directly rather than trusting the longest string anybody has counted.
+ * ================== UR-63 MOVED THE WHOLE STACK UP ==================
+ * The bottom of the frame is no longer the cards' to use. It belongs to the
+ * ship - see `lanternStand` below - so every card ends above `SHIP_BAND_TOP`
+ * and the column is laid out inside what is left. The old stack ran
+ * 286..978, which put the coach card straight across the Lantern's fuselage.
+ *
+ * WIDTH IS NOW THE GUTTER-TO-GUTTER CONTENT WIDTH. It was 1464, which stopped
+ * short of a bay on the right that the ship used to stand in. The ship does not
+ * stand there any more, so the bay would have been 360 px of nothing beside
+ * three cards; the column runs the full content width instead, like every other
+ * screen's.
  */
+const CARD_W = 1728;
+export const PANEL: Rect = { x: GUTTER, y: 236, w: CARD_W, h: 280 };
+
 /**
- * The cards start on the product's gutter (`ui/grid.GUTTER`) - they were at
- * x=160, which no menu screen shared - and stop short of the Lantern's bay.
+ * UR-62 - THE WARP DRIVE IS ONE INSTRUMENT, NOT THREE PIECES.
+ *
+ * ================== THE DEFECT ==================
+ * The readout was assembled from three independently positioned objects: a
+ * "warp drive" label pinned left on a pill of its own, a track spanning the
+ * column 52 px below it, and a percentage on a THIRD pill floating above the
+ * track's right end. Three plates, three edges, no shared box - nothing on
+ * screen said they were one control, and because each was placed from its own
+ * anchor they did not line up with each other either.
+ *
+ * ================== THE FIX IS A CONTAINING BOX ==================
+ * `INSTRUMENT` is the instrument: one plate with one border. The label and the
+ * readout are drawn INSIDE it, on one baseline (`instrumentLabelRow`), and the
+ * track is inset inside the same box (`METER`). The pills are gone - text on a
+ * panel the scene drew itself does not need a plate of its own, and `skyText`'s
+ * `plated` / `plateFill` pair is how it stays measured for AC-22.8 anyway.
+ *
+ * The EASING IS UNTOUCHED (AC-22.5). `easeMeterTo` tweens `meterShown` and
+ * `paintMeter` draws from it; this change moves the rectangle that is painted
+ * and nothing about what drives it. `meterEaseFrames` still counts frames the
+ * fill was redrawn mid-move, and still reads 0 for a bar that steps.
  */
-const CARD_W = 1464;
-export const PANEL: Rect = { x: GUTTER, y: 286, w: CARD_W, h: 288 };
-export const METER: Rect = { x: GUTTER, y: 650, w: CARD_W, h: 30 };
-export const COACH: Rect = { x: GUTTER, y: 742, w: CARD_W, h: 236 };
+export const INSTRUMENT: Rect = { x: GUTTER, y: 536, w: CARD_W, h: 124 };
+
+/** The charge track, INSET INSIDE the instrument. Not a card of its own. */
+export const INSTRUMENT_INSET = 32;
+export const METER: Rect = {
+  x: INSTRUMENT.x + INSTRUMENT_INSET,
+  y: INSTRUMENT.y + 60,
+  w: INSTRUMENT.w - INSTRUMENT_INSET * 2,
+  h: 26,
+};
+
+export const COACH: Rect = { x: GUTTER, y: 680, w: CARD_W, h: 140 };
 
 // ---------------------------------------------------------------------------
 // The Lantern
@@ -86,8 +130,90 @@ export const SHIP_BELOW = 178;
 export const SHIP_PLUME = 330;
 export const SHIP_HALF_W = 125;
 
-/** Where the Lantern stands, and how tall it is drawn. */
-export const LANTERN = { x: 1720, y: 470, height: 300 } as const;
+/**
+ * The fin span in design units, i.e. `lantern.ts`'s own
+ * `LANTERN_DESIGN_HALF_WIDTH`. Restated here for the same reason as the four
+ * above and guarded the same way (`warpLayout.test.ts` compares it against
+ * `render/lanternGeometry.FIN_TIP.x`), because it is the DIVISOR in the scale
+ * below and a wrong one silently draws the warp break's ship at a different
+ * size from the one the player has been flying.
+ */
+export const SHIP_DESIGN_HALF_W = 123;
+
+// ---------------------------------------------------------------------------
+// UR-63 - the ship is ON this screen
+// ---------------------------------------------------------------------------
+
+/**
+ * WHERE THE LANTERN STANDS, AND WHY IT IS FLIGHT'S PLACE AND NOT A BAY.
+ *
+ * ================== THE DEFECT ==================
+ * UR-63: the warp break showed a charge meter for a warp drive with no ship
+ * under it, and the only part of the Lantern a player could see was a sliver of
+ * exhaust at the very bottom edge of the frame.
+ *
+ * It was not that nothing drew a ship. It was that the screen the player
+ * actually gets is the OVERLAY (D30, `overlay: true`): Flight launches this
+ * scene over itself and keeps running, so the Lantern on screen is Flight's,
+ * standing at (width/2, height - 150). The warp cards ran 286..978 across the
+ * full column, and Flight's ship occupies y 838..997 - so the coach card was
+ * drawn straight over the fuselage and only the nozzle and the plume came out
+ * underneath it. The `LANTERN` constant that used to live here, at (1720, 470)
+ * in a bay on the right, was only ever reached by a STANDALONE `?scene=Warp`
+ * boot, which is to say by the e2e suite and never by a child. Every capture
+ * therefore showed a ship no player had.
+ *
+ * ================== ONE SHIP, ONE PLACE, BOTH MODES ==================
+ * So the bay is gone and the ship stands where Flight puts it, in both modes:
+ * overlaid, that is Flight's own rig and this scene draws nothing; standalone,
+ * this scene draws the same rig at the same point at the same scale. The two
+ * modes now show the same picture, which is what makes a standalone capture
+ * evidence about the game rather than about the harness.
+ *
+ * `SHIP_BAND_TOP` is the consequence: the cards may not come below it.
+ *
+ * ================== THE TWO RESTATED FLIGHT NUMBERS ==================
+ * `FlightScene.ts` imports Phaser and belongs to another lane, so its ship
+ * placement can be neither imported here nor loaded in a node test. Both
+ * numbers are therefore restated and `warpLayout.test.ts` PARSES THEM BACK OUT
+ * of `FlightScene.ts` and compares - move the ship there and the suite goes red
+ * rather than the warp cards silently re-covering it.
+ */
+export const FLIGHT_SHIP_HALF_WIDTH_PX = 46;
+export const FLIGHT_SHIP_BOTTOM_GAP = 150;
+
+/**
+ * The scale Flight draws the rig at, derived exactly as Flight derives it:
+ * `SHIP_HALF_WIDTH_PX / LANTERN_DESIGN_HALF_WIDTH`. Never a literal - see the
+ * note on `SHIP_DESIGN_HALF_W`.
+ */
+export const SHIP_SCALE = FLIGHT_SHIP_HALF_WIDTH_PX / SHIP_DESIGN_HALF_W;
+
+/**
+ * Where the Lantern stands, and how tall it is drawn.
+ *
+ * A FUNCTION, NOT A CONST. `GAME_WIDTH` and `GAME_HEIGHT` are live bindings
+ * that `bootGame` sets once it has measured the window (`sceneKeys.ts`), and a
+ * top-level object literal would freeze the ship at the artboard's 1920x1080
+ * for ever - which is the same bug as the frame note on `warpFrame` below.
+ */
+export function lanternStand(): { x: number; y: number; height: number } {
+  return {
+    x: GAME_WIDTH / 2,
+    y: GAME_HEIGHT - FLIGHT_SHIP_BOTTOM_GAP,
+    height: (SHIP_ABOVE + SHIP_BELOW) * SHIP_SCALE,
+  };
+}
+
+/**
+ * The top of the band the ship owns. No card may reach it.
+ *
+ * Derived from the stand rather than picked, so moving the ship moves the floor
+ * the cards are laid out against instead of quietly re-covering it.
+ */
+export function shipBandTop(): number {
+  return lanternStand().y - SHIP_ABOVE * SHIP_SCALE;
+}
 
 /**
  * The rectangle the ship's BODY occupies: beam head to nozzle bell.
@@ -98,7 +224,7 @@ export const LANTERN = { x: 1720, y: 470, height: 300 } as const;
  * defect; the fuselage behind a card is.
  */
 export function lanternBox(
-  at: { readonly x: number; readonly y: number; readonly height: number } = LANTERN,
+  at: { readonly x: number; readonly y: number; readonly height: number } = lanternStand(),
 ): Rect {
   const s = at.height / (SHIP_ABOVE + SHIP_BELOW);
   return {
@@ -111,30 +237,68 @@ export function lanternBox(
 
 /** The body plus the solid part of the exhaust cone. */
 export function lanternPlumeBox(
-  at: { readonly x: number; readonly y: number; readonly height: number } = LANTERN,
+  at: { readonly x: number; readonly y: number; readonly height: number } = lanternStand(),
 ): Rect {
   const s = at.height / (SHIP_ABOVE + SHIP_BELOW);
   const box = lanternBox(at);
   return { ...box, h: (SHIP_ABOVE + SHIP_PLUME) * s };
 }
 
-/** Every card the ship has to stay out of. */
-export const WARP_CARDS: readonly Rect[] = [PANEL, METER, COACH];
+/**
+ * Every card the ship has to stay out of.
+ *
+ * `METER` IS DELIBERATELY NOT IN THIS LIST ANY MORE. It used to be a card in
+ * its own right; it is now a rectangle INSIDE `INSTRUMENT` (UR-62), so listing
+ * both would assert the same clearance twice and, worse, would let a future
+ * edit that took the track outside its own instrument still pass.
+ * `instrumentContains` is the check that replaces it.
+ */
+export const WARP_CARDS: readonly Rect[] = [PANEL, INSTRUMENT, COACH];
 
 /**
- * The band the meter's two plated labels occupy.
+ * The row the instrument's label and readout share, INSIDE the instrument.
  *
- * `WarpScene.buildMeter` draws "warp drive" and the percentage at
- * `METER.y - 52`, on `skyText` plates with 8 px of padding, so they reach
- * roughly 60 px above the track. They are not part of a card and nothing
- * measured them against one: growing `PANEL.h` to fit a second line of sentence
- * printed the sentence card's bottom border straight through both of them, and
- * the capture showed it. `warpLayout.test.ts` now asserts the gap.
+ * ONE ROW AND ONE BASELINE is the whole of UR-62's ask: "warp drive" on the
+ * left and the percentage on the right are two ends of one line, not two
+ * objects that happen to be near each other. They were 52 px above the track on
+ * separate pills at separate baselines, anchored from opposite sides, and read
+ * as three pieces because that is what they were.
  */
-export const METER_LABEL_TOP = 60;
+export const INSTRUMENT_LABEL_TOP = 20;
+export const INSTRUMENT_LABEL_H = 32;
 
-export function meterLabelBand(): Rect {
-  return { x: METER.x, y: METER.y - METER_LABEL_TOP, w: METER.w, h: METER_LABEL_TOP };
+export function instrumentLabelRow(): Rect {
+  return {
+    x: METER.x,
+    y: INSTRUMENT.y + INSTRUMENT_LABEL_TOP,
+    w: METER.w,
+    h: INSTRUMENT_LABEL_H,
+  };
+}
+
+/**
+ * The line that appears under the track when the drive is full, inside the
+ * instrument. It used to hang below the track on a pill of its own.
+ */
+export const INSTRUMENT_CHARGED_TOP = 92;
+
+export function instrumentChargedRow(): Rect {
+  return {
+    x: METER.x,
+    y: INSTRUMENT.y + INSTRUMENT_CHARGED_TOP,
+    w: METER.w,
+    h: 26,
+  };
+}
+
+/** True when `inner` is wholly inside the instrument's plate. */
+export function instrumentContains(inner: Rect): boolean {
+  return (
+    inner.x >= INSTRUMENT.x &&
+    inner.y >= INSTRUMENT.y &&
+    inner.x + inner.w <= INSTRUMENT.x + INSTRUMENT.w &&
+    inner.y + inner.h <= INSTRUMENT.y + INSTRUMENT.h
+  );
 }
 
 /**

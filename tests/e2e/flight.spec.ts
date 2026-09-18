@@ -11,7 +11,7 @@ import type { FlightDebugState } from "../../src/game/scenes/FlightScene.js";
 // never moves.
 import { flightCanvasBox, freezeFlight, spawnAt } from "./support/flightBoot.js";
 // @ts-expect-error - .mjs tooling module, no type declarations by design
-import { measureSilhouettes } from "../gauntlet/silhouette.mjs";
+import { CORE, measureSilhouettes } from "../gauntlet/silhouette.mjs";
 
 /**
  * Screen 6 (Flight), screen 6b (Stall) and the HUD overlay.
@@ -1256,6 +1256,9 @@ test.describe("Flight - rubric evidence", () => {
       unmeasurable: Record<string, unknown>[];
       minSeparation: number;
       rocks: number;
+      /** Scorch marks on the hull when this frame was taken. See `grab`. */
+      hullHits: number;
+      maxHull: number;
     }
 
     /**
@@ -1278,9 +1281,85 @@ test.describe("Flight - rubric evidence", () => {
     const CORE_LUMA_TOLERANCE = 45;
 
     const samples: FrameSample[] = [];
+    /**
+     * Objects a word plate was sitting on when the shutter opened. Recorded, not
+     * dropped: a filter nobody can see is a filter that can quietly become the
+     * result. See `platedOver`.
+     */
+    const occludedByPlate: { stopId: string; id: string }[] = [];
 
     /** FlightScene.ts:169 / :570-571 — the ship's anchor, in DESIGN pixels. */
     const SHIP = { cx: DESIGN.width / 2, cy: DESIGN.height - 150, halfWidth: 46 };
+
+    /**
+     * ================== A WORD PLATE IS NOT THE OBJECT UNDER IT ==================
+     *
+     * `measureSilhouettes` already keeps word plates out of the background RING
+     * - "word plates are neither object nor background" - and nothing kept them
+     * out of the object's CORE. The plate layer draws ABOVE the ship
+     * (`stage.PLATE_LAYER_DEPTH`, one step under the HUD), which is a weighed
+     * trade recorded in `FlightScene`: a rock falling down the ship's own lane
+     * carries its word across the Lantern for the last part of its fall, because
+     * a word the child cannot read is worse than a ship they cannot see for a
+     * quarter of a second.
+     *
+     * So the probe was periodically averaging a dark opaque plate and reporting
+     * it as the rocket. Caught with a control rather than argued: sampling the
+     * ship's core every 500 ms on mars while logging which plates cover it,
+     *
+     *   t=1  inside 203.5  hullHits 0  plates over the core []
+     *   t=2  inside 125.6  hullHits 0  plates over the core ["rivers"]
+     *   t=3  inside 144.6  hullHits 2  plates over the core []
+     *
+     * - the one frame with a plate on the ship is the one frame the ship stops
+     * being 203, with the hull untouched either side of it.
+     *
+     * An object under a plate is in the same category this file already has for
+     * a rock above the top of the picture: not measurable in THIS frame, and not
+     * a silhouette failure. It is recorded rather than dropped, and the frame is
+     * retried, so nothing here can turn a genuinely weak reading into a skip -
+     * the test is geometric and is taken before any pixel is read.
+     */
+    const platedOver = (
+      cx: number,
+      cy: number,
+      radius: number,
+      plates: readonly { x0: number; y0: number; x1: number; y1: number }[],
+    ): boolean => {
+      const core = radius * CORE;
+      return plates.some(
+        (p) => p.x0 < cx + core && p.x1 > cx - core && p.y0 < cy + core && p.y1 > cy - core,
+      );
+    };
+
+    /**
+     * The hull a SHIPPED stage carries (`stage.hullForStage` at a 40-word
+     * stage). The capture needs a 400-word stage so it cannot stall itself
+     * mid-sweep, and that stage carries 66 marks - so the fixture can put the
+     * Lantern into a damage state the game never shows.
+     *
+     * It matters because `addScorch` paints a 34x20 design-px near-black ellipse
+     * on a 42 px fuselage for every hit, inside the disc this probe averages.
+     * Measured on mars, ship core against a sky holding at 83-92:
+     *
+     *   hits 0   203.5     hits 6   142.6      hits 10  55.3
+     *   hits 2   144.6     hits 7    89.2      hits 12  51.7
+     *   hits 4   141.7     hits 8    94.1
+     *
+     * The ship separates at both ends and NOT in the middle: at 7-8 marks a
+     * half-scorched cream hull is the sky's own value, and that is where this
+     * item failed three times (0.0093, 0.0249, 0.0537). Seven marks is one more
+     * than a shipped stage allows - the sixth mark stalls it - so the frames
+     * that failed were frames of the fixture, not of the game.
+     *
+     * The capture is therefore kept inside the reachable range rather than the
+     * bar being moved: the belt is advanced in bounded steps with the scene
+     * frozen in between, and the frames actually kept are asserted to be within
+     * it. If a slower machine cannot hold that, this fails naming the FIXTURE.
+     * gauntlet/escalations.md carries the art question behind it - a hull at 4-6
+     * marks IS reachable, and its value is on its way to the sky's.
+     */
+    const SHIPPED_MAX_HULL = 6;
 
     const BELTED_STOPS = ["mars", "jupiter", "saturn", "uranus", "neptune", "pluto"];
     /**
@@ -1316,9 +1395,35 @@ test.describe("Flight - rubric evidence", () => {
      */
     const PLACED_X = [0.34, 0.66, 0.30, 0.70, 0.36];
     const PLACED_WORDS = ["dust", "polar", "rivers", "crater", "ice"];
+    /**
+     * ONE PLACED ROCK IS PROMOTED TO A CANISTER, AT EVERY STOP.
+     *
+     * A canister is a rock with the stop's ACCENT painted on it (FR-5 / D26),
+     * so it is the one object in the belt whose measured core is not the value
+     * `wordRockFill` cleared the sky by. That is not a hypothetical: the band
+     * used to cross the middle of the rock and it took uranus's canister to
+     * 0.0403 against this file's 0.06 bar, and saturn's to 0.0943.
+     *
+     * Whether a canister is on the belt at all is up to `maySpawnCanister` and
+     * the seed - the run that caught the defect had 8 across 24 frames, the run
+     * that confirmed the fix had 2, and neither had one on every stop. A sweep
+     * that measures a canister when the rng feels like it is a sampled gate on
+     * the object most likely to fail, which is rule 5 with the names changed.
+     *
+     * So it is placed rather than waited for, at index 3 - the 0.70 height the
+     * uranus failure was measured at. `makeCanister` matches by word and
+     * "crater" is in no stage pool (`src/content/en/*.json`), so the rock it
+     * promotes is this spec's, never one the belt happened to be carrying.
+     */
+    const CANISTER_INDEX = 3;
+    const CANISTER_WORD = PLACED_WORDS[CANISTER_INDEX] as string;
 
     for (const stopId of BELTED_STOPS) {
       const before = samples.length;
+      // Which stop, out loud. A six-stop sweep that dies in the middle used to
+      // report only the error, and "the game canvas is not on screen" says
+      // nothing about which boot produced it.
+      console.log(`V-22.4 booting ${stopId}`);
       await bootFlight(page, { stopId, knobs: { maxLive: 4 }, stageWordCount: 400 });
       await page.waitForFunction(
         () => (window.__kbFlight?.state().rocks.length ?? 0) > 0,
@@ -1341,6 +1446,8 @@ test.describe("Flight - rubric evidence", () => {
         h: number;
         b64: string;
         stalled: boolean;
+        hullHits: number;
+        maxHull: number;
         rocks: { word: string; sizePx: number; fillLuma: number; isCanister: boolean; plateLeft: number; plateRight: number; plateTop: number; plateBottom: number; rockBottom: number }[];
       }> =>
         (async () => {
@@ -1457,6 +1564,29 @@ test.describe("Flight - rubric evidence", () => {
             // are captured here so the assertion below can say so out loud rather
             // than let the probe report "could not measure" and be believed.
             stalled: live?.stalled ?? true,
+            /**
+             * HOW BATTERED THE SHIP IS WHEN THE SHUTTER OPENS.
+             *
+             * `addScorch` puts a 34x20 design-px near-black ellipse on a
+             * fuselage 42 px wide for every hull hit, inside the disc this
+             * probe averages. Nobody types during a capture, so the belt
+             * breaches unanswered and the marks pile up: measured on saturn
+             * over one capture sequence, the ship's core fell 204.7 -> 139.8 ->
+             * 121.0 -> 117.5 -> 80.5 -> 58.8 -> 52.8 while the sky behind it
+             * held at 97-109. On the way down it PASSES THROUGH the sky's own
+             * value, and the separation there is 0.054-0.075 against a bar of
+             * 0.06.
+             *
+             * That is a real property of the drawing and a real property of the
+             * FIXTURE at the same time, and the artifact cannot tell them apart
+             * without this number: a shipped stage carries `maxHull` 6 marks
+             * before it stalls, and the long stage this capture needs (400
+             * words, 66 marks) lets the ship reach a scorch count the game
+             * never shows. Raised in gauntlet/escalations.md; recorded here so
+             * the escalation has a producer and so rule 10 keeps measuring it.
+             */
+            hullHits: live?.hullHits ?? -1,
+            maxHull: live?.maxHull ?? -1,
             rocks: (live?.rocks ?? []).map((r) => ({
               word: r.word,
               sizePx: r.sizePx,
@@ -1476,9 +1606,23 @@ test.describe("Flight - rubric evidence", () => {
             },
             [shot.toString("base64"), ASTEROID_MODULE, stopId] as [string, string, string],
           );
-          await freezeFlight(page, false);
+          /**
+           * LEFT FROZEN, ON PURPOSE. `grab` used to resume the belt as it
+           * returned, so the scene ran through every assertion, every
+           * `waitForTimeout` and the next round trip - and nobody is typing, so
+           * every one of those seconds is another rock breaching and another
+           * scorch mark on the hull. The loop now owns when the world moves,
+           * in one bounded step per frame (`advance`).
+           */
           return out;
         })();
+
+      /** Let the belt run for a measured interval, then stop it again. */
+      const advance = async (ms: number): Promise<void> => {
+        await freezeFlight(page, false);
+        await page.waitForTimeout(ms);
+        await freezeFlight(page, true);
+      };
 
       /**
        * ================== A RETRY LOOP IN A MEASUREMENT ==================
@@ -1520,7 +1664,11 @@ test.describe("Flight - rubric evidence", () => {
       while (samples.length - before < PER_STOP_FRAMES && attempts < 16) {
         const i = samples.length - before;
         attempts += 1;
-        const { w, h, b64, rocks, stalled } = await grab(stopId);
+        // The world moves HERE and nowhere else, so the cost of measuring is
+        // not charged to the hull. 500 ms is enough for a rock to cross about
+        // a seventh of the frame, so three frames are three boards.
+        if (attempts > 1) await advance(500);
+        const { w, h, b64, rocks, stalled, hullHits, maxHull } = await grab(stopId);
         // LOUD, and before anything is measured. A probe that cannot find its
         // object must say why; "0 samples" on a stalled belt is a fact about the
         // fixture, and reporting it as a silhouette measurement is how a check
@@ -1551,11 +1699,30 @@ test.describe("Flight - rubric evidence", () => {
          * to locate something that IS on screen, so the bail can be, and now is,
          * zero-tolerance (`tests/gauntlet/rubric.mjs`).
          *
-         * The window is the object's own sampling ring, so an object is included
-         * exactly when the probe has pixels to read.
+         * THE WINDOW IS THE CORE, NOT THE RING, AND IT USED TO BE THE RING.
+         *
+         * `cy +/- radius * 1.75` is the OUTER SAMPLING RING, and having ring
+         * pixels is not the same as having object pixels: a rock whose centre
+         * sits at -1.7r has its whole 0.45r core above the picture and a large
+         * arc of its ring inside it, so it passed this window and then reported
+         * `samplesIn: 0`. That is the exact reading the window exists to keep
+         * out, arriving through the window.
+         *
+         * Measured, in the six-stop sweep of 2026-09-17: five objects came back
+         * unmeasurable - `rock-2-counting` and `rock-3-inside` at in 0 / out
+         * 945 and 1183, and `rock-2-nobody` at in 0 / out 0, which is a rock
+         * past the breach line at the BOTTOM, so the window was wrong at both
+         * ends. `rubric.mjs` has zero tolerance for an unmeasurable object, by
+         * design, so V-22.4 failed as a rubric item while every separation it
+         * did measure was healthy - and the failure was about where the shutter
+         * caught a rock, not about the art.
+         *
+         * So the window is `CORE`, imported from the measure rather than
+         * restated: an object is included exactly when the disc the probe
+         * averages is inside the picture.
          */
         const onFrame = (cy: number, radius: number): boolean =>
-          cy + radius * 1.75 >= 0 && cy - radius * 1.75 <= h - 1;
+          cy - radius * CORE >= 0 && cy + radius * CORE <= h - 1;
         const allRocks = rocks.map((r, i2) => ({
           id: `rock-${i2}-${r.word}`,
           kind: r.isCanister ? "canister" : "rock",
@@ -1563,8 +1730,20 @@ test.describe("Flight - rubric evidence", () => {
           cy: (r.rockBottom - r.sizePx / 2) * scale,
           r: (r.sizePx / 2) * scale,
         }));
+        const plateRects = rocks.map((r) => ({
+          x0: r.plateLeft * scale,
+          y0: r.plateTop * scale,
+          x1: r.plateRight * scale,
+          y1: r.plateBottom * scale,
+        }));
         const offFrame = allRocks.filter((o) => !onFrame(o.cy, o.r));
-        const objects: ProbeObject[] = allRocks.filter((o) => onFrame(o.cy, o.r));
+        const objects: ProbeObject[] = allRocks
+          .filter((o) => onFrame(o.cy, o.r))
+          .filter((o) => {
+            if (!platedOver(o.cx, o.cy, o.r, plateRects)) return true;
+            occludedByPlate.push({ stopId, id: o.id });
+            return false;
+          });
         // What each on-frame rock is DRAWN at, carried alongside so the assertion
         // after the measurement can check the probe landed on it.
         const expectedLuma = new Map<string, number>();
@@ -1573,13 +1752,22 @@ test.describe("Flight - rubric evidence", () => {
         // a silent filter: a frame where everything was off-screen is a frame
         // this probe should not be believed about.
         void offFrame;
-        objects.push({
-          id: "ship",
-          kind: "ship",
-          cx: SHIP.cx * scale,
-          cy: SHIP.cy * scale,
-          r: SHIP.halfWidth * scale,
-        });
+        const shipPlated = platedOver(
+          SHIP.cx * scale,
+          SHIP.cy * scale,
+          SHIP.halfWidth * scale,
+          plateRects,
+        );
+        if (shipPlated) occludedByPlate.push({ stopId, id: "ship" });
+        else {
+          objects.push({
+            id: "ship",
+            kind: "ship",
+            cx: SHIP.cx * scale,
+            cy: SHIP.cy * scale,
+            r: SHIP.halfWidth * scale,
+          });
+        }
         // Word plates are neither object nor background.
         const exclude = rocks.map((r) => ({
           x0: r.plateLeft * scale,
@@ -1624,12 +1812,15 @@ test.describe("Flight - rubric evidence", () => {
             `${stopId} sample ${i}: the core of ${o.id} (${o.kind}) read ${o.inside.toFixed(1)} but the renderer draws it at ${want.toFixed(1)} - the disc landed on the background, not the rock`,
           ).toBeLessThan(CORE_LUMA_TOLERANCE);
         }
-        // Ship-only: the rock was off-frame at this instant. Not a measurement
-        // and not a failure - try again rather than count an empty picture.
-        if (measured.objects.length < 2) {
-          await page.waitForTimeout(400);
-          continue;
-        }
+        // THE FRAME NEEDS BOTH, which is what the assertion at the end of this
+        // test demands of every kept frame. A frame with only the ship says
+        // nothing about the asteroids; a frame with no ship reading cannot
+        // satisfy `shipReadings.length === samples.length`. Either way it is a
+        // fact about when the shutter opened, not about the art - so another
+        // frame is taken rather than an empty picture counted.
+        const hasShip = (measured.objects as { kind: string }[]).some((o) => o.kind === "ship");
+        const hasRock = (measured.objects as { kind: string }[]).some((o) => o.kind !== "ship");
+        if (!hasShip || !hasRock) continue;
         samples.push({
           stopId,
           frame: { w, h },
@@ -1637,8 +1828,9 @@ test.describe("Flight - rubric evidence", () => {
           unmeasurable: measured.unmeasurable,
           minSeparation: measured.minSeparation,
           rocks: rocks.length,
+          hullHits,
+          maxHull,
         });
-        if (samples.length - before < PER_STOP_FRAMES) await page.waitForTimeout(700);
       }
       expect(
         samples.length - before,
@@ -1665,7 +1857,29 @@ test.describe("Flight - rubric evidence", () => {
           spinPerSec: 0.1,
         });
       }
+      const promoted = await page.evaluate(
+        (word: string) => window.__kbFlight?.makeCanister(word) ?? null,
+        CANISTER_WORD,
+      );
+      expect(
+        promoted,
+        `${stopId}: the placed rock "${CANISTER_WORD}" was not promoted to a canister, so this stop measured no canister at all`,
+      ).toBe(CANISTER_WORD);
+
       const placed = await grab(stopId);
+      /**
+       * THE SAME CHECK THE LIVE PASS MAKES, WHICH THIS PASS DID NOT.
+       *
+       * A stalled stage freezes every rock where it was and puts the Lantern
+       * into D29's dim-and-sink, so the ship's core reads far below the value
+       * it is drawn at and the reading is about the stall rather than about the
+       * art. The live loop has said so since the UR-36 follow-on; the placed
+       * pass was measuring the same fixture without the same guard.
+       */
+      expect(
+        placed.stalled,
+        `${stopId} placed: the stage stalled, so the ship is mid-dim and the rocks are frozen`,
+      ).toBe(false);
       const pScale = placed.w / DESIGN.width;
       /**
        * MATCHED BY POSITION, NOT BY WORD, and the first version was matched by
@@ -1692,6 +1906,12 @@ test.describe("Flight - rubric evidence", () => {
         isCanister: r.isCanister,
         fillLuma: r.fillLuma,
       }));
+      const pPlates = placed.rocks.map((r) => ({
+        x0: r.plateLeft * pScale,
+        y0: r.plateTop * pScale,
+        x1: r.plateRight * pScale,
+        y1: r.plateBottom * pScale,
+      }));
       const pObjects: ProbeObject[] = [];
       const pExpected = new Map<string, number>();
       PLACED_HEIGHTS.forEach((hFrac, k) => {
@@ -1702,6 +1922,10 @@ test.describe("Flight - rubric evidence", () => {
           .sort((a, b) => a.d - b.d)[0];
         if (hit === undefined || hit.d > TOLERANCE_PX) return;
         const id = `placed-${k}-${hit.c.word}`;
+        if (platedOver(hit.c.cxDesign * pScale, hit.c.cyDesign * pScale, hit.c.radius * pScale, pPlates)) {
+          occludedByPlate.push({ stopId, id });
+          return;
+        }
         pObjects.push({
           id,
           kind: hit.c.isCanister ? "canister" : "rock",
@@ -1711,13 +1935,17 @@ test.describe("Flight - rubric evidence", () => {
         });
         pExpected.set(id, hit.c.fillLuma);
       });
-      pObjects.push({
-        id: "ship",
-        kind: "ship",
-        cx: SHIP.cx * pScale,
-        cy: SHIP.cy * pScale,
-        r: SHIP.halfWidth * pScale,
-      });
+      if (platedOver(SHIP.cx * pScale, SHIP.cy * pScale, SHIP.halfWidth * pScale, pPlates)) {
+        occludedByPlate.push({ stopId, id: "ship (placed)" });
+      } else {
+        pObjects.push({
+          id: "ship",
+          kind: "ship",
+          cx: SHIP.cx * pScale,
+          cy: SHIP.cy * pScale,
+          r: SHIP.halfWidth * pScale,
+        });
+      }
       const pMeasured = measureSilhouettes({
         grey: Uint8Array.from(Buffer.from(placed.b64, "base64")),
         w: placed.w,
@@ -1766,10 +1994,30 @@ test.describe("Flight - rubric evidence", () => {
         pObjects.length - 1,
         `${stopId}: only ${pObjects.length - 1} of ${PLACED_HEIGHTS.length} placed rocks were found within ${TOLERANCE_PX}px of where they were put`,
       ).toBe(PLACED_HEIGHTS.length);
+      /**
+       * ANTI-VACUITY FOR THE CANISTER. The promotion above can succeed and the
+       * position match can still land on a different rock; then this pass would
+       * measure five plain rocks and report a clean sweep of an object class it
+       * never looked at.
+       *
+       * It asks that THIS object is a canister, not that it is the only one:
+       * `spawnRock` may decide a placed rock is a canister on its own
+       * (`maySpawnCanister` plus the seed), and jupiter did exactly that to
+       * `placed-1-polar`. A second canister is another reading of the same
+       * class, not a problem with this one.
+       */
+      expect(
+        pObjects.map((o) => `${o.id}:${o.kind}`),
+        `${stopId}: the placed pass measured no canister at index ${CANISTER_INDEX}`,
+      ).toContain(`placed-${CANISTER_INDEX}-${CANISTER_WORD}:canister`);
       expect(
         pMeasured.objects.length,
         `${stopId}: the placed pass measured ${pMeasured.objects.length} objects`,
       ).toBeGreaterThanOrEqual(PLACED_HEIGHTS.length);
+      console.log(
+        `V-22.4 ${stopId}: ${samples.length - before} live frames, placed pass min ` +
+          `${pMeasured.minSeparation}`,
+      );
       samples.push({
         stopId,
         frame: { w: placed.w, h: placed.h },
@@ -1777,6 +2025,8 @@ test.describe("Flight - rubric evidence", () => {
         unmeasurable: pMeasured.unmeasurable,
         minSeparation: pMeasured.minSeparation,
         rocks: placed.rocks.length,
+        hullHits: placed.hullHits,
+        maxHull: placed.maxHull,
       });
     }
 
@@ -1831,12 +2081,21 @@ test.describe("Flight - rubric evidence", () => {
       byStop,
       byBand,
       unmeasurable,
+      occludedByPlate,
+      hullHitsWhenMeasured: samples.map((f) => f.hullHits),
+      shippedMaxHull: SHIPPED_MAX_HULL,
       minSeparation: Number(minSeparation.toFixed(4)),
       weakest,
       perFrame: samples.map((s) => ({
+        stopId: s.stopId,
         rocks: s.rocks,
         measured: s.objects.length,
         minSeparation: s.minSeparation,
+        hullHits: s.hullHits,
+        maxHull: s.maxHull,
+        shipInside:
+          (s.objects.find((o) => o["kind"] === "ship") as { inside?: number } | undefined)
+            ?.inside ?? null,
       })),
       objects: all,
       limitations: [
@@ -1864,6 +2123,17 @@ test.describe("Flight - rubric evidence", () => {
       "readings in the bottom third of the frame",
     ).toBeGreaterThanOrEqual(BELTED_STOPS.length);
     expect(shipReadings.length, "the ship must be measured in every frame").toBe(samples.length);
+    /**
+     * THE FIXTURE DID NOT OUTRUN THE GAME. Every kept frame has to show a hull
+     * a shipped stage could actually be flying - see `SHIPPED_MAX_HULL`. This
+     * is a statement about the capture, not about the art, and it is asserted
+     * so that a slower machine says so instead of quietly reporting a
+     * silhouette number about a ship the game never draws.
+     */
+    expect(
+      Math.max(...samples.map((f) => f.hullHits)),
+      `the capture let the Lantern take more than ${SHIPPED_MAX_HULL} scorch marks, which no shipped stage allows: ${JSON.stringify(samples.map((f) => `${f.stopId}:${f.hullHits}`))}`,
+    ).toBeLessThanOrEqual(SHIPPED_MAX_HULL);
     // Ship plus at least one rock in every frame. A frame in which only the
     // ship could be measured says nothing about the asteroids, and the AC names
     // both.

@@ -126,7 +126,12 @@ import {
   wrapY,
 } from "./tiles.js";
 import type { KeepClearShape } from "./keepClear.js";
-import { buildStarField, type StarField } from "./starField.js";
+import {
+  buildStarField,
+  starsMayTravel,
+  twinkleAlpha,
+  type StarField,
+} from "./starField.js";
 import { debrisTypesFor } from "./asteroid.js";
 import { TEX, ensureTextures } from "./textures.js";
 
@@ -176,6 +181,16 @@ const DEPTH_PLANES = 4;
 const VIGNETTE_DEPTH = 5.6;
 /** Depth of the atmosphere pass: in front of the foreground veil, behind the HUD. */
 const ATMOSPHERE_DEPTH = 6.8;
+
+/**
+ * The atmosphere pass's own flicker, for every screen that is not the one
+ * named exception. Slower than the slowest star (7400 ms) and much shallower,
+ * because this is one full-frame object rather than ninety specks: at swing
+ * 0.3 on a base alpha of 0.13 the pass moves between 0.091 and 0.130, which
+ * reads as the air breathing and never as a pulse.
+ */
+const WEATHER_PERIOD_MS = 9200;
+const WEATHER_SWING = 0.3;
 
 /**
  * SIDEWAYS drift of the decorative debris planes, as a multiple of world speed
@@ -877,8 +892,26 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   }
   const kind = wantsAtmosphere ? atmosphereFor(pal.id) : null;
   let weather: Phaser.GameObjects.TileSprite | null = null;
+  /**
+   * UR-14, THIRD REPORT. The atmosphere pass is a field of small light marks
+   * and it therefore obeys the star rule, from the one place that states it.
+   *
+   * It used to advance `tilePositionY` on every screen unconditionally, at
+   * `worldSpeed * 1.45 + 26` px/s - a FLOOR that runs even where the world is
+   * stopped, which is the identical mistake `DRIFT_X` made and the reason
+   * `worldSpeed: 0` never meant "nothing travels" either time somebody wrote
+   * that in a comment. Measured on the shipped Briefing at Uranus, whose pass
+   * is 24 lines 150-310 px long leaning sideways by 0.28 of their length: the
+   * texture travelled 133.44 px in 1.92 s of world and 1334.40 px in 19.2 s.
+   * Ten times the clock, ten times the distance - a ramp, not a breath - and
+   * on a 812 px pane that is a long diagonal streak crossing the whole window
+   * every six seconds.
+   */
+  const weatherTravels = starsMayTravel("world.atmosphere", scene.scene.key);
+  let weatherAlpha = 0;
   if (kind !== null) {
     weather = atmospherePass(scene, pal, kind, W, H).setDepth(ATMOSPHERE_DEPTH);
+    weatherAlpha = weather.alpha;
     extras.push(weather);
   }
 
@@ -920,15 +953,28 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
       }
       starField?.update(elapsedMs, reducedMotion);
       if (weather !== null) {
-        // The weather crosses every plane, so it moves on its own clock rather
-        // than on any one layer's: a touch faster than the near field, with a
-        // slow sideways drift that keeps it alive on a still screen (rubric 2).
-        weather.tilePositionY -= (worldSpeed * 1.45 + 26) * (dt / 1000);
-        // NO SIDEWAYS DRIFT. This world scrolls vertically; a weather pass
-        // sliding horizontally across it is motion in an axis nothing else
-        // moves in, and it is what made the texture's repeats legible - a player
-        // described the world as strips "sliding from left to right". The pass
-        // is meant to tie the planes together, not to be tracked across them.
+        if (weatherTravels) {
+          // The one screen with an exception (`starField.TRAVELLING_LIGHT`):
+          // the ship is flying and every plane under this one is scrolling, so
+          // the pass that crosses all of them moves with them. Note the term
+          // is now PROPORTIONAL to world speed with no floor - a pass that
+          // travels while the world is stopped is the defect, not the feature.
+          weather.tilePositionY -= worldSpeed * 1.45 * (dt / 1000);
+          // NO SIDEWAYS DRIFT. This world scrolls vertically; a weather pass
+          // sliding horizontally across it is motion in an axis nothing else
+          // moves in, and it is what made the texture's repeats legible - a
+          // player described the world as strips "sliding from left to right".
+        } else {
+          // FLICKER IS THE ONLY ANIMATION IT GETS. Freezing the pass outright
+          // would take a motion source off screens where little else moves
+          // (AC-22.2, rubric 2), so it breathes the same way a star does, out
+          // of the same function, bounded and going nowhere. One slow cycle
+          // rather than a field of staggered ones: this is a single object, so
+          // there is nothing for it to be out of step with.
+          weather.setAlpha(
+            twinkleAlpha(weatherAlpha, WEATHER_SWING, WEATHER_PERIOD_MS, 0, elapsedMs),
+          );
+        }
       }
     },
 

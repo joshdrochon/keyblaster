@@ -25,7 +25,15 @@ import {
   REPORT_X,
   STAGE_W,
 } from "@game/scenes/support/resultsLayout";
-import { COACH, LANTERN, METER, PANEL, lanternBox } from "@game/scenes/support/warpLayout";
+import {
+  COACH,
+  INSTRUMENT,
+  METER,
+  PANEL,
+  instrumentContains,
+  lanternBox,
+  shipBandTop,
+} from "@game/scenes/support/warpLayout";
 import { ROW, WINDOW } from "@game/scenes/support/preflightLayout";
 
 /**
@@ -127,11 +135,17 @@ describe("every screen's column starts and ends on the grid", () => {
   });
 
   it("the Warp break: three cards on one left edge, ending clear of the ship", () => {
-    for (const card of [PANEL, METER, COACH]) expect(card.x).toBe(GUTTER);
-    // The bay is what the cards give up; the ship has to be inside the frame.
-    expect(PANEL.x + PANEL.w).toBeLessThan(lanternBox().x);
-    expect(lanternBox().x + lanternBox().w).toBeLessThan(1920 - 40);
-    expect(LANTERN.height).toBe(300);
+    for (const card of [PANEL, INSTRUMENT, COACH]) expect(card.x).toBe(GUTTER);
+    // UR-62: the charge track is no longer a card of its own on the gutter. It
+    // is inset INSIDE the instrument, which is why it is not in the list above.
+    expect(instrumentContains(METER)).toBe(true);
+    expect(METER.x).toBeGreaterThan(GUTTER);
+    // UR-63: what the cards give up is the BOTTOM of the frame, not a bay on
+    // the right - the ship a player actually sees stands at the bottom centre,
+    // where Flight puts it. The column ends above it.
+    expect(COACH.y + COACH.h).toBeLessThan(shipBandTop());
+    expect(lanternBox().x).toBeGreaterThan(0);
+    expect(lanternBox().x + lanternBox().w).toBeLessThan(1920);
   });
 
   it("Pre-flight: the system rows, and the window on the right gutter", () => {

@@ -1,7 +1,7 @@
 # Definition of done — KeyBlaster
 
 **Goal: 100%.** This file says exactly what 100% means, so that "done" is a
-computed fact and not an opinion. Deadline: **Fri 2026-09-18 23:59 CDT**.
+computed fact and not an opinion. Deadline: **Fri 2026-09-18 21:00 CDT**.
 
 The review baseline on the morning of Sep 16 put the game at roughly **20% of
 the intended bar**, visually and otherwise. That number is the baseline. This document is

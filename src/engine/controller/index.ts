@@ -1,15 +1,34 @@
 /**
  * Difficulty controller (D17, D18, D20, D53; PRD FR-10; architecture 4.3).
  *
- * Signal: hit rate = asteroids blasted / spawned, over a rolling window of the
- * last 20 spawn outcomes (D53).
+ * TWO SIGNALS, AND THEY DO DIFFERENT JOBS (UR-51).
+ *
+ *   HIT RATE - blasted / spawned over the last 20 spawn outcomes (D53). It is
+ *     the SAFETY FLOOR. FR-10's literal rules are unchanged: below 0.80 loosen,
+ *     and nothing may tighten unless it is above 0.90 and AC-10.3 / D18's 0.85
+ *     gate is satisfied on the rolling AND the stage rate.
+ *   MARGIN TO BREACH - `./margin.ts`, the fraction of its fall budget a rock
+ *     still had left when it went. It is the THROTTLE: a tighten additionally
+ *     requires that even the worst quarter of recent rocks finished with room.
+ *
+ * WHY TWO. Hit rate is bounded above by 1 and every pilot who can fly the belt
+ * at all is pinned against that bound - measured over a whole route, a fast
+ * pilot runs 1.0000 and a grade-2 pilot 0.9521, so both clear 0.90, both
+ * tighten every stage, and both arrive at the top of the knob together. Margin
+ * separates the same four pilots 0.532 / 0.362 / 0.260 / 0.171. The numbers and
+ * the method are in `./margin.ts`; UR-51 is the report.
+ *
+ * THE MARGIN CAN ONLY EVER MAKE THE BELT SAFER. It adds a precondition to
+ * tightening and an extra trigger for loosening. There is no state of the
+ * margin window that causes a tighten FR-10's hit-rate rules would not already
+ * have allowed, so the D17 band and D18's direction are intact.
  *
  * At stage end:
- *   rate > 0.90 -> tighten
- *   rate < 0.80 -> loosen
- *   otherwise   -> hold
+ *   rate < 0.80, or margin floor < 0.12       -> loosen
+ *   rate > 0.90 and D18 gate and margin > 0.35 -> tighten
+ *   otherwise                                  -> hold
  * D17 puts the target band at 80-90% with 85% at its centre (Wilson et al.
- * 2019); the thresholds above are that band's edges, so "hold" means "the
+ * 2019); the hit-rate thresholds are that band's edges, so "hold" means "the
  * player is already in the zone D17 asks for".
  *
  * Exactly one knob moves per stage (D20, AC-10.1). The module is a pure
@@ -26,6 +45,12 @@ import {
   loosenStep,
   tightenStep,
 } from "./knobs.js";
+import {
+  type MarginWindow,
+  createMarginWindow,
+  marginFloor,
+  pushMargin,
+} from "./margin.js";
 import {
   type HitWindow,
   type SpawnOutcome,
@@ -62,6 +87,16 @@ export {
   windowRate,
 } from "./window.js";
 export type { HitWindow, SpawnOutcome } from "./window.js";
+
+export {
+  MARGIN_QUANTILE,
+  MARGIN_WINDOW_SIZE,
+  clearanceMargin,
+  createMarginWindow,
+  marginFloor,
+  pushMargin,
+} from "./margin.js";
+export type { ClearanceInput, MarginWindow } from "./margin.js";
 
 // ---------------------------------------------------------------------------
 // Thresholds. D53 and PRD FR-10 give these as literals; D17 explains them.
@@ -100,6 +135,46 @@ export const LOOSEN_BELOW = 0.8;
  */
 export const TIGHTEN_FLOOR = 0.85;
 
+/**
+ * A tighten additionally requires this much of the fall budget left over, read
+ * at `MARGIN_QUANTILE` of the margin window (UR-51).
+ *
+ * WHERE 0.35 COMES FROM. It is placed between two measured pilots rather than
+ * chosen. Over a whole route, 40 seeds, brand-new profile per seed, the lower
+ * quartile of the margin window reads:
+ *
+ *     fast 0.532   median 0.362   slow 0.260   grade-2 0.171
+ *
+ * so the gate opens for the two pilots who are finishing words with a third of
+ * the fall still unused and stays shut for the two who are not. That is the
+ * separation UR-51 asks for, stated as the quantity itself rather than as a
+ * classification of children.
+ *
+ * IT IS A SERVO, NOT A CLASSIFIER, and that is the part worth stating. Every
+ * step of `maxLive` cuts `keystrokeHeadroom` (see `@engine/fallTime`), which
+ * spends margin - so a pilot who climbs watches this number fall towards the
+ * gate and stops when it arrives. Hit rate could never do this: no setting of
+ * any knob moved it off 1.0.
+ */
+export const TIGHTEN_MARGIN_ABOVE = 0.35;
+
+/**
+ * Below this the belt is landing on the child, whatever the hit rate says, and
+ * the controller loosens (UR-51, D31).
+ *
+ * WHY IT IS NEEDED BESIDE `LOOSEN_BELOW`. A hit rate can be 1.0 while every
+ * single rock is blasted a few hundred ms from the breach line; that player is
+ * not comfortable, they are lucky, and the D53 rule alone cannot see it. It is
+ * also what makes a stall ratchet the knob BACK: a belt that emptied the hull
+ * has rocks at margin 0 in its window, so `beginStall`'s stage boundary
+ * loosens rather than holding on a flattering rolling rate.
+ *
+ * 0.12 rather than something nearer the tighten gate so the two are not a
+ * switch: between them is D17's "hold", the zone where the belt is already
+ * where it should be.
+ */
+export const LOOSEN_MARGIN_BELOW = 0.12;
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -117,6 +192,16 @@ export type HoldReason =
   | "in-band"
   /** Window says tighten, but AC-10.3 / D18 forbids it. */
   | "d18-guard"
+  /**
+   * Nobody reported how close the rocks came to the breach line, so there is no
+   * evidence that the player has room. UR-51: this is the FAIL-SAFE branch, and
+   * it is what a caller that stopped recording margins gets - a belt that never
+   * gets harder, rather than one that quietly falls back to the saturated
+   * signal the margin replaced.
+   */
+  | "no-margin"
+  /** The player is clearing rocks, but close to the line. UR-51's throttle. */
+  | "margin-tight"
   /** Both knobs are already at their cap. */
   | "at-tighten-ceiling"
   /** Both knobs are already at their floor. */
@@ -130,6 +215,12 @@ export interface StageDecision {
   readonly windowRate: number | null;
   /** This stage's own hit rate; null when the stage spawned nothing. */
   readonly stageRate: number | null;
+  /**
+   * The margin window read at `MARGIN_QUANTILE`; null before any rock has been
+   * reported with one. UR-51's throttle, recorded on every decision so a hold
+   * is explainable rather than an unlabelled no-op.
+   */
+  readonly marginFloor: number | null;
   /** Populated only when action is "hold". */
   readonly holdReason: HoldReason | null;
 }
@@ -137,6 +228,8 @@ export interface StageDecision {
 export interface ControllerState {
   readonly knobs: Knobs;
   readonly window: HitWindow;
+  /** Margins of the last `MARGIN_WINDOW_SIZE` rocks to leave the board. */
+  readonly margins: MarginWindow;
   /** Spawn outcomes seen since the last endStage. */
   readonly stageSpawned: number;
   readonly stageBlasted: number;
@@ -148,12 +241,14 @@ export interface ControllerState {
 export interface ControllerInit {
   readonly knobs?: Partial<Knobs>;
   readonly window?: readonly SpawnOutcome[];
+  readonly margins?: MarginWindow;
 }
 
 export function createController(init: ControllerInit = {}): ControllerState {
   return {
     knobs: clampKnobs({ ...DEFAULT_KNOBS, ...init.knobs }),
     window: createWindow(init.window),
+    margins: createMarginWindow(init.margins),
     stageSpawned: 0,
     stageBlasted: 0,
     stagesCompleted: 0,
@@ -169,14 +264,28 @@ export function createController(init: ControllerInit = {}): ControllerState {
  * One asteroid's fate. Called once per spawn, at the moment the spawn resolves
  * (blast or hull hit / off-screen), never at spawn time - the denominator is
  * "spawned", but an unresolved asteroid has no outcome to record yet.
+ *
+ * `margin` is UR-51's throttle signal: `clearanceMargin` of the rock that just
+ * left, i.e. how much of its fall budget was still unspent. It is OPTIONAL in
+ * the type and required in practice - a caller that omits it can never tighten
+ * (`HoldReason` "no-margin"), which is the fail-safe direction and is the only
+ * honest way to type a signal that arrives from a scene this module may not
+ * import. The real call sites are asserted in
+ * `tests/unit/flight/knobWiring.test.ts`, because a field with a writer nobody
+ * calls is this repo's most-repeated defect (coding-standards rule 2).
  */
 export function recordOutcome(
   state: ControllerState,
   outcome: SpawnOutcome,
+  margin?: number | null,
 ): ControllerState {
   return {
     ...state,
     window: pushOutcome(state.window, outcome),
+    margins:
+      margin === undefined || margin === null
+        ? state.margins
+        : pushMargin(state.margins, margin),
     stageSpawned: state.stageSpawned + 1,
     stageBlasted: state.stageBlasted + (outcome === "blasted" ? 1 : 0),
   };
@@ -185,6 +294,14 @@ export function recordOutcome(
 /** Rolling hit rate right now, or null before any outcome exists. */
 export function hitRate(state: ControllerState): number | null {
   return windowRate(state.window);
+}
+
+/**
+ * The margin window read at `MARGIN_QUANTILE`, or null before any evidence.
+ * UR-51's throttle, exposed for a debug overlay and for the route simulation.
+ */
+export function marginFloorOf(state: ControllerState): number | null {
+  return marginFloor(state.margins);
 }
 
 /** This stage's hit rate so far, or null if it has spawned nothing. */
@@ -211,12 +328,14 @@ export function mayTighten(
 export function decideStage(state: ControllerState): StageDecision {
   const rolling = windowRate(state.window);
   const stage = stageHitRate(state);
+  const margin = marginFloor(state.margins);
 
   const hold = (holdReason: HoldReason): StageDecision => ({
     action: "hold",
     change: null,
     windowRate: rolling,
     stageRate: stage,
+    marginFloor: margin,
     holdReason,
   });
 
@@ -224,17 +343,41 @@ export function decideStage(state: ControllerState): StageDecision {
   // it would let a quit-and-restart change difficulty for free.
   if (stage === null || rolling === null) return hold("no-spawns");
 
-  if (rolling > TIGHTEN_ABOVE) {
-    if (!mayTighten(rolling, stage)) return hold("d18-guard");
-    const change = tightenStep(state.knobs);
-    if (change === null) return hold("at-tighten-ceiling");
-    return { action: "tighten", change, windowRate: rolling, stageRate: stage, holdReason: null };
-  }
-
-  if (rolling < LOOSEN_BELOW) {
+  // LOOSEN IS CHECKED FIRST, and the order is load-bearing. A player can be
+  // above 0.90 on the rolling rate and still be taking every rock at the last
+  // instant - a stall is exactly that shape - and testing tighten first would
+  // hold on the margin instead of giving the time back (UR-51, D31).
+  const marginSaysLoosen = margin !== null && margin < LOOSEN_MARGIN_BELOW;
+  if (rolling < LOOSEN_BELOW || marginSaysLoosen) {
     const change = loosenStep(state.knobs);
     if (change === null) return hold("at-loosen-floor");
-    return { action: "loosen", change, windowRate: rolling, stageRate: stage, holdReason: null };
+    return {
+      action: "loosen",
+      change,
+      windowRate: rolling,
+      stageRate: stage,
+      marginFloor: margin,
+      holdReason: null,
+    };
+  }
+
+  if (rolling > TIGHTEN_ABOVE) {
+    if (!mayTighten(rolling, stage)) return hold("d18-guard");
+    // UR-51's throttle. Hit rate got the player this far; the margin decides
+    // whether there is room for more. Null is refused rather than defaulted:
+    // see `HoldReason` "no-margin".
+    if (margin === null) return hold("no-margin");
+    if (margin <= TIGHTEN_MARGIN_ABOVE) return hold("margin-tight");
+    const change = tightenStep(state.knobs);
+    if (change === null) return hold("at-tighten-ceiling");
+    return {
+      action: "tighten",
+      change,
+      windowRate: rolling,
+      stageRate: stage,
+      marginFloor: margin,
+      holdReason: null,
+    };
   }
 
   return hold("in-band");
@@ -250,6 +393,11 @@ export function endStage(state: ControllerState): ControllerState {
   return {
     knobs: applyChange(state.knobs, decision.change),
     window: state.window,
+    // Rolling for the same reason the hit window is: it is "the last 20 rocks",
+    // not "the last 20 rocks of this stage". A stage boundary that wiped the
+    // margin evidence would hand every stage a "no-margin" hold on its first
+    // decision and make the throttle a function of stage length.
+    margins: state.margins,
     stageSpawned: 0,
     stageBlasted: 0,
     stagesCompleted: state.stagesCompleted + 1,

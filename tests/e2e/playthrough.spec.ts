@@ -66,6 +66,15 @@ async function press(page: import("@playwright/test").Page, key: string): Promis
  * to catch. The number is not tuned to make anything pass - what it does is
  * make the player CONSISTENT, so the game is measuring one person rather than a
  * ritual typed by a machine and a belt flown by a round trip.
+ *
+ * IT IS A REQUEST, NOT A RESULT, and the gap is large (UR-57). Measured off the
+ * live scene's own lock intervals with `KB_BELT_LOG`, this "child" achieves a
+ * median of 398 ms and a p90 of 522 ms - 2.21x what is asked for, or about
+ * 30 wpm, which is nearer `belt.test.ts`'s `SLOW` pilot than its `FAST` one.
+ * The difference is the CDP round trip and a page rendering at about 2 fps in
+ * software GL. So this constant sets the floor on how fast the harness types
+ * and the machine sets the actual speed; see the stall assertion at the foot of
+ * this file for what that costs.
  */
 const KEY_DELAY_MS = 180;
 
@@ -128,6 +137,125 @@ async function beltState(page: import("@playwright/test").Page): Promise<BeltSta
 }
 
 /**
+ * OPT-IN BELT TELEMETRY (diagnostic only; off unless `KB_BELT_LOG` is set).
+ *
+ * A stall assertion that only reports a COUNT cannot tell a belt that is too
+ * fast from a harness that is too slow, and those are the two causes coding
+ * standards rule 9 says must be separated by controls rather than by reading an
+ * error message. This samples the live scene from inside the page - which is
+ * observation, the same licence `beltState` already takes - so a red run can be
+ * read as numbers: which rocks breached, how much of their fall budget they had
+ * spent, and what inter-key interval the "child" at this keyboard ACTUALLY
+ * achieved versus the `KEY_DELAY_MS` it was asked for.
+ *
+ * It changes nothing about the run when the variable is absent: no init script
+ * is installed and no sample is taken.
+ */
+const BELT_LOG_PATH = process.env["KB_BELT_LOG"] ?? null;
+
+async function installBeltRecorder(
+  page: import("@playwright/test").Page,
+): Promise<void> {
+  if (BELT_LOG_PATH === null) return;
+  await page.addInitScript(() => {
+    const w = window as unknown as Record<string, unknown>;
+    const samples: unknown[] = [];
+    w["__beltLog"] = samples;
+    const tick = (): void => {
+      const kb = w["__kb"] as
+        | { game?: { scene: { getScene(k: string): unknown } } }
+        | undefined;
+      const scene = kb?.game?.scene.getScene("Flight") as
+        | {
+            rocks?: { word: string; container: { y: number }; fallMs: number;
+                      spawnedAtMs: number; clearEstimateMs: number; resolved: boolean }[];
+            hull?: number;
+            maxHull?: number;
+            hullHitsTaken?: number;
+            spawnedCount?: number;
+            lastSpawnGapMs?: number;
+            stageComplete?: boolean;
+            breachY?: number;
+            calibration?: { ikiMs: number; fkLatencyMs: number };
+            liveIkiMs?: number[];
+            controller?: { knobs?: { maxLive: number; lengthBias: number } };
+            clearResiduals?: number[];
+            time?: { now: number };
+            lock?: { typed: string; lockedId: string | null; typos: number;
+                     candidateIds: string[] };
+          }
+        | null;
+      if (scene !== null && scene !== undefined && scene.rocks !== undefined) {
+        samples.push({
+          t: scene.time?.now ?? 0,
+          hull: scene.hull,
+          maxHull: scene.maxHull,
+          hits: scene.hullHitsTaken,
+          spawned: scene.spawnedCount,
+          gap: scene.lastSpawnGapMs,
+          maxLive: scene.controller?.knobs?.maxLive,
+          iki: scene.calibration?.ikiMs,
+          fk: scene.calibration?.fkLatencyMs,
+          liveIkiN: scene.liveIkiMs?.length ?? 0,
+          liveIki: (scene.liveIkiMs ?? []).slice(-1)[0],
+          residuals: (scene.clearResiduals ?? []).slice(-3),
+          breachY: scene.breachY,
+          // The lock's own view. A rock that breaches with `typed` non-empty and
+          // `typos` climbing was being typed AT and not cleared, which is a
+          // different failure from a rock nobody reached in time.
+          typed: scene.lock?.typed,
+          typos: scene.lock?.typos,
+          cands: scene.lock?.candidateIds?.length,
+          rocks: (scene.rocks ?? [])
+            .filter((r) => !r.resolved)
+            .map((r) => ({
+              w: r.word,
+              y: Math.round(r.container.y),
+              fall: Math.round(r.fallMs),
+              est: Math.round(r.clearEstimateMs),
+              age: Math.round((scene.time?.now ?? 0) - r.spawnedAtMs),
+            })),
+        });
+      }
+      window.setTimeout(tick, 100);
+    };
+    window.setTimeout(tick, 100);
+  });
+}
+
+async function dumpBeltLog(
+  page: import("@playwright/test").Page,
+  tag: string,
+): Promise<void> {
+  if (BELT_LOG_PATH === null) return;
+  const log = await page.evaluate(() => {
+    const w = window as unknown as Record<string, unknown>;
+    const kb = w["__kb"] as { game?: { scene: { getScene(k: string): unknown } } } | undefined;
+    const scene = kb?.game?.scene.getScene("Flight") as
+      | { liveIkiMs?: number[]; liveFkMs?: number[]; missedWords?: unknown }
+      | null;
+    const store = (kb as unknown as { services?: { store?: { activeProfile(): unknown } } })
+      ?.services?.store;
+    const profile = store?.activeProfile() as
+      | { calibration?: unknown; knobs?: unknown }
+      | null
+      | undefined;
+    return {
+      samples: (w["__beltLog"] as unknown[]) ?? [],
+      liveIkiMs: scene?.liveIkiMs ?? [],
+      liveFkMs: scene?.liveFkMs ?? [],
+      // What the PROFILE holds, which is what the belt is supposed to open on.
+      // A belt that opens on FR-8's 350/500 while this says otherwise is a
+      // hand-off that did not happen, not a pilot who types at the default.
+      storedCalibration: profile?.calibration ?? null,
+      storedKnobs: profile?.knobs ?? null,
+    };
+  });
+  const { appendFileSync } = await import("node:fs");
+  appendFileSync(BELT_LOG_PATH, `${JSON.stringify({ tag, ...log })}\n`);
+}
+
+/**
  * Clear the belt with real keystrokes until the stage ends.
  *
  * LOWEST ROCK FIRST. Whichever word is nearest the breach line is the one with
@@ -157,6 +285,7 @@ async function clearTheBelt(
     // a stall LOOP is a real failure and must not look like a slow machine.
     if (here.includes("Stall")) {
       stallRestarts += 1;
+      await dumpBeltLog(page, `stall-${stallRestarts}`);
       if (stallRestarts > 4) {
         throw new Error(
           `the belt stalled ${stallRestarts} times and never completed. ${where()}`,
@@ -380,6 +509,7 @@ test("a player can get from the Title to a placed beacon using only the keyboard
   });
 
   await freezeReloads(page);
+  await installBeltRecorder(page);
   await page.goto("/");
   await expect(page.getByTestId("app")).toHaveAttribute("data-booted", "true");
   await waitForScene(page, "Title");
@@ -529,6 +659,7 @@ test("a player can get from the Title to a placed beacon using only the keyboard
 
   // --- Fly the Mars belt to the end of the stage --------------------------
   const stalls = await clearTheBelt(page, where);
+  await dumpBeltLog(page, "belt-end");
   await mark("belt cleared");
 
   /**
@@ -549,6 +680,45 @@ test("a player can get from the Title to a placed beacon using only the keyboard
    * a failure here, and this is the only check in the suite where that claim is
    * made about the scene the child actually flies rather than about a model of
    * it.
+   *
+   * ================== WHAT THIS BAR COSTS, MEASURED (UR-57) ==================
+   * The bar stays at zero. What follows is what it takes to clear it, recorded
+   * because a stall COUNT cannot tell a belt that is too fast from a page that
+   * is too slow, and this one is the second thing.
+   *
+   * Captured with `KB_BELT_LOG` on a quiet tree at one worker:
+   *
+   *   asked for (KEY_DELAY_MS)     180 ms between keys
+   *   actually achieved            median 398 ms, p90 522 ms   (2.21x)
+   *   first key after a spawn      median 1609 ms, p90 2172 ms
+   *   a page-side setTimeout(100)  median 267 ms, p99 2667 ms, max 3633 ms
+   *
+   * The page renders this scene at about 2 fps under software GL:
+   * `gauntlet/evidence/frametime.json` records `p95FrameIntervalMs` 598.5
+   * against 12.1 ms of the scene's OWN work, and `flight-perf.spec.ts` says in
+   * those words that the wall-clock rate there is the harness's, not the
+   * game's. A rock falls on the WALL clock, so it keeps falling through every
+   * freeze while no keystroke can be serviced.
+   *
+   * In the run that took damage, the belt spent all NINE hull marks - the whole
+   * of `hullForStage(58)` - and finished only because shield canisters (AC-5.2)
+   * gave six of them back. SEVEN of the nine were taken inside a freeze longer
+   * than a second, and an eighth inside one of 500 ms, against a 300 ms median
+   * and only 3.7% of samples over a second: a mark is about nineteen times more
+   * likely to land in a freeze than the clock alone would put it there.
+   * The board held one rock for 464 of 663 samples and two for 2, it was EMPTY
+   * for 197, and through the damage window 74% of spawn gaps were within 200 ms
+   * of `MAX_SPAWN_GAP_MS`: the belt was already about as gentle as
+   * `@engine/pacing` can make it, and rocks breached anyway. In the run that
+   * took no damage, no freeze passed 583 ms. So this assertion passes by the
+   * width of the canisters rather than by margin, and the margin is a property
+   * of the machine.
+   *
+   * THE ENGINE IS NOT THE VARIABLE, and that was checked rather than assumed:
+   * at `maxLive` 2 the fall budget and the spawn gap are identical to the
+   * pre-UR-51 engine over every shipped Mars word x 7 eases x 6 pilot speeds -
+   * 66 612 cases, 0 differences. See gauntlet/escalations.md (UR-57) for the
+   * second variable, which is whether the ritual's calibration reaches the belt.
    */
   expect(
     stalls,

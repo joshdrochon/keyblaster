@@ -108,6 +108,25 @@ export {
   type SentenceValidatorOptions,
 } from "./sentence.js";
 
+/**
+ * UR-64: the rule that stops Shadow offering a retry the sentence does not
+ * give. Pure, and applied at the one place the note and the sentence are both
+ * known - see the header of `retry.ts`.
+ */
+export {
+  RETRY_PROMISES,
+  namedWords,
+  promisedWord,
+  promisesRetry,
+  resolveRetry,
+  retrySentenceFor,
+  sentenceGives,
+  withoutRetryPromise,
+  type ResolveRetryOptions,
+  type RetryResolution,
+  type RetrySentenceOptions,
+} from "./retry.js";
+
 export { COACH_TIMEOUT_MS, fallbackResult, postJson, settle } from "./pipeline.js";
 export type { PostOptions, PostOutcome } from "./pipeline.js";
 

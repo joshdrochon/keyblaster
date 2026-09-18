@@ -68,6 +68,42 @@ export function composeContextFor(run: RunSummary): ComposeContext | undefined {
   };
 }
 
+/**
+ * UR-64. The sentences this stop is allowed to hand a child when Shadow's note
+ * offers to type a word again, in preference order.
+ *
+ * ================== WHY THESE AND ONLY THESE ==================
+ * They are the stop's OWN SHIPPED PROSE: its warp sentence first, because that
+ * is the sentence the break is supposed to have, then its briefing, which the
+ * child read four screens ago and which is about the same planet. Nothing is
+ * generated. `engine/coach/retry.ts` says why at length, and the short version
+ * is `mock.ts`'s own warning - a transport inventing sentences it cannot check
+ * is the failure the allowlist exists to prevent (D34, AC-13.1/13.2).
+ *
+ * BEING SHIPPED PROSE IS NOT A PASS. Every candidate still goes through all six
+ * gates in `engine/coach/sentence.ts` before it can be shown, and most briefing
+ * lines fail: they were written to be READ, so they run long, and three of them
+ * carry a moon's name that is readable-only (story note 4) or a colon, which is
+ * not a character a child can type. The filtering is the gate's job and is done
+ * at the moment of use, against this child's allowlist and this stage's pool.
+ *
+ * `{shipName}` LINES ARE DROPPED HERE. Earth's briefing interpolates the ship's
+ * name (C07) and a raw "{shipName}" would fail the typeable-character gate
+ * anyway, but dropping it at the source keeps the candidate list a list of
+ * sentences rather than of templates.
+ */
+export function retryCandidatesFor(stopId: StopId): readonly string[] {
+  if (!hasStageBundle(stopId)) return [];
+  const bundle = stageBundle(stopId);
+  const out: string[] = [];
+  if (bundle.warpSentence !== null) out.push(bundle.warpSentence);
+  for (const line of bundle.briefing) {
+    if (line.includes("{")) continue;
+    out.push(line);
+  }
+  return out;
+}
+
 /** The request the warp break sends. One call, note always, sentence if it can. */
 export function coachRequestFor(run: RunSummary): CoachRequest {
   const compose = composeContextFor(run);

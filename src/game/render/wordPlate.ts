@@ -20,122 +20,71 @@ import Phaser from "phaser";
  * is here at all comes from `@engine/selection`.
  */
 
-/** Gap between the bottom of the rock and the top of the plate, in px. */
-export const PLATE_GAP_PX = 16;
+/**
+ * THE GEOMETRY AND THE COLOUR MATHS LIVE IN `wordPlateGeometry.ts`.
+ *
+ * They are pure arithmetic and they used to share this file with a Phaser
+ * subclass, which made them unimportable under vitest's node environment - so
+ * two guards restated them instead of binding to them. They are imported here
+ * and re-exported unchanged, so every caller of `plateSize`, `plateOffsetY`,
+ * `contrastRatio` and the rest is untouched by the split.
+ */
+export {
+  PLATE_GAP_PX,
+  PLATE_PAD_X_PX,
+  PLATE_PAD_Y_PX,
+  PLATE_RADIUS_PX,
+  PLATE_MIN_CONTRAST,
+  hexToInt,
+  hexToRgb,
+  relativeLuminance,
+  contrastRatio,
+  meetsPlateContrast,
+  displayWord,
+  cellWidthPx,
+  plateSize,
+  plateOffsetY,
+  plateHalfHeightPx,
+} from "./wordPlateGeometry.js";
+export type { WordPlateStyle, PlateSize } from "./wordPlateGeometry.js";
 
-export const PLATE_PAD_X_PX = 14;
-export const PLATE_PAD_Y_PX = 8;
-export const PLATE_RADIUS_PX = 8;
-
-/** AC-22.8 / rubric 8. */
-export const PLATE_MIN_CONTRAST = 4.5;
-
-export interface WordPlateStyle {
-  /** Plate fill, from the stop palette's `plate`. */
-  readonly plate: string;
-  /** Resting letter colour, from the stop palette's `plateText`. */
-  readonly plateText: string;
-  /** Typed letters light to this (art-direction section 7). */
-  readonly accent: string;
-  readonly fontFamily: string;
-  readonly fontSizePx: number;
-  /** D41 increased letter spacing. */
-  readonly letterSpacingPx: number;
-  /** D41 letter case; lowercase is the default. */
-  readonly uppercase: boolean;
-  /** D41 reduced motion: the underline stops pulsing, the cue stays. */
-  readonly reducedMotion: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Colour maths. Exported because V-22.8's evidence must be measured with the
-// renderer's own formula (D85: evidence, not a restatement).
-// ---------------------------------------------------------------------------
-
-/** "#rgb" or "#rrggbb" to 0xrrggbb. Throws on anything else: a bad palette
- * entry is a content bug and must not render as silent black. */
-export function hexToInt(hex: string): number {
-  const raw = hex.trim().replace(/^#/, "");
-  const full =
-    raw.length === 3
-      ? raw
-          .split("")
-          .map((c) => c + c)
-          .join("")
-      : raw;
-  if (!/^[0-9a-fA-F]{6}$/.test(full)) {
-    throw new Error(`not a hex colour: ${hex}`);
-  }
-  return Number.parseInt(full, 16);
-}
-
-export function hexToRgb(hex: string): readonly [number, number, number] {
-  const n = hexToInt(hex);
-  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
-}
-
-/** WCAG 2.1 relative luminance. */
-export function relativeLuminance(hex: string): number {
-  const channel = (v: number): number => {
-    const s = v / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
-  const [r, g, b] = hexToRgb(hex);
-  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-}
-
-/** WCAG 2.1 contrast ratio, always >= 1. */
-export function contrastRatio(a: string, b: string): number {
-  const la = relativeLuminance(a);
-  const lb = relativeLuminance(b);
-  const hi = Math.max(la, lb);
-  const lo = Math.min(la, lb);
-  return (hi + 0.05) / (lo + 0.05);
-}
-
-/** AC-22.8 as a predicate, for the palette check and for tests. */
-export function meetsPlateContrast(plate: string, text: string): boolean {
-  return contrastRatio(plate, text) >= PLATE_MIN_CONTRAST;
-}
-
-// ---------------------------------------------------------------------------
-// Geometry
-// ---------------------------------------------------------------------------
-
-/** Display form of a word under the letter-case setting (D41). */
-export function displayWord(word: string, uppercase: boolean): string {
-  return uppercase ? word.toUpperCase() : word;
-}
+import {
+  PLATE_PAD_X_PX,
+  PLATE_RADIUS_PX,
+  type WordPlateStyle,
+  type PlateSize,
+  cellWidthPx,
+  displayWord,
+  hexToInt,
+  plateSize,
+} from "./wordPlateGeometry.js";
 
 /**
- * Advance width of one glyph cell. Phaser measures text per object; the plate
- * lays characters out on a fixed cell so the underline cue can sit under the
- * NEXT letter without re-measuring the string every keystroke.
+ * THE PLATE IS A SURFACE. NOTHING IS VISIBLE THROUGH ONE.
+ *
+ * This was 0.92, and the 8% it let through is the same defect
+ * `tests/unit/scenes/plateOpacity.test.ts` removed from every UI card - left
+ * behind on the one plate in the game whose entire job is to be read.
+ *
+ * Two things are wrong with a translucent word plate and neither is cosmetic:
+ *
+ *   1. THE EVIDENCE IS ABOUT A DIFFERENT COLOUR. `contrastRatio` /
+ *      `meetsPlateContrast` below are the functions V-22.8's artifact is
+ *      computed with, and they take the flat swatch. A plate drawn at 0.92 is
+ *      the swatch composited over whatever is behind it, so the ratio that was
+ *      measured is not the ratio that was drawn. The UI cards had exactly this:
+ *      "V-22.8 has been measuring these surfaces as opaque all along".
+ *   2. WHAT COMES THROUGH IS A SHAPE, NOT A TINT. At 8% a near-black
+ *      `foreVeil` silhouette behind a word is a visible dark form inside the
+ *      rectangle - UR-23's complaint, arriving through the plate instead of
+ *      over it, and unreachable by the depth fix that put the plate above the
+ *      world. A deeper board (maxLive 7) puts more plates over more of the
+ *      near planes, so it gets more likely, not less.
+ *
+ * Kept as a named constant rather than a literal so the guard in
+ * `tests/unit/render/wordPlateOpacity.test.ts` asserts the drawn value.
  */
-export function cellWidthPx(style: WordPlateStyle): number {
-  return style.fontSizePx * 0.62 + style.letterSpacingPx;
-}
-
-export interface PlateSize {
-  readonly width: number;
-  readonly height: number;
-}
-
-export function plateSize(word: string, style: WordPlateStyle): PlateSize {
-  const letters = [...word].length;
-  return {
-    width: letters * cellWidthPx(style) + PLATE_PAD_X_PX * 2,
-    height: style.fontSizePx * 1.25 + PLATE_PAD_Y_PX * 2,
-  };
-}
-
-/**
- * Where the plate's centre sits relative to the rock's centre (AC-2.3's
- * companion rule: "the word plate hangs BELOW the rock, never over it").
- */
-export function plateOffsetY(rockSizePx: number, style: WordPlateStyle): number {
-  return rockSizePx / 2 + PLATE_GAP_PX + plateSize("a", style).height / 2;
-}
+export const PLATE_FILL_ALPHA = 1;
 
 // ---------------------------------------------------------------------------
 // The plate
@@ -197,12 +146,42 @@ export class WordPlate extends Phaser.GameObjects.Container {
     return this.size;
   }
 
+  /** The word this plate carries, for a harness that has to match plate to rock. */
+  get wordText(): string {
+    return this.word;
+  }
+
+  /**
+   * The rectangle this plate ACTUALLY COVERS, in its parent's space.
+   *
+   * `plateSizePx` is the nominal rectangle and is not what is on screen while
+   * the arrival pop is running: `FlightScene.spawnRock` starts the plate at
+   * scale 0.7 on a `Back.Out` tween, and a paused scene never runs a tween, so
+   * a frozen board can hold plates at any scale between 0.7 and 1.
+   *
+   * A harness that measures the nominal rectangle on a popped plate measures
+   * the sky around it and blames the plate for it. That is not hypothetical:
+   * it is `plate-legibility.spec.ts` reporting 66.60% overdraw on a word whose
+   * plate was clean (UR-23's re-run), and it only appeared once the belt
+   * started holding enough rocks for one of them to be mid-pop.
+   */
+  get drawnRect(): { left: number; right: number; top: number; bottom: number } {
+    const halfW = (this.size.width * Math.abs(this.scaleX)) / 2;
+    const halfH = (this.size.height * Math.abs(this.scaleY)) / 2;
+    return {
+      left: this.x - halfW,
+      right: this.x + halfW,
+      top: this.y - halfH,
+      bottom: this.y + halfH,
+    };
+  }
+
   private drawBacking(alpha: number): void {
     const { width, height } = this.size;
     this.backing.clear();
     // A hairline of the accent along the top edge ties the plate to the rock
     // without putting anything over the silhouette.
-    this.backing.fillStyle(hexToInt(this.style.plate), 0.92 * alpha);
+    this.backing.fillStyle(hexToInt(this.style.plate), PLATE_FILL_ALPHA * alpha);
     this.backing.fillRoundedRect(
       -width / 2,
       -height / 2,

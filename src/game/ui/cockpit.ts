@@ -9,10 +9,8 @@ import {
   KNOB,
   KNOB_SPAN,
   PANEL,
-  type Point,
   SHADOW_ALPHA,
   clamp01,
-  detentStops,
   knobAngleDeg,
   knobTickAngles,
   labelInk,
@@ -21,9 +19,26 @@ import {
   leverTip,
   polar,
   readoutInk,
-  rivetPositions,
   stepValue,
 } from "./panel.js";
+/**
+ * THE CONSOLE'S OWN VOCABULARY LIVES IN `controlSurface.ts` (UR-61).
+ *
+ * The face, the screws, the glass recesses and the lamp row were private to
+ * this file, which is why the Briefing's control strip could not use them and
+ * why it drew a bar with circles on it instead. They are shared now and this
+ * screen is one of the two callers, not the owner (standards rule 1: a screen
+ * is a component, and the console is a surface both screens mount things on).
+ *
+ * `drawConsoleFace` is re-exported because `SettingsScene` imports it from
+ * here, and one import path is worth more than a tidy diff.
+ */
+import {
+  castShadowCircle,
+  drawConsoleFace,
+  drawGlass,
+  drawPositionLamps,
+} from "./controlSurface.js";
 import { INK, SPACE, TYPE, rowHeight } from "./theme.js";
 import { plateWidth, uiText } from "./text.js";
 
@@ -69,50 +84,6 @@ const HW = HARDWARE;
 // ---------------------------------------------------------------------------
 // Primitives
 // ---------------------------------------------------------------------------
-
-/** The soft shadow every raised piece of hardware casts, down and right. */
-function castShadowCircle(
-  g: Phaser.GameObjects.Graphics,
-  cx: number,
-  cy: number,
-  r: number,
-): void {
-  g.fillStyle(hexToNum(PANEL.shadow), SHADOW_ALPHA);
-  g.fillCircle(cx + 2, cy + 5, r);
-}
-
-/** A screw head: a dark socket, a lit crown, and a slot. */
-function drawRivet(g: Phaser.GameObjects.Graphics, p: Point, r: number): void {
-  g.fillStyle(hexToNum(PANEL.shadow), SHADOW_ALPHA);
-  g.fillCircle(p.x, p.y + 1, r + 1);
-  g.fillStyle(hexToNum(PANEL.rivet), 1);
-  g.fillCircle(p.x, p.y, r);
-  g.fillStyle(hexToNum(PANEL.rivetLit), 1);
-  g.fillCircle(p.x - r * 0.22, p.y - r * 0.26, r * 0.62);
-  g.lineStyle(2, hexToNum(PANEL.knobShade), 1);
-  g.lineBetween(p.x - r * 0.55, p.y, p.x + r * 0.55, p.y);
-}
-
-/**
- * A readout window: a rectangle milled through the face with glass in it. The
- * darkest surface on the panel, because it is the one a value is printed on.
- */
-function drawGlass(
-  g: Phaser.GameObjects.Graphics,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-): void {
-  g.fillStyle(hexToNum(PANEL.glass), 1);
-  g.fillRoundedRect(x, y, w, h, 8);
-  // A recess is dark at the top and lit at the bottom - the opposite of a
-  // raised object under the same light.
-  g.lineStyle(2, hexToNum(PANEL.faceShade), 1);
-  g.lineBetween(x + 8, y + 1, x + w - 8, y + 1);
-  g.lineStyle(2, hexToNum(PANEL.lip), 1);
-  g.lineBetween(x + 8, y + h - 1, x + w - 8, y + h - 1);
-}
 
 /** ‹ or › beside a control that cycles. */
 function drawChevron(
@@ -291,104 +262,7 @@ function drawSwitch(
   g.fillCircle(pivot.x, pivot.y, 8);
 }
 
-/**
- * THE SELECTOR'S POSITIONS: one lamp per choice, on an engraved index line,
- * with the one you are on burning.
- *
- * It is NOT a track with a thumb. The first pass drew exactly that, and a small
- * filled bar with a marker sliding along it is a pill slider - the shape this
- * whole change exists to remove - printed under every option row on the screen.
- * A row of lamps says the thing a printed word cannot ("there are four of these
- * and you are on the second") without borrowing the vocabulary of a continuous
- * control for a discrete one.
- */
-function drawPositionLamps(
-  g: Phaser.GameObjects.Graphics,
-  x: number,
-  y: number,
-  w: number,
-  index: number,
-  count: number,
-  accent: string,
-  focused: boolean,
-): void {
-  const size = HW.lampSize;
-  // Clustered at a fixed pitch and centred, NOT spread across the readout's
-  // width: two lamps at opposite ends of a 240 px window read as two unrelated
-  // dots rather than as two positions of one control.
-  const pitch = size + 10;
-  const groupW = Math.max(size, count * pitch - 10);
-  const stops = detentStops(x + (w - groupW) / 2, groupW, count, size / 2);
-  if (stops.length === 0) return;
-
-  // The engraved index line the lamps are set into: a hairline, never a filled
-  // track, so this cannot read as something that slides.
-  const first = stops[0] ?? x;
-  const last = stops[stops.length - 1] ?? x;
-  if (stops.length > 1) {
-    g.lineStyle(1, hexToNum(PANEL.lip), 0.8);
-    g.lineBetween(first, y + size / 2, last, y + size / 2);
-  }
-
-  stops.forEach((sx, i) => {
-    const lx = sx - size / 2;
-    const lit = i === index;
-    if (lit) {
-      g.fillStyle(hexToNum(accent), 0.22);
-      g.fillRoundedRect(lx - 5, y - 5, size + 10, size + 10, 8);
-    }
-    g.fillStyle(hexToNum(lit ? accent : PANEL.glass), 1);
-    g.fillRoundedRect(lx, y, size, size, 4);
-    g.lineStyle(2, hexToNum(lit ? accent : PANEL.lip), lit && focused ? 1 : 0.85);
-    g.strokeRoundedRect(lx, y, size, size, 4);
-  });
-}
-
-/**
- * THE CONSOLE FACE a column of controls is screwed to.
- *
- * Bezel, then the face inside it, then the cabin light falling on the top of
- * the face as a band of stacked strips - the same light `chrome.ts` already
- * blooms at the top of every menu backdrop, so the panel is lit by the room it
- * is in rather than by a second, invented lamp. The strips are inset past the
- * face's corner radius so they never break the rounded corners.
- */
-export function drawConsoleFace(
-  g: Phaser.GameObjects.Graphics,
-  rect: Rect,
-): void {
-  const { x, y, w, h } = rect;
-  const b = HW.bezel;
-
-  g.fillStyle(hexToNum(PANEL.faceShade), 1);
-  g.fillRoundedRect(x, y, w, h, 26);
-  g.lineStyle(2, hexToNum(PANEL.lip), 1);
-  g.strokeRoundedRect(x, y, w, h, 26);
-
-  const fx = x + b;
-  const fy = y + b;
-  const fw = w - b * 2;
-  const fh = h - b * 2;
-  g.fillStyle(hexToNum(PANEL.face), 1);
-  g.fillRoundedRect(fx, fy, fw, fh, 16);
-
-  const bands = 22;
-  const reach = Math.min(fh * 0.55, 260);
-  for (let i = 0; i < bands; i += 1) {
-    const t = i / bands;
-    g.fillStyle(hexToNum(PANEL.faceLit), 0.42 * (1 - t) ** 2);
-    g.fillRect(fx + 16, fy + 2 + (reach * i) / bands, fw - 32, reach / bands + 1);
-  }
-
-  // The engraved seam where the face meets the bezel: lit along the top edge,
-  // in shadow along the bottom.
-  g.lineStyle(2, hexToNum(PANEL.lip), 0.85);
-  g.lineBetween(fx + 16, fy + 1, fx + fw - 16, fy + 1);
-  g.lineStyle(2, hexToNum(PANEL.faceShade), 1);
-  g.lineBetween(fx + 16, fy + fh - 1, fx + fw - 16, fy + fh - 1);
-
-  for (const p of rivetPositions(rect, 22)) drawRivet(g, p, 9);
-}
+export { drawConsoleFace };
 
 // ---------------------------------------------------------------------------
 // Controls

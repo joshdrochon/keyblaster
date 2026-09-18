@@ -17,6 +17,7 @@ import {
 import { BELT_STOP_IDS, DEFAULT_CALIBRATION, type Calibration } from "@engine/types.js";
 import { DEFAULT_KNOBS, MAX_LIVE_MAX, MAX_LIVE_MIN } from "@engine/controller/knobs.js";
 import {
+  clearanceMargin,
   createController,
   endStage,
   knobsDiffCount,
@@ -609,18 +610,38 @@ describe("UR-57 / AC-11.5: the belief the belt opens on", () => {
   });
 });
 
+
 /**
- * UR-51: WHAT THE CLIMB ACTUALLY LOOKS LIKE, ONCE THE KNOB IS PERSISTED.
+ * UR-51: WHAT THE CLIMB ACTUALLY LOOKS LIKE, PER PILOT.
  *
- * Until this round the question could not be asked. `endStage` moved the knob,
- * nothing stored it, and every belt opened at `MAX_LIVE_MIN` - so the ramp was
- * a property of the controller's unit tests and of nothing a child ever flew.
- * With `Profile.knobs` persisted it is now what WILL happen to every child in a
- * week, so it is measured rather than predicted.
+ * ================== WHAT THIS FILE MEASURED LAST TIME ==================
+ * The knob is persisted, so the ramp is what every child gets. Measured then,
+ * 40 seeds, brand-new profile per seed, the real controller carried stop to
+ * stop (`gauntlet/evidence/difficulty-ramp.json`):
  *
- * The controller is carried stop to stop here exactly as the profile carries
- * it: this belt's own outcomes go through the real rolling window, `endStage`
- * runs once per belt, and the knob it returns opens the next one.
+ *     pilot     Mars  Jupiter  Saturn  Uranus  Neptune  Pluto
+ *     fast      1.00   1.26     1.78    2.40    2.85     3.40
+ *     grade-2   1.03   1.59     2.11    2.73    3.31     3.92
+ *
+ * Every pilot arrived at the top of the range, at the same cadence, because the
+ * controller tightened on hit rate and hit rate was 1.0000 for the fast pilot
+ * and 0.9521 for the grade-2 one - both clear 0.90. Four hundredths of signal
+ * between a child who types twice as fast as another. That is UR-51's "the game
+ * is the same for every child", and it is what the margin throttle
+ * (`@engine/controller/margin`) and the headroom ratchet (`@engine/fallTime`)
+ * were built to fix.
+ *
+ * ================== WHAT IT MEASURES NOW ==================
+ * The same route, the same seeds, the same harness - plus the two numbers the
+ * old table could not report. MARGIN is the one that says whether the game got
+ * HARDER: occupancy was already answered last round and the danger was not,
+ * because scaling the fall budget by the queue depth left the closest approach
+ * to the breach line almost where it started.
+ *
+ * The controller is carried stop to stop exactly as the profile carries it:
+ * this belt's own outcomes AND their margins go through the real rolling
+ * windows, `endStage` runs once per belt, and the knob it returns opens the
+ * next one.
  */
 describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => {
   const MEDIAN_R: SimPlayer = MEDIAN;
@@ -637,18 +658,46 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
     meanLive: number;
     peakLive: number;
     hitRate: number;
+    /** Lower quartile of this belt's own clearance margins - UR-51's throttle. */
+    marginP25: number;
+    /** The single closest any rock came to the breach line, over all seeds. */
+    worstMargin: number;
+    beltSeconds: number;
     stalls: number;
     knobMovesThisStage: number;
   }
 
   const avg = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const quantile = (xs: readonly number[], p: number): number => {
+    const s = [...xs].sort((a, b) => a - b);
+    const i = p * (s.length - 1);
+    const lo = s[Math.floor(i)]!;
+    const hi = s[Math.ceil(i)]!;
+    return lo + (hi - lo) * (i - Math.floor(i));
+  };
 
-  function climb(player: SimPlayer): Step[] {
+  /**
+   * The margin of every rock that left the board on this belt, in the units
+   * `@engine/controller/margin` reads: the fraction of the fall budget unspent.
+   *
+   * Taken off the harness's own spawn records rather than recomputed, so the
+   * number the controller is fed here is the number the scene would compute
+   * from `rock.spawnedAtMs` and `rock.fallMs` at the same instant.
+   */
+  const marginsOf = (result: BeltResult): number[] =>
+    result.spawns.map((s) =>
+      clearanceMargin({ spawnedAtMs: s.spawnedAtMs, leftAtMs: s.clearedAtMs, fallMs: s.fallMs }),
+    );
+
+  function climb(player: SimPlayer, freezeKnob: number | null = null): Step[] {
     const cols = BELT_STOP_IDS.map(() => ({
       maxLive: [] as number[],
       meanLive: [] as number[],
       peak: [] as number[],
       hit: [] as number[],
+      margin: [] as number[],
+      worst: [] as number[],
+      seconds: [] as number[],
       stalls: 0,
       moves: [] as number[],
     }));
@@ -659,7 +708,8 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
       let calibration = calibrationOf(player);
       const rng = mulberry32(seed);
       for (let stop = 0; stop < BELT_STOP_IDS.length; stop += 1) {
-        const opened = controller.knobs;
+        const opened =
+          freezeKnob === null ? controller.knobs : { ...controller.knobs, maxLive: freezeKnob };
         const result: BeltResult = simulateBelt(
           {
             stopIndex: stop + 1,
@@ -674,19 +724,27 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
           rng,
         );
         const col = cols[stop]!;
+        const margins = marginsOf(result);
         col.maxLive.push(opened.maxLive);
         col.meanLive.push(result.meanLive);
         col.peak.push(result.peakLive);
         col.hit.push(result.hitRate);
+        col.seconds.push(result.durationMs / 1000);
+        if (margins.length > 0) {
+          col.margin.push(quantile(margins, 0.25));
+          col.worst.push(Math.min(...margins.filter((_, i) => result.spawns[i]!.hit)));
+        }
         if (result.stalled) col.stalls += 1;
         calibration = result.calibration;
 
         // The stage boundary, exactly as the scene runs it: this belt's own
-        // outcomes through the real window, then one `endStage`.
+        // outcomes through the real windows, then one `endStage`. The margin
+        // travels WITH the outcome, which is the wiring `recordOutcome`'s third
+        // argument exists for.
         let next = controller;
-        for (const spawn of result.spawns) {
-          next = recordOutcome(next, spawn.hit ? "blasted" : "missed");
-        }
+        result.spawns.forEach((spawn, i) => {
+          next = recordOutcome(next, spawn.hit ? "blasted" : "missed", margins[i]!);
+        });
         next = endStage(next);
         col.moves.push(knobsDiffCount(opened, next.knobs));
         controller = next;
@@ -698,6 +756,9 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
       meanLive: Number(avg(c.meanLive).toFixed(2)),
       peakLive: Math.max(...c.peak),
       hitRate: Number(avg(c.hit).toFixed(4)),
+      marginP25: Number(avg(c.margin).toFixed(3)),
+      worstMargin: Number(Math.min(...c.worst).toFixed(3)),
+      beltSeconds: Number(avg(c.seconds).toFixed(2)),
       stalls: c.stalls,
       knobMovesThisStage: Math.max(...c.moves),
     }));
@@ -706,10 +767,17 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
   const rows: Record<string, Step[]> = {};
   for (const [name, player] of PILOTS) rows[name] = climb(player);
 
+  /** The same route with the knob pinned at the cold start: UR-51's floor. */
+  const atFloor: Record<string, Step[]> = {};
+  for (const [name, player] of PILOTS) atFloor[name] = climb(player, MAX_LIVE_MIN);
+
+  const last = (steps: readonly Step[]): Step => steps[steps.length - 1]!;
+
   it("UR-51 / D18: every pilot's FIRST belt opens at the cold start", () => {
     // The safety property, at the only moment it is unconditional. A new
     // profile has never been watched, so `concurrencyTarget` is 1, FR-8's
-    // budget is its literal formula and the belt holds no standing queue.
+    // budget is its literal formula, the keystroke headroom is its literal 50%
+    // and the belt holds no standing queue.
     //
     // WATCHED FAILING, with the real number: seed the climb at
     // `{ maxLive: MAX_LIVE_MAX }` and the fast pilot's first belt opens at 7
@@ -729,34 +797,95 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
     }
   });
 
-  it("UR-51: the ramp is monotone and reaches the top of the range by the end of the route", () => {
-    for (const [name, steps] of Object.entries(rows)) {
-      for (let i = 1; i < steps.length; i += 1) {
-        expect(steps[i]!.maxLive, `${name} at ${steps[i]!.stop}`).toBeGreaterThanOrEqual(
-          steps[i - 1]!.maxLive,
-        );
-      }
-      expect(steps[steps.length - 1]!.meanLive, name).toBeGreaterThan(3);
+  it("UR-51: two pilots of DIFFERENT skill now END THE ROUTE ON DIFFERENT BELTS", () => {
+    /**
+     * THE WHOLE POINT OF THE CHANGE, AND THE ASSERTION THAT MUST GO RED IF THE
+     * SIGNAL EVER SATURATES AGAIN.
+     *
+     * WATCHED FAILING, with the real numbers. Restore the hit-rate throttle -
+     * delete the `margin === null` / `margin <= TIGHTEN_MARGIN_ABOVE` arms from
+     * `decideStage` - and the route reads:
+     *
+     *     fast   maxLive 7.00 at Pluto, meanLive 3.43
+     *     median maxLive 7.00 at Pluto, meanLive 3.69
+     *     slow   maxLive 7.00 at Pluto, meanLive 3.84
+     *     grade2 maxLive 6.95 at Pluto, meanLive 3.92
+     *
+     * i.e. the grade-2 child ends on a BUSIER board than the fast pilot, all
+     * four pinned at the cap, because hit rate is 1.0000 against 0.9595 and
+     * every one of them clears 0.90. The assertion below then reads
+     * "expected 0.04999999999999982 to be greater than or equal to 2": five
+     * hundredths of a knob step between two pilots 2.3x apart in typing speed.
+     * That is the defect; anything less than two steps is not a fix.
+     */
+    const fast = last(rows.fast!);
+    const grade2 = last(rows.grade2!);
+    expect(
+      fast.maxLive - grade2.maxLive,
+      `fast ends the route at maxLive ${fast.maxLive}, grade-2 at ${grade2.maxLive}`,
+    ).toBeGreaterThanOrEqual(2);
+    // And the board itself, not only the knob: occupancy is what a child sees.
+    expect(fast.meanLive, "fast").toBeGreaterThan(grade2.meanLive + 0.5);
+
+    // The ordering holds for the whole ladder, not just its two ends - a
+    // separation that only appeared between the extremes would be noise.
+    const ladder = PILOTS.map(([name]) => last(rows[name]!).maxLive);
+    for (let i = 1; i < ladder.length; i += 1) {
+      expect(ladder[i]!, `${PILOTS[i]![0]} against ${PILOTS[i - 1]![0]}`).toBeLessThanOrEqual(
+        ladder[i - 1]!,
+      );
     }
   });
 
-  it("UR-51: nobody stalls anywhere on the climb, grade-2 included", () => {
+  it("UR-51: the fast pilot is in MORE danger than at the floor, and the number says so", () => {
+    // The question the previous pass could not answer. Occupancy went up 3.4x
+    // and the closest approach to the breach line barely moved, because the
+    // fall budget was scaled by the same target the queue was built to. The
+    // headroom ratchet is what spends that slack, so the margin at the end of
+    // the route must be BELOW the margin at the pinned floor.
+    //
+    // WATCHED FAILING, with the real numbers: pin `keystrokeHeadroom` at
+    // `KEYSTROKE_BUDGET_FACTOR` - the belt UR-51's first pass shipped - and the
+    // assertion reads "fast ends the route with 0.537 of the budget spare,
+    // against 0.527 at the pinned floor". The board is 3.4x fuller (meanLive
+    // 3.40 against 1.00) and the pilot has MORE margin than when it held one
+    // rock, with the worst rock at 0.319 - the figure on record. A busier board
+    // that costs nothing is the result that was reported as a win last time.
+    const end = last(rows.fast!);
+    const floor = last(atFloor.fast!);
+    expect(
+      end.marginP25,
+      `fast ends the route with ${end.marginP25} of the budget spare, against ${floor.marginP25} at the pinned floor`,
+    ).toBeLessThan(floor.marginP25);
+    expect(end.worstMargin).toBeLessThan(floor.worstMargin);
+  });
+
+  it("UR-51 / AC-10.3: no pilot gains a stall against the belt they fly at the floor", () => {
+    // The hard constraint, as a DELTA rather than an absolute zero. The grade-2
+    // pilot's three Jupiter stalls are a pre-existing property of that belt and
+    // are on record in route-occupancy.json; the claim is that nothing here
+    // adds one. An absolute zero was only ever reachable because the old ramp
+    // inflated every fall budget by up to 4x on the way past.
     for (const [name, steps] of Object.entries(rows)) {
-      for (const step of steps) {
-        expect(step.stalls, `${name} stalled ${step.stalls} times at ${step.stop}`).toBe(0);
-      }
+      steps.forEach((step, i) => {
+        expect(
+          step.stalls,
+          `${name} stalled ${step.stalls} times at ${step.stop}, against ${atFloor[name]![i]!.stalls} on the floor belt`,
+        ).toBeLessThanOrEqual(atFloor[name]![i]!.stalls);
+      });
     }
+  });
+
+  it("UR-51: a grade-2 pilot's whole route is the belt already on record", () => {
+    // The other half of the hard constraint, and the one a simulation CAN
+    // settle: the margin throttle keeps this pilot at the cold start, and
+    // `keystrokeHeadroom` is FR-8's literal 1.5 at their measured speed
+    // whatever the knob says - so every number on their route is the floor
+    // belt's number, not close to it.
+    expect(rows.grade2).toEqual(atFloor.grade2);
   });
 
   it("records the ramp", () => {
-    // THE FINDING THIS EVIDENCE EXISTS FOR, and it is not a number to tune.
-    // The controller tightens on hit rate above 0.90, and EVERY simulated pilot
-    // clears that - the grade-2 child runs 0.92 to 0.96. So every pilot arrives
-    // at the top of the knob, at very nearly the same rate, and the depth a
-    // child ends up flying is not actually a function of their skill. The
-    // simulation says that is survivable; it cannot say whether four words at
-    // once is too much for a seven-year-old to look at. See
-    // gauntlet/escalations.md, UR-51, decision 2.
     mkdirSync(EVIDENCE, { recursive: true });
     writeFileSync(
       `${EVIDENCE}/difficulty-ramp.json`,
@@ -765,12 +894,13 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
           ticket: "UR-51",
           seeds: SEEDS,
           note:
-            "A brand-new profile per seed; the real controller carried stop to stop, one endStage per belt. maxLive is the knob the belt OPENED on; meanLive is time-weighted rocks on the board.",
+            "A brand-new profile per seed; the real controller carried stop to stop, one endStage per belt, margins reported with every outcome. maxLive is the knob the belt OPENED on; meanLive is time-weighted rocks on the board; marginP25 is the lower quartile of the fraction of its fall budget each rock had left when it went.",
           before:
-            "maxLive was 2 at every stop for every pilot, because nothing persisted the knob (verification-gaps instance 24).",
-          finding:
-            "every pilot reaches the top of the range, because tightening triggers on hit rate > 0.90 and the grade-2 pilot runs 0.92-0.96.",
+            "every pilot reached maxLive 7 by Pluto at the same cadence, because the controller tightened on hit rate and every pilot cleared 0.90 (fast 1.0000, grade-2 0.9521).",
+          change:
+            "the throttle is margin-to-breach (@engine/controller/margin, 3.1x spread at the floor against hit rate's 0.05); hit rate is kept as AC-10.3/D18's safety floor. The knob also ratchets @engine/fallTime's keystroke headroom from 50% to 12.5%, for a pilot whose measured interval has earned it, which is what makes a fuller board cost margin.",
           rows,
+          atFloor,
           generatedAt: new Date().toISOString(),
         },
         null,
@@ -778,5 +908,6 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
       )}\n`,
     );
     expect(Object.keys(rows).length).toBe(4);
+    expect(Object.keys(atFloor).length).toBe(4);
   });
 });

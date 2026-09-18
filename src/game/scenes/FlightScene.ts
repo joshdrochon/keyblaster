@@ -46,6 +46,7 @@ import {
 } from "@engine/selection/index.js";
 import {
   type ControllerState,
+  clearanceMargin,
   createController,
   endStage,
   hitRate,
@@ -112,7 +113,23 @@ import {
   maySpawnCanister,
   startingHull,
 } from "@game/flight/shield.js";
-import { type LaneSpec, isOnShipLane, spawnX } from "@engine/spawn/index.js";
+import {
+  SCORCH_CORE_H,
+  SCORCH_CORE_W,
+  SCORCH_H,
+  SCORCH_RIM_PX,
+  SCORCH_W,
+  scorchColors,
+  scorchSlotAt,
+} from "@game/render/scorch.js";
+import {
+  type LaneSpec,
+  type LivePlateTrack,
+  type PlateTrack,
+  ROCK_DRIFT_PX,
+  isOnShipLane,
+  spawnX,
+} from "@engine/spawn/index.js";
 import { refineCalibration } from "@engine/calibration/index.js";
 import {
   activeProfile,
@@ -556,6 +573,10 @@ export class FlightScene extends Phaser.Scene {
   /** The rig's plume, dimmed when the engines go quiet (D29). */
   private exhaust!: Phaser.GameObjects.Container;
   private scorchLayer!: Phaser.GameObjects.Container;
+  /** The burn fields. Under every gash, so a later mark cannot bury an earlier one. */
+  private scorchBurnLayer!: Phaser.GameObjects.Container;
+  /** The heat rims and the hard gashes, above every field. */
+  private scorchMarkLayer!: Phaser.GameObjects.Container;
   /** UR-22: the Lantern's light, whose brightness IS the hull. */
   private hullLamp!: Phaser.GameObjects.Graphics;
   /**
@@ -862,7 +883,21 @@ export class FlightScene extends Phaser.Scene {
     this.iris = this.lantern.iris;
     this.emitterHead = this.lantern.emitterMount;
 
+    /**
+     * THE BURNS AND THE MARKS ARE TWO LAYERS, AND THAT IS NOT TIDINESS.
+     *
+     * Each scorch is an opaque burn field plus a bright rim and a hard dark
+     * gash. With every mark in one layer, the NINTH mark's field would paint
+     * over the eighth's gash, so a hit could REMOVE dark pixels from the hull -
+     * and `tests/e2e/hull-feedback.spec.ts` asks that every hit adds them.
+     * Fields underneath and gashes on top makes each mark's own edge survive
+     * every mark after it, which is also what makes nine marks read as nine
+     * marks rather than as one wash.
+     */
     this.scorchLayer = this.add.container(0, 0);
+    this.scorchBurnLayer = this.add.container(0, 0);
+    this.scorchMarkLayer = this.add.container(0, 0);
+    this.scorchLayer.add([this.scorchBurnLayer, this.scorchMarkLayer]);
     this.shipBody.add(this.scorchLayer);
 
     this.beam = this.add.graphics();
@@ -1191,8 +1226,12 @@ export class FlightScene extends Phaser.Scene {
       if (rock.resolved) continue;
       const t = (now - rock.spawnedAtMs) / rock.fallMs;
       rock.container.y = rock.fromY + (rock.toY - rock.fromY) * t;
+      // `ROCK_DRIFT_PX`, not a literal 10: `@engine/spawn`'s plate keep-out
+      // widens every band by twice this so two rocks cannot sway into each
+      // other's word, and a sway the engine does not know about would be a
+      // guarantee about a board this scene does not draw.
       rock.container.x =
-        rock.homeX + Math.sin(now / 1400 + rock.driftPhase) * 10;
+        rock.homeX + Math.sin(now / 1400 + rock.driftPhase) * ROCK_DRIFT_PX;
       rock.container.rotation += rock.spinPerSec * dtSeconds;
       // The plate is not a child of the rock (see PLATE_DEPTH), so it is
       // carried here. Deliberately not rotated: the rock tumbles, the word does
@@ -1317,7 +1356,7 @@ export class FlightScene extends Phaser.Scene {
    * this spec is about the SILHOUETTE - a rock is what collides with the
    * Lantern - and at one letter the rock is the wider of the two.
    */
-  private laneSpec(sizePx: number, word: string): LaneSpec {
+  private laneSpec(sizePx: number, word: string, plate?: PlateTrack): LaneSpec {
     const plateHalfWidth = plateSize(word, this.plateStyle).width / 2;
     return {
       width: this.scale.width,
@@ -1325,7 +1364,37 @@ export class FlightScene extends Phaser.Scene {
       shipX: this.shipX,
       shipHalfWidthPx: SHIP_HALF_WIDTH_PX,
       rockHalfWidthPx: Math.max(sizePx / 2, plateHalfWidth),
+      ...(plate === undefined ? {} : { plate, livePlates: this.livePlateTracks() }),
     };
+  }
+
+  /**
+   * Every plate already falling, as `@engine/spawn` needs to see it (UR-23).
+   *
+   * THE PLATE'S OWN RECTANGLE, not the rock's. A plate is wider than its rock at
+   * every word above one letter and hangs a rock-dependent distance below it, so
+   * two rocks level with each other do NOT have plates level with each other -
+   * measuring this off the rock would guard a rectangle that is not the one a
+   * child reads. `plateSizePx` is the size the plate laid itself out at, so the
+   * keep-out and the drawing cannot disagree.
+   *
+   * The pop is deliberately ignored. A plate arrives on a `Back.Out` tween from
+   * scale 0.7, so for 260 ms it draws SMALLER than this; guarding the nominal
+   * rectangle is the conservative direction and the only one that is still true
+   * once the tween lands.
+   */
+  private livePlateTracks(): readonly LivePlateTrack[] {
+    return this.rocks
+      .filter((rock) => !rock.resolved)
+      .map((rock) => ({
+        homeX: rock.homeX,
+        halfWidthPx: rock.plate.plateSizePx.width / 2,
+        halfHeightPx: rock.plate.plateSizePx.height / 2,
+        fromY: rock.fromY + rock.plateOffsetY,
+        toY: rock.toY + rock.plateOffsetY,
+        spawnedAtMs: rock.spawnedAtMs,
+        fallMs: rock.fallMs,
+      }));
   }
 
   /**
@@ -1376,12 +1445,12 @@ export class FlightScene extends Phaser.Scene {
     // rock, and `updateRocks` carries it to the rock's column each frame.
     this.plateLayer.add(plate);
 
-    const homeX = spawnX(this.laneSpec(sizePx, word), this.rng, practice);
-    const container = this.add.container(homeX, -sizePx, [body]);
-    this.debrisLayer.add(container);
-    plate.setPosition(homeX, -sizePx + offsetY);
-
     const record = recordFor(this.book, word);
+    // FALL TIME IS COMPUTED BEFORE THE COLUMN IS CHOSEN, and the order is the
+    // whole of UR-23's second fix. `@engine/spawn` decides which live plates
+    // this one can ever come level with, and it cannot answer that without
+    // knowing how fast this rock falls. Nothing here consumes `this.rng`, so
+    // the seeded stream is byte-identical to the order this replaced.
     const fallMs = fallTimeMs({
       word,
       ease: record.ease,
@@ -1399,6 +1468,19 @@ export class FlightScene extends Phaser.Scene {
       ease: record.ease,
       calibration: this.calibration,
     });
+
+    const track: PlateTrack = {
+      halfWidthPx: plate.plateSizePx.width / 2,
+      halfHeightPx: plate.plateSizePx.height / 2,
+      fromY: -sizePx + offsetY,
+      toY: this.breachY + offsetY,
+      spawnedAtMs: now,
+      fallMs,
+    };
+    const homeX = spawnX(this.laneSpec(sizePx, word, track), this.rng, practice);
+    const container = this.add.container(homeX, -sizePx, [body]);
+    this.debrisLayer.add(container);
+    plate.setPosition(homeX, -sizePx + offsetY);
 
     const rock: LiveRock = {
       id,
@@ -1737,7 +1819,23 @@ export class FlightScene extends Phaser.Scene {
       stage: this.cfg.stage,
     });
     if (Number.isFinite(fkLatencyMs) && fkLatencyMs > 0) this.liveFkMs.push(fkLatencyMs);
-    this.controller = recordOutcome(this.controller, "blasted");
+    // UR-51: the margin travels WITH the outcome. The controller's throttle is
+    // how much of its fall budget this rock still had, not whether it was hit -
+    // hit rate is 1.0000 for a fast pilot and 0.9521 for a grade-2 one, which
+    // is four hundredths of signal to steer a difficulty ramp with. Without
+    // this argument `decideStage` holds on "no-margin" and the belt never gets
+    // harder for anybody; `tests/unit/flight/knobWiring.test.ts` asserts it.
+    this.controller = recordOutcome(
+      this.controller,
+      "blasted",
+      rock === undefined
+        ? null
+        : clearanceMargin({
+            spawnedAtMs: rock.spawnedAtMs,
+            leftAtMs: nowMs,
+            fallMs: rock.fallMs,
+          }),
+    );
     this.recordClear(rock, nowMs);
 
     if (rock !== undefined) {
@@ -1773,7 +1871,7 @@ export class FlightScene extends Phaser.Scene {
       const hold = hitStopMs(this.cfg.reducedMotion, this.cfg.hitStopMs);
       this.hitStopUntilMs = hold <= 0 ? 0 : performance.now() + hold;
     }
-    this.cue("blast");
+    this.cue("blast", rock?.debris.id);
     this.publishHud(true);
   }
 
@@ -2030,7 +2128,15 @@ export class FlightScene extends Phaser.Scene {
       atMs: now,
       stage: this.cfg.stage,
     });
-    this.controller = recordOutcome(this.controller, "missed");
+    // UR-51: a rock that reached the breach line spent its whole budget, so its
+    // margin is zero. Reported rather than omitted - it is the evidence that
+    // makes a stalled belt ratchet the knob BACK instead of holding on a
+    // rolling hit rate that the last twenty spawns still flatter.
+    this.controller = recordOutcome(
+      this.controller,
+      "missed",
+      clearanceMargin({ spawnedAtMs: rock.spawnedAtMs, leftAtMs: now, fallMs: rock.fallMs }),
+    );
     // A breach frees the player for the next word exactly as a blast does, but
     // it is NOT a clear sample: they never got to this rock, so it says nothing
     // about how fast they type. Pacing off it would read a belt that is already
@@ -2111,11 +2217,11 @@ export class FlightScene extends Phaser.Scene {
     this.shakeBy(6, 120);
   }
 
-  /** One scorch mark per hit (art-direction section 5), cleared at stage end. */
   /**
-   * ONE SCORCH PER HIT, AND IT HAS TO BE SEEN (UR-22, second pass).
+   * ONE SCORCH PER HIT, AND IT HAS TO BE SEEN (UR-22) - WITHOUT PAINTING THE
+   * SHIP OUT (AC-22.4).
    *
-   * ================== WHY THE FIRST FIX WAS NOT ENOUGH ==================
+   * ================== WHY THE MARK IS BIG ==================
    * The hull lamp is real and measurable and a player does not see it. A blind
    * critic ran a no-strike control against the shipped fixture and split it by
    * reduced motion:
@@ -2123,20 +2229,31 @@ export class FlightScene extends Phaser.Scene {
    *     mars,    reducedMotion OFF (THE DEFAULT):  control 5.407  hit 5.409
    *     neptune, reducedMotion OFF:                control 5.713  hit 5.537
    *
-   * In the configuration a child actually plays in, one hull hit changes the
-   * ship no more than doing nothing changes it - and at Neptune slightly less.
-   * The arithmetic agrees: `hullLampStep(9)` is 0.0867 of a container alpha
-   * whose peak composite is 0.26, so one hit moves about 5.3/255 AT THE EXACT
-   * CENTRE of a 132 px glow falling off as (1-t)^2. That is under the JND
-   * everywhere and far under it at the edge.
+   * In the configuration a child actually plays in, one hull hit changed the
+   * ship no more than doing nothing changed it. The arithmetic agrees:
+   * `hullLampStep(9)` is 0.0867 of a container alpha whose peak composite is
+   * 0.26, so one hit moved about 5.3/255 AT THE EXACT CENTRE of a 132 px glow
+   * falling off as (1-t)^2 - under the JND everywhere.
    *
-   * ================== WHAT AN EYE ACTUALLY CATCHES ==================
-   * Local contrast, not integrated luminance. The fuselage is the brightest
-   * object on the screen - cream #F3E7D3, about 230 - so a dark mark ON it is
-   * the highest-contrast edge the frame can produce, and it costs nothing to
-   * make it big enough to read at 1280. The old mark was a 16x9 design-pixel
-   * ellipse, roughly 10.7x6.0 on screen, against a fuselage 42 px wide; this
-   * one is 34x20, a third of the hull's width, and darker.
+   * What an eye catches is LOCAL CONTRAST. The fuselage is the brightest object
+   * on the screen, so a mark on it is the highest-contrast edge the frame can
+   * produce. So the mark is 34x20, a third of the hull's width, against the
+   * 16x9 nobody could see. That size is UR-22's outcome and it is unchanged.
+   *
+   * ================== WHY THE DRAWING CHANGED ANYWAY ==================
+   * A shipped belt carries NINE marks - `hullForStage(58)` - and nine
+   * translucent near-black ellipses stacked inside a 20 px strip down the
+   * middle of the hull do not read as nine marks. They read as a hull painted
+   * out, and the value they paint it to is the sky's own: measured with the
+   * gauntlet's silhouette probe the hull fell from 203 to about 75 against a
+   * sky sitting at 57-109, which is AC-22.4's whole subject.
+   *
+   * `render/scorch.ts` carries the three changes and the numbers behind them:
+   * the mark is an EDGE rather than a depth, nothing composites on top of
+   * anything (every fill is opaque), and the marks take slots from a lattice
+   * instead of piling into the middle. `tests/e2e/hull-scorch.spec.ts` walks
+   * the hull down one mark at a time at every belted stop and measures the
+   * result; `tests/unit/flight/scorchPlacement.test.ts` holds the arithmetic.
    *
    * It is still not a counter and still not a bar (AC-22b.1, D31). Nobody
    * counts scorch marks at a glance - they read as "this ship has been through
@@ -2145,35 +2262,50 @@ export class FlightScene extends Phaser.Scene {
    * back when a canister repairs, and a stage start clears them all (D27).
    */
   private addScorch(): void {
-    const g = this.add.graphics();
-    // Kept inside the fuselage: it spans x -21..21, and a 34-wide mark centred
-    // past +/-10 would hang off the hull into the sky, where it reads as a
-    // floating smudge rather than as damage.
-    const x = (this.rng() - 0.5) * 20;
-    const y = -34 + this.rng() * 58;
-    g.fillStyle(hexToInt("#2A2F3A"), 0.72);
-    g.fillEllipse(x, y, 34, 20);
-    g.fillStyle(hexToInt("#15181E"), 0.66);
-    g.fillEllipse(x + 3, y + 2, 21, 12);
-    // A hard char at the centre, so the mark has an EDGE. A soft blob on a
-    // bright hull is a shadow; an edge is a scar.
-    g.fillStyle(hexToInt("#0B0D11"), 0.55);
-    g.fillEllipse(x + 1, y + 1, 11, 7);
-    g.setAlpha(0);
-    this.scorchLayer.add(g);
-    this.tweens.add({ targets: g, alpha: 1, duration: 200, ease: "Cubic.Out" });
+    // The slot is chosen by HOW MANY MARKS ARE ON THE HULL, not by how many
+    // hits were taken: a canister repair takes the last one back, and the slot
+    // it frees is the one the next hit should use.
+    const slot = scorchSlotAt(this.scorchBurnLayer.length, this.rng(), this.rng());
+    const ink = scorchColors(this.livery.hull);
+
+    // EVERY FILL IS OPAQUE. Two translucent marks composite into something
+    // darker than either, which is how three hits used to put the hull into the
+    // sky's own value; two opaque marks in one colour are that colour.
+    const burn = this.add.graphics();
+    burn.fillStyle(hexToInt(ink.field), 1);
+    burn.fillEllipse(slot.x, slot.y, SCORCH_W, SCORCH_H);
+
+    const mark = this.add.graphics();
+    // The heat rim (art-direction section 2's rim rule, applied to a mark
+    // instead of to a silhouette). Drawn above every field, so the mark keeps
+    // its own outline however many burns are laid over it.
+    mark.lineStyle(SCORCH_RIM_PX, hexToInt(ink.rim), 1);
+    mark.strokeEllipse(slot.x, slot.y, SCORCH_W, SCORCH_H);
+    // Burnt through. A soft blob on a bright hull is a shadow; an edge is a
+    // scar, and this is the edge.
+    mark.fillStyle(hexToInt(ink.core), 1);
+    mark.fillEllipse(slot.x + 1, slot.y + 1, SCORCH_CORE_W, SCORCH_CORE_H);
+
+    burn.setAlpha(0);
+    mark.setAlpha(0);
+    this.scorchBurnLayer.add(burn);
+    this.scorchMarkLayer.add(mark);
+    this.tweens.add({ targets: [burn, mark], alpha: 1, duration: 200, ease: "Cubic.Out" });
   }
 
   private removeScorch(): void {
-    const marks = this.scorchLayer.list;
-    const last = marks[marks.length - 1];
-    if (last === undefined) return;
+    const burn = this.scorchBurnLayer.list[this.scorchBurnLayer.length - 1];
+    const mark = this.scorchMarkLayer.list[this.scorchMarkLayer.length - 1];
+    if (burn === undefined || mark === undefined) return;
     this.tweens.add({
-      targets: last,
+      targets: [burn, mark],
       alpha: 0,
       duration: 260,
       ease: "Cubic.Out",
-      onComplete: () => last.destroy(),
+      onComplete: () => {
+        burn.destroy();
+        mark.destroy();
+      },
     });
   }
 
@@ -2299,7 +2431,10 @@ export class FlightScene extends Phaser.Scene {
     ) {
       this.knobChanges += 1;
     }
-    this.scorchLayer.removeAll(true); // D27: full repair at stage end.
+    // D27: full repair at stage end. Both layers, or a stage would start
+    // with the previous one's gashes still on the hull.
+    this.scorchBurnLayer.removeAll(true);
+    this.scorchMarkLayer.removeAll(true);
 
     const outcome = stageOutcome(this.history, this.calibration);
     // D51, the half that survives the stage: fold what this belt measured into
@@ -2549,7 +2684,7 @@ export class FlightScene extends Phaser.Scene {
     return wpm(this.correctChars, this.time.now - this.stageStartMs);
   }
 
-  private cue(name: FlightCue): void {
+  private cue(name: FlightCue, debrisType?: string): void {
     // AC-6e.2: every keystroke gets a visual AND an audio response. The visual
     // is above; this is the audio lane's hook, so the two never drift apart.
     //
@@ -2566,6 +2701,13 @@ export class FlightScene extends Phaser.Scene {
       hull: this.hull,
       maxHull: this.maxHull,
       live: this.rocks.length,
+      // UR-66: the MATERIAL of the rock that was just destroyed, so the crumble
+      // picks ice or stone. It rides the cue rather than the HUD stream for the
+      // same reason the three numbers above do - the rock is gone by the time
+      // the HUD next publishes, and audio would be sounding a board that no
+      // longer contains the thing it is describing. Absent means ice, which is
+      // the sound that shipped and the half the report praised.
+      ...(debrisType === undefined ? {} : { debrisType }),
     });
   }
 

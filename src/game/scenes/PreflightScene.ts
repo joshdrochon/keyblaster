@@ -928,6 +928,30 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
       // measured something without the screen ever showing a number.
       calibration: this.calibration,
       stepsMeasured: this.played.length,
+      /**
+       * What each of D81's three steps actually CONTRIBUTED, step by step.
+       *
+       * `stepsMeasured: 3` and three lit rows are satisfied by a step that ran
+       * and yielded nothing - which is the shape UR-31 reports, a sequence that
+       * appears to complete while the measure behind it is still FR-8's
+       * default. The counts here are what separates "the step ran" from "the
+       * step measured the pilot", per step, so a test can name which one went
+       * quiet instead of only seeing 350/500 at the end.
+       *
+       * Counts and durations only; no character and no comparison against the
+       * target word ever reaches this object (AC-11.3). Never rendered.
+       */
+      stepSamples: this.played.map((input) => {
+        const outcome = measureStep(input);
+        return {
+          id: outcome.id,
+          words: input.words.length,
+          keystrokes: outcome.keystrokeCount,
+          ikiSamples: outcome.ikiSamplesMs.length,
+          fkSamples: outcome.fkLatencySamplesMs.length,
+          discarded: outcome.discardedSamples,
+        };
+      }),
       // D99 evidence: what the ceremony's fold actually did, so an e2e can
       // prove the re-measurement reached the baseline and prove the sample
       // gate held when it should. Never rendered (AC-11.3).

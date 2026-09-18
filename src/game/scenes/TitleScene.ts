@@ -340,7 +340,13 @@ export class TitleScene extends Phaser.Scene {
       screen: "title",
       id: "title.tagline",
       size: TYPE.body,
-      color: INK.textDim,
+      // UR-65: gold, not the dim ink the menu chrome uses. At textDim on a
+      // plate the tagline read as another button sitting under the wordmark,
+      // which is what it looked like next to the settings control. A FIXED
+      // token, never the loaded stop's accent - coding-standards rule 1: a
+      // theme may change the background and nothing else, and this line is
+      // type.
+      color: INK.accent,
       lang: this.langOf(),
       depth: 1,
       padY: 8,

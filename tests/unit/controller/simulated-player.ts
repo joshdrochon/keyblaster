@@ -124,6 +124,35 @@ export function hitProbability(p: number, knobs: Knobs, length: number): number 
 }
 
 /**
+ * The margin this player clears a word with, in the same units the controller
+ * reads (`@engine/controller/margin`): the fraction of the fall budget still
+ * unspent when the rock went.
+ *
+ * UR-51 added the margin as the controller's throttle, so a simulation that
+ * reported only hits and misses would exercise a controller with no tightening
+ * authority at all - and every diagnostic below it would pass vacuously. The
+ * quantity is taken from the model that is already here rather than invented:
+ * `serviceProbability` is `fall / (queue x type)`, so the time actually spent
+ * is `queue x type` and the margin is one minus its share of the fall.
+ *
+ * A word that was NOT blasted has, by definition, spent its whole budget - the
+ * caller passes 0 for those, exactly as the scene does for a breach.
+ *
+ * THE SCALE IS THIS MODEL'S, NOT THE BELT'S, and that is a finding rather than
+ * a flaw. At maxLive 2 this player's margin is 0.10-0.16 - they are already
+ * within a sixth of the breach line at the gentlest setting, far tighter than
+ * any pilot the belt simulation flies (0.53 fast, 0.17 grade-2). A
+ * margin-throttled controller therefore refuses to tighten for them at all,
+ * which is the correct answer for a player with no room and is why the
+ * convergence diagnostics below now measure an untightened belt.
+ */
+export function clearanceMarginOf(maxLive: number, length: number): number {
+  const queue = (maxLive + 1) / 2;
+  const spent = (queue * typeTimeMs(length)) / fallTimeMs(length);
+  return clamp(1 - spent, 0, 1);
+}
+
+/**
  * Hard ceiling on measured hit rate for a player of accuracy p, over every
  * reachable knob setting. Used by the AC-10.2 failure message so the report
  * says WHY a p value is out of reach, not just that it is.

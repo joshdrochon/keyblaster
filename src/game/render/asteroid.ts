@@ -825,10 +825,54 @@ export function drawDebris(
 }
 
 /**
- * FR-5 / D26: the shield canister is a rock VARIANT, not a power-up icon - it
- * carries a story word like every other rock and is told apart by an engineered
- * band and a soft ring in the accent, so it still reads as part of the belt.
+ * THE CANISTER'S BAND, AS TWO STRAPS THAT CLEAR `MEASURED_CORE`.
+ *
+ * ================== WHAT WENT WRONG (V-22.4, uranus) ==================
+ * The band used to be one capsule down the middle of the rock: a rounded rect
+ * from -0.16r to +0.16r across, -0.44r to +0.44r down, filled with the stop's
+ * ACCENT at 0.85. A centred vertical bar spends its whole length in the middle
+ * of the disc, so 44% of the 0.45r core the AC-22.4 probe averages was accent -
+ * and an accent is by construction the brightest colour at a stop.
+ *
+ * That lifts the core's mean luminance clean off the body's value. Measured on
+ * uranus at 0.70 of the fall, same rock, same frame, canister vs plain:
+ *
+ *     plain rock    core  22.2 - 53.4   background ~90-134   separation 0.27-0.33
+ *     canister      core 100.3          background   90      separation 0.0403
+ *
+ * The bar is 0.06. The rock had not become harder to see because of anything
+ * about the rock: `wordRockFill` had put its body a long way off the sky, and
+ * then the band averaged it back onto the sky from the inside. Saturn's live
+ * canister was the same defect one step less far along, at 0.0943.
+ *
+ * ================== WHY THE FIX IS GEOMETRY, NOT VALUE ==================
+ * `drawDebris` already obeys this rule everywhere else: `LIT_FACE_INNER` and
+ * `TERMINATOR_INNER` are both chosen so their bands start OUTSIDE
+ * `MEASURED_CORE`, which is what lets Saturn be measurably visible and still
+ * look like ice. The canister was the one overlay that ignored it.
+ *
+ * So the band keeps its colour, its alpha and its ink, and moves: two straps
+ * running from `CANISTER_BAND_INNER` out to `CANISTER_BAND_OUTER`, top and
+ * bottom, crossing the inner ring the way a strap crosses a band. The core is
+ * left as the material the sky clearance was computed for, so a canister now
+ * separates exactly as well as the rock it is drawn on.
+ *
+ * FR-5 / D26 is unchanged by this: the canister is still a rock VARIANT told
+ * apart by an engineered band and rings in the accent, not a power-up icon.
  */
+/** Inner edge of each strap. Above `MEASURED_CORE` (0.45) with margin. */
+export const CANISTER_BAND_INNER = 0.52;
+/**
+ * Outer edge. The far corner of a strap sits at
+ * `hypot(CANISTER_BAND_HALF_W, CANISTER_BAND_OUTER)` = 0.714r, inside the
+ * shallowest point of any silhouette in `PROFILE` (0.72), so the band never
+ * leaves the rock it is drawn on.
+ */
+export const CANISTER_BAND_OUTER = 0.7;
+export const CANISTER_BAND_HALF_W = 0.14;
+/** Alpha of the accent band. Unchanged; the fix is where it is, not how strong. */
+export const CANISTER_BAND_ALPHA = 0.85;
+
 export function drawShieldCanister(
   g: Phaser.GameObjects.Graphics,
   options: DebrisDrawOptions & { readonly accent: string },
@@ -842,14 +886,19 @@ export function drawShieldCanister(
   g.lineStyle(Math.max(1, options.sizePx * 0.03), accent, 0.55);
   g.strokeCircle(0, 0, radius * 0.86);
 
-  g.fillStyle(accent, 0.85);
-  g.fillRoundedRect(
-    -radius * 0.16,
-    -radius * 0.44,
-    radius * 0.32,
-    radius * 0.88,
-    radius * 0.14,
-  );
+  const strapW = radius * CANISTER_BAND_HALF_W * 2;
+  const strapH = radius * (CANISTER_BAND_OUTER - CANISTER_BAND_INNER);
+  const strapR = radius * CANISTER_BAND_HALF_W * 0.5;
+  g.fillStyle(accent, CANISTER_BAND_ALPHA);
+  for (const sign of [-1, 1]) {
+    g.fillRoundedRect(
+      -radius * CANISTER_BAND_HALF_W,
+      sign < 0 ? -radius * CANISTER_BAND_OUTER : radius * CANISTER_BAND_INNER,
+      strapW,
+      strapH,
+      strapR,
+    );
+  }
 }
 
 /**

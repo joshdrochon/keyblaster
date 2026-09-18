@@ -1,38 +1,38 @@
 {
-  "renderedAt": "2026-09-17T03:33:04.613Z",
+  "renderedAt": "2026-09-18T01:43:25.515Z",
   "model": "eleven_flash_v2_5",
-  "voiceId": "TX3LPaxmHKxFdv7VOQHJ",
+  "voiceId": "J1UkN5Wmr20DZIiLKXHI",
   "lang": "en",
   "lines": [
     {
       "id": "earth.preflightLine",
       "file": "earth.preflightLine.mp3",
       "chars": 49,
-      "bytes": 56886
+      "bytes": 51453
     },
     {
       "id": "earth.beaconHeadline",
       "file": "earth.beaconHeadline.mp3",
       "chars": 12,
-      "bytes": 14254
+      "bytes": 15090
     },
     {
       "id": "earth.beaconState",
       "file": "earth.beaconState.mp3",
       "chars": 6,
-      "bytes": 13000
+      "bytes": 13836
     },
     {
       "id": "earth.beaconFlavor",
       "file": "earth.beaconFlavor.mp3",
       "chars": 29,
-      "bytes": 27211
+      "bytes": 28465
     },
     {
       "id": "mars.preflightLine",
       "file": "mars.preflightLine.mp3",
-      "chars": 99,
-      "bytes": 111639
+      "chars": 115,
+      "bytes": 104951
     },
     {
       "id": "mars.beaconHeadline",
@@ -44,91 +44,91 @@
       "id": "mars.beaconState",
       "file": "mars.beaconState.mp3",
       "chars": 6,
-      "bytes": 11328
+      "bytes": 12164
     },
     {
       "id": "mars.beaconFlavor",
       "file": "mars.beaconFlavor.mp3",
       "chars": 50,
-      "bytes": 48527
+      "bytes": 47691
     },
     {
       "id": "jupiter.preflightLine",
       "file": "jupiter.preflightLine.mp3",
       "chars": 95,
-      "bytes": 112475
+      "bytes": 100772
     },
     {
       "id": "jupiter.beaconHeadline",
       "file": "jupiter.beaconHeadline.mp3",
       "chars": 14,
-      "bytes": 16762
+      "bytes": 18016
     },
     {
       "id": "jupiter.beaconState",
       "file": "jupiter.beaconState.mp3",
       "chars": 6,
-      "bytes": 11328
+      "bytes": 12164
     },
     {
       "id": "jupiter.beaconFlavor",
       "file": "jupiter.beaconFlavor.mp3",
       "chars": 53,
-      "bytes": 44347
+      "bytes": 47273
     },
     {
       "id": "saturn.preflightLine",
       "file": "saturn.preflightLine.mp3",
       "chars": 90,
-      "bytes": 91159
+      "bytes": 91577
     },
     {
       "id": "saturn.beaconHeadline",
       "file": "saturn.beaconHeadline.mp3",
       "chars": 13,
-      "bytes": 16762
+      "bytes": 17598
     },
     {
       "id": "saturn.beaconState",
       "file": "saturn.beaconState.mp3",
       "chars": 6,
-      "bytes": 11328
+      "bytes": 12164
     },
     {
       "id": "saturn.beaconFlavor",
       "file": "saturn.beaconFlavor.mp3",
       "chars": 48,
-      "bytes": 44347
+      "bytes": 43511
     },
     {
       "id": "uranus.preflightLine",
       "file": "uranus.preflightLine.mp3",
       "chars": 76,
-      "bytes": 72351
+      "bytes": 74022
     },
     {
       "id": "uranus.beaconHeadline",
       "file": "uranus.beaconHeadline.mp3",
       "chars": 13,
-      "bytes": 18016
+      "bytes": 18852
     },
     {
       "id": "uranus.beaconState",
       "file": "uranus.beaconState.mp3",
       "chars": 6,
-      "bytes": 11328
+      "bytes": 12164
     },
     {
       "id": "uranus.beaconFlavor",
       "file": "uranus.beaconFlavor.mp3",
       "chars": 30,
-      "bytes": 30973
+      "bytes": 27629
     },
     {
       "id": "neptune.preflightLine",
       "file": "neptune.preflightLine.mp3",
       "chars": 59,
-      "bytes": 61902
+      "bytes": 60648
     },
     {
       "id": "neptune.beaconHeadline",
@@ -140,133 +140,133 @@
       "id": "neptune.beaconState",
       "file": "neptune.beaconState.mp3",
       "chars": 6,
-      "bytes": 11328
+      "bytes": 12164
     },
     {
       "id": "neptune.beaconFlavor",
       "file": "neptune.beaconFlavor.mp3",
       "chars": 48,
-      "bytes": 41839
+      "bytes": 48527
     },
     {
       "id": "pluto.preflightLine",
       "file": "pluto.preflightLine.mp3",
       "chars": 70,
-      "bytes": 87397
+      "bytes": 79874
     },
     {
       "id": "pluto.beaconHeadline",
       "file": "pluto.beaconHeadline.mp3",
       "chars": 12,
-      "bytes": 15926
+      "bytes": 16762
     },
     {
       "id": "pluto.beaconState",
       "file": "pluto.beaconState.mp3",
       "chars": 6,
-      "bytes": 11328
+      "bytes": 12164
     },
     {
       "id": "pluto.beaconFlavor",
       "file": "pluto.beaconFlavor.mp3",
       "chars": 67,
-      "bytes": 76948
+      "bytes": 66499
     },
     {
       "id": "preflight.line.opening",
       "file": "preflight.line.opening.mp3",
       "chars": 32,
-      "bytes": 30973
+      "bytes": 29301
     },
     {
       "id": "preflight.line.hull",
       "file": "preflight.line.hull.mp3",
       "chars": 12,
-      "bytes": 18852
+      "bytes": 15926
     },
     {
       "id": "preflight.line.systems",
       "file": "preflight.line.systems.mp3",
       "chars": 15,
-      "bytes": 20524
+      "bytes": 18016
     },
     {
       "id": "preflight.line.engines",
       "file": "preflight.line.engines.mp3",
       "chars": 14,
-      "bytes": 18852
+      "bytes": 18016
     },
     {
       "id": "preflight.line.done",
       "file": "preflight.line.done.mp3",
       "chars": 20,
-      "bytes": 24285
+      "bytes": 20942
     },
     {
       "id": "preflight.line.returning",
       "file": "preflight.line.returning.mp3",
       "chars": 48,
-      "bytes": 36824
+      "bytes": 39750
     },
     {
       "id": "coach.fallback.en.base",
       "file": "coach.fallback.en.base.mp3",
       "chars": 70,
-      "bytes": 53960
+      "bytes": 60648
     },
     {
       "id": "coach.fallback.en.earth",
       "file": "coach.fallback.en.earth.mp3",
       "chars": 67,
-      "bytes": 60648
+      "bytes": 65663
     },
     {
       "id": "coach.fallback.en.mars",
       "file": "coach.fallback.en.mars.mp3",
       "chars": 70,
-      "bytes": 53124
+      "bytes": 64409
     },
     {
       "id": "coach.fallback.en.jupiter",
       "file": "coach.fallback.en.jupiter.mp3",
       "chars": 60,
-      "bytes": 60648
+      "bytes": 55214
     },
     {
       "id": "coach.fallback.en.saturn",
       "file": "coach.fallback.en.saturn.mp3",
       "chars": 64,
-      "bytes": 63573
+      "bytes": 60648
     },
     {
       "id": "coach.fallback.en.uranus",
       "file": "coach.fallback.en.uranus.mp3",
       "chars": 68,
-      "bytes": 66499
+      "bytes": 67335
     },
     {
       "id": "coach.fallback.en.neptune",
       "file": "coach.fallback.en.neptune.mp3",
       "chars": 62,
-      "bytes": 50199
+      "bytes": 58976
     },
     {
       "id": "coach.fallback.en.pluto",
       "file": "coach.fallback.en.pluto.mp3",
       "chars": 64,
-      "bytes": 65663
+      "bytes": 59812
     },
     {
       "id": "coach.mock.clean.0",
       "file": "coach.mock.clean.0.mp3",
       "chars": 57,
-      "bytes": 44765
+      "bytes": 55214
     },
     {
       "id": "coach.mock.clean.1",
       "file": "coach.mock.clean.1.mp3",
       "chars": 52,
-      "bytes": 51453
+      "bytes": 47691
     }
   ]
 }

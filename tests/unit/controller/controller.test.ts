@@ -7,23 +7,32 @@ import {
   LENGTH_BIAS_MAX,
   LENGTH_BIAS_MIN,
   LOOSEN_BELOW,
+  LOOSEN_MARGIN_BELOW,
+  MARGIN_QUANTILE,
+  MARGIN_WINDOW_SIZE,
   MAX_LIVE_MAX,
   MAX_LIVE_MIN,
   TIGHTEN_ABOVE,
   TIGHTEN_FLOOR,
+  TIGHTEN_MARGIN_ABOVE,
   WINDOW_SIZE,
   applyChange,
   asLengthBias,
   clampKnobs,
+  clearanceMargin,
   concurrencyTarget,
   createController,
+  createMarginWindow,
   createWindow,
   decideStage,
   endStage,
   hitRate,
   knobsDiffCount,
   loosenStep,
+  marginFloor,
+  marginFloorOf,
   mayTighten,
+  pushMargin,
   pushOutcome,
   recordOutcome,
   stageHitRate,
@@ -38,20 +47,40 @@ import type {
   SpawnOutcome,
 } from "@engine/controller/index.js";
 import { mulberry32 } from "./rng.js";
+import { hullForStage } from "@engine/hull/index.js";
+import { DEFAULT_FLIGHT_CONFIG } from "@game/flight/stage.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Feed a controller `hits` blasted then `misses` missed. */
+/**
+ * The margin a blast in these tests is assumed to have cleared with (UR-51).
+ *
+ * Not a round number picked to pass: it is the measured lower quartile of a
+ * fast pilot's own margins over a whole route (0.532, and a mean of 0.62 - see
+ * `@engine/controller/margin`). A test that says "twenty clean blasts" means a
+ * player who is comfortable, and this is what comfortable measures.
+ */
+const COMFORTABLE = 0.6;
+
+/**
+ * Feed a controller `hits` blasted then `misses` missed.
+ *
+ * `margin` is the clearance every BLAST is reported with; a miss is a margin of
+ * zero by definition, because a rock that breached spent its whole budget. The
+ * controller refuses to tighten without margin evidence (UR-51), so a helper
+ * that omitted it would make every tighten assertion in this file vacuous.
+ */
 function play(
   state: ControllerState,
   hits: number,
   misses: number,
+  margin: number = COMFORTABLE,
 ): ControllerState {
   let s = state;
-  for (let i = 0; i < hits; i++) s = recordOutcome(s, "blasted");
-  for (let i = 0; i < misses; i++) s = recordOutcome(s, "missed");
+  for (let i = 0; i < hits; i++) s = recordOutcome(s, "blasted", margin);
+  for (let i = 0; i < misses; i++) s = recordOutcome(s, "missed", 0);
   return s;
 }
 
@@ -574,5 +603,254 @@ describe("UR-51 / FR-10: concurrencyTarget turns the primary knob into a board d
     }
     // Above the cap it saturates rather than extrapolating.
     expect(concurrencyTarget(MAX_LIVE_MAX + 5)).toBe(CONCURRENCY_TARGET_MAX);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UR-51: the throttle
+// ---------------------------------------------------------------------------
+
+/**
+ * UR-51: THE SIGNAL THE CONTROLLER CLIMBS ON HAS TO HAVE RANGE.
+ *
+ * The defect these tests exist for: `TIGHTEN_ABOVE` is 0.90 and AC-10.3's guard
+ * is 0.85, and measured over a whole route a fast pilot's hit rate is 1.0000
+ * while a grade-2 pilot's is 0.9521. Both clear both bars, so both tightened on
+ * the same cadence and both arrived at `MAX_LIVE_MAX`. The margin window is
+ * what separates them - 0.532 against 0.171 on the same route - and these are
+ * the properties the rest of the engine leans on.
+ */
+describe("UR-51 / margin: the throttle, and the floor that is not one", () => {
+  it("UR-51: clearanceMargin is the unspent fraction of the fall budget", () => {
+    // 4000 ms granted, gone at 1000 ms in: three quarters of it unused.
+    expect(clearanceMargin({ spawnedAtMs: 0, leftAtMs: 1000, fallMs: 4000 })).toBe(0.75);
+    // Blasted on the instant it appeared.
+    expect(clearanceMargin({ spawnedAtMs: 500, leftAtMs: 500, fallMs: 4000 })).toBe(1);
+    // Reached the breach line: a miss is a margin of zero, not a missing sample.
+    expect(clearanceMargin({ spawnedAtMs: 0, leftAtMs: 4000, fallMs: 4000 })).toBe(0);
+    // Past it, which the scene can produce by a frame: clamped, never negative.
+    expect(clearanceMargin({ spawnedAtMs: 0, leftAtMs: 9000, fallMs: 4000 })).toBe(0);
+  });
+
+  it("UR-51: a corrupt clearance reads as no margin, never as NaN", () => {
+    // Same rule as clampKnobs: a corrupt value must only ever move a child's
+    // belt in the gentler direction, and here that direction is zero.
+    for (const bad of [
+      { spawnedAtMs: 0, leftAtMs: 1000, fallMs: 0 },
+      { spawnedAtMs: 0, leftAtMs: 1000, fallMs: -5 },
+      { spawnedAtMs: 0, leftAtMs: 1000, fallMs: Number.NaN },
+      { spawnedAtMs: Number.NaN, leftAtMs: 1000, fallMs: 4000 },
+      { spawnedAtMs: 0, leftAtMs: Number.NaN, fallMs: 4000 },
+      { spawnedAtMs: Number.NEGATIVE_INFINITY, leftAtMs: Number.POSITIVE_INFINITY, fallMs: 4000 },
+    ]) {
+      expect(clearanceMargin(bad), JSON.stringify(bad)).toBe(0);
+    }
+    expect(clearanceMargin({ spawnedAtMs: 0, leftAtMs: 0, fallMs: Number.POSITIVE_INFINITY })).toBe(0);
+  });
+
+  it("UR-51: the window rolls at 20 and reads the lower quartile", () => {
+    expect(MARGIN_WINDOW_SIZE).toBe(WINDOW_SIZE);
+    expect(MARGIN_QUANTILE).toBe(0.25);
+    expect(marginFloor(createMarginWindow())).toBeNull();
+
+    // A window of one reads that one.
+    expect(marginFloor(pushMargin(createMarginWindow(), 0.4))).toBe(0.4);
+
+    // Five values: the quartile sits exactly on the second-smallest.
+    let w = createMarginWindow();
+    for (const m of [0.9, 0.1, 0.5, 0.3, 0.7]) w = pushMargin(w, m);
+    expect(marginFloor(w)).toBeCloseTo(0.3, 10);
+
+    // It is the LOWER quartile and not a mean, which is the whole reason it is
+    // safe to tighten on: one comfortable rock cannot carry three tight ones.
+    let mixed = createMarginWindow();
+    for (const m of [0.0, 0.0, 0.0, 0.9]) mixed = pushMargin(mixed, m);
+    expect(marginFloor(mixed)).toBe(0);
+
+    // Rolling, oldest evicted first, and a restored over-long list truncated.
+    let full = createMarginWindow();
+    for (let i = 0; i < MARGIN_WINDOW_SIZE + 5; i += 1) full = pushMargin(full, 1);
+    expect(full).toHaveLength(MARGIN_WINDOW_SIZE);
+    expect(createMarginWindow(new Array(50).fill(0.5) as number[])).toHaveLength(
+      MARGIN_WINDOW_SIZE,
+    );
+    // Non-finite values are refused rather than stored, on both routes in.
+    expect(pushMargin(createMarginWindow(), Number.NaN)).toHaveLength(0);
+    expect(createMarginWindow([0.5, Number.NaN, 0.5])).toHaveLength(2);
+    // And a value outside [0,1] is clamped rather than trusted.
+    expect(marginFloor(pushMargin(createMarginWindow(), 9))).toBe(1);
+    expect(marginFloor(pushMargin(createMarginWindow(), -9))).toBe(0);
+  });
+
+  it("UR-51: the margin window is rolling, not per-stage, exactly like the hit window", () => {
+    // A boundary that wiped it would hand every stage a "no-margin" hold on its
+    // first decision, making the throttle a function of stage length.
+    const s = endStage(play(createController(), 20, 0));
+    expect(s.margins).toHaveLength(MARGIN_WINDOW_SIZE);
+    expect(marginFloorOf(s)).toBe(COMFORTABLE);
+  });
+
+  it("UR-51 / D18: with no margin evidence at all, nothing tightens - the fail-safe", () => {
+    // THE LIVENESS PROPERTY. `recordOutcome`'s third argument is optional in
+    // the type because the engine cannot import the scene that supplies it, so
+    // the question "what happens when nobody supplies it" has to have an
+    // answer, and the answer has to be the safe one.
+    //
+    // WATCHED FAILING, with the real text: default the missing margin to 1
+    // instead of holding, and this reads action "tighten" / holdReason null -
+    // which is the saturated controller UR-51 replaced, silently restored by a
+    // deleted call site.
+    let s = createController();
+    for (let i = 0; i < 20; i += 1) s = recordOutcome(s, "blasted");
+    const d = decideStage(s);
+    expect(d.windowRate).toBe(1);
+    expect(d.marginFloor).toBeNull();
+    expect(d.action).toBe("hold");
+    expect(d.holdReason).toBe("no-margin");
+    expect(endStage(s).knobs).toEqual(DEFAULT_KNOBS);
+  });
+
+  it("UR-51: a player clearing every rock at the last instant does not tighten", () => {
+    // The case hit rate cannot see and the whole reason the throttle exists: a
+    // perfect 1.0 with every rock taken just above the breach line.
+    const s = play(createController(), 20, 0, 0.05);
+    const d = decideStage(s);
+    expect(d.windowRate).toBe(1);
+    expect(d.stageRate).toBe(1);
+    expect(d.marginFloor).toBeCloseTo(0.05, 10);
+    // Below LOOSEN_MARGIN_BELOW, so it does not merely hold - it gives time back.
+    expect(d.action).toBe("loosen");
+  });
+
+  it("UR-51: between the two thresholds it holds, and the hold is labelled", () => {
+    const s = play(createController(), 20, 0, 0.25);
+    const d = decideStage(s);
+    expect(d.action).toBe("hold");
+    expect(d.holdReason).toBe("margin-tight");
+    expect(d.marginFloor).toBeCloseTo(0.25, 10);
+    // Exactly at the gate is a hold too: the trigger is strictly above, the
+    // same way TIGHTEN_ABOVE is.
+    expect(decideStage(play(createController(), 20, 0, TIGHTEN_MARGIN_ABOVE)).action).toBe("hold");
+    expect(decideStage(play(createController(), 20, 0, TIGHTEN_MARGIN_ABOVE + 0.01)).action).toBe(
+      "tighten",
+    );
+  });
+
+  it("UR-51: the margin can only ever make the belt SAFER than FR-10's own rules", () => {
+    // The property that keeps D17's band and D18's direction intact: there is
+    // no margin at all that produces a tighten the hit-rate rules would have
+    // refused. Swept over the whole cross product rather than argued.
+    const rng = mulberry32(0x5eed51);
+    let checked = 0;
+    for (let trial = 0; trial < 3000; trial += 1) {
+      const hits = Math.floor(rng() * 21);
+      const margin = rng();
+      const s = play(
+        createController({ knobs: { maxLive: 2 + Math.floor(rng() * 6) } }),
+        hits,
+        20 - hits,
+        margin,
+      );
+      const d = decideStage(s);
+      if (d.action === "tighten") {
+        expect(d.windowRate!, `margin ${margin}`).toBeGreaterThan(TIGHTEN_ABOVE);
+        expect(mayTighten(d.windowRate, d.stageRate)).toBe(true);
+      }
+      checked += 1;
+    }
+    expect(checked).toBe(3000);
+  });
+
+  it("UR-51 / D31: a stall RATCHETS THE KNOB BACK, where FR-10's rules alone only held", () => {
+    /**
+     * `beginStall` ends the stage precisely so a belt a child could not finish
+     * hands the next one back easier. Under FR-10's rules alone that only
+     * worked when the rolling rate had already fallen under 0.80, and a stall
+     * does not guarantee it: the window is the last 20 outcomes, the hull is
+     * `hullForStage(58)` = 9 marks taken anywhere across 58 words, and a belt
+     * that took its marks EARLY leaves a window of nothing but blasts. The
+     * decision there is `d18-guard` - a hold - so the child who just lost the
+     * hull is handed the same belt back. Proven by the control below.
+     *
+     * The knob carries `keystrokeHeadroom` as well as the board depth
+     * (`@engine/fallTime`), so a hold is not a neutral outcome any more: it
+     * leaves the shortened fall budget in place too.
+     *
+     * WATCHED FAILING, with the real text: delete the `marginSaysLoosen` arm
+     * from `decideStage` and the first block reads action "hold" / holdReason
+     * "d18-guard", identical to the control, with the knob still on maxLive 6.
+     */
+    const MARKS = hullForStage(DEFAULT_FLIGHT_CONFIG.stageWordCount);
+    expect(MARKS).toBe(9);
+
+    /** A belt that took every hull mark early, then flew 20 clean words. */
+    const stalledBelt = (blastMargin: number): ControllerState => {
+      let s = createController({ knobs: { maxLive: 6, lengthBias: 0 } });
+      for (let i = 0; i < MARKS; i += 1) s = recordOutcome(s, "missed", 0);
+      for (let i = 0; i < WINDOW_SIZE; i += 1) s = recordOutcome(s, "blasted", blastMargin);
+      return s;
+    };
+
+    // THE CONTROL FIRST. A pilot whose rocks were comfortable: the window is
+    // 1.0, the stage rate is 20/29 = 0.69, D18 refuses the tighten - and that
+    // is the whole decision. Nothing moves.
+    const comfortable = stalledBelt(COMFORTABLE);
+    const control = decideStage(comfortable);
+    expect(control.windowRate).toBe(1);
+    expect(control.stageRate).toBeCloseTo(20 / 29, 10);
+    expect(control.action).toBe("hold");
+    expect(control.holdReason).toBe("d18-guard");
+    expect(endStage(comfortable).knobs).toEqual(knobs(6, 0));
+
+    // THE SAME BELT, flown by the pilot the route simulation actually stalls:
+    // a grade-2 child, whose measured lower-quartile margin at Jupiter is
+    // 0.101 (gauntlet/evidence/difficulty-ramp.json). Same hit rate, same
+    // stage rate, same hull - and now the knob comes back.
+    const struggling = stalledBelt(0.101);
+    const d = decideStage(struggling);
+    expect(d.windowRate).toBe(control.windowRate);
+    expect(d.stageRate).toBe(control.stageRate);
+    expect(d.marginFloor).toBeCloseTo(0.101, 10);
+    expect(d.marginFloor!).toBeLessThan(LOOSEN_MARGIN_BELOW);
+    expect(d.action).toBe("loosen");
+
+    const after = endStage(struggling).knobs;
+    expect(knobsDiffCount(knobs(6, 0), after)).toBe(1); // AC-10.1 on the stall path
+    expect(after.lengthBias).toBe(LENGTH_BIAS_MIN); // cheapest relief first (D53)
+
+    // A second stalled belt spends the knob that owns BOTH the board depth and
+    // the keystroke headroom, so the fall budget comes back too.
+    let t = endStage(struggling);
+    for (let i = 0; i < MARKS; i += 1) t = recordOutcome(t, "missed", 0);
+    for (let i = 0; i < WINDOW_SIZE; i += 1) t = recordOutcome(t, "blasted", 0.101);
+    expect(decideStage(t).action).toBe("loosen");
+    expect(endStage(t).knobs.maxLive).toBe(5);
+  });
+
+  it("UR-51: two pilots with the SAME hit rate and different margins diverge", () => {
+    /**
+     * THE ASSERTION THAT MUST GO RED IF THE SIGNAL SATURATES AGAIN.
+     *
+     * Both players blast every rock - hit rate 1.0000 for both, which is the
+     * measured reality for the fast and the median pilot and within four
+     * hundredths of the grade-2 one. The ONLY thing that differs is how much of
+     * the fall budget they had left, and that is the measured 0.532 against
+     * 0.171 from the route sweep.
+     *
+     * WATCHED FAILING, with the real numbers: delete the margin arms from
+     * `decideStage` and the second block reads "expected 7 to be 2" - both
+     * pilots at `MAX_LIVE_MAX` after six stages, a gap of 0, because a hit rate
+     * of 1.0 cannot tell them apart. That is UR-51.
+     */
+    const route = (margin: number): Knobs => {
+      let s = createController();
+      for (let stage = 0; stage < 6; stage += 1) s = endStage(play(s, 20, 0, margin));
+      return s.knobs;
+    };
+    const roomy = route(0.532);
+    const tight = route(0.171);
+    expect(roomy.maxLive, "a pilot with room climbs").toBe(MAX_LIVE_MAX);
+    expect(tight.maxLive, "a pilot without it does not").toBe(MAX_LIVE_MIN);
+    expect(roomy.maxLive - tight.maxLive).toBe(MAX_LIVE_MAX - MAX_LIVE_MIN);
   });
 });

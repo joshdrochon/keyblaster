@@ -27,7 +27,17 @@
  * flickers) and that it SCALES WITH THE WORLD (the old band ran a `for` loop to
  * `GAME_WIDTH` and the world widens with the window under D99). Both are
  * questions about numbers, so the numbers live here, away from Phaser.
+ *
+ * `render/starField.ts` is the one import that is not a number, and it is a
+ * deliberate exception rather than a slip: UR-14's rule about what stars may do
+ * has ONE home, and a menu that wrote its own twinkle constants would be the
+ * fourth surface deciding locally - which is how that ticket got to a third
+ * report. The import costs this module nothing it was protecting; the module it
+ * reaches into pulls in Phaser, and the vitest suite has imported it since
+ * `tests/unit/render/starField.test.ts` was written.
  */
+
+import { twinkleFor } from "@game/render/starField";
 
 export interface Mote {
   readonly x: number;
@@ -35,6 +45,22 @@ export interface Mote {
   readonly r: number;
   /** 0..1, used as the fill alpha. */
   readonly alpha: number;
+}
+
+/**
+ * A menu star: a mote that also carries its flicker.
+ *
+ * UR-14 asks for two things and this surface used to satisfy one. The stars
+ * held position - `chrome.ts` painted them once into the backdrop Graphics and
+ * never touched it again - but that is also why they never flickered, on five
+ * menu screens. The flicker parameters come from `render/starField.twinkleFor`
+ * rather than from numbers invented here, so "slowly, at varying intervals"
+ * means the same thing in a menu as it does in the sky.
+ */
+export interface StarMote extends Mote {
+  readonly period: number;
+  readonly phase: number;
+  readonly swing: number;
 }
 
 /** mulberry-ish LCG. Seeded, never `Math.random`: see the header. */
@@ -46,21 +72,30 @@ function rng(seed: number): () => number {
   };
 }
 
-/** The star field. Small, sparse, spread over the whole frame. */
+/**
+ * The star field. Small, sparse, spread over the whole frame, PINNED, and
+ * flickering out of step.
+ *
+ * Placement is deterministic and placement is ALL it is: nothing here or in
+ * `chrome.ts` advances an x or a y, which is the menu half of UR-14's one rule
+ * (`render/starField.starsMayTravel`). Only `alpha` changes per frame, and it
+ * changes through `twinkleAlpha`.
+ */
 export function menuStars(
   width: number,
   height: number,
   count = 90,
   seed = 0x5eed,
-): Mote[] {
+): StarMote[] {
   const next = rng(seed);
-  const out: Mote[] = [];
+  const out: StarMote[] = [];
   for (let i = 0; i < count; i += 1) {
     out.push({
       x: next() * width,
       y: next() * height,
       r: 1 + next() * 2.2,
       alpha: 0.1 + next() * 0.35,
+      ...twinkleFor(next),
     });
   }
   return out;

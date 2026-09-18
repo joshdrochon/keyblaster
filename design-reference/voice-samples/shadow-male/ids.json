@@ -1,0 +1,22 @@
+{
+  "note": "FULL generated_voice_id values, never truncated. A previous batch printed these to 18 characters and kept no mapping, so the voice the owner chose became unrenderable and the pick had to be retaken. A preview id is NOT a library voice: persist it with POST /v1/text-to-voice before TTS will accept it.",
+  "description": "A friendly pocket-sized robot co-pilot in a children's space game. MALE. A boy's voice, or a young man's - clearly masculine, never feminine or androgynous. Thin, bright and slightly tinny, like a small speaker inside a metal shell. Mid-pitch for a male voice, not high. Calm and matter-of-fact, gently mechanical cadence with even pacing. Speaks to a child as an equal and never talks down. CLEAN and NATURAL above all: no breathiness, no wobble, no artefacts.",
+  "text": "Asteroid belt ahead. Rocks with words on them. Type the word, the blaster does the rest. Ready when you are.",
+  "previews": [
+    {
+      "file": "design-reference/voice-samples/shadow-male/male-1.mp3",
+      "generated_voice_id": "I8babExyvWoPx7EVEdEN",
+      "bytes": 174960
+    },
+    {
+      "file": "design-reference/voice-samples/shadow-male/male-2.mp3",
+      "generated_voice_id": "zhynlxCWaD9LC08p8WQE",
+      "bytes": 173707
+    },
+    {
+      "file": "design-reference/voice-samples/shadow-male/male-3.mp3",
+      "generated_voice_id": "rMTqOCqqrZQFnP8eljDY",
+      "bytes": 160541
+    }
+  ]
+}

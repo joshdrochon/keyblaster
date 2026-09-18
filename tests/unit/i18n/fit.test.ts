@@ -95,7 +95,7 @@ describe("the design brief's +25% budget against the real translations", () => {
     "profile.pilotName", // Pilot name -> Nombre del piloto, +70%
     "title.beaconLog", // Beacon Log -> Registro de balizas, +90%
     // "title.tagline" used to be here. It came OFF the list when the tagline
-    // became a sentence ("Light the way through the solar system.", 39 chars)
+    // became a sentence ("Light the way through the solar system.", 39 chars) // no-user-quotes-ok: the game's OWN former tagline, superseded by UR-65; a report quoted it back, which is why the corpus matches
     // rather than a short label ("Light the way home.", 19). Spanish expands a
     // SENTENCE by roughly the brief's +25%; it expands a short LABEL by 50-90%.
     // So lengthening the English copy fixed a budget violation instead of

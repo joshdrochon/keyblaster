@@ -154,16 +154,27 @@ describe("scanLine - layer 2, attribution", () => {
 
 describe("buildCopyWindows - the words the GAME says are not the words a PERSON said", () => {
   it("removes a report that quotes shipped copy back", () => {
-    // A report repeating the tagline would otherwise make the shipped string
-    // table itself a quote of the person who read it aloud. The old behaviour
-    // flagged 10 such lines, including src/engine/i18n/strings.ts.
-    const tagline = "light the way through the solar system";
-    const quoted = buildQuoteWindows([{ id: "UR-x", said: `I like that it says ${tagline}` }]);
+    // A report repeating a line of the game's copy would otherwise make the
+    // shipped string table itself a quote of the person who read it aloud. The
+    // old behaviour flagged 10 such lines, including src/engine/i18n/strings.ts.
+    //
+    // THE PHRASE IS TAKEN FROM THE REAL COPY AT RUN TIME, NOT TYPED HERE.
+    // This test used to hardcode the Title tagline. UR-65 changed that tagline,
+    // the hardcoded string stopped being shipped copy, and the test failed
+    // while the behaviour it guards was perfectly correct - a fixture that
+    // silently stops describing the product is the same defect this whole file
+    // is about. Reading the copy makes it true for whatever the copy says next.
     const copy = buildCopyWindows(["src/engine/i18n/strings.ts"]);
+    const [phrase] = [...copy];
+    expect(phrase, "strings.ts yielded no copy windows").toBeDefined();
+
+    const quoted = buildQuoteWindows([
+      { id: "UR-x", said: `I like that it says ${phrase as string}` },
+    ]);
 
     // Watched failing with `true` before the subtraction was wired into main().
     const survives = [...quoted].filter((w) => !copy.has(w));
-    expect(survives.some((w) => w.includes("the way through the solar"))).toBe(false);
+    expect(survives).not.toContain(phrase);
   });
 
   it("returns an empty set for sources that are absent rather than throwing", () => {

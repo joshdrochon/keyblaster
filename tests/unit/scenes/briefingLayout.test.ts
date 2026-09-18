@@ -15,15 +15,28 @@ import {
   RIGHT_MARGIN,
   SHELF,
   WINDOW,
+  BACK_CHIP,
+  SHADOW_AT,
+  SHADOW_NOTCH,
+  SHADOW_SCALE,
+  ACTION_CX,
   backChip,
   launchButton,
-  shelfLamps,
+  focusRingBox,
+  controlStrip,
   briefingLayout,
   columnBottom,
   columnWidth,
+  headerColumnWidth,
   shadowBox,
   type Rows,
 } from "@game/scenes/support/briefingLayout";
+import {
+  CONTROL_SURFACE,
+  controlSurfaceElementCount,
+  controlSurfaceLayout,
+} from "@game/ui/controlSurfaceLayout";
+import { DESIGN_WIDTH, GAME_HEIGHT } from "@game/sceneKeys";
 import { GUTTER, HEADING_TOP, HINT_TOP, contentRight } from "@game/ui/grid";
 import { setGameWidth } from "@game/sceneKeys";
 
@@ -86,9 +99,21 @@ function bundle(lang: Lang, stop: string): Bundle | null {
   };
 }
 
-/** Budgeted height of one wrapped block, the way the scene would measure it. */
-function blockHeight(text: string, fontPx: number, lang: Lang): number {
-  const lines = wrapLineCount(text, columnWidth(), fontPx, advanceEmFor(lang));
+/**
+ * Budgeted height of one wrapped block, the way the scene would measure it.
+ *
+ * `width` is the block's OWN column: the header run is wrapped narrower than
+ * the body because Shadow stands beside it (UR-58), and a model that wrapped
+ * everything to the full column would be measuring a page the screen does not
+ * draw.
+ */
+function blockHeight(
+  text: string,
+  fontPx: number,
+  lang: Lang,
+  width: number = columnWidth(),
+): number {
+  const lines = wrapLineCount(text, width, fontPx, advanceEmFor(lang));
   return Math.round(Math.max(1, lines) * fontPx * lineHeightEm(lang));
 }
 
@@ -97,10 +122,26 @@ function rowsFor(lang: Lang, stop: string): Rows[] | null {
   const b = bundle(lang, stop);
   if (b === null) return null;
   const SENTENCE_PX = 36;
+  const head = headerColumnWidth();
   const rows: Rows[] = [
-    { id: "eyebrow", height: blockHeight("mission briefing", TYPE.caption, lang), gapAfter: 14 },
-    { id: "planet", height: blockHeight(b.planetName, TYPE.heading, lang), gapAfter: 12 },
-    { id: "chapter", height: blockHeight(b.chapterTitle, TYPE.label, lang), gapAfter: 40 },
+    {
+      id: "eyebrow",
+      height: blockHeight("mission briefing", TYPE.caption, lang, head),
+      gapAfter: 14,
+      group: "header",
+    },
+    {
+      id: "planet",
+      height: blockHeight(b.planetName, TYPE.heading, lang, head),
+      gapAfter: 12,
+      group: "header",
+    },
+    {
+      id: "chapter",
+      height: blockHeight(b.chapterTitle, TYPE.label, lang, head),
+      gapAfter: 40,
+      group: "header",
+    },
   ];
   for (const [i, sentence] of b.briefing.entries()) {
     rows.push({
@@ -192,52 +233,151 @@ describe("the briefing column fits its plate at every stop, in every language", 
   });
 });
 
-describe("nothing on the screen stands on anything else", () => {
-  const overlaps = (a: {x:number;y:number;w:number;h:number}, b: {x:number;y:number;w:number;h:number}): boolean =>
-    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+describe("UR-58: Shadow delivers the briefing from the page's top-right corner", () => {
+  const overlaps = (
+    a: { x: number; y: number; w: number; h: number },
+    b: { x: number; y: number; w: number; h: number },
+  ): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
-  const launchRect = () => ({
-    x: 1012 + 812 / 2 - LAUNCH.w / 2,
-    y: LAUNCH.y,
-    w: LAUNCH.w,
-    h: LAUNCH.h,
+  /** The quadrant the report asks for: the top-right quarter of the plate. */
+  const topRightQuadrant = (page: { x: number; y: number; w: number; h: number }) => ({
+    x: page.x + page.w / 2,
+    y: page.y,
+    w: page.w / 2,
+    h: page.h / 2,
   });
 
-  it("Shadow clears the page at every stop, the launch button and the frame", () => {
+  const contains = (
+    outer: { x: number; y: number; w: number; h: number },
+    inner: { x: number; y: number; w: number; h: number },
+  ): boolean =>
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.w <= outer.x + outer.w &&
+    inner.y + inner.h <= outer.y + outer.h;
+
+  it("stands INSIDE the page's top-right quadrant, at every stop, in every language", () => {
+    // He used to stand at (1076, 992) - under the glass, on the button row,
+    // 900 px from the page he is supposed to be reading out.
+    //
+    // WATCHED FAILING: put SHADOW_AT back to { x: 1076, y: 992, scale: 0.78 }
+    // and all 42 checks go red - anchor and box at every one of the 21
+    // stop/language pairs. His anchor reports x 1076 against a quadrant that
+    // ends at x 980, and his box reports 996..1156 x 892..1077 against a
+    // quadrant of 538..980 x 84..520.
+    const failures: string[] = [];
     for (const lang of LANGS) {
       for (const stop of STOP_IDS) {
         const rows = rowsFor(lang, stop);
         if (rows === null) continue;
         const page = briefingLayout(rows).page;
-        expect(overlaps(shadowBox(), page), `${lang}/${stop} page`).toBe(false);
+        const quadrant = topRightQuadrant(page);
+        const anchor = { x: SHADOW_AT.x, y: SHADOW_AT.y, w: 0, h: 0 };
+        if (!contains(quadrant, anchor)) failures.push(`${lang}/${stop} anchor`);
+        if (!contains(quadrant, shadowBox())) failures.push(`${lang}/${stop} box`);
       }
     }
-    expect(overlaps(shadowBox(), launchRect())).toBe(false);
-    expect(shadowBox().y + shadowBox().h).toBeLessThanOrEqual(1080);
-    expect(shadowBox().x).toBeGreaterThan(0);
+    expect(failures).toEqual([]);
   });
 
-  it("NEGATIVE CONTROL: where Shadow used to stand IS inside the page now", () => {
-    // (176, 964) - directly under the text column. Keeping him there is what
-    // capped the page and left the briefing no room for its own last line.
-    const wasThere = shadowBox({ x: 176, y: 964, scale: 0.84 });
-    const longest = briefingLayout(rowsFor("en", "earth") as Rows[]).page;
-    expect(overlaps(wasThere, longest)).toBe(true);
-  });
-
-  it("the back chip is clear of the page at every stop, in every language", () => {
-    // The chip moved from the top-right corner to the action stack (UR-50.1),
-    // so its y is no longer HEADING_TOP - but "it never lands on the page" is
-    // the invariant that mattered, and it is checked across the whole sweep
-    // rather than at the one stop anybody looks at (standards rule 5).
-    const chip = backChip();
+  it("never stands on a word, at any stop, in any language", () => {
+    // The whole risk of moving him onto the page. His corner is reserved by the
+    // FLOW - the header run is wrapped to `headerColumnWidth()` and the run is
+    // floored at `SHADOW_NOTCH.h` - so this checks the reservation rather than
+    // hoping the copy stays short.
+    //
+    // WATCHED FAILING: drop the `group: "header"` flags from `rowsFor` and 63
+    // collisions come back, three per stop per language - every header row, at
+    // every combination, because without the flag they wrap to the full 740 px
+    // column and run straight under him:
+    //
+    //   en/earth: "eyebrow" at y 116   "planet" at y 156   "chapter" at y 225
+    //
+    // The first sentence is NOT among them, and that is worth being exact
+    // about: with today's copy the run's HEIGHT floor is what is doing the
+    // work at 21 of 21 combinations (it moves `en`'s first sentence from 296 to
+    // 303 and `hi/neptune`'s from 276 to 277), and the WIDTH is what keeps the
+    // header out of him. Both are asserted; neither is assumed.
+    const hits: string[] = [];
     for (const lang of LANGS) {
       for (const stop of STOP_IDS) {
         const rows = rowsFor(lang, stop);
         if (rows === null) continue;
-        expect(overlaps(chip, briefingLayout(rows).page), `${lang}/${stop}`).toBe(false);
+        for (const row of briefingLayout(rows).rows) {
+          const box = { x: row.x, y: row.y, w: row.w, h: row.height };
+          if (overlaps(shadowBox(), box)) {
+            hits.push(`${lang}/${stop}: "${row.id}" at y ${row.y}`);
+          }
+        }
       }
     }
+    expect(hits).toEqual([]);
+  });
+
+  it("starts the body BELOW his box, at every stop, in every language", () => {
+    // The height half of the reservation, stated as the number a regression
+    // would move.
+    //
+    // WATCHED FAILING: delete the `y = Math.max(y, SHADOW_NOTCH.h + gap)` line
+    // from `flow()` in briefingLayout.ts and 18 of the 21 combinations go red -
+    // "en/earth first body row: expected 296 to be greater than or equal to
+    // 303", and `hi/neptune` at 276 against 277.
+    //
+    // The bar is his box PLUS the header's own trailing air, which is what the
+    // flow reserves; `>= shadowBox().bottom` alone would be 263 and would pass
+    // against the broken code at every stop, which is the shape of check this
+    // repo has been burned by before.
+    const HEADER_GAP_AFTER = 40;
+    for (const lang of LANGS) {
+      for (const stop of STOP_IDS) {
+        const rows = rowsFor(lang, stop);
+        if (rows === null) continue;
+        const laid = briefingLayout(rows);
+        const firstBody = laid.rows.find((r) => r.group !== "header");
+        expect(firstBody, `${lang}/${stop}`).toBeDefined();
+        const floor =
+          PAGE_TOP +
+          PAD_Y +
+          SHADOW_NOTCH.h +
+          Math.round(HEADER_GAP_AFTER * laid.gapScale);
+        expect((firstBody as { y: number }).y, `${lang}/${stop} first body row`)
+          .toBeGreaterThanOrEqual(floor);
+        // ...which is below his box by construction, and this is the claim the
+        // reader cares about.
+        expect(floor).toBeGreaterThan(shadowBox().y + shadowBox().h);
+      }
+    }
+  });
+
+  it("is SMALLER than he was, and the notch reserves exactly what he draws", () => {
+    // "A little smaller to fit" is the trade the report offers, and 0.62 is
+    // what the tightest first sentence in the product allows. The notch is
+    // derived from the scale rather than typed in, so he cannot be enlarged
+    // without the room he is given growing with him.
+    expect(SHADOW_SCALE).toBeLessThan(0.78);
+    expect(SHADOW_NOTCH.w).toBeGreaterThanOrEqual(shadowBox().w);
+    expect(SHADOW_NOTCH.h).toBeGreaterThanOrEqual(shadowBox().h);
+    // ...and the header column is narrowed by exactly that much, not by a
+    // number that happens to be near it.
+    expect(headerColumnWidth()).toBe(columnWidth() - SHADOW_NOTCH.w - SHADOW_NOTCH.gap);
+  });
+
+  it("NEGATIVE CONTROL: at the size he used to be drawn, he would not fit", () => {
+    // If this ever passes, the corner has grown and the case above has stopped
+    // measuring anything. 0.78 puts his box at 160 x 185 ending at y 301, past
+    // the 276 where `hi/neptune` starts its first sentence.
+    const asBefore = shadowBox({ x: SHADOW_AT.x, y: SHADOW_AT.y, scale: 0.78 });
+    const tightest = briefingLayout(rowsFor("hi", "neptune") as Rows[]);
+    const firstSentence = tightest.rows.find((r) => r.id === "sentence-0");
+    expect(firstSentence).toBeDefined();
+    expect(asBefore.y + asBefore.h).toBeGreaterThan((firstSentence as { y: number }).y);
+  });
+
+  it("clears the action band and stays inside the frame", () => {
+    expect(overlaps(shadowBox(), launchButton())).toBe(false);
+    expect(overlaps(shadowBox(), backChip())).toBe(false);
+    expect(shadowBox().y + shadowBox().h).toBeLessThanOrEqual(GAME_HEIGHT);
+    expect(shadowBox().x).toBeGreaterThan(0);
   });
 });
 
@@ -277,31 +417,31 @@ describe("UR-50: the window, the shelf and the two actions", () => {
     expect(en).not.toContain("through the window");
   });
 
-  it("50.2: the shelf is exactly the width of the glass, and its lamps are centred in it", () => {
-    // THE REPORT SAID "narrower than the window". The BAR was 60 px WIDER
+  it("50.2/61: the strip is exactly the width of the glass, and its lamps are centred in it", () => {
+    // THE 50.2 REPORT SAID "narrower than the window". The BAR was 60 px WIDER
     // (x-30, w+60 = 982..1854 against 1012..1824); what was narrow was the lamp
     // row, at 1042..1778, leaving 30 px of empty bar on the left and 46 on the
-    // right. Both are asserted, because fixing only the bar would leave the
-    // thing the player actually saw.
+    // right. Both still hold, now that the strip is a control surface (UR-61)
+    // rather than a bar: the hardware moved, the alignment did not.
     //
     // Watch it fail: restore `x - 30 / w + 60` and `x + 30 + i * 92`.
     expect(SHELF.x).toBe(WINDOW.x);
     expect(SHELF.w).toBe(WINDOW.w);
 
-    const lamps = shelfLamps();
-    expect(lamps.length).toBe(SHELF.lamps);
-    const first = lamps[0] as number;
-    const last = lamps[lamps.length - 1] as number;
-    const leftAir = first - SHELF.x;
-    const rightAir = SHELF.x + SHELF.w - last;
+    const parts = controlSurfaceLayout(controlStrip(), SHELF.lamps);
+    expect(parts.lamps.length).toBe(SHELF.lamps);
+    const first = parts.lamps[0] as { x: number; w: number };
+    const last = parts.lamps[parts.lamps.length - 1] as { x: number; w: number };
+    const leftAir = first.x - SHELF.x;
+    const rightAir = SHELF.x + SHELF.w - (last.x + last.w);
     expect(
       Math.abs(leftAir - rightAir),
       `lamp air: ${leftAir} left, ${rightAir} right`,
     ).toBeLessThanOrEqual(1);
-    // ...and every lamp is inside the bar, circle included.
-    for (const cx of lamps) {
-      expect(cx - SHELF.lampR).toBeGreaterThanOrEqual(SHELF.x);
-      expect(cx + SHELF.lampR).toBeLessThanOrEqual(SHELF.x + SHELF.w);
+    // ...and every lamp is inside the strip.
+    for (const lamp of parts.lamps) {
+      expect(lamp.x).toBeGreaterThanOrEqual(SHELF.x);
+      expect(lamp.x + lamp.w).toBeLessThanOrEqual(SHELF.x + SHELF.w);
     }
   });
 
@@ -316,48 +456,191 @@ describe("UR-50: the window, the shelf and the two actions", () => {
     expect(rightAir).toBe(76);
     expect(oldBar.w - WINDOW.w).toBe(60);
   });
+});
 
-  it("50.1: the two actions are adjacent, and the way out is not in a corner", () => {
-    // The complaint: launch bottom-centre, the way back top-right, 820 px of
-    // screen between a question and its answer.
-    //
-    // Watch it fail: anchor the chip at { x: RIGHT_MARGIN - w, y: HEADING_TOP }.
-    const chip = backChip();
-    const btn = launchButton();
+/**
+ * UR-61 - THE STRIP UNDER THE WINDOW IS SHIP HARDWARE, AND STAYS THAT WAY.
+ *
+ * The report: the dark strip of blue dots is meant to read as the ship's
+ * control panel and reads as a row of dots. What was drawn was one rounded
+ * rectangle and nine filled circles - no frame, no fixings, no depth, no light.
+ *
+ * ================== WHY THIS IS A COUNT AND A SET OF BOXES ==================
+ * "Reads as hardware" is not directly measurable, but the thing a regression
+ * DOES is: it deletes the pieces. A strip that has quietly become a bar with
+ * dots on it has lost its bezel, its screws and its vents and still renders,
+ * still passes a screenshot nobody is diffing, and still has lamps on it. So
+ * the pieces are counted and placed, and flattening the strip is a red test
+ * rather than a thing somebody notices two months later.
+ *
+ *   npx vitest run tests/unit/scenes/briefingLayout.test.ts --coverage.enabled=false
+ */
+describe("UR-61: the control strip is a console, not a row of dots", () => {
+  const parts = () => controlSurfaceLayout(controlStrip(), SHELF.lamps);
 
-    // Same centre line.
-    expect(chip.x + chip.w / 2).toBe(btn.x + btn.w / 2);
-    // Stacked, in reading order, with real air between them and no overlap.
-    const gap = btn.y - (chip.y + chip.h);
-    expect(gap, `gap between the two actions: ${gap}`).toBeGreaterThan(0);
-    expect(gap).toBeLessThanOrEqual(40);
-    // The old placement, for the record: this is the distance that was wrong.
-    const wasAt = { x: RIGHT_MARGIN - chip.w, y: HEADING_TOP };
-    const wasFar = Math.hypot(wasAt.x - btn.x, wasAt.y - btn.y);
-    const nowFar = Math.hypot(chip.x - btn.x, chip.y - btn.y);
-    expect(wasFar, `old separation ${Math.round(wasFar)} px`).toBeGreaterThan(800);
-    expect(nowFar, `new separation ${Math.round(nowFar)} px`).toBeLessThan(120);
+  it("carries a bezel, a milled face, four screws, two vent groups and a lamp bank", () => {
+    // WATCHED FAILING: return `rivets: []` and `vents: []` from
+    // `controlSurfaceLayout` - the exact shape of a redraw that flattens the
+    // strip back to a plate with lamps on it - and this reports
+    // "screws: expected +0 to be 4". The count drops from 26 to 10, which is
+    // one piece fewer than the bar and nine circles that shipped.
+    const p = parts();
+    expect(p.rivets.length, "screws").toBe(4);
+    expect(p.vents.length, "vent slots").toBe(CONTROL_SURFACE.ventCount * 2);
+    expect(p.lamps.length, "stop lamps").toBe(7);
+    expect(controlSurfaceElementCount(p)).toBe(
+      2 + 4 + CONTROL_SURFACE.ventCount * 2 + 1 + 7,
+    );
+    // The shipped strip, for the record: one plate and nine circles.
+    expect(controlSurfaceElementCount(p)).toBeGreaterThan(1 + 9);
   });
 
-  it("50.1: the actions clear Shadow and the shelf, and stay on the screen", () => {
-    // Why they are STACKED and not side by side: Shadow's drawn box reaches
-    // x 1156 and the glass centre is 1418, so a 380 + 24 + 262 row centred on
-    // the glass would start at 1085 and run the primary action through him.
+  it("keeps every piece of hardware inside the strip, with the face inside the bezel", () => {
+    const p = parts();
+    const strip = controlStrip();
+    const inside = (b: { x: number; y: number; w: number; h: number }): boolean =>
+      b.x >= strip.x &&
+      b.y >= strip.y &&
+      b.x + b.w <= strip.x + strip.w &&
+      b.y + b.h <= strip.y + strip.h;
+
+    expect(inside(p.face), "face").toBe(true);
+    for (const [i, v] of p.vents.entries()) expect(inside(v), `vent ${i}`).toBe(true);
+    expect(inside(p.bank), "lamp bank").toBe(true);
+    for (const [i, l] of p.lamps.entries()) expect(inside(l), `lamp ${i}`).toBe(true);
+    for (const [i, r] of p.rivets.entries()) {
+      expect(r.x, `rivet ${i} x`).toBeGreaterThan(strip.x);
+      expect(r.x, `rivet ${i} x`).toBeLessThan(strip.x + strip.w);
+      expect(r.y, `rivet ${i} y`).toBeGreaterThan(strip.y);
+      expect(r.y, `rivet ${i} y`).toBeLessThan(strip.y + strip.h);
+    }
+  });
+
+  it("puts the vents outside the lamp bank, on both sides, and nothing through it", () => {
+    // A vent drawn through the bank is a cut through a readout. The two groups
+    // flank it; the bank owns the middle.
+    const p = parts();
+    const left = p.vents.slice(0, CONTROL_SURFACE.ventCount);
+    const right = p.vents.slice(CONTROL_SURFACE.ventCount);
+    for (const v of left) expect(v.x + v.w).toBeLessThan(p.bank.x);
+    for (const v of right) expect(v.x).toBeGreaterThan(p.bank.x + p.bank.w);
+    expect(left.length).toBe(right.length);
+  });
+
+  it("is tall enough to hold hardware, and clears the glass and the action band", () => {
+    // 76 px of bar is what a row of dots fits in. The height came from space
+    // that UR-56 and UR-60 freed under this column, not from the page.
+    //
+    // WATCHED FAILING: set SHELF.h back to 76 - "expected 76 to be greater
+    // than 76".
+    expect(SHELF.h).toBeGreaterThan(76);
+    expect(SHELF.y).toBeGreaterThanOrEqual(WINDOW.y + WINDOW.h);
+    expect(SHELF.y + SHELF.h).toBeLessThan(LAUNCH.y);
+  });
+});
+
+/**
+ * UR-60 - LAUNCH IS THE FOCUS.
+ *
+ * Centred horizontally on the screen, at its foot, with the way back reduced to
+ * a small quiet control on the left. This SUPERSEDES the placement half of
+ * UR-50.1, which stacked the two actions together under the glass; that was
+ * done, and is deliberately revised.
+ */
+describe("UR-60: launch is centred on the screen and the way out is small and left", () => {
+  const overlaps = (
+    a: { x: number; y: number; w: number; h: number },
+    b: { x: number; y: number; w: number; h: number },
+  ): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+  it("centres launch on the screen's centre line, at the bottom", () => {
+    // Watch it fail: put ACTION_CX back to `WINDOW.x + WINDOW.w / 2`. The
+    // button's centre then reports 1418 against a screen centre of 960 - 458 px
+    // right of it, which is where it was.
+    const btn = launchButton();
+    expect(Math.abs(btn.x + btn.w / 2 - DESIGN_WIDTH / 2)).toBeLessThanOrEqual(1);
+    expect(ACTION_CX).toBe(DESIGN_WIDTH / 2);
+    // At the foot: nothing this screen draws is below it.
+    expect(btn.y).toBeGreaterThan(SHELF.y + SHELF.h);
+    expect(btn.y + btn.h).toBeLessThanOrEqual(GAME_HEIGHT);
+  });
+
+  it("puts the way out on the LEFT, smaller, and not beside launch", () => {
+    // The pairing UR-50.1 asked for and UR-60 revises: the two used to share a
+    // centre line 24 px apart. They are separated on purpose now.
     const chip = backChip();
     const btn = launchButton();
-    const shadow = shadowBox();
+    expect(chip.x + chip.w).toBeLessThan(btn.x);
+    expect(chip.x).toBe(GUTTER);
+    expect(chip.w * chip.h).toBeLessThan((btn.w * btn.h) / 2);
+    expect(overlaps(chip, btn)).toBe(false);
+  });
 
-    expect(overlaps(chip, shadow)).toBe(false);
-    expect(overlaps(btn, shadow)).toBe(false);
-    expect(chip.y).toBeGreaterThanOrEqual(SHELF.y + SHELF.h);
-    // The hint line sits 14 px under the button and still fits on the artboard.
-    expect(btn.y + btn.h + 14).toBeLessThan(1080);
+  it("keeps BOTH inside the frame WITH their focus rings, and off the page", () => {
+    // AC-18.1, and the reason launch is 68 px tall rather than 92. The ring is
+    // drawn outside the control and its halo wider again, so the band between
+    // the longest page and the foot of the artboard is what sizes the button.
+    //
+    // Watch it fail: set LAUNCH.h back to 92. The ring then reports a bottom of
+    // 1101 against a 1080 frame.
+    let lowestPage = 0;
+    for (const lang of LANGS) {
+      for (const stop of STOP_IDS) {
+        const rows = rowsFor(lang, stop);
+        if (rows === null) continue;
+        const page = briefingLayout(rows).page;
+        lowestPage = Math.max(lowestPage, page.y + page.h);
+      }
+    }
+    for (const [name, box] of [["launch", launchButton()], ["back", backChip()]] as const) {
+      const ring = focusRingBox(box);
+      expect(ring.y, `${name} ring over the page (lowest ${lowestPage})`).toBeGreaterThanOrEqual(
+        lowestPage - 1,
+      );
+      expect(ring.y + ring.h, `${name} ring off the frame`).toBeLessThanOrEqual(GAME_HEIGHT);
+      expect(ring.x, `${name} ring off the left`).toBeGreaterThanOrEqual(0);
+    }
+  });
 
-    // The side-by-side row this replaced, modelled, so the reason is checked
-    // rather than only written down.
-    const rowW = btn.w + 24 + chip.w;
-    const rowX = WINDOW.x + WINDOW.w / 2 - rowW / 2;
-    expect(overlaps({ x: rowX, y: btn.y, w: btn.w, h: btn.h }, shadow)).toBe(true);
+  it("does not shrink the focus ring to buy the quiet control its quiet", () => {
+    // The one thing "small and quiet" may not cost. Both rings are the same
+    // shape around their control, because `focusRingBox` is the kit's own
+    // geometry and neither control gets a private version of it.
+    const chip = backChip();
+    const btn = launchButton();
+    const chipRing = focusRingBox(chip);
+    const btnRing = focusRingBox(btn);
+    expect(chipRing.w - chip.w).toBe(btnRing.w - btn.w);
+    expect(chipRing.h - chip.h).toBe(btnRing.h - btn.h);
+  });
+
+  it("does not move either control when the world gets wider", () => {
+    // UR-19's rule, restated for the new placement: this screen is declared
+    // "fixed" (grid-conformance.spec.ts) and every landmark on it is measured
+    // against the artboard. At 16:9 and narrower - every window the game can
+    // produce that is not ultrawide - the artboard centre IS the screen centre.
+    const widths = [1920, 2561, 3840];
+    const launches = widths.map((w) => {
+      setGameWidth(w);
+      return launchButton().x;
+    });
+    const chips = widths.map((w) => {
+      setGameWidth(w);
+      return backChip().x;
+    });
+    setGameWidth(1920);
+    expect(new Set(launches).size, `launch x by width: ${launches.join(", ")}`).toBe(1);
+    expect(new Set(chips).size, `chip x by width: ${chips.join(", ")}`).toBe(1);
+  });
+
+  it("NEGATIVE CONTROL: the stacked pair it replaced was NOT centred on the screen", () => {
+    // What shipped, modelled: both boxes centred on the glass. If this ever
+    // comes out centred, the case above is measuring nothing.
+    const glassCentre = WINDOW.x + WINDOW.w / 2;
+    expect(Math.abs(glassCentre - DESIGN_WIDTH / 2)).toBeGreaterThan(400);
+    // ...and the old chip was as wide as a third of the button it sat under,
+    // which is the "not distracting" half of the report.
+    expect(BACK_CHIP.w).toBeLessThan(262);
   });
 });
 
@@ -435,8 +718,10 @@ describe("UR-19: the screen uses ONE anchoring model", () => {
     expect(new Set(positions).size, `chip x by world width: ${positions.join(", ")}`).toBe(
       1,
     );
-    // Centred on the glass since UR-50.1, not pinned to the right margin.
-    expect(positions[0]).toBe(WINDOW.x + WINDOW.w / 2 - 262 / 2);
+    // On the left gutter since UR-60, not pinned to the right margin and not
+    // centred on the glass. What this case is about is that it is anchored to
+    // the ARTBOARD wherever it sits.
+    expect(positions[0]).toBe(GUTTER);
   });
 
   it("NEGATIVE CONTROL: a viewport-anchored chip DOES move, and by how much", () => {
@@ -455,7 +740,10 @@ describe("UR-19: the screen uses ONE anchoring model", () => {
     // None of them may quietly become viewport-relative on its own.
     expect(PAGE_X).toBe(GUTTER);
     expect(RIGHT_MARGIN).toBe(1920 - GUTTER);
-    expect(backChip().x).toBeGreaterThan(PAGE_X + 884);
+    // The way out sits on the same gutter the page does (UR-60), and launch on
+    // the artboard's centre line - both artboard numbers, neither viewport.
+    expect(backChip().x).toBe(PAGE_X);
+    expect(launchButton().x + launchButton().w / 2).toBe(DESIGN_WIDTH / 2);
     expect(WINDOW.x + WINDOW.w).toBe(RIGHT_MARGIN);
   });
 });

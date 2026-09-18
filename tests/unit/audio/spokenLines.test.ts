@@ -165,9 +165,37 @@ describe("AC-21.8 / D98: the speak sites are the ones this guard knows about", (
     // per-sentence id, or stopped passing the note text through `speakNote`,
     // the lookup in `wiring.ts` would silently stop matching.
     const warp = readFileSync(join(SCENES, "WarpScene.ts"), "utf8");
-    expect(warp).toMatch(/speakNote\(\s*\{\s*note:\s*result\.note\s*\}/);
+    // The payload is keyed on `note`, i.e. the TEXT. It used to be spelled
+    // `{ note: result.note }`; UR-64 made the spoken string the note AFTER the
+    // retry rule has run, so it is now the shorthand `{ note }` over the local
+    // the renderer is also handed. The claim is unchanged and the two halves of
+    // it are asserted separately below: text, and the same text the screen
+    // shows.
+    expect(warp).toMatch(/speakNote\(\s*\{\s*note\s*[,}]/);
     const wiring = readFileSync(join(REPO, "src/game/audio/wiring.ts"), "utf8");
     expect(wiring).toContain("coachNoteClipId");
+  });
+
+  it("UR-64: the note a child HEARS is the note a child READS", () => {
+    // `showNote` takes the resolved note as its second argument and both the
+    // renderer and the voice bus are given THAT, not `result.note`. If the two
+    // ever diverged, Shadow would say out loud an offer of a retry that the
+    // screen had already withdrawn - which is the ticket, with a voice on it.
+    //
+    // Watched failing: put `result.note` back in the `speakNote` call and in
+    // the `render({ text: ... })` above it and this reports
+    //   expected 'import Phaser from "phaser";\nimport …' to contain 'render({ text: note })'
+    // and the guard above it reports
+    //   expected 'import Phaser from "phaser";\nimport …' to match
+    //   /speakNote\(\s*\{\s*note\s*[,}]/
+    const warp = readFileSync(join(SCENES, "WarpScene.ts"), "utf8");
+    expect(warp).toContain("showNote(result, this.applyRetryRule(result.note))");
+    expect(warp).toContain("private showNote(result: CoachResult, note: string): void");
+    expect(warp).toContain("render({ text: note })");
+    expect(warp).toContain("speakNote({ note }");
+    // And `result.note` reaches neither the renderer nor the bus any more.
+    expect(warp).not.toMatch(/render\(\s*\{\s*text:\s*result\.note\s*\}/);
+    expect(warp).not.toMatch(/speakNote\(\s*\{\s*note:\s*result\.note\s*\}/);
   });
 });
 

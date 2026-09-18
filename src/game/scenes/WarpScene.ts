@@ -5,7 +5,13 @@ import {
   type CoachGate,
   type CoachResult,
 } from "@engine/coach";
-import { coachRequestFor } from "./support/composeRequest";
+import {
+  promisedWord,
+  resolveRetry,
+  sentenceGives,
+  type RetryResolution,
+} from "@engine/coach/retry";
+import { coachRequestFor, retryCandidatesFor } from "./support/composeRequest";
 import { createCoachClient } from "@game/coach/transport";
 import { blastedWords, type BlastHistory } from "@game/flight/blastHistory";
 import { FLIGHT_EVENTS, type WarpSpeedPayload } from "@game/flight/stage";
@@ -41,7 +47,7 @@ import {
   type DrawLatch,
   type LaneInit,
 } from "./support/laneInit";
-import { coachAllowlist } from "./support/vocab";
+import { coachAllowlist, sightWordList } from "./support/vocab";
 import { audioFrom } from "@game/audio/wiring";
 import { chargeSoundPlan } from "./support/warpCharge";
 import {
@@ -136,8 +142,15 @@ const CALM_LAYERS: readonly LayerId[] = [
 import {
   PANEL,
   METER,
+  INSTRUMENT,
+  INSTRUMENT_INSET,
   COACH,
-  LANTERN,
+  WARP_CARDS,
+  instrumentChargedRow,
+  instrumentLabelRow,
+  lanternBox,
+  lanternStand,
+  shipBandTop,
   SENTENCE_PX,
   SENTENCE_STEP,
   WORD_PULSE_MS,
@@ -237,6 +250,12 @@ export class WarpScene extends Phaser.Scene {
   private composedReused: readonly string[] = [];
   /** Why a good composed sentence was not used after all. Test surface. */
   private composedRefused: string | null = null;
+  /**
+   * UR-64. What happened when the note's offer of a retry was checked against
+   * the sentence the child is actually given. Null until a note has arrived,
+   * and null for every note that offers nothing. See `applyRetryRule`.
+   */
+  private retry: RetryResolution | null = null;
 
   private coachResult: CoachResult | null = null;
   private coachSettled = false;
@@ -339,6 +358,7 @@ export class WarpScene extends Phaser.Scene {
     this.composedText = null;
     this.composedReused = [];
     this.composedRefused = null;
+    this.retry = null;
     // A restart IS a new warp break (a new stage ended), so the gate is new.
     this.gate = null;
     this.multiplier = 0;
@@ -396,14 +416,25 @@ export class WarpScene extends Phaser.Scene {
     // over it is the single most obvious way to say "this is a different
     // screen", which is exactly what D30 forbids.
     if (!this.overlay) {
-      // IN THE BAY, not inside the sentence card. `support/warpLayout.ts` owns
-      // both rectangles and `warpLayout.test.ts` asserts they are disjoint.
-      this.lantern = drawLantern(this, LANTERN.x, LANTERN.y, {
-        scale: LANTERN.height / LANTERN_DESIGN_HEIGHT,
+      // UR-63. AT FLIGHT'S OWN STAND, not in a bay of this screen's own: the
+      // ship a child sees on this screen is the one they have been flying, and
+      // a standalone boot that drew it somewhere else made every capture
+      // evidence about the harness rather than about the game.
+      // `support/warpLayout.ts` owns the rectangle and `warpLayout.test.ts`
+      // asserts it is disjoint from every card.
+      const stand = lanternStand();
+      this.lantern = drawLantern(this, stand.x, stand.y, {
+        scale: stand.height / LANTERN_DESIGN_HEIGHT,
         reducedMotion: this.lane.reducedMotion,
         idleBob: true,
         exhaust: true,
-        beam: true,
+        // NO STANDING BEAM. The rig's light shaft is a vertical column drawn on
+        // `shipFx`, one depth below the HUD the cards live on, so it came up
+        // through the gaps BETWEEN the cards as a pale scratch down the middle
+        // of the screen once the ship moved to the centre. Flight draws the
+        // same rig with `beam: false` for its own reasons, which means this is
+        // also the arrangement that keeps the two screens showing one ship.
+        beam: false,
         iris: 0.15,
       });
       this.parallax.layerOf("shipFx").container.add(this.lantern.container);
@@ -499,23 +530,39 @@ export class WarpScene extends Phaser.Scene {
    * The world underneath is live and moving, and copy over a moving parallax is
    * copy a child has to work to read (rubric 8: the readout owns its contrast).
    * This seats it without hiding what is behind it.
+   *
+   * UR-63: IT STOPS AT THE SHIP. The scrim used to run to the bottom of the
+   * frame at its darkest, and the darkest part of it was exactly the band the
+   * Lantern stands in - so even once the coach card was moved off the ship, the
+   * ship would have been sitting under 48% black. It now ramps up across the
+   * cards, fades back to nothing over the gap beneath them, and draws no pixel
+   * at all in the ship's band. The fade is what keeps that from being a hard
+   * horizontal edge across the middle of a live world.
    */
   private scrim(): Phaser.GameObjects.GameObject {
     const g = this.add.graphics();
     const ink = mixHex(INK.panel, "#000000", 0.2);
+    const top = 60;
+    const cardsBottom = COACH.y + COACH.h;
+    const clear = shipBandTop();
     // Abutting strips with integer edges. Overlapping translucent strips
     // composite twice where they meet and the doubled alpha shows as a hard
     // line - the first render of this scrim was a set of stripes across the
     // live world, which is worse than no scrim at all.
     const steps = 48;
-    const top = 60;
-    const height = this.scale.height - top;
+    const height = clear - top;
     for (let i = 0; i < steps; i++) {
       const a = Math.round(top + (height * i) / steps);
       const b = Math.round(top + (height * (i + 1)) / steps);
       if (b <= a) continue;
-      const t = i / (steps - 1);
-      g.fillStyle(hexToNum(ink), 0.08 + 0.4 * t);
+      const mid = (a + b) / 2;
+      // Up to the bottom of the cards, then back down to zero by the time the
+      // ship's band starts.
+      const alpha =
+        mid <= cardsBottom
+          ? 0.08 + 0.4 * ((mid - top) / Math.max(1, cardsBottom - top))
+          : 0.48 * (1 - (mid - cardsBottom) / Math.max(1, clear - cardsBottom));
+      g.fillStyle(hexToNum(ink), Math.max(0, alpha));
       g.fillRect(0, a, this.scale.width, b - a);
     }
     return g;
@@ -789,18 +836,56 @@ export class WarpScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * UR-62 - THE WARP DRIVE IS ONE INSTRUMENT.
+   *
+   * ================== THE DEFECT ==================
+   * The readout was three objects that never shared a box. "warp drive" sat
+   * left on a pill of its own; the track spanned the column 52 px below it; the
+   * percentage floated above the track's right end on a THIRD pill, anchored
+   * from the opposite side. Nothing tied them together and, because each was
+   * placed from its own anchor, they did not line up with each other either.
+   *
+   * ================== WHAT IT IS NOW ==================
+   * One plate with one border (`INSTRUMENT`), and everything the drive has to
+   * say drawn inside it:
+   *
+   *   row 1   "warp drive" at the left edge of the track and the percentage at
+   *           its right edge, ONE baseline (`instrumentLabelRow`). The two ends
+   *           of one line rather than two objects near each other.
+   *   row 2   the track, inset to the same left and right edges (`METER`).
+   *   row 3   the charged line, which used to hang below the whole thing on a
+   *           pill of its own (`instrumentChargedRow`).
+   *
+   * THE PILLS ARE GONE, AND THE CONTRAST EVIDENCE IS NOT. Text on a panel the
+   * scene drew itself does not need a `skyText` plate, but it still has to be
+   * MEASURED - "it's on a panel, trust me" is how 1.19:1 shipped once. So each
+   * label goes through `skyText` with `plated: true` and `plateFill` naming the
+   * instrument's own fill, which is what V-22.8 reads. The colour pair is
+   * unchanged: `INK.panel` is also `SKY_PLATE.fill`.
+   *
+   * THE EASING IS UNTOUCHED (AC-22.5). `easeMeterTo` still tweens `meterShown`
+   * on Cubic.Out and `paintMeter` still draws from it; this changed the
+   * rectangle that gets painted and nothing that drives it.
+   */
   private buildMeter(): Phaser.GameObjects.GameObject[] {
     const pal = this.lane.palette;
     const made: Phaser.GameObjects.GameObject[] = [];
 
-    // "warp drive" and the percentage are read off the sky either side of the
-    // meter, so they are plated and measured like everything else. The
-    // percentage was `pal.accent` on a bright stop's sky - the same 1.6:1 as
-    // the heading, on the number that tells the child how close they are.
+    // The instrument itself. One plate, one border, everything below inside it.
+    made.push(
+      plate(this, INSTRUMENT.x, INSTRUMENT.y, INSTRUMENT.w, INSTRUMENT.h, {
+        fill: INK.panel,
+        stroke: INK.line,
+        alpha: 1,
+      }),
+    );
+
+    const labelRow = instrumentLabelRow();
     const chargeLabel = skyText(
       this,
-      METER.x,
-      METER.y - 52,
+      labelRow.x,
+      labelRow.y,
       this.lane.copy.text("warp.chargeLabel"),
       {
         screen: "warp",
@@ -809,15 +894,19 @@ export class WarpScene extends Phaser.Scene {
         color: INK.textDim,
         lang: this.lane.lang,
         depth: this.headerDepth(),
-        padY: 8,
+        plated: true,
+        plateFill: INK.panel,
       },
     );
     made.push(...chargeLabel.objects);
 
+    // Right-anchored to the SAME x the track ends at, on the SAME y the label
+    // sits at. That pair is the whole of "one instrument": the readout is the
+    // right end of the label's line and the right end of the bar at once.
     const percent = skyText(
       this,
-      METER.x + METER.w,
-      METER.y - 52,
+      labelRow.x + labelRow.w,
+      labelRow.y,
       this.lane.copy.text("warp.chargePercent", { percent: 0 }),
       {
         screen: "warp",
@@ -828,7 +917,8 @@ export class WarpScene extends Phaser.Scene {
         lang: this.lane.lang,
         depth: this.headerDepth(),
         originX: 1,
-        padY: 8,
+        plated: true,
+        plateFill: INK.panel,
       },
     );
     this.percentPlated = percent;
@@ -849,14 +939,16 @@ export class WarpScene extends Phaser.Scene {
     // "warp drive charged - next stop Jupiter". The old line was "warp drive
     // charged. hold on." - true, and it never told the player they were about
     // to travel anywhere, let alone where.
-    const charged = skyText(this, METER.x, METER.y + 44, this.chargedCopy(), {
+    const chargedRow = instrumentChargedRow();
+    const charged = skyText(this, chargedRow.x, chargedRow.y, this.chargedCopy(), {
       screen: "warp",
       id: "warp.charged",
-      size: TYPE.label,
+      size: TYPE.caption,
       color: INK.accent,
       lang: this.lane.lang,
       depth: this.headerDepth(),
-      padY: 8,
+      plated: true,
+      plateFill: INK.panel,
     });
     this.chargedLabel = charged.text;
     this.chargedPlate = charged.plate;
@@ -986,24 +1078,30 @@ export class WarpScene extends Phaser.Scene {
       }),
     );
 
-    this.shadow = drawShadow(this, COACH.x + 130, COACH.y + COACH.h / 2, "pointing", {
-      scale: 0.72,
+    // The card is shorter than it was (UR-63 gave the bottom of the frame back
+    // to the ship), so Shadow and the two lines of copy are fitted to it rather
+    // than left at numbers that were chosen for a 236 px card. `SHADOW_HEIGHT`
+    // is 2.9 body radii, i.e. 186 design units, so 0.66 draws 123 px inside a
+    // 140 px card. The note gets two lines of 30 px body above the bottom edge,
+    // which is what the longest Spanish and Hindi fallback notes need.
+    this.shadow = drawShadow(this, COACH.x + 120, COACH.y + COACH.h / 2, "pointing", {
+      scale: 0.66,
       reducedMotion: this.lane.reducedMotion,
       depth: layer("hud").depth,
     });
 
     made.push(
-      label(this, COACH.x + 250, COACH.y + 36, this.lane.copy.text("warp.speaker"), {
+      label(this, COACH.x + 230, COACH.y + 22, this.lane.copy.text("warp.speaker"), {
         size: TYPE.caption,
         color: pal.accent,
         lang: this.lane.lang,
       }),
     );
 
-    this.noteText = label(this, COACH.x + 250, COACH.y + 76, "", {
+    this.noteText = label(this, COACH.x + 230, COACH.y + 56, "", {
       size: TYPE.body,
       color: INK.text,
-      wrapWidth: COACH.w - 300,
+      wrapWidth: COACH.w - 290,
       lang: this.lane.lang,
     });
     this.noteText.setAlpha(0);
@@ -1111,7 +1209,78 @@ export class WarpScene extends Phaser.Scene {
     this.coachCalls = gate.calls;
     if (!this.scene.isActive()) return;
     this.useComposedSentence(result);
-    this.showNote(result);
+    // AFTER the composed sentence, never before: a live model's sentence is
+    // built to contain this child's own hard words (gate 6 of `sentence.ts`),
+    // so on the deployed path the promise is usually already kept and this is a
+    // no-op. Running it first would have measured the promise against a
+    // sentence that was about to be replaced.
+    this.showNote(result, this.applyRetryRule(result.note));
+  }
+
+  /**
+   * UR-64 - THE OFFER AND THE SENTENCE ARE COMPARED BEFORE EITHER IS DRAWN.
+   *
+   * ================== THE DEFECT ==================
+   * Shadow can say that a word took the pilot a moment and offer to type it
+   * again together. The sentence handed over next is the stop's static
+   * `warpSentence`, which is a different string chosen by a different thing at
+   * a different time - at Pluto the note named a word the sentence did not
+   * contain at all. Nothing anywhere compared the two, so the offer was broken
+   * by construction rather than by accident.
+   *
+   * ================== WHERE THE RULE LIVES, AND WHY NOT HERE ==================
+   * `engine/coach/retry.ts`, because it is a rule over two strings and this
+   * file cannot be asserted without a browser. `resolveRetry` gets the note,
+   * the sentence as laid out, and the stop's own shipped prose as candidates,
+   * and returns the note to draw plus a replacement sentence when one exists.
+   * This method is the wiring and the two judgement calls below, and nothing
+   * else.
+   *
+   * WHEN THE SENTENCE MAY NOT BE SWAPPED. Two cases, and in both the offer is
+   * withdrawn from the note instead of being kept by force:
+   *
+   *   the child has started typing   swapping the line under them invalidates
+   *                                  the letters they have already typed and
+   *                                  reads as the game taking something away,
+   *                                  which D31 forbids more strongly than it
+   *                                  wants this. Same rule, same reason, as
+   *                                  `useComposedSentence`.
+   *   a live model wrote this one    E-AI-1's marker is on screen standing for
+   *                                  that exact string. Replacing it would
+   *                                  leave the marker pointing at a sentence
+   *                                  the model did not write, which is the one
+   *                                  thing that marker may never do.
+   */
+  private applyRetryRule(note: string): string {
+    const lang = this.lane.lang;
+    const pool = hasStageBundle(this.stopId) ? stageBundle(this.stopId).pool : [];
+    const resolution = resolveRetry({
+      note,
+      current: this.sentence.text,
+      candidates: retryCandidatesFor(this.stopId),
+      mayReplace:
+        this.composedText === null &&
+        !this.warping &&
+        this.sentence.index === 0 &&
+        this.sentence.typos === 0,
+      // THE SAME SIX GATES a live composed sentence clears, with the same
+      // allowlist and the same stage pool. Shipped prose gets no exemption:
+      // the length band and the typeable-character set are about a child
+      // TYPING the string, and a briefing line was written to be read.
+      gate: {
+        allowlist: coachAllowlist(lang),
+        pool,
+        sightWords: sightWordList(lang),
+        practised: [
+          ...(this.initData?.missed ?? []),
+          ...(this.initData?.slow ?? []),
+          ...this.blastedThisRun(),
+        ],
+      },
+    });
+    this.retry = resolution;
+    if (resolution.sentence !== null) this.relayoutSentence(resolution.sentence);
+    return resolution.note;
   }
 
   /**
@@ -1215,7 +1384,7 @@ export class WarpScene extends Phaser.Scene {
    * voice is local, so D63's actual concern - no runtime network TTS, the LLM
    * call stays the only runtime dependency (D32) - is untouched.
    */
-  private showNote(result: CoachResult): void {
+  private showNote(result: CoachResult, note: string): void {
     this.coachResult = result;
     const settle = (): void => {
       this.coachSettled = true;
@@ -1239,12 +1408,16 @@ export class WarpScene extends Phaser.Scene {
       });
     };
 
+    // `note`, NOT `result.note`. UR-64's rule may have withdrawn an offer the
+    // sentence cannot keep, and the string the child HEARS has to be the string
+    // the child READS - a spoken promise the screen does not make is the same
+    // broken offer with a voice on it.
     const audio = audioFrom(this.registry);
     if (audio === null) {
-      render({ text: result.note });
+      render({ text: note });
       return;
     }
-    audio.speakNote({ note: result.note }, render, "warp.coachNote");
+    audio.speakNote({ note }, render, "warp.coachNote");
   }
 
   // -------------------------------------------------------------------------
@@ -1661,6 +1834,17 @@ export class WarpScene extends Phaser.Scene {
   // Debug surface for the e2e suite
   // -------------------------------------------------------------------------
 
+  /**
+   * UR-64's claim, measured off the two things that are on screen: if the note
+   * as drawn offers to type a word again, the sentence as laid out contains
+   * that word. True when no offer was made.
+   */
+  private retryPromiseKept(): boolean {
+    const word = promisedWord(this.noteText.text);
+    if (word === null) return true;
+    return sentenceGives(this.sentence.text, word, this.lane.lang);
+  }
+
   snapshot(): SceneSnapshot {
     const result = this.coachResult;
     return {
@@ -1741,6 +1925,27 @@ export class WarpScene extends Phaser.Scene {
         /** D41: the effect is decoration and reduced motion turns it off. */
         suppressed: this.lane.reducedMotion,
       },
+      /**
+       * UR-63. WHERE THE SHIP IS, IN DESIGN COORDINATES.
+       *
+       * `drawn` is this scene's own rig, which exists only on a standalone
+       * boot; overlaid, the Lantern on screen is Flight's and this scene draws
+       * nothing (D30). `box` is the same rectangle either way, because both
+       * modes stand the ship at the same point at the same scale - which is the
+       * property that makes a standalone capture evidence about the game.
+       *
+       * The box is reported so a spec can CROP IT AND LOOK. Coding standards
+       * rule 7: a thing positioned correctly and rendering below the fold was
+       * invisible to every assertion three times in one night, so "the ship is
+       * on screen" is a claim about pixels and this is only where to find them.
+       */
+      ship: {
+        drawn: this.lantern !== null,
+        overlay: this.overlay,
+        box: lanternBox(),
+        bandTop: shipBandTop(),
+        cards: WARP_CARDS.map((card) => ({ ...card })),
+      },
       debris: { count: this.debrisCount, moved: this.debrisMoved },
       warping: this.warping,
       multiplier: this.multiplier,
@@ -1779,6 +1984,23 @@ export class WarpScene extends Phaser.Scene {
         refused: this.composedRefused,
         /** The stop's shipped sentence - what the fallback puts on screen. */
         shipped: this.warpSentenceText(),
+      },
+      /**
+       * UR-64. THE INVARIANT, AS DATA.
+       *
+       * `promisedWord` is read off the note AS DRAWN, not off the note the
+       * transport returned, so a test cannot be told the offer was withdrawn by
+       * a variable that disagrees with the screen. `keptBySentence` is the
+       * claim itself: when the drawn note offers a retry, the drawn sentence
+       * contains the word. It is `true` on a screen that never made an offer,
+       * because an offer that was not made cannot be broken.
+       */
+      retry: {
+        outcome: this.retry?.outcome ?? null,
+        promisedWord: promisedWord(this.noteText.text),
+        keptBySentence: this.retryPromiseKept(),
+        /** The note before the rule ran, so a test can see what was changed. */
+        rawNote: this.coachResult?.note ?? "",
       },
       coachArea: {
         ...COACH,

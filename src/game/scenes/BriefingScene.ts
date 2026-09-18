@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { hexToNum, mixHex, paletteAt } from "@game/render/palette";
 import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
-import { INK, SPACE, TYPE } from "@game/ui/theme";
+import { INK, TYPE } from "@game/ui/theme";
 import { HULL } from "@game/ui/panel";
 import type { Rect } from "@game/ui/layout";
 import {
@@ -15,10 +15,18 @@ import {
   backChip,
   briefingLayout,
   columnWidth,
+  controlStrip,
+  headerColumnWidth,
   launchButton,
-  shelfLamps,
   type Rows,
 } from "./support/briefingLayout";
+import {
+  charsRevealedAt,
+  msPerChar,
+  revealPerBlock,
+} from "./support/briefingTypewriter";
+import { drawControlSurface } from "@game/ui/controlSurface";
+import { STOP_IDS } from "@engine/types";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import {
   createFocusRing,
@@ -45,10 +53,14 @@ import { goTo, resolveInit, type ResolvedInit, type StoryInit } from "./lib/init
  *   - The planet is seen THROUGH A WINDOW: the parallax stack is masked to the
  *     window's rounded rectangle and the cockpit hull is drawn on top of it,
  *     so the depth behind the glass is real rather than a pasted circle.
- *   - Shadow is present and idle. He does not talk over the page; the page is
- *     the story here (his line is the Pre-flight screen's job, D51).
- *   - There is exactly ONE PRIMARY ACTION - launch - and at most one
- *     navigation affordance beside it.
+ *   - Shadow is present and idle, in the page's top-right corner, where he
+ *     reads as the one DELIVERING the briefing rather than standing beside it
+ *     (UR-58). He still does not talk over it; his spoken line is the
+ *     Pre-flight screen's job (D51).
+ *   - The body types itself out, fast, skippable and off under reduced motion
+ *     (UR-59; `support/briefingTypewriter.ts` holds the whole argument).
+ *   - There is exactly ONE PRIMARY ACTION - launch, on the screen's centre
+ *     line at its foot - and one small, quiet way back on the left (UR-60).
  *
  * THAT LAST LINE USED TO READ "there is exactly ONE button: launch", and UR-27
  * broke it deliberately. A player opened a planet and had no way back: Escape
@@ -78,6 +90,16 @@ import { goTo, resolveInit, type ResolvedInit, type StoryInit } from "./lib/init
  * file, where a unit test can read them without booting Phaser.
  */
 
+/** One block of the typed reveal, with what it has to be restored to. */
+interface TypedBlock {
+  readonly obj: Phaser.GameObjects.Text;
+  /** The string as it will read when the reveal is done. */
+  readonly full: string;
+  /** The same string, hard-wrapped once so the reveal cannot re-wrap it. */
+  readonly wrapped: string;
+  readonly wrapWidth: number;
+}
+
 export class BriefingScene extends Phaser.Scene implements Snapshotable {
   private story!: ResolvedInit;
   private parallax!: Parallax;
@@ -90,6 +112,13 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
   /** Off-display-list Graphics backing the window masks; see `drawCockpit`. */
   private maskSources: Phaser.GameObjects.Graphics[] = [];
   private launching = false;
+  /** The blocks the reveal walks through, in the order it walks them (UR-59). */
+  private typed: TypedBlock[] = [];
+  private revealFrom = 0;
+  private revealChars = 0;
+  private revealed = 0;
+  private revealing = false;
+  private completeReveal: (() => void) | null = null;
 
   constructor() {
     super(SCENE_KEYS.briefing);
@@ -98,6 +127,12 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
   init(data: StoryInit): void {
     this.story = resolveInit(data, "mars");
     this.launching = false;
+    // A restart reuses the instance, and a reveal left "in progress" from the
+    // last stop would report a page that is already on screen as still typing.
+    this.typed = [];
+    this.revealChars = 0;
+    this.revealed = 0;
+    this.revealing = false;
   }
 
   create(): void {
@@ -154,23 +189,38 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     // --- the page ---------------------------------------------------------
     this.drawPage(pal.accent);
 
-    // --- Shadow, present and out of the way -------------------------------
-    // UNDER THE GLASS, not under the page. He stood at (176, 964), directly
-    // beneath the text column, which is what capped the page at ~856 and left
-    // the briefing no room for its own last line (UR-20). The left side is the
-    // page's now; Shadow stands where the player is looking out.
+    // --- Shadow, delivering it (UR-58) ------------------------------------
+    //
+    // Top-right of the page, not bottom-centre beside the button. Standing on
+    // the button row he read as an ornament next to a control; in the page's
+    // own corner he is the figure the briefing is coming FROM, which is the
+    // read the report asked for and the one the typed reveal above depends on.
+    //
+    // FACING THE TYPE. He is mirrored so he looks back across the column at the
+    // words appearing rather than off the right edge of the page.
+    //
+    // The corner he stands in is reserved by the flow (`SHADOW_NOTCH`), not
+    // dodged by him: the header run is wrapped narrower and floored at his
+    // height, so no stop's copy and no language's line box can put a sentence
+    // under him. THE SHARED `drawShadow`, as everywhere else - there is one
+    // implementation of this figure and a second private one has shipped in
+    // this repo before (standards rule 3).
     this.shadow = drawShadow(this, SHADOW_AT.x, SHADOW_AT.y, "idle", {
       scale: SHADOW_AT.scale,
       reducedMotion: ctx.reducedMotion,
+      facing: -1,
+      // Above the page plate (17) and its type (18): he stands ON the paper.
       depth: 20,
     });
 
-    // --- the two actions, together (UR-50.1) ------------------------------
+    // --- launch, on the screen's centre line (UR-60) -----------------------
     //
-    // The way out used to sit top-right, 820 px from the button it is an
-    // alternative to. It is directly above it now. `briefingLayout` owns both
-    // boxes and the reason they are stacked rather than side by side (Shadow
-    // stands where the row's left half would be).
+    // The two actions were stacked over each other under the glass (UR-50.1),
+    // right of centre, so the screen's one forward action was neither centred
+    // nor obviously the biggest thing on it. UR-60 revises that deliberately:
+    // launch alone at the foot of the screen, on its centre line, and the way
+    // out small and quiet on the left gutter. `briefingLayout` owns both boxes
+    // and the measurement that sizes them.
     const btn = launchButton();
     plate(this, btn.x, btn.y, btn.w, btn.h, {
       fill: INK.panelRaised,
@@ -195,33 +245,41 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
      * of its own to say. Removed, not relocated; `ui/hint.ts` carries the rule.
      */
 
-    // --- the way out (UR-27) ----------------------------------------------
+    // --- the way out (UR-27), small and on the left (UR-60) ---------------
     //
     // Escape has always worked (`onBack`, below, and `kit.createKeyboardMenu`
     // fires it on Escape or Backspace). Nothing was broken; the affordance was
-    // INVISIBLE. The screen said "enter to launch" and never named the other
-    // key, and a player who arrived by CLICKING a planet had no pointer target
-    // to leave with - an input supported one way only. Both halves are fixed:
-    // the hint now names Escape, and this chip is a real focus target, so the
-    // keyboard and the pointer reach exactly the same set of controls (the
-    // menu kit builds one hit zone per target).
+    // INVISIBLE, and a player who arrived by CLICKING a planet had no pointer
+    // target to leave with - an input supported one way only. This chip is
+    // still a real focus target, so the keyboard and the pointer reach exactly
+    // the same set of controls (the menu kit builds one hit zone per target).
+    //
+    // QUIET IS SIZE, INK AND PLACE - NEVER THE RING. The plate is the unlit
+    // `INK.panel` with no accent stroke and its label is caption-sized in
+    // `INK.textDim`; the focus ring it gets when the caret reaches it is the
+    // same width and the same offset launch gets (AC-18.1). A ring trimmed to
+    // suit a small control is how a keyboard-only child loses the caret, and a
+    // previous lane already reported a focus-ring defect on this screen that
+    // turned out to be a 29.7 s timeout rather than a ring (standards rule 9).
     const chip = backChip();
-    plate(this, chip.x, chip.y, chip.w, chip.h, { fill: INK.panelRaised }).setDepth(21);
+    plate(this, chip.x, chip.y, chip.w, chip.h, { fill: INK.panel }).setDepth(21);
     label(this, chip.x + chip.w / 2, chip.y + chip.h / 2, text.text("briefing.back"), {
-      size: TYPE.label,
-      color: INK.text,
+      size: TYPE.caption,
+      color: INK.textDim,
       align: "center",
       lang,
     })
       .setOrigin(0.5)
       .setDepth(22);
 
-    // TOP TO BOTTOM, which is now the order they are DRAWN in. Arrow keys walk
-    // this list, so a list ordered [launch, back] while the screen shows back
-    // above launch would make Down move the ring upwards. `openingIndex`
+    // LEFT TO RIGHT, which is the order they are now ON THE SCREEN. Arrow keys
+    // walk this list - the vertical axis routes Right and Down forward, Left
+    // and Up back - so a list ordered [launch, back] against a screen showing
+    // back on the left would send the ring the wrong way. `openingIndex`
     // (`lib/kit.ts`) opens on the target flagged `primary`, not on index 0, so
     // launch still holds focus when the screen opens - which is the property
-    // the one-primary-action rule actually cares about.
+    // the one-primary-action rule actually cares about, and it is the same
+    // property whether the two controls are stacked or separated.
     const targets: FocusTarget[] = [
       {
         id: "back",
@@ -298,17 +356,27 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     g.fillRect(WINDOW.x + WINDOW.w * 0.42, WINDOW.y, 16, WINDOW.h);
     g.fillRect(WINDOW.x, WINDOW.y + WINDOW.h * 0.7, WINDOW.w, 12);
 
-    // Instrument shelf: quiet, unlabelled, no readouts a child could fail.
-    // THE WIDTH OF THE GLASS, and the lamps centred in it (UR-50.2). See
-    // `briefingLayout.SHELF` for the measurement that was actually wrong.
-    g.fillStyle(hexToNum(INK.panel), 1);
-    g.fillRoundedRect(SHELF.x, SHELF.y, SHELF.w, SHELF.h, SPACE.radius);
-    const lampY = SHELF.y + SHELF.h / 2;
-    for (const [i, cx] of shelfLamps().entries()) {
-      const lit = i % 3 === 0;
-      g.fillStyle(hexToNum(lit ? accent : INK.line), lit ? 0.75 : 1);
-      g.fillCircle(cx, lampY, SHELF.lampR);
-    }
+    /**
+     * THE CONTROL STRIP, AS SHIP HARDWARE (UR-61).
+     *
+     * It was a rounded bar in `INK.panel` with nine flat circles on it, and it
+     * was reported as reading like a row of dots rather than like the ship
+     * controls it is meant to be. The fix is not a redraw of this one bar: the
+     * Settings screen already speaks a console language (UR-11) - milled face,
+     * screws, glass recesses, one light from above - and inventing a second one
+     * for this screen is what standards rule 1 is about. `ui/controlSurface.ts`
+     * is that language, extracted so both screens draw with it.
+     *
+     * It keeps the width of the glass and the centred lamp group UR-50.2 asked
+     * for; what it gains is a frame, fixings, depth and cooling slots, plus one
+     * lamp per stop with the stop being briefed burning - so the row of lights
+     * is a readout rather than a decoration in the shape of one.
+     */
+    drawControlSurface(g, controlStrip(), {
+      lamps: SHELF.lamps,
+      lit: STOP_IDS.indexOf(this.story.stopId),
+      accent,
+    });
   }
 
   /** The picture-book page: one warm column, large type, nothing to fill in. */
@@ -324,21 +392,25 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     // the plate has to be. The old code flowed the sentences from a fixed start
     // and then drew the footer at an absolute y, so on five of the seven stops
     // the flow ran straight through the footer (UR-20).
-    const wrapWidth = columnWidth();
     const build = (
       id: string,
       content: string,
       size: number,
       color: string,
       gapAfter: number,
+      group: "header" | "body" = "body",
     ): { row: Rows; obj: Phaser.GameObjects.Text } => {
+      // THE HEADER RUN IS NARROWER, because Shadow stands beside it (UR-58).
+      // The body keeps the full column; `briefingLayout` owns both widths and
+      // the flow that reserves his corner.
+      const wrapWidth = group === "header" ? headerColumnWidth() : columnWidth();
       const obj = label(this, 0, 0, content, {
         size,
         color,
         wrapWidth,
         lang,
       }).setDepth(18);
-      return { row: { id, height: obj.height, gapAfter }, obj };
+      return { row: { id, height: obj.height, gapAfter, group }, obj };
     };
 
     const blocks = [
@@ -346,9 +418,9 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
       // below AC-22.8's 4.5:1 - because the sky-borne contrast sweep only ever
       // looked at text drawn over the WORLD, and this sits on a plate the scene
       // drew itself. Same bar, whatever it is printed on.
-      build("eyebrow", text.text("briefing.heading"), TYPE.caption, INK.textDim, 14),
-      build("planet", this.bundle.planetName, TYPE.heading, INK.text, 12),
-      build("chapter", this.bundle.chapterTitle, TYPE.label, accent, 40),
+      build("eyebrow", text.text("briefing.heading"), TYPE.caption, INK.textDim, 14, "header"),
+      build("planet", this.bundle.planetName, TYPE.heading, INK.text, 12, "header"),
+      build("chapter", this.bundle.chapterTitle, TYPE.label, accent, 40, "header"),
       // `text.fill`, not the raw sentence: Earth's opening line carries C07's
       // `{shipName}` token and `stageBundle` hands the prose over unbound, so
       // the first briefing in the game printed "{shipName}" at a child.
@@ -378,10 +450,101 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
 
     // NO CAPTION OVER THE GLASS (UR-50.3). There used to be a "through the
     // window" label here, on the hull above the window, and it was the only
-    // reason the window could not start on the page's own line. A player asked
-    // for it to go; the argument for going is that it named the thing it sat
-    // on. The alignment it was costing is asserted in `briefingLayout.test.ts`.
+    // reason the window could not start on the page's own line. The caption
+    // named the thing it sat on; the alignment it was costing is asserted in
+    // `briefingLayout.test.ts`.
+
+    // THE BODY TYPES ITSELF OUT (UR-59). The header does not: the eyebrow, the
+    // planet's name and the chapter are WHERE YOU ARE, and a child should never
+    // have to wait to find that out. What reveals is what Shadow is telling
+    // them - the sentences and the line that closes them.
+    this.armTypewriter(
+      blocks
+        .filter((b) => b.row.group !== "header")
+        .map((b) => b.obj),
+    );
   }
+
+  /**
+   * Arm the reveal (UR-59). Cadence, ceiling and the reasoning: `support/
+   * briefingTypewriter.ts`.
+   *
+   * ================== WHY IT PRE-WRAPS ==================
+   * The text is hard-wrapped once, up front, and the reveal prints a prefix of
+   * THAT rather than of the raw sentence with soft wrapping left on. Otherwise
+   * the word being typed wraps on its own: it fits the current line while it is
+   * three letters long, and jumps to the next line when it is eight, so every
+   * long word at a line end makes the paragraph below it twitch. `getWrappedText`
+   * gives the exact lines Phaser was going to draw anyway.
+   *
+   * The original string and its wrap width are restored the moment the reveal
+   * finishes, so the screen a player reads - and the text every sweep measures -
+   * is byte-for-byte what it was before this existed.
+   */
+  private armTypewriter(objects: readonly Phaser.GameObjects.Text[]): void {
+    // AC-19.3 / D41: reduced motion means the page is simply there. This is the
+    // live reader of `settings.reducedMotion` on this screen's text path, which
+    // is what UR-38 asks every persisted field to have.
+    if (this.story.ctx.reducedMotion) return;
+    this.typed = objects.map((obj) => ({
+      obj,
+      full: obj.text,
+      wrapped: obj.getWrappedText().join("\n"),
+      wrapWidth: obj.style.wordWrapWidth ?? columnWidth(),
+    }));
+    this.revealChars = this.typed.reduce((n, b) => n + b.wrapped.length, 0);
+    if (this.revealChars === 0) {
+      this.typed = [];
+      return;
+    }
+    for (const block of this.typed) {
+      block.obj.setWordWrapWidth(null);
+      block.obj.setText("");
+    }
+    this.revealFrom = this.time.now;
+    this.revealed = 0;
+    this.revealing = true;
+    /**
+     * ANY KEY FINISHES IT, AND THE KEY STILL DOES ITS OWN JOB.
+     *
+     * No `preventDefault`, no `stopPropagation`, no flag that swallows the
+     * first keystroke: this listener completes the page and the keyboard menu's
+     * own listener runs on the same event. So Enter on arrival completes the
+     * reveal AND launches, which is the property the ticket cares about - a
+     * child who has seen Neptune four times presses the key they always press
+     * and the reveal costs them nothing.
+     */
+    this.input.keyboard?.on("keydown", this.finishReveal, this);
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, this.finishReveal, this);
+    this.completeReveal = () => {
+      this.input.keyboard?.off("keydown", this.finishReveal, this);
+      this.input.off(Phaser.Input.Events.POINTER_DOWN, this.finishReveal, this);
+    };
+  }
+
+  /** Show `this.revealed` characters of the run, spread across its blocks. */
+  private paintReveal(): void {
+    const counts = revealPerBlock(
+      this.typed.map((b) => b.wrapped.length),
+      this.revealed,
+    );
+    for (const [i, block] of this.typed.entries()) {
+      block.obj.setText(block.wrapped.slice(0, counts[i] ?? 0));
+    }
+  }
+
+  /** Put the whole page on screen, exactly as it would have been drawn. */
+  private finishReveal = (): void => {
+    if (!this.revealing) return;
+    this.revealing = false;
+    this.revealed = this.revealChars;
+    for (const block of this.typed) {
+      block.obj.setText(block.full);
+      block.obj.setWordWrapWidth(block.wrapWidth, true);
+    }
+    this.completeReveal?.();
+    this.completeReveal = null;
+  };
 
   /**
    * Briefing -> Pre-flight is one of the four transitions D62 asks to be
@@ -420,6 +583,16 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
   override update(time: number, delta: number): void {
     this.parallax.update(delta);
     this.shadow.update(time);
+    if (!this.revealing) return;
+    // DRIVEN BY THE SCENE CLOCK, not by a timer per character. A 370-character
+    // page would be 370 `time.addEvent` callbacks to leak on a restart, and the
+    // restart path on this screen has leaked objects before (see `maskSources`).
+    const shown = charsRevealedAt(time - this.revealFrom, this.revealChars);
+    if (shown !== this.revealed) {
+      this.revealed = shown;
+      this.paintReveal();
+    }
+    if (shown >= this.revealChars) this.finishReveal();
   }
 
   snapshot(): SceneSnapshot {
@@ -442,6 +615,40 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
       })),
       focusId: this.menu.targets[this.menu.index]?.id ?? null,
       shipName: this.story.shipName,
+      /**
+       * WHERE THE DRAWN FIGURE IS, not where the constant says he should be
+       * (UR-58). Read off the live container - including the scale, which is
+       * the half of this the report explicitly allows to change - so the e2e
+       * checks the screen rather than re-reading `briefingLayout`'s own numbers
+       * back to itself.
+       */
+      shadowAt: {
+        x: this.shadow.root.x,
+        y: this.shadow.root.y,
+        // scaleX carries the mirror (`facing: -1`); scaleY is the size.
+        scale: Math.abs(this.shadow.root.scaleY),
+      },
+      /** The plate the column was flowed into, which varies by stop. */
+      page: { ...this.page },
+      /**
+       * THE REVEAL, AS STATE THE E2E CAN WAIT FOR (UR-59).
+       *
+       * `text` below is a snapshot of what is on screen at this instant, so
+       * while the page is typing it is a snapshot of a PREFIX. A spec that
+       * asserts the copy has to wait for `complete`, not for a clock
+       * (standards rule 6), and a spec that asserts the reveal happened at all
+       * needs to see it mid-flight. Both need this published.
+       *
+       * `enabled` is false under reduced motion, which is how the a11y claim is
+       * checked without measuring pixels.
+       */
+      typewriter: {
+        enabled: this.revealChars > 0,
+        complete: !this.revealing,
+        revealed: this.revealed,
+        total: this.revealChars,
+        msPerChar: msPerChar(this.revealChars),
+      },
       text: visibleText(this),
     };
   }
@@ -449,6 +656,13 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
   private teardown(): void {
     for (const g of this.maskSources) g.destroy();
     this.maskSources = [];
+    // The reveal's two input listeners outlive the scene's objects if nothing
+    // removes them, and `scene.restart()` is how every e2e sweep drives this
+    // screen - seven stops is seven restarts.
+    this.completeReveal?.();
+    this.completeReveal = null;
+    this.revealing = false;
+    this.typed = [];
     this.menu.destroy();
     this.shadow.destroy();
     this.parallax.destroy();

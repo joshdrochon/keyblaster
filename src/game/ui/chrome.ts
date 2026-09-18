@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { idleDriftPx, layer } from "@game/render/layers";
-import { menuDebris, menuStars } from "./starfield.js";
+import { menuDebris, menuStars, type StarMote } from "./starfield.js";
+import { twinkleAlpha } from "@game/render/starField";
 import { particleSpec } from "@game/render/particles";
 import { DUR, EASE, INK, SPACE } from "./theme.js";
 import type { TrophyGlyphId } from "./catalog.js";
@@ -74,6 +75,17 @@ export class Backdrop {
   private readonly g: Phaser.GameObjects.Graphics;
   private readonly motes: Phaser.GameObjects.Arc[] = [];
   private readonly midfield: Phaser.GameObjects.Graphics;
+  /**
+   * The stars get their OWN Graphics, one depth step above the sky gradient.
+   *
+   * Not an optimisation - a separation of what changes from what does not. The
+   * gradient and its eight bloom contours are painted once; the stars are
+   * cleared and refilled every frame so they can flicker (UR-14). Sharing one
+   * Graphics would mean repainting nine ellipses a frame to move ninety alphas.
+   * It is also never repositioned, which is the other half of the same rule.
+   */
+  private readonly starsG: Phaser.GameObjects.Graphics;
+  private readonly stars: readonly StarMote[];
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -81,9 +93,14 @@ export class Backdrop {
     private readonly reducedMotion: boolean,
   ) {
     this.g = scene.add.graphics().setDepth(layer("sky").depth);
+    this.starsG = scene.add.graphics().setDepth(layer("sky").depth + 0.1);
     this.midfield = scene.add.graphics().setDepth(layer("midField").depth);
+    // Placement is `starfield.menuStars`: deterministic, because a menu that
+    // reshuffles its stars on every navigation flickers, and sized to the scene
+    // rather than to a constant.
+    this.stars = menuStars(this.width, this.height);
     this.paintSky();
-    this.paintStars();
+    this.paintStars(0);
     this.paintDebris();
     this.spawnMotes();
   }
@@ -122,13 +139,33 @@ export class Backdrop {
     }
   }
 
-  private paintStars(): void {
-    // Placement is `starfield.menuStars`: deterministic, because a menu that
-    // reshuffles its stars on every navigation flickers, and sized to the
-    // scene rather than to a constant.
-    for (const star of menuStars(this.width, this.height)) {
-      this.g.fillStyle(hexToNum(INK.text), star.alpha);
-      this.g.fillCircle(star.x, star.y, star.r);
+  /**
+   * THE MENU'S STARS: PINNED, AND FLICKERING (UR-14).
+   *
+   * Every star is redrawn at the x and y it was placed with - there is no
+   * per-frame term on either, here or anywhere this Graphics is touched, and
+   * `starsG` is never repositioned. The ONLY thing that varies with time is the
+   * alpha, and it varies through `render/starField.twinkleAlpha`, the same
+   * function the world's field uses, from parameters the same module hands out.
+   *
+   * These stars used to be painted once into the sky Graphics and never touched
+   * again. That satisfied "stay put" and failed "flicker slowly at varying
+   * intervals" on five screens, which is half of a report we have now had three
+   * times. A field that never changes is not compliant, it is just not the part
+   * that got noticed.
+   */
+  private paintStars(elapsedMs: number): void {
+    const ink = hexToNum(INK.text);
+    // Reduced motion slows the twinkle rather than stopping it, exactly as the
+    // world's field does (D41: the world stays alive, it stops being busy).
+    const scale = this.reducedMotion ? 2.2 : 1;
+    this.starsG.clear();
+    for (const star of this.stars) {
+      this.starsG.fillStyle(
+        ink,
+        twinkleAlpha(star.alpha, star.swing, star.period * scale, star.phase, elapsedMs),
+      );
+      this.starsG.fillCircle(star.x, star.y, star.r);
     }
   }
 
@@ -183,6 +220,8 @@ export class Backdrop {
   /** Called from the scene's update loop; keeps the debris field alive. */
   update(elapsedMs: number): void {
     this.midfield.x = idleDriftPx(layer("midField"), elapsedMs, this.reducedMotion);
+    // The stars do not get a line like the one above, and that is the point.
+    this.paintStars(elapsedMs);
   }
 }
 

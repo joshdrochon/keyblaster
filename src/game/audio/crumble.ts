@@ -47,6 +47,31 @@
  *
  * D31: this is the reward at the centre of the game, so it may be satisfying and
  * it may be big, and it may never be violent. Dry stone, not detonation.
+ *
+ * ================== UR-66: TWO MATERIALS, NOT ONE SOUND ==================
+ *
+ * UR-66 reports that the shipped grain set reads as ICE, that this is RIGHT at
+ * the frozen stops and wrong at the rocky ones, and asks for a drier, heavier
+ * rock beside it. So this is ADDITIVE: `ICE_CRUMBLE_SHAPE` is the shipped set,
+ * byte-for-byte, and `ROCK_CRUMBLE_SHAPE` is a second band of resonances next
+ * to it. Retuning the shipped one to split the difference would lose the half
+ * that already works, which is the one thing UR-66 asks to keep.
+ *
+ * THE SELECTOR IS THE DEBRIS TYPE, NEVER THE STOP. `MATERIAL_BY_DEBRIS_TYPE`
+ * below maps every row of `render/asteroid.ts`'s FR-12b table. Jupiter carries
+ * four materials on one board, so a per-stop switch would give carbonaceous,
+ * silicate, metal and Trojan rock one sound between them and would have been
+ * wrong on the day it shipped.
+ *
+ * THE ENVELOPE IS SHARED BY CONSTRUCTION, WHICH IS WHY THE SHARDS STILL FIT.
+ * `render/particles.ts` schedules 12 shard waves against the measured fall of
+ * this file (UR-48: fracture 0 ms, debris 15-22 ms, density decay 150 ms, last
+ * fragment 400-460 ms). Every material therefore shares `grains`, `densityTau`
+ * and `CRUMBLE_SECONDS`, and every material is baked from the SAME seeds - so
+ * the per-grain random draws run in the same order and land each fragment at
+ * the same instant. Only the resonances, the ring lengths and the darkening
+ * differ. A material that moved `densityTau` would move the picture too, and
+ * `rendered.test.ts` fails on exactly that.
  */
 
 import { clamp, seededRandom } from "./context.js";
@@ -79,7 +104,15 @@ export interface CrumbleShape {
   readonly maxRingMs: number;
 }
 
-export const CRUMBLE_SHAPE: CrumbleShape = Object.freeze({
+/**
+ * THE SHIPPED SOUND (UR-48), AND UR-66 KEEPS IT EXACTLY.
+ *
+ * Bright, short-ringing fragments over two and a half octaves. UR-66 reports
+ * this reads as ice and lands well where the debris IS ice, so not one number
+ * here may move; `rendered.test.ts` pins all six baked buffers to the
+ * checksums they had before UR-66 was touched.
+ */
+export const ICE_CRUMBLE_SHAPE: CrumbleShape = Object.freeze({
   grains: 64,
   densityTau: 0.15,
   loHz: 520,
@@ -88,6 +121,170 @@ export const CRUMBLE_SHAPE: CrumbleShape = Object.freeze({
   minRingMs: 7,
   maxRingMs: 34,
 });
+
+/**
+ * UR-66's SECOND MATERIAL: dry, heavy, crumbling stone.
+ *
+ * Four numbers move and three do not, and which is which is the whole design.
+ *
+ * MOVED. The resonance band drops from 520-5200 Hz to 300-2200 Hz - most of an
+ * octave down at the bottom and more than an octave off the top, which is where
+ * the icy glitter lived. `darkening` rises 0.4 -> 0.5 so the fall dulls faster
+ * than an ice fall does; a rock's late fragments are tumbling, not tinkling.
+ * `maxRingMs` comes in 34 -> 32 with `minRingMs` up 7 -> 8, narrowing the
+ * spread: stone rings less freely than ice, and a wide spread of ring lengths
+ * is part of what makes the shipped set sparkle.
+ *
+ * Measured over the six baked buffers at 48 kHz, against the ice set built from
+ * the same seeds: median rolloff 298-472 Hz against 550-916 Hz (0.515-0.542x,
+ * every seed, no overlap), the fraction of energy above 2 kHz down from
+ * 1.79-3.35% to 0.020-0.088% (38x to 113x), and the fraction below 400 Hz up
+ * from 1.02-3.36% to 27.6-56.2% (17x to 33x). Duller on top and heavier
+ * underneath: a different material, not a detuning of the same one.
+ *
+ * NOT MOVED, and these are load-bearing: `grains`, `densityTau`, and the seeds
+ * this is baked from. Those three together are the fall's shape in TIME, and
+ * the shard schedule in `render/particles.ts` is built against it.
+ */
+export const ROCK_CRUMBLE_SHAPE: CrumbleShape = Object.freeze({
+  grains: 64,
+  densityTau: 0.15,
+  loHz: 300,
+  hiHz: 2200,
+  darkening: 0.5,
+  minRingMs: 8,
+  maxRingMs: 32,
+});
+
+/**
+ * Kept as the name the rest of the program already imports, and kept pointing
+ * at ice: every existing caller wanted the shipped sound and still gets it.
+ */
+export const CRUMBLE_SHAPE: CrumbleShape = ICE_CRUMBLE_SHAPE;
+
+/**
+ * WHICH MATERIALS EXIST (UR-66).
+ *
+ * TWO, and the count is a decision rather than a floor. Ice and rock are what
+ * the report distinguishes and they are what the table splits into. A third for
+ * M-type nickel-iron was considered and declined: it is one row of thirteen,
+ * present at one stop, described by FR-12b as the rare one, and nobody has
+ * reported it sounding wrong. Every extra material is a second grain set to
+ * bake per context (six 0.5 s buffers, ~576 kB at 48 kHz) and, because UR-66
+ * closes on a human listening rather than on a number, another sound somebody
+ * has to sit down and approve. Metal sits with rock until there is a report
+ * that says it should not.
+ */
+export type CrumbleMaterial = "ice" | "rock";
+
+/** Every material, for harnesses that must sweep rather than sample (rule 5). */
+export const CRUMBLE_MATERIALS: readonly CrumbleMaterial[] = Object.freeze([
+  "ice",
+  "rock",
+] as const);
+
+/** The grain set each material is baked from. Total over `CrumbleMaterial`. */
+export const CRUMBLE_SHAPES: Readonly<Record<CrumbleMaterial, CrumbleShape>> = Object.freeze({
+  ice: ICE_CRUMBLE_SHAPE,
+  rock: ROCK_CRUMBLE_SHAPE,
+});
+
+/**
+ * Every debris type in `render/asteroid.ts`'s FR-12b table, as a literal union.
+ *
+ * WHY THE IDS ARE RESTATED HERE RATHER THAN DERIVED. `DEBRIS_BY_STOP` is typed
+ * `Record<StopId, readonly DebrisType[]>` with `id: string`, so there is no
+ * literal union to import - and audio importing the render layer to read a
+ * colour table would be the wrong dependency anyway. Restating them buys the
+ * thing that matters: `Record<DebrisTypeId, CrumbleMaterial>` below is a TOTAL
+ * map, so a material cannot be omitted without the compiler saying so, and
+ * `rendered.test.ts` asserts this union and the real table have exactly the
+ * same members in both directions. A row added to FR-12b turns that test red;
+ * it cannot quietly inherit a sound nobody picked.
+ */
+export type DebrisTypeId =
+  | "mars-regolith"
+  | "c-type"
+  | "s-type"
+  | "m-type"
+  | "jupiter-trojan"
+  | "saturn-ice-chunk"
+  | "saturn-dust-grain"
+  | "uranus-dark-ice"
+  | "neptune-icy-body"
+  | "neptune-ring-dust"
+  | "kuiper-water-ice"
+  | "kuiper-methane-ammonia-ice"
+  | "small-kbo";
+
+/**
+ * UR-66's MAPPING: what each debris type is made of, as far as the ear cares.
+ *
+ * Read down the FR-12b `label` column and the split is the report's own:
+ * regolith, carbonaceous, silicate and metal are stone; ring ice, dark icy ring
+ * particles, icy bodies and the Kuiper ices are frozen.
+ *
+ * THE TWO JUDGEMENT CALLS, both written down because neither is forced:
+ *
+ *   `jupiter-trojan` is ROCK. FR-12b calls it dark and reddish with some water
+ *   ice, so it could go either way; it sits on Jupiter's board with three
+ *   stone types and is drawn in their family of browns, and a lone icy shatter
+ *   in the middle of a rocky belt is the exact complaint UR-66 makes.
+ *
+ *   `small-kbo` is ICE. Kuiper objects are ice-and-rock mixtures, so this could
+ *   also go either way; it sits on Pluto's board, which is the one UR-66 names
+ *   as already right, and putting a stone crumble on one of Pluto's three types
+ *   would break the half of the game the report asks to leave alone.
+ *
+ * The two dust rows (`carriesWord: false`) are mapped for totality rather than
+ * for sound: nothing ever blasts a dust grain.
+ */
+export const MATERIAL_BY_DEBRIS_TYPE: Readonly<Record<DebrisTypeId, CrumbleMaterial>> =
+  Object.freeze({
+    "mars-regolith": "rock",
+    "c-type": "rock",
+    "s-type": "rock",
+    "m-type": "rock",
+    "jupiter-trojan": "rock",
+    "saturn-ice-chunk": "ice",
+    "saturn-dust-grain": "ice",
+    "uranus-dark-ice": "ice",
+    "neptune-icy-body": "ice",
+    "neptune-ring-dust": "ice",
+    "kuiper-water-ice": "ice",
+    "kuiper-methane-ammonia-ice": "ice",
+    "small-kbo": "ice",
+  });
+
+/**
+ * What an UNRECOGNISED debris id sounds like, and why it is a named constant.
+ *
+ * A blast cannot throw - a child destroying a rock is the last place in the
+ * program that may fail - so something has to come back for an id this map has
+ * never heard of. Ice, because ice is what the game shipped for every type
+ * before UR-66: an unmapped type sounds exactly as it does today rather than
+ * silently acquiring the new sound. It is a chosen fallback, not a default, and
+ * the totality test is what stops it ever being reached in this build.
+ */
+export const UNMAPPED_DEBRIS_MATERIAL: CrumbleMaterial = "ice";
+
+/** Whether this id is one the FR-12b mapping above covers. */
+export function isMappedDebrisType(id: string): id is DebrisTypeId {
+  return Object.prototype.hasOwnProperty.call(MATERIAL_BY_DEBRIS_TYPE, id);
+}
+
+/**
+ * The material to crumble for the debris type that was destroyed (UR-66).
+ *
+ * `undefined` is the caller that has no debris type to give - a UI blast, a
+ * test, a cue emitted before a rock was resolved - and gets the shipped sound.
+ */
+export function crumbleMaterialFor(debrisTypeId: string | undefined | null): CrumbleMaterial {
+  if (typeof debrisTypeId !== "string") return UNMAPPED_DEBRIS_MATERIAL;
+  return isMappedDebrisType(debrisTypeId)
+    ? MATERIAL_BY_DEBRIS_TYPE[debrisTypeId]
+    : UNMAPPED_DEBRIS_MATERIAL;
+}
 
 /**
  * One crumble, as plain samples, peak-normalised to 1.

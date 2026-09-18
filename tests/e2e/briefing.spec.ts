@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { gameCanvas } from "./support/lane.js";
 import { mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -7,9 +7,11 @@ import {
   PUNISHMENT_WORDS,
   expectNoPunishment,
   mount,
+  remount,
   snapshot,
   transitions,
 } from "./story-lane";
+import { DESIGN_WIDTH } from "../../src/game/sceneKeys.js";
 import {
   checkWord,
   createAllowlist,
@@ -169,12 +171,69 @@ test.describe("Stage bundles (AC-12.2, AC-12.3, AC-13.2, AC-25.3)", () => {
 // The screen
 // ---------------------------------------------------------------------------
 
+/**
+ * WAIT FOR THE PAGE TO BE FINISHED TYPING, NOT FOR A CLOCK (UR-59).
+ *
+ * The briefing reveals itself character by character now, so `snapshot().text`
+ * taken on arrival is a snapshot of a PREFIX. Anything asserting the copy has
+ * to wait for the scene to say it is done - a `waitForTimeout` of the reveal ceiling
+ * would be a guess that gets slower and flakier as copy grows, and standards
+ * rule 6 is explicit that a clock is not a synchronisation primitive.
+ */
+async function revealed(page: Page): Promise<void> {
+  await page.waitForFunction(
+    (key: string) => {
+      const scene = (
+        window as unknown as {
+          __kb?: { game: { scene: { getScene(k: string): { snapshot?: () => unknown } | null } } };
+        }
+      ).__kb?.game.scene.getScene(key);
+      const snap = scene?.snapshot?.() as
+        | { typewriter?: { complete?: boolean } }
+        | undefined;
+      return snap?.typewriter?.complete === true;
+    },
+    "Briefing",
+    { timeout: 30_000 },
+  );
+}
+
+/** Every hit zone the keyboard menu built, which is what a control really is. */
+async function controlBoxes(
+  page: Page,
+): Promise<{ id: string; x: number; y: number; w: number; h: number }[]> {
+  return page.evaluate((key: string) => {
+    const kb = (window as unknown as { __kb: Record<string, unknown> }).__kb;
+    const game = kb["game"] as {
+      scene: {
+        getScene(k: string): {
+          children: {
+            list: { name?: string; x: number; y: number; width: number; height: number }[];
+          };
+        } | null;
+      };
+    };
+    const scene = game.scene.getScene(key);
+    if (scene === null) return [];
+    return scene.children.list
+      .filter((o) => typeof o.name === "string" && o.name.startsWith("kb-hit:"))
+      .map((o) => ({
+        id: (o.name as string).slice("kb-hit:".length),
+        x: o.x,
+        y: o.y,
+        w: o.width,
+        h: o.height,
+      }));
+  }, "Briefing");
+}
+
 test.describe("Briefing (row 4)", () => {
   // Software WebGL under parallel workers; see the note on mount().
   test.setTimeout(120_000);
 
   test("the page is 3-5 story sentences, not a worksheet", async ({ page }) => {
     await mount(page, KEY, { stopId: "mars" });
+    await revealed(page);
     const s = await snapshot(page, KEY);
     const mars = BUNDLES.find((b) => b.stopId === "mars");
 
@@ -272,6 +331,7 @@ test("the control rule can fail (negative control for the two tests below)", () 
 
   test("C07 the ship is named from the profile, never hard-coded", async ({ page }) => {
     await mount(page, KEY, { stopId: "mars", shipName: "Nomad" });
+    await revealed(page);
     const s = await snapshot(page, KEY);
     const screen = s.text.join(" ");
     expect(screen).toContain("Nomad");
@@ -299,6 +359,298 @@ test("the control rule can fail (negative control for the two tests below)", () 
   test("AC-18.1 escape returns to the map", async ({ page }) => {
     await mount(page, KEY, { stopId: "mars" });
     await page.keyboard.press("Escape");
+    await page.waitForFunction(
+      () => (window.__kbTransitions ?? []).includes("DirectorMap"),
+      null,
+      { timeout: 30_000 },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // UR-59: the page types itself out, and never stands in anybody's way
+  // -------------------------------------------------------------------------
+
+  test("UR-59 the page reveals itself rather than arriving complete", async ({ page }) => {
+    // The effect exists AND it is mid-flight when the screen opens, which is
+    // the half a "completes eventually" assertion cannot tell from no effect
+    // at all.
+    //
+    // WATCHED FAILING: delete the `armTypewriter` call from `drawPage` and this
+    // reports "expected 0 to be greater than 0" on `total` - the page is drawn
+    // whole and there is nothing to reveal.
+    await mount(page, KEY, { stopId: "neptune" });
+    const opening = await snapshot(page, KEY);
+    const typewriter = opening["typewriter"] as {
+      enabled: boolean;
+      complete: boolean;
+      revealed: number;
+      total: number;
+      msPerChar: number;
+    };
+    expect(typewriter.enabled).toBe(true);
+    expect(typewriter.total).toBeGreaterThan(0);
+    // The cadence is the one the unit suite argues for, reported by the screen.
+    expect(typewriter.msPerChar).toBeGreaterThan(0);
+    expect(typewriter.msPerChar).toBeLessThan(10);
+
+    await revealed(page);
+    const done = await snapshot(page, KEY);
+    const after = done["typewriter"] as { complete: boolean; revealed: number; total: number };
+    expect(after.complete).toBe(true);
+    expect(after.revealed).toBe(after.total);
+    // ...and what it reveals is the real copy, not a prefix left behind.
+    const neptune = BUNDLES.find((b) => b.stopId === "neptune");
+    const screen = (done["text"] as string[]).join(" ");
+    for (const sentence of neptune?.briefing ?? []) expect(screen).toContain(sentence);
+  });
+
+  /**
+   * RESTART THE SCREEN AND MEASURE THE SKIP FROM INSIDE THE PAGE.
+   *
+   * ================== WHY NOT `page.keyboard.press` HERE ==================
+   * The first version of these two cases mounted the screen, read the snapshot
+   * back, asserted the page was still typing, and then pressed a key. It failed
+   * on a loaded box with "expected false to be true" - the whole reveal is 1.8 s
+   * and a snapshot round trip under six concurrent Playwright runs is longer
+   * than that, so the page had finished before Node could look at it.
+   *
+   * TWO CAUSES, IDENTICAL OUTPUT (standards rule 9). "The reveal already
+   * finished" and "the reveal never started" both report `complete: true`. They
+   * are told apart by `enabled`/`total`, and the case above - which asserts
+   * `enabled` true and `total` over zero - passed in the same run, so the reveal
+   * armed and the failure was the clock, not the product.
+   *
+   * The fix is not a longer wait or a softer assertion, either of which would
+   * hide the real defect later. It is to stop racing: the restart, the wait for
+   * the reveal to be running, the keystroke and the read all happen in ONE
+   * evaluate, so no round trip can elapse between them and the "instantly" in
+   * the ticket is measured rather than inferred. `press()` is still used for the
+   * real-input path in the AC-18.1 cases above and below.
+   */
+  async function skipWithKey(
+    page: Page,
+    stopId: string,
+    key: string,
+  ): Promise<{
+    before: { enabled: boolean; complete: boolean; revealed: number; total: number };
+    after: { enabled: boolean; complete: boolean; revealed: number; total: number };
+    observed: boolean;
+  }> {
+    return page.evaluate(
+      async ([stop, pressed]) => {
+        interface Typewriter {
+          enabled: boolean;
+          complete: boolean;
+          revealed: number;
+          total: number;
+        }
+        const scene = window.__kb?.game.scene.getScene("Briefing") as unknown as {
+          scene: { restart(data: unknown): void };
+          snapshot(): { typewriter: Typewriter };
+        };
+        const read = (): Typewriter | null => {
+          try {
+            return { ...scene.snapshot().typewriter };
+          } catch {
+            return null;
+          }
+        };
+        scene.scene.restart({ stopId: stop });
+
+        // Wait for the reveal to BE RUNNING - not for a number of milliseconds.
+        const deadline = performance.now() + 25_000;
+        let before: Typewriter | null = null;
+        while (performance.now() < deadline) {
+          const now = read();
+          if (now !== null && now.enabled && !now.complete) {
+            before = now;
+            break;
+          }
+          await new Promise((done) => requestAnimationFrame(() => done(null)));
+        }
+        const observed = before !== null;
+        const opening = before ?? read();
+
+        // A real DOM keydown on the target Phaser's keyboard plugin listens to.
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: pressed, bubbles: true }));
+
+        // Read back SYNCHRONOUSLY: no frame passes between the key and this.
+        return {
+          before: opening ?? { enabled: false, complete: true, revealed: 0, total: 0 },
+          after: read() ?? { enabled: false, complete: true, revealed: 0, total: 0 },
+          observed,
+        };
+      },
+      [stopId, key] as [string, string],
+    );
+  }
+
+  test("UR-59 ANY key finishes it instantly", async ({ page }) => {
+    // The claim the ticket turns on: a child who has seen this stop four times
+    // is never made to wait, and the skip is not a named control - any key.
+    //
+    // WATCHED FAILING: remove the `keydown` listener from `armTypewriter` and
+    // this reports "expected false to be true" on `after.complete` - the page
+    // is still typing one keystroke later, at Earth's longest briefing.
+    await mount(page, KEY, { stopId: "earth" });
+    const { before, after, observed } = await skipWithKey(page, "earth", "x");
+
+    expect(
+      observed,
+      `the reveal was never seen running (enabled ${before.enabled}, total ${before.total})`,
+    ).toBe(true);
+    expect(before.enabled).toBe(true);
+    expect(before.complete).toBe(false);
+    expect(before.revealed, "nothing was left to reveal").toBeLessThan(before.total);
+    // ...and one keystroke later the whole page is there, in the same frame.
+    expect(after.complete).toBe(true);
+    expect(after.revealed).toBe(after.total);
+    expect(after.total).toBe(before.total);
+  });
+
+  test("UR-59 the reveal never gates launch: Enter mid-reveal flies", async ({ page }) => {
+    // The other half. Enter arrives WHILE the page is typing, and it has to do
+    // both jobs on the one keystroke: finish the page and launch. A reveal that
+    // swallowed the first key - a tempting way to implement "any key skips" -
+    // would leave the screen sitting there.
+    await mount(page, KEY, { stopId: "saturn" });
+    const { before, after, observed } = await skipWithKey(page, "saturn", "Enter");
+    expect(observed, "the reveal was never seen running").toBe(true);
+    expect(before.complete).toBe(false);
+    expect(after.complete).toBe(true);
+    await page.waitForFunction(
+      () => (window.__kbTransitions ?? []).includes("Preflight"),
+      null,
+      { timeout: 30_000 },
+    );
+    expect(await transitions(page)).toContain("Preflight");
+  });
+
+  test("UR-59/AC-19.3 reduced motion draws the page whole, with no reveal at all", async ({
+    page,
+  }) => {
+    // A live reader of the persisted setting on the path it claims to affect
+    // (standards rule 2). Not "the reveal is faster": there is no reveal.
+    //
+    // WATCHED FAILING: drop the `ctx.reducedMotion` guard from `armTypewriter`
+    // and this reports "expected true to be false" on `typewriter.enabled` -
+    // the page revealing itself on a screen that asked for calm motion.
+    await mount(page, KEY, {
+      stopId: "neptune",
+      ctx: { stopId: "neptune", reducedMotion: true, colorblindPalette: false, profileId: null },
+    });
+    const s = await snapshot(page, KEY);
+    const typewriter = s["typewriter"] as { enabled: boolean; complete: boolean };
+    expect(typewriter.enabled).toBe(false);
+    expect(typewriter.complete).toBe(true);
+    // The whole page is on screen immediately, with no key pressed and no wait.
+    const neptune = BUNDLES.find((b) => b.stopId === "neptune");
+    const screen = (s["text"] as string[]).join(" ");
+    for (const sentence of neptune?.briefing ?? []) expect(screen).toContain(sentence);
+  });
+
+  // -------------------------------------------------------------------------
+  // The composition, at all seven stops (standards rule 5)
+  // -------------------------------------------------------------------------
+
+  test("UR-58/UR-60 the composition holds at every stop, not just at Mars", async ({ page }) => {
+    // THE SWEEP, NOT THE SAMPLE. The original briefing collision shipped
+    // because the capture harness booted Mars, which is the one stop whose copy
+    // fits; Earth overflowed its plate by 88 px. Every claim below is therefore
+    // read off the live screen once per stop, and the page's own plate - which
+    // changes height with the copy - is read with it.
+    //
+    // WATCHED FAILING: put SHADOW_AT back to { x: 1076, y: 992, scale: 0.78 }
+    // and the first stop reports "earth: Shadow x ... Received: 1076" against a
+    // page whose right edge is 980.
+    test.setTimeout(300_000);
+    const STOPS = ["earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto"];
+    mkdirSync(EVIDENCE, { recursive: true });
+
+    for (const [i, stopId] of STOPS.entries()) {
+      if (i === 0) await mount(page, KEY, { stopId });
+      else await remount(page, KEY, { stopId });
+      await revealed(page);
+      const s = await snapshot(page, KEY);
+      const where = `${stopId}`;
+      const page_ = s["page"] as { x: number; y: number; w: number; h: number };
+      const shadow = s["shadowAt"] as { x: number; y: number; scale: number };
+      const boxes = await controlBoxes(page);
+      const launch = boxes.find((b) => b.id === "launch");
+      const back = boxes.find((b) => b.id === "back");
+      expect(launch, `${where}: no launch hit zone`).toBeDefined();
+      expect(back, `${where}: no back hit zone`).toBeDefined();
+      if (launch === undefined || back === undefined) continue;
+
+      // UR-60: launch centred on the screen, at the foot.
+      expect(
+        Math.abs(launch.x + launch.w / 2 - DESIGN_WIDTH / 2),
+        `${where}: launch centre`,
+      ).toBeLessThanOrEqual(2);
+      expect(launch.y + launch.h, `${where}: launch off the frame`).toBeLessThanOrEqual(1080);
+      // UR-60: the way out is on the left, smaller, and not beside it.
+      expect(back.x + back.w, `${where}: back is not left of launch`).toBeLessThan(launch.x);
+      expect(back.w * back.h, `${where}: back is not smaller`).toBeLessThan(
+        (launch.w * launch.h) / 2,
+      );
+      // ...and neither lands on the page, whatever height this stop's copy gave it.
+      for (const [name, box] of [["launch", launch], ["back", back]] as const) {
+        const clear =
+          box.y >= page_.y + page_.h ||
+          box.x >= page_.x + page_.w ||
+          box.x + box.w <= page_.x;
+        expect(clear, `${where}: ${name} over the page (page ends ${page_.y + page_.h})`).toBe(
+          true,
+        );
+      }
+
+      // UR-58: Shadow is in the page's top-right quadrant, as DRAWN.
+      expect(shadow.x, `${where}: Shadow x`).toBeGreaterThanOrEqual(page_.x + page_.w / 2);
+      expect(shadow.x, `${where}: Shadow x`).toBeLessThanOrEqual(page_.x + page_.w);
+      expect(shadow.y, `${where}: Shadow y`).toBeGreaterThanOrEqual(page_.y);
+      expect(shadow.y, `${where}: Shadow y`).toBeLessThanOrEqual(page_.y + page_.h / 2);
+      expect(shadow.scale, `${where}: Shadow scale`).toBeLessThan(0.78);
+
+      await gameCanvas(page).screenshot({ path: `${EVIDENCE}/ur/UR-58-61-briefing-${stopId}.png` });
+    }
+  });
+
+  test("UR-60 the focus ring is on the quiet control, at full strength", async ({ page }) => {
+    // AC-18.1. A previous lane reported a focus-ring defect on this screen that
+    // turned out to be a 29.7 s timeout rather than a ring (standards rule 9),
+    // so this reads the RING's own geometry off the scene rather than reading a
+    // boolean attribute that is equally empty when nothing was read at all.
+    await mount(page, KEY, { stopId: "mars" });
+    await revealed(page);
+    expect((await snapshot(page, KEY))["focusId"]).toBe("launch");
+
+    // Left from launch reaches the quiet control...
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForFunction(
+      () => {
+        const scene = window.__kb?.game.scene.getScene("Briefing") as
+          | { snapshot?: () => { focusId?: string } }
+          | null;
+        return scene?.snapshot?.().focusId === "back";
+      },
+      null,
+      { timeout: 30_000 },
+    );
+
+    // ...and the ring that lands on it is the same ring, not a thinner one.
+    const ring = await page.evaluate(() => {
+      const scene = window.__kb?.game.scene.getScene("Briefing") as unknown as {
+        children: { list: { type: string; depth: number; alpha: number; visible: boolean }[] };
+      };
+      const g = scene.children.list.find((o) => o.type === "Graphics" && o.depth === 30);
+      return g === undefined ? null : { alpha: g.alpha, visible: g.visible };
+    });
+    expect(ring, "no focus ring graphics on the briefing").not.toBeNull();
+    expect(ring?.visible).toBe(true);
+    expect(ring?.alpha ?? 0).toBeGreaterThan(0.5);
+
+    // And it still leaves by the keyboard from there.
+    await page.keyboard.press("Enter");
     await page.waitForFunction(
       () => (window.__kbTransitions ?? []).includes("DirectorMap"),
       null,

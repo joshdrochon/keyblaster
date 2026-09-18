@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   FALL_TIME_MAX_MS,
   FALL_TIME_MIN_MS,
+  HEADROOM_SLOW_IKI_MS,
   KEYSTROKE_BUDGET_FACTOR,
+  KEYSTROKE_HEADROOM_MIN,
   RECOGNITION_BASE_MS,
   clampFallTime,
   fallTimeMs,
+  headroomEarned,
   isClamped,
   keystrokeBudgetMs,
+  keystrokeHeadroom,
   rawFallTimeMs,
   fallBudgetFactor,
   recognitionBudgetMs,
@@ -294,22 +298,145 @@ describe("UR-51 / FR-8: the fall budget scales with the depth the controller ask
     expect(clampFallTime(0)).toBe(FALL_TIME_MIN_MS);
   });
 
-  it("UR-51: D19's split survives - the budget is a multiple, never a reshape", () => {
-    // Length is motor cost and visible; ease is recognition cost and invisible
-    // (AC-8.3). Scaling the whole expression keeps their ratio at FR-8's ratio
-    // at every knob setting, so no knob can make one word cheap relative to
-    // another - which would be the rule leaking into the drawing.
+  it("UR-51: D19's split survives - the INVISIBLE half is the one that never moves", () => {
+    /**
+     * THIS TEST'S CLAIM CHANGED, AND THE CHANGE IS THE FEATURE.
+     *
+     * It used to assert the budget was a pure multiple of FR-8's expression at
+     * every knob, i.e. `raw(live) === raw(floor) * concurrencyTarget(live)`.
+     * That is now FALSE and it is deliberately false: UR-51's second half
+     * ratchets `keystrokeHeadroom` down as the knob climbs, so the LENGTH term
+     * no longer scales with the ease term. Run against the current code the old
+     * assertion reads:
+     *
+     *     "fit" @ ease 0.25 @ maxLive 3: expected 2874.0000000000005 to be
+     *     close to 3000, difference 125.99999999999955
+     *
+     * which is exactly the 126 ms of typing headroom the third knob step takes
+     * off a three-letter word at the default interval. The old claim existed to
+     * stop a knob making one word cheap relative to another; that property is
+     * still worth having, so it is restated as the two facts that carry it.
+     */
     for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
       const factor = concurrencyTarget(live);
       for (const word of ["fit", "jupiter", "spinning"]) {
         for (const ease of [EASE_MIN, EASE_NEW, EASE_MAX]) {
-          expect(
-            rawFallTimeMs({ word, ease, calibration: CAL, knobs: { maxLive: live } }),
-            `"${word}" @ ease ${ease} @ maxLive ${live}`,
-          ).toBeCloseTo(rawFallTimeMs({ word, ease, calibration: CAL }) * factor, 6);
+          const knobs = { maxLive: live };
+          const raw = rawFallTimeMs({ word, ease, calibration: CAL, knobs });
+          const where = `"${word}" @ ease ${ease} @ maxLive ${live}`;
+
+          // 1. THE INVISIBLE HALF IS UNTOUCHED. `recognitionBudgetMs` is ease,
+          //    and ease is this child's private history with this word (D19,
+          //    AC-8.3). Subtracting the queue-scaled recognition budget must
+          //    leave exactly the queue-scaled keystroke budget - so nothing the
+          //    knob does can be read off the screen as a judgement about the
+          //    child, only off the word's length, which is drawn anyway.
+          const headroom = keystrokeHeadroom(live, CAL.ikiMs);
+          expect(raw, where).toBeCloseTo(
+            (keystrokeBudgetMs([...word].length, CAL.ikiMs, headroom) +
+              recognitionBudgetMs(ease)) *
+              factor,
+            6,
+          );
+
+          // 2. THE RESHAPE ONLY EVER SHORTENS, AND ONLY THROUGH LENGTH. The
+          //    pure multiple is the ceiling; the ratchet spends from it. At the
+          //    floor the two are the same number, which is the bit-identical
+          //    constraint restated at this level.
+          const pureMultiple = rawFallTimeMs({ word, ease, calibration: CAL }) * factor;
+          expect(raw, where).toBeLessThanOrEqual(pureMultiple + 1e-9);
+          if (live === MAX_LIVE_MIN) expect(raw, where).toBeCloseTo(pureMultiple, 9);
         }
       }
     }
+  });
+
+  it("UR-51: the headroom ratchet is the thing that makes a fuller board cost something", () => {
+    // The whole point of the change, as one comparison. At the knob's floor a
+    // word is budgeted at FR-8's 50% headroom over this player's own hands; at
+    // the ceiling, for a pilot whose measured speed has earned it, 12.5%.
+    //
+    // WATCHED FAILING, with the real number: pin `keystrokeHeadroom` at
+    // `KEYSTROKE_BUDGET_FACTOR` and the ceiling reads 1.5 against 1.125 - the
+    // belt UR-51's first pass shipped, where a busier board cost a fast pilot
+    // nothing because the slack absorbed all of it.
+    expect(keystrokeHeadroom(MAX_LIVE_MIN, CAL.ikiMs)).toBe(KEYSTROKE_BUDGET_FACTOR);
+    expect(keystrokeHeadroom(MAX_LIVE_MAX, CAL.ikiMs)).toBeCloseTo(KEYSTROKE_HEADROOM_MIN, 10);
+
+    // One step per stage, monotone, and no step larger than a fifth of the
+    // whole travel - AC-10.1's "one knob per stage" is worth nothing if the
+    // knob's effect on the budget arrives in a cliff.
+    let previous = KEYSTROKE_BUDGET_FACTOR;
+    for (let live = MAX_LIVE_MIN + 1; live <= MAX_LIVE_MAX; live += 1) {
+      const h = keystrokeHeadroom(live, CAL.ikiMs);
+      expect(h, `maxLive ${live}`).toBeLessThan(previous);
+      expect(previous - h, `step into maxLive ${live}`).toBeLessThanOrEqual(
+        (KEYSTROKE_BUDGET_FACTOR - KEYSTROKE_HEADROOM_MIN) / 5 + 1e-9,
+      );
+      previous = h;
+    }
+  });
+
+  it("UR-51: a grade-2 pilot's belt is FR-8's belt at EVERY knob setting, not just the floor", () => {
+    // THE HARD CONSTRAINT, and the reason the ratchet reads a calibration at
+    // all. A knob-only ratchet is safe while the margin gate keeps a slow pilot
+    // near the floor, and "hard to reach" is not "cannot happen": a knob is
+    // persisted, and a profile restored from an older save or shared with a
+    // faster sibling can open a belt anywhere in FR-10's range.
+    //
+    // WATCHED FAILING, with the real numbers: make `keystrokeHeadroom` ignore
+    // its `ikiMs` argument and this reads "maxLive 3: expected 1.425 to be
+    // 1.5" on the first step of the knob - and the route sweep turns the same
+    // change into 23 stalls in 240 belts for the grade-2 pilot at the knob's
+    // ceiling, against the 3 on record ("expected 23 to be less than or equal
+    // to 3", tests/unit/simulation/launchRoute.test.ts).
+    const grade2 = { ikiMs: 600, fkLatencyMs: 700 };
+    let compared = 0;
+    for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+      expect(keystrokeHeadroom(live, grade2.ikiMs), `maxLive ${live}`).toBe(
+        KEYSTROKE_BUDGET_FACTOR,
+      );
+      for (const stop of STOP_IDS) {
+        for (const word of stagePoolFor(stop)) {
+          const knobs = { maxLive: live };
+          // FR-8's own formula, with only the queue scaling UR-51's first pass
+          // already shipped. Written out rather than called, so this is a
+          // comparison against the PRD rather than against the implementation.
+          const fr8 =
+            ([...word].length * KEYSTROKE_BUDGET_FACTOR * grade2.ikiMs +
+              RECOGNITION_BASE_MS * EASE_NEW) *
+            concurrencyTarget(live);
+          expect(
+            rawFallTimeMs({ word, ease: EASE_NEW, calibration: grade2, knobs }),
+            `${stop}/"${word}" @ maxLive ${live}`,
+          ).toBeCloseTo(fr8, 6);
+          compared += 1;
+        }
+      }
+    }
+    // coding-standards 5: the sweep has to have swept.
+    expect(compared).toBeGreaterThan(600);
+  });
+
+  it("UR-51: headroomEarned is total, and a corrupt calibration earns nothing", () => {
+    // Same rule as clampKnobs: a restored profile must never be able to stop a
+    // child's game, and the only safe direction for a corrupt value is the one
+    // that gives time back.
+    expect(headroomEarned(Number.NaN)).toBe(0);
+    expect(headroomEarned(Number.POSITIVE_INFINITY)).toBe(0);
+    expect(headroomEarned(HEADROOM_SLOW_IKI_MS + 1)).toBe(0);
+    expect(headroomEarned(HEADROOM_SLOW_IKI_MS)).toBe(0);
+    expect(headroomEarned(DEFAULT_CALIBRATION.ikiMs)).toBe(1);
+    expect(headroomEarned(0)).toBe(1);
+    expect(headroomEarned(440)).toBeCloseTo(0.64, 10);
+    expect(keystrokeHeadroom(MAX_LIVE_MAX, Number.NaN)).toBe(KEYSTROKE_BUDGET_FACTOR);
+    // No calibration at all is FR-8's default, i.e. the full ratchet - the same
+    // fallback `rawFallTimeMs` takes for `ikiMs` itself.
+    expect(keystrokeHeadroom(MAX_LIVE_MAX)).toBeCloseTo(KEYSTROKE_HEADROOM_MIN, 10);
+    // And a corrupt KNOB still reads as the floor, with a real calibration.
+    expect(keystrokeHeadroom(Number.NaN, DEFAULT_CALIBRATION.ikiMs)).toBe(
+      KEYSTROKE_BUDGET_FACTOR,
+    );
   });
 
   it("UR-51: the budget is monotone in the knob - tightening never shortens a fall", () => {

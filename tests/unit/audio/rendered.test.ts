@@ -57,11 +57,23 @@ import { DUCK_ATTACK_MS, buildAudioGraph, busSpec } from "../../../src/game/audi
 import { installAudio, type ChannelHandler } from "../../../src/game/audio/wiring.js";
 import { MAX_INTENSITY_INDEX } from "../../../src/game/audio/music.js";
 import {
+  CRUMBLE_MATERIALS,
+  CRUMBLE_SECONDS,
+  CRUMBLE_SHAPES,
   CRUMBLE_VARIANTS,
+  MATERIAL_BY_DEBRIS_TYPE,
+  UNMAPPED_DEBRIS_MATERIAL,
+  crumbleMaterialFor,
   crumbleSamples,
   crumbleSeed,
+  isMappedDebrisType,
   onsetTimes,
 } from "../../../src/game/audio/crumble.js";
+import { DEBRIS_BY_STOP } from "../../../src/game/render/asteroid.js";
+import {
+  SHARD_LAST_DETACH_MS,
+  SHARD_ONSET_TAU_MS,
+} from "../../../src/game/render/particles.js";
 import { seededRandom, type AudioContextLike, type AudioNodeLike } from "../../../src/game/audio/context.js";
 import { fakeVoiceEnvironment } from "./fakes.js";
 
@@ -1369,6 +1381,435 @@ describe("UR-48: a blasted rock crumbles rather than detonating", () => {
     for (let v = 0; v < CRUMBLE_VARIANTS; v++) {
       const samples = crumbleSamples(SR, crumbleSeed(v));
       expect(bandEnergyFraction(samples, SR, 8000, SR / 2), `crumble ${v}`).toBeLessThan(0.02);
+    }
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// UR-66
+// ---------------------------------------------------------------------------
+
+/**
+ * UR-66: THE CRUMBLE IS TWO MATERIALS NOW, AND ONE OF THEM MAY NOT MOVE.
+ *
+ * UR-66 reports the shipped grain set reads as ice, that this is right where
+ * the debris is ice, and that the rocky stops want a drier, heavier stone. So
+ * the half that works is now the thing most at risk: any "improvement" to the
+ * blast that touches the ice set is a regression, however good it sounds.
+ *
+ * Four claims, and each one is a way this could ship broken:
+ *
+ *   TOTAL      every row of the FR-12b table maps to a material, in both
+ *              directions, so a debris type added later cannot inherit a sound
+ *              nobody picked.
+ *   UNCHANGED  the six baked ice buffers are bit-identical to what shipped.
+ *   DIFFERENT  the rock set is measurably a different material, not the ice set
+ *              under another name - which is what "two variants" silently
+ *              becomes if nobody measures it.
+ *   TIMED      both sets keep UR-48's fall, because `render/particles.ts`
+ *              schedules 12 shard waves against it and a picture that disagrees
+ *              with what is heard is worse than one sound for everything.
+ */
+describe("UR-66: ice keeps its sound and rock gets its own", () => {
+  /** FNV-1a over the raw bytes of a buffer. Any changed sample changes it. */
+  const checksum = (samples: Float32Array): string => {
+    const bytes = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
+    let h = 0x811c9dc5 >>> 0;
+    for (let i = 0; i < bytes.length; i++) {
+      h ^= bytes[i] as number;
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h.toString(16).padStart(8, "0");
+  };
+
+  /** Every debris id in the shipped table, ambient dust included. */
+  const tableIds = (): string[] =>
+    Object.values(DEBRIS_BY_STOP)
+      .flat()
+      .map((d) => d.id)
+      .sort();
+
+  /**
+   * `count` blasts on a fresh bus, each carrying the same debris type, returned
+   * as separate takes. Two calls with different debris types line up take for
+   * take: the bus seeds its own rotations, so take k is the same recipe variant
+   * and the same crumble index in both, and the material is the ONLY difference
+   * between them. Anything else would be comparing two rolls of a die.
+   */
+  const blastTakes = (debrisType: string, count = 6): Float32Array[] => {
+    const { ctx, output } = onBus("sfx");
+    const bus = new SfxBus(ctx, output);
+    const gap = 1.4;
+    for (let k = 0; k < count; k++) {
+      ctx.currentTime = k * gap;
+      bus.play("blast", { debrisType });
+    }
+    ctx.currentTime = 0;
+    const all = ctx.render(count * gap + 0.8);
+    return Array.from({ length: count }, (_, k) =>
+      all.subarray(Math.floor(k * gap * SR), Math.floor((k * gap + 0.8) * SR)),
+    );
+  };
+
+  /**
+   * TOTAL, IN BOTH DIRECTIONS.
+   *
+   * FAILED FIRST with `small-kbo` deleted from `DebrisTypeId` and from
+   * `MATERIAL_BY_DEBRIS_TYPE`: `expected [ 'c-type', 'jupiter-trojan', ...(10) ]
+   * to deeply equal [ 'c-type', 'jupiter-trojan', ...(11) ]` - the mapping had
+   * 12 ids and the table had 13. That is the shape of the defect this guards: a
+   * row added to FR-12b that nobody gave a sound to.
+   */
+  it("every debris type in the FR-12b table maps to a material, and nothing else does", () => {
+    const mapped = Object.keys(MATERIAL_BY_DEBRIS_TYPE).sort();
+    expect(mapped).toEqual(tableIds());
+    for (const id of tableIds()) {
+      expect(isMappedDebrisType(id), id).toBe(true);
+      expect(CRUMBLE_MATERIALS, id).toContain(crumbleMaterialFor(id));
+    }
+  });
+
+  /**
+   * THE SPLIT ITSELF, read off the FR-12b labels rather than off the stop.
+   * Jupiter is the case that makes the distinction load-bearing: four materials
+   * on one board, so a per-stop switch would sound all four alike.
+   */
+  it("the rocky stops are rock and the frozen stops are ice, type by type", () => {
+    for (const type of DEBRIS_BY_STOP.jupiter) {
+      expect(crumbleMaterialFor(type.id), type.id).toBe("rock");
+    }
+    for (const type of DEBRIS_BY_STOP.mars) {
+      expect(crumbleMaterialFor(type.id), type.id).toBe("rock");
+    }
+    for (const stop of ["saturn", "uranus", "neptune", "pluto"] as const) {
+      for (const type of DEBRIS_BY_STOP[stop]) {
+        expect(crumbleMaterialFor(type.id), type.id).toBe("ice");
+      }
+    }
+  });
+
+  /**
+   * THE HALF UR-66 ASKS TO KEEP, PINNED TO THE BYTE.
+   *
+   * These six checksums were taken from the build BEFORE UR-66 was written, at
+   * 48 kHz, and they are the whole point of the ticket being additive. A
+   * "harmless" tidy of the grain loop, or a shape field nudged to make the rock
+   * set sit better beside it, changes every one of them.
+   *
+   * FAILED FIRST with `ICE_CRUMBLE_SHAPE.hiHz` moved 5200 -> 5100, which is
+   * under 2% and inaudible on its own: `crumble 0: expected 'f65d962f' to be
+   * 'a2b51362'`.
+   */
+  it("every baked ice crumble is bit-identical to the one that ships", () => {
+    const shipped = ["a2b51362", "e23481e0", "2fc4b49c", "a5950f4d", "f015bc7d", "adac7c27"];
+    expect(shipped).toHaveLength(CRUMBLE_VARIANTS);
+    for (let v = 0; v < CRUMBLE_VARIANTS; v++) {
+      const samples = crumbleSamples(SR, crumbleSeed(v), CRUMBLE_SHAPES.ice);
+      expect(checksum(samples), `crumble ${v}`).toBe(shipped[v]);
+      // And the default argument is still ice, so every caller that does not
+      // ask for a material gets the sound it got before UR-66.
+      expect(checksum(crumbleSamples(SR, crumbleSeed(v))), `crumble ${v} default`).toBe(
+        shipped[v],
+      );
+    }
+  });
+
+  /**
+   * TWO VARIANTS, NOT TWO COPIES.
+   *
+   * The failure this exists for is a rename: a `ROCK_CRUMBLE_SHAPE` that is the
+   * ice numbers under a new name, shipped as "two sounds" and audibly one. So
+   * the bar is a SPECTRAL one, taken seed by seed on the buffers themselves.
+   *
+   * Measured, ice against rock from the same seed: median rolloff
+   * 550/916/606/686/600/698 Hz against 298/472/324/357/319/365 Hz - a ratio of
+   * 0.515 to 0.542, every seed, with no overlap between the two sets at all.
+   *
+   * FAILED FIRST with `ROCK_CRUMBLE_SHAPE` set to the ice numbers - the rename
+   * this exists to catch: `seed 0 median rolloff 550.048828125 vs
+   * 550.048828125: expected 1 to be less than 0.75`.
+   */
+  it("a rock crumble is a darker material than an ice crumble, seed for seed", () => {
+    for (let v = 0; v < CRUMBLE_VARIANTS; v++) {
+      const ice = crumbleSamples(SR, crumbleSeed(v), CRUMBLE_SHAPES.ice);
+      const rock = crumbleSamples(SR, crumbleSeed(v), CRUMBLE_SHAPES.rock);
+
+      const iceMid = spectralRolloffHz(ice, SR, 0.5);
+      const rockMid = spectralRolloffHz(rock, SR, 0.5);
+      expect(rockMid / iceMid, `seed ${v} median rolloff ${rockMid} vs ${iceMid}`).toBeLessThan(
+        0.75,
+      );
+
+      // The icy glitter lives above 2 kHz. Ice puts 1.79-3.35% of its energy
+      // there; rock puts 0.020-0.088%, a factor of 38 to 113.
+      const iceHigh = bandEnergyFraction(ice, SR, 2000, SR / 2);
+      const rockHigh = bandEnergyFraction(rock, SR, 2000, SR / 2);
+      expect(rockHigh / iceHigh, `seed ${v} above 2 kHz`).toBeLessThan(0.35);
+
+      // And heavier underneath: ice 1.02-3.36% below 400 Hz, rock 27.6-56.2%.
+      expect(
+        bandEnergyFraction(rock, SR, 0, 400) / bandEnergyFraction(ice, SR, 0, 400),
+        `seed ${v} below 400 Hz`,
+      ).toBeGreaterThan(4);
+    }
+  });
+
+  /**
+   * UR-48's ENVELOPE, WHICH THE SHARDS ARE TIMED TO.
+   *
+   * `render/particles.ts` builds its 12 shard waves from `SHARD_ONSET_TAU_MS`
+   * (150), `SHARD_FIRST_DETACH_MS` (18) and `SHARD_LAST_DETACH_MS` (440), and
+   * says in its own header that those mirror this file. So the fall's shape in
+   * time is a shared constant, not a per-material choice.
+   *
+   * Structural first: the three fields that set the shape in time are the SAME
+   * OBJECT VALUES in both shapes, so both materials place fragment n at the
+   * same instant by construction rather than by luck.
+   *
+   * FAILED FIRST with `ROCK_CRUMBLE_SHAPE.densityTau` at 0.10: `rock
+   * densityTau: expected 0.1 to be 0.15`, and the two measured tests below fell
+   * with it.
+   */
+  it("every material shares the fall that the shard schedule is timed to", () => {
+    for (const material of CRUMBLE_MATERIALS) {
+      const shape = CRUMBLE_SHAPES[material];
+      expect(shape.densityTau, `${material} densityTau`).toBe(SHARD_ONSET_TAU_MS / 1000);
+      expect(shape.grains, `${material} grains`).toBe(CRUMBLE_SHAPES.ice.grains);
+    }
+    // The buffer is long enough for the last shard wave to still be sounding.
+    expect(SHARD_LAST_DETACH_MS / 1000).toBeLessThan(CRUMBLE_SECONDS);
+  });
+
+  /**
+   * THE SAME FALL, MEASURED RATHER THAN DECLARED.
+   *
+   * `tail/head` is the rms after 150 ms over the rms before it - the cheapest
+   * statement of "the density has decayed by 150 ms" that a buffer can make.
+   * Measured: ice 0.199-0.300, rock 0.235-0.374, and seed for seed the two
+   * never differ by more than 0.080.
+   *
+   * FAILED FIRST with `ROCK_CRUMBLE_SHAPE.densityTau` at 0.10 - a rock that
+   * finishes falling while the shards are still leaving: `seed 4: rock 0.133
+   * ice 0.283: expected 0.1496485548451591 to be less than 0.1`.
+   */
+  it("the rock fall decays like the ice fall, seed for seed", () => {
+    const head = Math.floor(SR * 0.15);
+    for (let v = 0; v < CRUMBLE_VARIANTS; v++) {
+      const ratio = (s: Float32Array): number => rms(s, head, s.length) / rms(s, 0, head);
+      const ice = ratio(crumbleSamples(SR, crumbleSeed(v), CRUMBLE_SHAPES.ice));
+      const rock = ratio(crumbleSamples(SR, crumbleSeed(v), CRUMBLE_SHAPES.rock));
+      expect(Math.abs(rock - ice), `seed ${v}: rock ${rock.toFixed(3)} ice ${ice.toFixed(3)}`)
+        .toBeLessThan(0.1);
+    }
+  });
+
+  /**
+   * THE SAME FALL, POINT BY POINT RATHER THAN IN AGGREGATE.
+   *
+   * The ratio above is one number per buffer, and two quite different falls can
+   * share one. This is the shape: the 10 ms loudness envelopes of the ice and
+   * rock buffers built from the same seed, correlated against each other.
+   *
+   * It should be near 1 BY CONSTRUCTION. Both materials take the same number of
+   * draws from the same seeded generator in the same order - four per fragment
+   * plus three for its noisy onset - so fragment n lands on the same sample in
+   * both, and only its colour differs. This is that argument turned into a
+   * measurement, because "by construction" is how the last four defects in
+   * `docs/verification-gaps.md` were justified.
+   *
+   * Measured: 0.958 to 0.991 on every seed, with the correlation peak at lag 0
+   * rather than offset.
+   *
+   * FAILED FIRST with `ROCK_CRUMBLE_SHAPE.densityTau` at 0.10: `seed 1
+   * envelopes: expected 0.8323646080595525 to be greater than 0.9`.
+   */
+  it("ice and rock built from one seed are the same fall, sample for sample", () => {
+    const correlate = (a: Float64Array, b: Float64Array, lag: number): number => {
+      const from = Math.max(0, -lag);
+      const to = Math.min(a.length, b.length - lag);
+      const n = to - from;
+      let sa = 0;
+      let sb = 0;
+      for (let i = from; i < to; i++) {
+        sa += a[i] as number;
+        sb += b[i + lag] as number;
+      }
+      const ma = sa / n;
+      const mb = sb / n;
+      let num = 0;
+      let da = 0;
+      let db = 0;
+      for (let i = from; i < to; i++) {
+        const x = (a[i] as number) - ma;
+        const y = (b[i + lag] as number) - mb;
+        num += x * y;
+        da += x * x;
+        db += y * y;
+      }
+      return num / Math.sqrt(da * db);
+    };
+
+    for (let v = 0; v < CRUMBLE_VARIANTS; v++) {
+      const ice = envelope(crumbleSamples(SR, crumbleSeed(v), CRUMBLE_SHAPES.ice), SR, 10);
+      const rock = envelope(crumbleSamples(SR, crumbleSeed(v), CRUMBLE_SHAPES.rock), SR, 10);
+      expect(correlate(ice, rock, 0), `seed ${v} envelopes`).toBeGreaterThan(0.9);
+      // And aligned, not merely similar: nothing fits better shifted.
+      let bestLag = 0;
+      let best = -2;
+      for (let lag = -20; lag <= 20; lag++) {
+        const r = correlate(ice, rock, lag);
+        if (r > best) {
+          best = r;
+          bestLag = lag;
+        }
+      }
+      expect(bestLag, `seed ${v} best lag`).toBe(0);
+    }
+  });
+
+  /**
+   * THE LAST FRAGMENT IS STILL IN UR-48's WINDOW, for both materials.
+   *
+   * UR-48 records 400-460 ms. The shipped ice buffers actually measure
+   * 456-462 ms by `onsetTimes` - buffer 0 sits 2 ms above the ticket's rounded
+   * figure - and rock measures 436-476 ms. The grain SCHEDULE is identical
+   * between them (same seeds, same `densityTau`, same `grains`), so the spread
+   * is the detector, not the sound: a 300 Hz fragment takes longer to clear the
+   * envelope's running level than a 3 kHz one. The bar is therefore set on what
+   * both materials measure, and it would still catch a fall that stopped early
+   * or ran past the shard schedule.
+   *
+   * FAILED FIRST with `ROCK_CRUMBLE_SHAPE.densityTau` at 0.10: `rock 0 last
+   * fragment: expected 0.29 to be greater than or equal to 0.4` - the rock had
+   * stopped 150 ms before the last shard leaves at 440 ms.
+   */
+  it("something is still falling at 400 ms and nothing is after 480 ms", () => {
+    for (const material of CRUMBLE_MATERIALS) {
+      for (let v = 0; v < CRUMBLE_VARIANTS; v++) {
+        const onsets = onsetTimes(crumbleSamples(SR, crumbleSeed(v), CRUMBLE_SHAPES[material]), SR);
+        const last = onsets[onsets.length - 1] as number;
+        expect(last, `${material} ${v} last fragment`).toBeGreaterThanOrEqual(0.4);
+        expect(last, `${material} ${v} last fragment`).toBeLessThanOrEqual(0.48);
+        // Still granular, and still not a thin one.
+        expect(onsets.length, `${material} ${v} onsets`).toBeGreaterThanOrEqual(10);
+        expect(peak(crumbleSamples(SR, crumbleSeed(v), CRUMBLE_SHAPES[material])), `${material} ${v}`).toBeCloseTo(1, 5);
+      }
+    }
+  });
+
+  /**
+   * THE WHOLE PATH, THROUGH A REAL RENDERER.
+   *
+   * Everything above measures buffers. This plays the game's blast recipe on an
+   * OfflineAudioContext with a debris id attached and measures what came out of
+   * the bus - the click, the sweep, the debris and the sub, summed and panned.
+   * The claim is that the id REACHED the sound, which nothing that reads a table
+   * can make.
+   *
+   * WHICH BAND, AND WHY NOT SIMPLY "HOW BRIGHT". Across the WHOLE take the two
+   * materials measure 0.0276 and 0.0314 above 2 kHz - a ratio of 0.88, because
+   * the fracture click (3.1-4.2 kHz at gain 0.54-0.62), the sweep and the noise
+   * wash dominate that band and none of them is the debris. So the measurement
+   * is taken where the debris is the only thing left: the 150-500 ms tail, as
+   * the brightness of that tail against its own midrange. Measured, take for
+   * take: ice 0.281-0.420, rock 0.033-0.112.
+   *
+   * FAILED FIRST with `play` ignoring `options.debrisType`, which is the state
+   * of the program before UR-66: `take 0 rock 0.40133 vs ice 0.40133: expected
+   * 1 to be less than 0.5`.
+   */
+  it("a blasted rock sounds like what it was made of, rendered", () => {
+    const rocky = blastTakes("mars-regolith");
+    const icy = blastTakes("kuiper-water-ice");
+    expect(rocky).toHaveLength(icy.length);
+    for (let k = 0; k < rocky.length; k++) {
+      const tail = (s: Float32Array): number => {
+        const w = s.subarray(Math.floor(SR * 0.15), Math.floor(SR * 0.5));
+        return bandRms(w, SR, 1500, SR / 2) / bandRms(w, SR, 250, 800);
+      };
+      const rockHigh = tail(rocky[k] as Float32Array);
+      const iceHigh = tail(icy[k] as Float32Array);
+      const where = `take ${k} rock ${rockHigh.toFixed(5)} vs ice ${iceHigh.toFixed(5)}`;
+      expect(rockHigh / iceHigh, where).toBeLessThan(0.5);
+      // And the two sets do not overlap: no rock take is as bright as the
+      // dullest icy one, so this cannot be passed by a noisy draw.
+      expect(rockHigh, where).toBeLessThan(0.15);
+      expect(iceHigh, where).toBeGreaterThan(0.25);
+    }
+  });
+
+  /**
+   * A HARNESS SWEEPS (standards rule 5). All thirteen debris types get played,
+   * not one per material: the defect this catches is an id that is mapped
+   * correctly and does not survive the trip into the bus, and sampling two of
+   * thirteen finds that at random.
+   *
+   * FAILED FIRST with `play` ignoring `options.debrisType`:
+   * `mars-regolith: expected 'ice' to be 'rock'`.
+   */
+  it("every debris type in the table reaches the bus as its own material", () => {
+    const { ctx, output } = onBus("sfx");
+    const bus = new SfxBus(ctx, output);
+    for (const type of Object.values(DEBRIS_BY_STOP).flat()) {
+      const result = bus.play("blast", { debrisType: type.id });
+      expect(result.crumbleMaterial, type.id).toBe(crumbleMaterialFor(type.id));
+    }
+    // And an event with no debris layer reports no material at all, rather than
+    // a material it never played.
+    expect(bus.play("lock", { debrisType: "mars-regolith" }).crumbleMaterial).toBeNull();
+  });
+
+  /**
+   * A caller with nothing to say about the material - the UI, a scene, a cue
+   * emitted before the rock was resolved - gets the shipped sound. Ice is the
+   * chosen fallback, not an accident: it is what every blast in the game
+   * sounded like before UR-66.
+   *
+   * FAILED FIRST with `UNMAPPED_DEBRIS_MATERIAL` set to "rock":
+   * `expected 'rock' to be 'ice'` - an unmapped type acquiring the new sound,
+   * which is the one thing a fallback must not do.
+   */
+  it("an unknown or absent debris type falls back to the shipped ice set", () => {
+    expect(UNMAPPED_DEBRIS_MATERIAL).toBe("ice");
+    expect(crumbleMaterialFor(undefined)).toBe("ice");
+    expect(crumbleMaterialFor("a-type-that-does-not-exist")).toBe("ice");
+    const { ctx, output } = onBus("sfx");
+    const bus = new SfxBus(ctx, output);
+    expect(bus.play("blast").crumbleMaterial).toBe("ice");
+  });
+
+  /**
+   * ONE BAG PER MATERIAL.
+   *
+   * A shared bag would let a mixed session exhaust the six indices ACROSS the
+   * two materials, so a player could hear three of the six rock falls and never
+   * the other three - which is the repetition the bag exists to prevent, and it
+   * is invisible on the waveform once the rate jitter has moved each take.
+   *
+   * FAILED FIRST with both materials drawing from one shared rotation,
+   * alternating exactly as below: `ice drew 5,3,1,1,3,2: expected [ 1, 1, 2, 3,
+   * 3, 5 ] to deeply equal [ +0, 1, 2, 3, 4, 5 ]` - buffer 1 and buffer 3 heard
+   * twice each in six blasts, buffers 0 and 4 not at all.
+   */
+  it("each material hears all six of its own falls before any repeats", () => {
+    const { ctx, output } = onBus("sfx");
+    const bus = new SfxBus(ctx, output);
+    const drawn: Record<string, number[]> = { ice: [], rock: [] };
+    for (let k = 0; k < CRUMBLE_VARIANTS * 2; k++) {
+      const id = k % 2 === 0 ? "mars-regolith" : "kuiper-water-ice";
+      ctx.currentTime = k * 1.4;
+      const result = bus.play("blast", { debrisType: id });
+      const material = result.crumbleMaterial as string;
+      expect(material, id).toBe(crumbleMaterialFor(id));
+      (drawn[material] as number[]).push(result.crumbleIndex as number);
+    }
+    for (const material of CRUMBLE_MATERIALS) {
+      const indices = drawn[material] as number[];
+      expect(indices, material).toHaveLength(CRUMBLE_VARIANTS);
+      expect([...indices].sort((a, b) => a - b), `${material} drew ${indices.join()}`).toEqual(
+        Array.from({ length: CRUMBLE_VARIANTS }, (_, i) => i),
+      );
     }
   });
 });

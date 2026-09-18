@@ -97,6 +97,39 @@ describe("UR-51: the difficulty knob reaches the belt, and comes back", () => {
     expect(complete).toContain("persistStageKnobs");
   });
 
+  it("UR-51: the MARGIN is reported with every outcome, or the knob never moves again", () => {
+    /**
+     * The same defect shape as the knob itself, one layer down. `endStage` now
+     * throttles on `@engine/controller/margin` rather than on hit rate - a fast
+     * pilot's hit rate is 1.0000 and a grade-2 pilot's 0.9521, four hundredths
+     * of signal, which is why every child arrived at `MAX_LIVE_MAX` together.
+     *
+     * `recordOutcome`'s margin argument is OPTIONAL in the type, because the
+     * engine cannot import the scene that supplies it. So the liveness question
+     * is not "does the argument exist" but "does the scene pass it", and the
+     * failure mode of a deleted call site is silent in exactly the way UR-51's
+     * first defect was: the controller holds on "no-margin" for ever, the belt
+     * never gets harder for anybody, and every unit test of the controller
+     * still passes because they all call it directly.
+     *
+     * WATCHED FAILING, with the real text: drop the third argument from either
+     * call and the matching assertion goes red while
+     * `tests/unit/arch/profileWriters` and the whole engine suite stay green.
+     */
+    // Both resolutions of a spawn, by the method that owns each one.
+    const blast = /private onBlast\([\s\S]*?\n  \}/.exec(FLIGHT)?.[0] ?? "";
+    const retire = /private retireAtBreachLine\([\s\S]*?\n  \}/.exec(FLIGHT)?.[0] ?? "";
+    expect(blast.length, "onBlast not found").toBeGreaterThan(200);
+    expect(retire.length, "retireAtBreachLine not found").toBeGreaterThan(200);
+    expect(blast).toMatch(/recordOutcome\(\s*this\.controller,\s*"blasted",[\s\S]{0,400}?clearanceMargin\(/);
+    expect(retire).toMatch(/recordOutcome\(\s*this\.controller,\s*"missed",[\s\S]{0,400}?clearanceMargin\(/);
+
+    // And the margin is measured off the rock's OWN grant, not off a constant:
+    // the quantity is `1 - elapsed / fallMs`, so both fields have to reach it.
+    expect(FLIGHT).toMatch(/clearanceMargin\(\{[\s\S]{0,200}?spawnedAtMs: rock\.spawnedAtMs/);
+    expect(FLIGHT).toMatch(/clearanceMargin\(\{[\s\S]{0,200}?fallMs: rock\.fallMs/);
+  });
+
   it("UR-51: the standalone mount can still state a knob, or no e2e can ask about depth", () => {
     // `FlightConfig.knobs` overriding the stored pair is what lets a harness put
     // a SPECIFIC difficulty on the belt. On the real path `cfg.knobs` is `{}`,

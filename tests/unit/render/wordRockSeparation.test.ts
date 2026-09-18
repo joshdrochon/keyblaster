@@ -3,6 +3,7 @@ import {
   PALETTE_STOP_IDS,
   ROCK_SKY_SPAN,
   SKY_SWEEP_CLEARANCE,
+  hexToNum,
   luma255,
   mixHex,
   paletteAt,
@@ -12,11 +13,15 @@ import {
   type StopPalette,
 } from "@game/render/palette.js";
 import {
+  CANISTER_BAND_ALPHA,
+  CANISTER_BAND_HALF_W,
+  CANISTER_BAND_OUTER,
   DEBRIS_BY_STOP,
   LIT_FACE_INNER,
   MEASURED_CORE,
   TERMINATOR_INNER,
   drawDebris,
+  drawShieldCanister,
   wordDebrisTypesFor,
   wordRockFill,
   wordRockLitFace,
@@ -121,6 +126,13 @@ const PROBE_BAR_LUMA = 0.06 * 255;
  * 20 is a third above the probe's bar and is what the clamp leaves.
  */
 const CLEARANCE_FLOOR = 20;
+
+/**
+ * A colour no palette uses, passed as the canister's accent so the recorder
+ * below can tell the canister's own ink from the rock's. Which colour it is
+ * does not matter; that nothing else in `drawDebris` sets it does.
+ */
+const ACCENT_PROBE = "#FF00FF";
 
 /**
  * `SKY_MID_AT` from `parallax.ts`. Duplicated on purpose and only HERE, in the
@@ -286,6 +298,153 @@ describe("UR-47 / AC-22.4: a word-asteroid never matches the sky it falls throug
       `the terminator band reaches ${(TERMINATOR_INNER * minProfile).toFixed(3)}r, inside the ${MEASURED_CORE}r core the probe averages`,
     ).toBeGreaterThan(MEASURED_CORE);
     expect(LIT_FACE_INNER * minProfile).toBeGreaterThan(MEASURED_CORE);
+  });
+
+  /**
+   * AND NEITHER MAY THE SHIELD CANISTER'S BAND (V-22.4, uranus).
+   *
+   * The rule above is only worth having if EVERY overlay obeys it, and one did
+   * not. `drawShieldCanister` painted a centred accent capsule -0.16r..0.16r by
+   * -0.44r..0.44r, which put 44% of the measured core in the brightest colour
+   * the stop owns. The e2e sweep read the result on uranus at 0.70 of the fall:
+   * core 100.3 against a background of 90.0, separation 0.0403 against a bar of
+   * 0.06, where the same rock without the band read 0.27-0.33. Saturn's live
+   * canister was the same shape at 0.0943.
+   *
+   * ================== IT MEASURES THE DRAWING, NOT THE CONSTANTS ==================
+   * Rule 3: a guard that reads `CANISTER_BAND_INNER` is a guard about a number,
+   * and the number is not what covers the rock. So the accent ink is recovered
+   * from the `fillRoundedRect` / `strokeCircle` calls `drawShieldCanister`
+   * ACTUALLY MAKES, through a recorder standing in for the Graphics, and
+   * rasterised against the probe's own 0.45r disc. A band that comes back in a
+   * different shape, at a different alpha, or through a call this file has never
+   * seen is measured the same way.
+   *
+   * Watched failing, with the band put back exactly as it shipped
+   * (`fillRoundedRect(-r*0.16, -r*0.44, r*0.32, r*0.88, r*0.14)`):
+   *
+   *   mars mars-regolith: the canister's accent covers 43.9% of the 0.45r core
+   *   and lifts its mean by 41.8 luma, more than the 12 a canister may move off
+   *   its own body: expected 41.84838833256303 to be less than or equal to 12
+   *
+   * (mars is simply the first stop in the loop; uranus, the stop the e2e sweep
+   * caught, is the worst of them because its accent is the brightest and its
+   * material the darkest.)
+   */
+  it("the shield canister's band never reaches the disc the probe averages", () => {
+    /**
+     * The accent ink `drawShieldCanister` lays down, in units of the rock's
+     * radius, read off the draw calls rather than off the constants.
+     */
+    const accentInk = (): { rects: number[][]; circles: number[][] } => {
+      const radius = 50;
+      const rects: number[][] = [];
+      const circles: number[][] = [];
+      let accentPen = false;
+      let lineW = 0;
+      const recorder = {
+        clear: () => recorder,
+        fillStyle: (colour: number) => {
+          accentPen = colour === hexToNum(ACCENT_PROBE);
+          return recorder;
+        },
+        lineStyle: (w: number, colour: number) => {
+          accentPen = colour === hexToNum(ACCENT_PROBE);
+          lineW = w;
+          return recorder;
+        },
+        fillPoints: () => recorder,
+        fillCircle: () => recorder,
+        beginPath: () => recorder,
+        moveTo: () => recorder,
+        lineTo: () => recorder,
+        strokePath: () => recorder,
+        fillRoundedRect: (x: number, y: number, w: number, h: number) => {
+          if (accentPen) rects.push([x / radius, y / radius, w / radius, h / radius]);
+          return recorder;
+        },
+        strokeCircle: (_cx: number, _cy: number, r: number) => {
+          if (accentPen) circles.push([r / radius, lineW / radius]);
+          return recorder;
+        },
+      };
+      drawShieldCanister(
+        recorder as unknown as Parameters<typeof drawShieldCanister>[0],
+        {
+          type: wordDebrisTypesFor("uranus")[0] as DebrisType,
+          variantIndex: 0,
+          sizePx: radius * 2,
+          lightAngle: -Math.PI / 4,
+          fillOverride: null,
+          accent: ACCENT_PROBE,
+        },
+      );
+      return { rects, circles };
+    };
+
+    const { rects, circles } = accentInk();
+    // ANTI-VACUITY. A recorder that saw nothing would make every number below
+    // zero and every assertion pass about a canister that is not drawn.
+    expect(rects.length + circles.length, "no accent ink was recorded").toBeGreaterThan(0);
+
+    // Rasterise the recorded ink against the probe's own core disc. Corner
+    // rounding is ignored, which can only OVERSTATE the coverage - the safe
+    // direction for a guard.
+    const N = 700;
+    let inCore = 0;
+    let inked = 0;
+    for (let iy = 0; iy < N; iy += 1) {
+      const y = -1 + (2 * (iy + 0.5)) / N;
+      for (let ix = 0; ix < N; ix += 1) {
+        const x = -1 + (2 * (ix + 0.5)) / N;
+        if (x * x + y * y > MEASURED_CORE ** 2) continue;
+        inCore += 1;
+        const hit =
+          rects.some(
+            ([rx, ry, rw, rh]) =>
+              x >= (rx as number) &&
+              x <= (rx as number) + (rw as number) &&
+              y >= (ry as number) &&
+              y <= (ry as number) + (rh as number),
+          ) ||
+          circles.some(([cr, cw]) => {
+            const d = Math.hypot(x, y);
+            return Math.abs(d - (cr as number)) <= (cw as number) / 2;
+          });
+        if (hit) inked += 1;
+      }
+    }
+    expect(inCore, "the core was not sampled").toBeGreaterThan(1000);
+    const coverage = inked / inCore;
+
+    /**
+     * How far a canister may move its own core off the body value, in luma.
+     *
+     * The weakest plain rock in the six-stop e2e sweep read 0.1949 (49.7 luma),
+     * so a lift of 12 leaves the worst canister at 37.7 luma = 0.148, well over
+     * the 0.06 bar. It is a budget, not a measurement: the shipped number is 0.
+     */
+    const MAX_CORE_LIFT = 12;
+    for (const id of STOPS_WITH_A_BELT) {
+      const accentLuma = luma255(paletteFor(id).accent);
+      for (const type of wordDebrisTypesFor(id)) {
+        const body = luma255(wordRockFill(type));
+        const lift = coverage * CANISTER_BAND_ALPHA * Math.abs(accentLuma - body);
+        expect(
+          lift,
+          `${id} ${type.id}: the canister's accent covers ${(coverage * 100).toFixed(1)}% of the ${MEASURED_CORE}r core and lifts its mean by ${lift.toFixed(1)} luma, more than the ${MAX_CORE_LIFT} a canister may move off its own body`,
+        ).toBeLessThanOrEqual(MAX_CORE_LIFT);
+      }
+    }
+
+    // And the band stays ON the rock: the far corner of a strap against the
+    // shallowest point of any silhouette in the table.
+    const allRadii = Object.values(DEBRIS_BY_STOP)
+      .flatMap((types) => types.flatMap((t) => t.variants.flatMap((v) => [...v.radii])));
+    expect(
+      Math.hypot(CANISTER_BAND_HALF_W, CANISTER_BAND_OUTER),
+      "the band's far corner leaves the silhouette",
+    ).toBeLessThan(Math.min(...allRadii));
   });
 
   it("the lit face is lighter than the body it sits on, at every stop and material", () => {

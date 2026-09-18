@@ -12,6 +12,10 @@ import { stagePoolFor } from "../../../src/game/flight/stage.js";
 // THE RENDERER'S OWN FUNCTIONS, imported rather than restated. See the note on
 // `plateWidth` below for what was here before and why it was not a binding.
 import { asteroidSizePx } from "../../../src/game/render/asteroid.js";
+import {
+  cellWidthPx as plateCellWidthPx,
+  plateSize,
+} from "../../../src/game/render/wordPlateGeometry.js";
 
 
 /**
@@ -43,17 +47,16 @@ import { asteroidSizePx } from "../../../src/game/render/asteroid.js";
  *   ROCK SIZE is now the renderer's own `asteroidSizePx`, imported. `asteroid.ts`
  *   loads in node because the functions this file calls never touch Phaser.
  *
- *   PLATE WIDTH is still restated here, and cannot be imported today:
- *   `wordPlate.ts` declares `class WordPlate extends Phaser.GameObjects.Container`,
- *   so importing anything from it executes Phaser and dies on `window is not
- *   defined` under vitest's node environment.
+ *   PLATE WIDTH used to be restated here too, because `wordPlate.ts` declares
+ *   `class WordPlate extends Phaser.GameObjects.Container` and importing
+ *   anything from it executed Phaser and died on `window is not defined` under
+ *   vitest's node environment.
  *
- * THE FIX IS A MODULE SPLIT, not a wider tolerance: `plateSize`, `cellWidthPx`,
- * `plateOffsetY` and the `PLATE_*` constants are pure arithmetic sharing a file
- * with a Phaser subclass for no reason. Moving them to a Phaser-free
- * `wordPlateGeometry.ts` that `wordPlate.ts` re-exports would make this a real
- * binding. Not done tonight; raised in gauntlet/escalations.md so the gap has a
- * ticket rather than a comment.
+ * THE MODULE SPLIT THIS FILE ASKED FOR HAS LANDED. `plateSize`, `cellWidthPx`,
+ * `plateOffsetY` and the `PLATE_*` constants are pure arithmetic and now live in
+ * a Phaser-free `render/wordPlateGeometry.ts` that `wordPlate.ts` re-exports, so
+ * both halves of this check are the renderer's own functions and the duplication
+ * is gone.
  */
 
 /**
@@ -71,14 +74,9 @@ const WIDEST_STYLE = {
   reducedMotion: false,
 } as const;
 
-/**
- * RESTATED from `wordPlate.cellWidthPx` / `plateSize`, because that module
- * cannot be loaded here (see the header). Keep these three lines identical to
- * it; the module split described above is what would remove the duplication.
- */
-const PLATE_PAD_X_PX = 14;
-const cellWidthPx = (): number => WIDEST_STYLE.fontSizePx * 0.62 + WIDEST_STYLE.letterSpacingPx;
-const plateWidth = (letters: number): number => letters * cellWidthPx() + PLATE_PAD_X_PX * 2;
+/** The renderer's own answer, imported since the module split. */
+const cellWidthPx = (): number => plateCellWidthPx(WIDEST_STYLE);
+const plateWidth = (letters: number): number => plateSize("a".repeat(letters), WIDEST_STYLE).width;
 
 /** The renderer's own answer. */
 const rockSizePx = (letters: number): number => asteroidSizePx(letters);

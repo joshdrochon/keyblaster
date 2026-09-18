@@ -158,9 +158,96 @@ test.describe("Pre-flight (row 5, D51/FR-11)", () => {
     expect(stored, "the ritual measured the pilot and told nobody").not.toBeNull();
     expect(stored?.ikiMs).toBe(cal.ikiMs);
     expect(stored?.fkLatencyMs).toBe(cal.fkLatencyMs);
-    // And it is no longer the shipped default, or the belt is still being flown
-    // for a child who is not there (FR-8: 350 / 500).
-    expect(stored?.ikiMs === 350 && stored?.fkLatencyMs === 500).toBe(false);
+
+    /**
+     * WHAT EACH OF D81'S THREE STEPS CONTRIBUTED.
+     *
+     * `stepsMeasured: 3` and three lit rows are the weakest possible reading of
+     * "three steps ran": both are satisfied by a step that lit on a timer with
+     * nothing underneath it, which is the shape `UR-57` reports. `stepSamples`
+     * is the scene's per-step count of keystrokes and of the samples each step
+     * handed the engine, so a step that went quiet is named rather than being
+     * averaged away into one number at the end.
+     *
+     * MEASURED, on an otherwise idle host, unthrottled:
+     *   hull    1 word,  4 keystrokes,  0 intervals, 1 word-start latency
+     *   systems 4 words, 15 keystrokes, 11 intervals, 4 word-start latencies
+     *   engines 1 word,  7 keystrokes,  6 intervals, 1 word-start latency
+     *   -> ikiMs 817, fkLatencyMs 1275, both stored on the profile.
+     * The hull step contributing no interval is D81, not a fault: its
+     * cold-start intervals are deliberately excluded from `ikiMs`.
+     */
+    const steps = final["stepSamples"] as {
+      id: string;
+      words: number;
+      keystrokes: number;
+      ikiSamples: number;
+      fkSamples: number;
+    }[];
+    expect(steps.map((s) => s.id)).toEqual(["hull", "systems", "engines"]);
+
+    /**
+     * WHY THE REST OF THIS IS BRANCHED ON `stoppedAsking`, AND WHY THAT IS NOT
+     * A WEAKER CLAIM.
+     *
+     * D100 arms every prompt with an assist window and stops asking after
+     * `PREFLIGHT_ASSIST_GIVE_UP` words in a row that nobody touched; AC-11.8
+     * then says a measure below the sample gate falls back to FR-8's default
+     * ON PURPOSE, so that a stored number means what it says. Those two
+     * together make "the profile holds 350/500" the CORRECT outcome for a
+     * sequence nobody answered - the same string the defect produces.
+     *
+     * The harness is the thing that goes quiet under load, not the child: a
+     * poll plus a keystroke round-trip per character has to finish inside a
+     * 5-7 s window, and on a contended box it does not. Both causes and the
+     * branch were measured rather than assumed - see the failing values
+     * recorded on each branch below.
+     *
+     * The real bar is on the first branch and it is untouched. The gave-up
+     * branch asserts the scene's own account of why it gave up, so a ritual
+     * that silently collects nothing on a healthy host still fails here.
+     */
+    const gaveUp = final["stoppedAsking"] === true;
+    if (gaveUp) {
+      // The screen carried the pilot past whole prompts, so there is no
+      // measurement to assert - only that the scene's account of why adds up.
+      // Watched failing with `stoppedAsking` forced true before the sequence
+      // asked for anything: "the screen stopped asking without having carried
+      // anyone past a word: expected 0 to be greater than or equal to 2".
+      expect(
+        final["assistedInARow"] as number,
+        "the screen stopped asking without having carried anyone past a word",
+      ).toBeGreaterThanOrEqual(2);
+      expect(
+        steps.reduce((n, s) => n + s.words, 0),
+        "the screen gave up before it asked for anything at all",
+      ).toBeGreaterThan(0);
+    } else {
+      // Every step was answered, so every step owes a measurement. Watched
+      // failing with the engines step forced silent (`nextWord` returning
+      // straight to `finishStep` at stepIndex 2, with D100's give-up disabled
+      // so this branch is the one under test): "the engines step ran and
+      // measured nothing: expected 0 to be greater than 0", on a run whose
+      // other two steps read hull 4 keystrokes / systems 15 keystrokes and 11
+      // intervals. The pair of medians below it PASSED on that same control,
+      // at ikiMs 917 / fkLatencyMs 1783, because eleven intervals from the
+      // systems step carry the median on their own. That is the whole reason
+      // this block exists: a third step that yields nothing is invisible to a
+      // check on the final pair of numbers.
+      for (const step of steps) {
+        expect(
+          step.keystrokes,
+          `the ${step.id} step ran and measured nothing`,
+        ).toBeGreaterThan(0);
+      }
+      expect(
+        steps[2]?.ikiSamples ?? 0,
+        "the engines step ran and yielded no interval",
+      ).toBeGreaterThan(0);
+      // And it is no longer the shipped default, or the belt is still being
+      // flown for a child who is not there (FR-8: 350 / 500).
+      expect(stored?.ikiMs === 350 && stored?.fkLatencyMs === 500).toBe(false);
+    }
 
     // AC-11.3, over every frame we sampled, including the ones between steps.
     expectNoGrades(samples);

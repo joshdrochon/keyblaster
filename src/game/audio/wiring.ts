@@ -130,6 +130,16 @@ export interface FlightCuePayload {
   readonly hull?: number;
   readonly maxHull?: number;
   readonly live?: number;
+  /**
+   * UR-66: the FR-12b debris type of the rock that was destroyed, on `blast`.
+   *
+   * It rides the cue for the same reason `combo` and `hull` do - it is known at
+   * the instant of the event and nowhere else. The HUD stream does not carry
+   * it, and a stop id would not answer the question anyway: Jupiter's board has
+   * four materials on it at once. Absent, the blast uses the shipped ice grain
+   * set, so a caller that does not supply it sounds exactly as it did before.
+   */
+  readonly debrisType?: string;
 }
 
 /** What `FLIGHT_EVENTS.hud` carries, narrowed to the two numbers music wants. */
@@ -166,6 +176,12 @@ export interface RoutedPlay {
   readonly variant: string;
   readonly peakGain: number;
   readonly startHz: number;
+  /**
+   * UR-66: the grain set a blast actually used, `null` for every other event.
+   * In the evidence file because UR-66 closes on a human listening, and the
+   * first question a listener asks is which sound they are being played.
+   */
+  readonly crumbleMaterial: string | null;
   /** The graph context's clock at the moment it was scheduled. */
   readonly ctxTime: number;
   /** Where the call came from: a flight cue, the UI kit, or a scene. */
@@ -421,6 +437,7 @@ export function installAudio(options: InstallAudioOptions): AudioService {
         variant: result.variant.id,
         peakGain: result.peakGain,
         startHz: result.startHz,
+        crumbleMaterial: result.crumbleMaterial,
         ctxTime: graph.ctx.currentTime,
         via,
       },
@@ -484,6 +501,12 @@ export function installAudio(options: InstallAudioOptions): AudioService {
 
       const result = graph.sfx.play(event, {
         ...(typeof payload.combo === "number" ? { combo: payload.combo } : {}),
+        // UR-66: carried through untouched. The mapping from a debris id to a
+        // grain set lives in `crumble.ts`, so this layer never has to know
+        // which rows of FR-12b are ice.
+        ...(typeof payload.debrisType === "string"
+          ? { debrisType: payload.debrisType }
+          : {}),
         hullFraction,
       });
       record(result, `flight-cue:${name}`);
