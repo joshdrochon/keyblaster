@@ -249,7 +249,10 @@ describe("UR-68: the Title's menu column is a budget, not four constants", () =>
       langH: dev(TYPE.label),
     });
     expect(withLangRow.tightenedBy).toBe(MARK_GAP - MARK_GAP_MIN);
-    expect(withLangRow.overflow).toBe(16);
+    // 6, down from 16: UR-90 took `SECONDARY_GAP` from 44 to 34, so the column
+    // needs ten fewer pixels and the unreachable Devanagari case overflows by
+    // ten fewer. Still non-zero, so the constraint it records is unchanged.
+    expect(withLangRow.overflow).toBe(6);
     expect(withLangRow.bottom).toBeLessThan(FRAME_BOTTOM);
 
     // What the ticket asked for holds in both builds: the gaps never pay.

@@ -120,7 +120,7 @@ export const STATUS_GAP = 20;
  * rather than the grid's `BLOCK_GAP` of 40 because this gap is measured ring to
  * ring and the grid's is measured plate to plate.
  */
-export const SECONDARY_GAP = 44;
+export const SECONDARY_GAP = 34;
 
 /**
  * Air between two QUIET controls - settings and the language row.
