@@ -13,7 +13,7 @@ import {
   headerText,
 } from "@game/ui/grid";
 import type { Rect } from "@game/ui/layout";
-import { TYPE } from "@game/ui/theme";
+import { SPACE, TYPE } from "@game/ui/theme";
 import {
   BACK_CHIP,
   BULKHEAD,
@@ -34,6 +34,9 @@ import {
   contains,
   inset,
   promptPlate,
+  checkBarProgress,
+  COLUMN_W,
+  RACK_PAD,
   windowRect,
   MULLION_CLEARANCE,
   PLANET,
@@ -175,6 +178,81 @@ describe("UR-39: the screen has a header, one column and a way out", () => {
     // gutter, and text is inset from the plate it sits on.
     expect([...new Set(leftEdges())]).toEqual([GUTTER]);
     expect(LINE_PAD.x).toBeGreaterThan(0);
+  });
+
+  /**
+   * UR-101.1: THE RACK HUNG OFF THE COLUMN, AND THE PAIR WAS ANCHORED BACKWARDS.
+   *
+   * ================== WHAT WAS REPORTED, MEASURED ==================
+   * The project owner called this screen "jenky". On the served build the ink
+   * lines were heading 118, stop name 118, hint 118 - and the bracket rack
+   * around the check rows was at 68, i.e. `GUTTER - 28`, twenty-eight pixels
+   * LEFT of the gutter every other element on the screen uses. It was the only
+   * thing in the frame that started outside the column.
+   *
+   * ================== WHY IT WAS 68 IN THE FIRST PLACE ==================
+   * The pair was anchored the wrong way round. The ROWS were put on the gutter
+   * (`ROW.x = GUTTER`) and the rack was then grown outwards from them to look
+   * like a rack, which forces the rack - the PLATE, the thing a column edge is
+   * a property of - off the grid by however much padding it wants. UR-39 had
+   * already settled the general rule for this exact screen: "every PLATE starts
+   * on the gutter and text is inset from its plate". The rack was the one plate
+   * nobody applied it to.
+   *
+   * ================== WHAT IT IS NOW ==================
+   * Reversed. The rack is on the gutter and the rows are inset from IT, by
+   * `SPACE.rowPadX` - which is 22, is `SKY_PLATE.padX`, and is therefore the
+   * same inner line the heading's plated ink, the stop name's and the hint's
+   * already sit on (UR-89 made that one number for exactly this reason). So the
+   * screen now has TWO vertical lines and not four: plates at 96, anything
+   * inside a plate at 118.
+   *
+   * 28 was also on no scale at all - it is the number UR-89 removed from
+   * `SPACE.rowPadX` for being the one inset in `theme.ts` on no scale.
+   *
+   * WATCHED FAILING, with `BULKHEAD.x = GUTTER - 28` and `ROW.x = GUTTER`:
+   *   the rack hangs off the product's column: expected 68 to be 96
+   */
+  it("UR-101.1: the RACK is on the gutter and the rows are inset from it", () => {
+    expect(BULKHEAD.x, "the rack hangs off the product's column").toBe(GUTTER);
+    // The rows are inside their rack, by the product's own inner inset...
+    expect(ROW.x - BULKHEAD.x).toBe(SPACE.rowPadX);
+    // ...and by the same amount on the right, or it is not a rack.
+    expect(BULKHEAD.x + BULKHEAD.w - (ROW.x + ROW.w)).toBe(SPACE.rowPadX);
+    // ONE INNER LINE FOR THE WHOLE SCREEN. This is the number the owner
+    // measured three times over on the served build.
+    expect(ROW.x).toBe(HEADING.x);
+    expect(ROW.x).toBe(SUBHEADING.x);
+    expect(ROW.x).toBe(GUTTER + SPACE.rowPadX);
+  });
+
+  it("UR-101.1: the whole screen is TWO left edges, not four", () => {
+    // Every plate on the gutter, everything drawn inside a plate on the inner
+    // line. `HINT_CONTRACT.x` is the hint PLATE's edge; the hint's ink sits at
+    // `+ SKY_PLATE.padX`, which is the same 22.
+    const plates = [BULKHEAD.x, LINE_PLATE.x, HINT_CONTRACT.x, ROW.x - SPACE.rowPadX];
+    expect([...new Set(plates)]).toEqual([GUTTER]);
+    const inner = [ROW.x, HEADING.x, SUBHEADING.x, LINE_PLATE.x + SPACE.rowPadX];
+    expect([...new Set(inner)]).toEqual([GUTTER + SPACE.rowPadX]);
+  });
+
+  it("UR-101.1: the left column is ONE width, right edge included", () => {
+    // THE HALF THE FIRST FIX EXPOSED, found by looking at the capture rather
+    // than at the rectangle that was reported. With the rack pulled onto the
+    // gutter it ran 96..724 while Shadow's plate directly under it ran 96..856:
+    // two stacked plates agreeing on the left and 132 px apart on the right,
+    // which reads worse than being honestly misaligned on both.
+    //
+    // WATCHED FAILING, with `BULKHEAD.w = ROW.w + RACK_PAD * 2` and `ROW.w` at
+    // its old 584: "expected 724 to be 856".
+    expect(BULKHEAD.x + BULKHEAD.w).toBe(LINE_PLATE.x + LINE_PLATE.w);
+    expect(BULKHEAD.w).toBe(COLUMN_W);
+    expect(LINE_PLATE.w).toBe(COLUMN_W);
+    // The rows are still inside it, still symmetrically.
+    expect(ROW.w).toBe(COLUMN_W - RACK_PAD * 2);
+    // ...and the column still clears the glass and the word plate on it.
+    expect(BULKHEAD.x + BULKHEAD.w).toBeLessThan(WINDOW.x);
+    expect(promptPlate(MAX_PROMPT_GLYPHS).x).toBeGreaterThan(ROW.x + ROW.w);
   });
 
   it("NEGATIVE CONTROL: the shipped edges were four different numbers", () => {
@@ -431,4 +509,241 @@ describe("UR-77.3: the planet is the shared celestial body, not a second one", (
     expect(scene).not.toContain("WINDOW.w * 0.62");
   });
 
+});
+
+/**
+ * UR-101.2: THE CHECK BAR HAD TWO POSITIONS.
+ *
+ * ================== WHAT WAS REPORTED ==================
+ * `PreflightScene.paintRow` drew a row's bar inside `if (row.state === "lit")`
+ * and nowhere else, so it went 0% to 100% with nothing in between - a progress
+ * bar with two positions, on the one instrument a child is looking at while
+ * they type. The project owner asked for it to fill as the child types, and
+ * specifically for it to FEEL like their typing is driving it.
+ *
+ * ================== WHAT THE RULE HAS TO SATISFY AT ONCE ==================
+ * Four things, and they pull against each other, which is why the arithmetic is
+ * pure and tested here rather than inlined in a Phaser scene:
+ *
+ *   it must move on the keystroke, per KEY and not per word;
+ *   it must reach exactly full when the step completes, never 97% or 103%;
+ *   it must never go backwards (D31: a typo is not punished);
+ *   and it must advance WHETHER OR NOT the child types, because nobody is
+ *   forced to and D100's timeout finishes the step underneath them.
+ *
+ * `max(typed, elapsed)` is what satisfies all four. See `checkBarProgress`.
+ *
+ *   npx vitest run tests/unit/scenes/preflightLayout.test.ts --coverage.enabled=false
+ */
+describe("UR-101.2: the check bar fills as the step runs", () => {
+  /** One step: four words, four letters each, 5 s of assist window per word. */
+  const STEP = { totalKeys: 16, wordCount: 4, wordWindowMs: 5_000 } as const;
+  const at = (
+    typedKeys: number,
+    wordIndex: number,
+    wordElapsedMs: number,
+  ): number =>
+    checkBarProgress({ ...STEP, typedKeys, wordIndex, wordElapsedMs });
+
+  it("moves on EVERY accepted keystroke, not once per word", () => {
+    // The sharpened form of the report: per word would leave the hull step -
+    // one word - exactly as binary as the defect it is meant to fix.
+    const steps = [0, 1, 2, 3, 4].map((k) => at(k, 0, 0));
+    expect(steps).toEqual([0, 0.0625, 0.125, 0.1875, 0.25]);
+    for (let i = 1; i < steps.length; i += 1) {
+      expect(steps[i]!, `key ${i} moved nothing`).toBeGreaterThan(steps[i - 1]!);
+    }
+  });
+
+  it("NEGATIVE CONTROL: a single-word step would still be binary per word", () => {
+    // What "per word" would have produced for the hull check: nothing until the
+    // word is done. The keystroke rule gives four readings for a four-letter
+    // word where the word rule gives two.
+    const hull = { totalKeys: 4, wordCount: 1, wordWindowMs: 5_000 } as const;
+    const readings = [0, 1, 2, 3, 4].map((k) =>
+      checkBarProgress({ ...hull, typedKeys: k, wordIndex: 0, wordElapsedMs: 0 }),
+    );
+    expect(new Set(readings).size).toBe(5);
+  });
+
+  it("is ONE continuous fill across a step's words, not a jump per word", () => {
+    // Four words in one step. The fill at the end of word 2 and at the start of
+    // word 3 is the same number, so nothing lurches at a word boundary.
+    expect(at(8, 2, 0)).toBe(0.5);
+    expect(at(9, 2, 0)).toBe(0.5625);
+  });
+
+  it("reaches EXACTLY full when the last keystroke lands", () => {
+    expect(at(16, 3, 0)).toBe(1);
+    // ...and cannot be pushed past it by a clock that kept running.
+    expect(at(16, 4, 9_999)).toBe(1);
+  });
+
+  it("advances on the clock for a child who types nothing (UR-31 made visible)", () => {
+    // The half that makes it correct rather than merely responsive. The step
+    // completes with or without the child, so the bar has to as well - the
+    // display and the truth may not disagree on this screen.
+    expect(at(0, 0, 0)).toBe(0);
+    expect(at(0, 0, 2_500)).toBe(0.125);
+    expect(at(0, 0, 5_000)).toBe(0.25);
+    expect(at(0, 1, 0)).toBe(0.25);
+    expect(at(0, 3, 5_000)).toBe(1);
+  });
+
+  it("typing only ever pulls the bar AHEAD of the clock, never behind it", () => {
+    // A fast typist: 8 keys down while the clock is a quarter through word 1.
+    const fast = at(8, 0, 1_250);
+    expect(fast).toBe(0.5);
+    // The same instant with nothing typed reads the clock alone.
+    expect(at(0, 0, 1_250)).toBe(0.0625);
+    // A slow typist is carried by the clock rather than held back by it.
+    expect(at(1, 0, 4_000)).toBeCloseTo(0.2, 6);
+  });
+
+  it("D31: a keystroke that advances nothing leaves the bar exactly where it was", () => {
+    // A typo does not increment `typedKeys`, so the reading is unchanged at the
+    // same instant. The bar retreating would be a punishment drawn in the one
+    // place the child is looking, which AC-22b.1 forbids outright.
+    expect(at(5, 0, 1_000)).toBe(at(5, 0, 1_000));
+    const before = at(5, 0, 1_000);
+    const afterTypo = at(5, 0, 1_000);
+    expect(afterTypo).toBeGreaterThanOrEqual(before);
+  });
+
+  it("is monotonic along every trajectory a real run can take", () => {
+    // The PROPERTY, rather than six examples of it. Both inputs are
+    // nondecreasing in a real run - the clock does not rewind and a keystroke
+    // is never un-typed - so the reading must be nondecreasing too. Three
+    // pilots are walked frame by frame at 250 ms:
+    //
+    //   the child who types nothing        (the clock carries them)
+    //   the child who types a key a second (slower than the clock in places)
+    //   the child who types instantly      (always ahead of the clock)
+    //
+    // WATCHED FAILING on a first version of this loop that reset `typedKeys`
+    // when the clock advanced: "expected 0.0125 to be greater than or equal to
+    // 0.25". That was the test walking a trajectory no run can take, not the
+    // function retreating - which is itself the reason this is written as a
+    // walk rather than as a cross-product.
+    const pilots: ((wordMs: number) => number)[] = [
+      () => 0,
+      (wordMs) => Math.min(4, Math.floor(wordMs / 1_000)),
+      () => 4,
+    ];
+    for (const [i, keysIn] of pilots.entries()) {
+      let last = -1;
+      let value = 0;
+      for (let word = 0; word < STEP.wordCount; word += 1) {
+        for (let ms = 0; ms <= STEP.wordWindowMs; ms += 250) {
+          value = checkBarProgress({
+            ...STEP,
+            typedKeys: word * 4 + keysIn(ms),
+            wordIndex: word,
+            wordElapsedMs: ms,
+          });
+          expect(
+            value,
+            `pilot ${i} went backwards at word ${word}, ${ms} ms`,
+          ).toBeGreaterThanOrEqual(last);
+          last = value;
+        }
+      }
+      // And every one of them arrives, exactly, however they got there.
+      expect(value, `pilot ${i} did not reach full`).toBe(1);
+    }
+  });
+
+  it("AC-11.3: it cannot tell a child who typed from one who did not", () => {
+    // THE REASON THIS IS NOT A GRADE, and it is structural rather than a
+    // promise. At the end of a step both children see a full bar, so nothing
+    // drawn here distinguishes them and nothing drawn here can be read as a
+    // mark on either. A bar driven by keystrokes ALONE would have been a score.
+    const typedEverything = at(16, 3, 0);
+    const typedNothing = at(0, 3, STEP.wordWindowMs);
+    expect(typedEverything).toBe(1);
+    expect(typedNothing).toBe(1);
+    expect(typedEverything).toBe(typedNothing);
+  });
+
+  it("degrades safely on the shapes the scene can hand it", () => {
+    // A step with no words (the "none" fallback) is complete, not divided by
+    // zero; a step whose keystroke total is unknown falls back to the clock.
+    expect(checkBarProgress({ typedKeys: 0, totalKeys: 0, wordIndex: 0, wordCount: 0, wordElapsedMs: 0, wordWindowMs: 0 })).toBe(1);
+    expect(checkBarProgress({ typedKeys: 0, totalKeys: 0, wordIndex: 1, wordCount: 2, wordElapsedMs: 0, wordWindowMs: 0 })).toBe(0.5);
+  });
+});
+
+/**
+ * UR-101.4: TYPING IN THE RITUAL WAS SILENT.
+ *
+ * `lib/typedWord.ts` played no audio at all - grep it, there was no cue call -
+ * while the belt next door gives every keystroke a mechanical clack (UR-34) and
+ * a pitched note climbing a pentatonic ladder (D75/UR-30). Every screen the
+ * module serves was affected: the first-run ritual, the launch ceremony at six
+ * stops, and Earth's activation.
+ *
+ * These are SOURCE assertions for the same reason `preflightAssist.test.ts`'s
+ * are: the module imports Phaser and cannot be constructed in a node suite, and
+ * the defect class is not "the code is wrong" but "the code was never called".
+ * The sound itself is tested where it lives, in `tests/unit/audio/`.
+ */
+describe("UR-101.4: the typed word sounds like the belt", () => {
+  const SRC_NO_COMMENTS = TYPED_WORD_SRC.replace(/\/\*[\s\S]*?\*\//g, "").replace(
+    /\/\/[^\n]*/g,
+    "",
+  );
+
+  it("NEGATIVE CONTROL: the module really did contain no cue call", () => {
+    // What the report said, restated as the thing that would be true again if
+    // the calls below were removed. This is the grep that came back empty.
+    const cueCalls = SRC_NO_COMMENTS.match(/routeFlightCue|resetTone|\.play\(/g) ?? [];
+    expect(cueCalls.length, "the typed word is silent again").toBeGreaterThan(0);
+  });
+
+  it("routes the FLIGHT cue for a keystroke, rather than inventing a second one", () => {
+    // The structural half. Going through `routeFlightCue` is what makes
+    // "sounds like the belt" a property rather than a resemblance: the SFX
+    // event, the D75 tone step and the word-boundary reset all come from one
+    // table in `audio/wiring.ts`, so changing the clack changes this too.
+    expect(SRC_NO_COMMENTS).toContain('routeFlightCue({ cue: "keystroke"');
+    // ...and it is on the ACCEPTED keystroke, which is the only place the lock
+    // machine says a letter went in.
+    const advanced = SRC_NO_COMMENTS.slice(
+      SRC_NO_COMMENTS.indexOf('emit.type === "advanced"'),
+    ).slice(0, 400);
+    expect(advanced).toContain("routeFlightCue");
+  });
+
+  it("D31: a mistyped key goes to the cue that is policed as the quietest", () => {
+    // Not a judgement made in this module. `typo` is a `GENTLE_EVENT` and
+    // `audio/sfx.ts` holds its ceiling; all this does is name it.
+    const nudge = SRC_NO_COMMENTS.slice(
+      SRC_NO_COMMENTS.indexOf('emit.type === "typo" || emit.type === "ignored"'),
+    ).slice(0, 400);
+    expect(nudge).toContain("routeFlightCue({ cue: emit.type");
+    // And nothing in this module reaches for a LOUDER event on a mistake.
+    expect(SRC_NO_COMMENTS).not.toMatch(/routeFlightCue\(\{ cue: "(blast|hit|warp)"/);
+  });
+
+  it("resets the pitched ladder at the word boundary (UR-30)", () => {
+    // Without this every prompt after the first would start where the last one
+    // stopped, and the ladder would sit on its ceiling - which is exactly the
+    // defect UR-30 reopened against the belt, rebuilt on a new screen.
+    const done = SRC_NO_COMMENTS.slice(SRC_NO_COMMENTS.indexOf('emit.type === "blast"')).slice(
+      0,
+      400,
+    );
+    expect(done).toContain("resetTone()");
+    // A finished prompt is NOT a rock exploding, so it does not take `blast`.
+    expect(done).not.toContain('cue: "blast"');
+  });
+
+  it("is silent when there is no audio service, rather than throwing", () => {
+    // The standalone harness and a browser that refused an AudioContext both
+    // hand back null. Optional chaining is the whole mechanism and it has to be
+    // on every call site, not most of them.
+    const calls = SRC_NO_COMMENTS.match(/audio[?.]*\.(routeFlightCue|resetTone)/g) ?? [];
+    expect(calls.length).toBeGreaterThanOrEqual(3);
+    for (const call of calls) expect(call.startsWith("audio?.")).toBe(true);
+  });
 });

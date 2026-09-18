@@ -9,6 +9,7 @@ import {
 } from "@engine/lock";
 import { hexToNum as rgb } from "@game/render/palette";
 import { FONT_STACK, INK, SPACE, TYPE } from "@game/ui/theme";
+import { audioFrom } from "@game/audio/wiring";
 
 /**
  * One word, typed, with the same feel as flight.
@@ -27,6 +28,37 @@ import { FONT_STACK, INK, SPACE, TYPE } from "@game/ui/theme";
  * Nothing about a mismatch is punitive: the plate nudges, the letter stays
  * unlit, and no counter, colour or sound marks it (D31, AC-22b.1). The typo
  * count the machine returns is used for timing data only and is never drawn.
+ *
+ * ================== UR-101.4: AND IT SOUNDS LIKE FLIGHT TOO ==============
+ * This module played NO AUDIO AT ALL. Every screen it serves - the pre-flight
+ * ritual, the launch ceremony, Earth's activation - was typed in total silence,
+ * while the belt next door gives every keystroke a mechanical clack (UR-34) and
+ * a pitched note climbing a pentatonic ladder (D75/UR-30). The header above
+ * says "the tutorial's whole job is to feel identical to the thing it is
+ * teaching" and the loudest half of that feel was missing from the tutorial.
+ *
+ * IT IS THE FLIGHT CUE, NOT A SECOND VOCABULARY. `AudioService.routeFlightCue`
+ * is what `FlightScene` calls, and routing through it is what makes "sounds
+ * like the belt" structural rather than a resemblance somebody has to maintain:
+ * the SFX event, the D75 tone step, the typo's gentle tick and the ladder's
+ * word-boundary reset all come from one table in `audio/wiring.ts`. Change the
+ * clack and this changes with it. Nothing new was authored and no cue name was
+ * invented; `via` reads `flight-cue:keystroke` in the evidence because that is
+ * honestly the path taken.
+ *
+ * LOUDNESS IS UNCHANGED BY CONSTRUCTION. UR-34 measured a forty-word belt as no
+ * louder with the clack than without, and the ritual asks for six or seven
+ * words. D31's rule that a mistyped key is the quietest sound in the game is
+ * likewise inherited rather than restated: the `typo` cue IS the quiet one, and
+ * `GENTLE_EVENTS` polices it in `audio/sfx.ts`.
+ *
+ * THE WORD ENDING IS SILENT ON PURPOSE. In flight a finished word is a rock
+ * exploding and gets `blast`; here it is a prompt being replaced, and the sound
+ * that belongs to a finished PIECE of the ritual is the check row's own
+ * (UR-101.5, in `PreflightScene`). What the ending does do is `resetTone()`,
+ * which is the word boundary the pitched ladder needs - without it every prompt
+ * after the first would start where the last one stopped and the ladder would
+ * sit on its ceiling, which is exactly the defect UR-30 reopened on the belt.
  */
 
 export interface WordPromptOptions {
@@ -168,11 +200,19 @@ export function createWordPrompt(
     cue.fillRoundedRect(x, y, Math.max(8, target.width), 5, 3);
   };
 
+  // UR-101.4. Resolved once: the registry is the scene's and does not change,
+  // and a null service (the standalone harness, or a browser that refused an
+  // AudioContext) is silent by design rather than a branch at every keystroke.
+  const audio = audioFrom(scene.registry);
+
   const handleEmits = (next: LockState, nowMs: number): void => {
     for (const emit of next.emitted) {
       if (emit.type === "advanced") {
         typed = emit.typed;
         paintLetters();
+        // THE BELT'S OWN CUE (UR-101.4): the UR-34 clack and the D75 pitched
+        // note, from the one table `FlightScene` routes through.
+        audio?.routeFlightCue({ cue: "keystroke", atMs: emit.nowMs });
         options.onAdvance?.(emit.index, emit.nowMs);
         const t = letters[emit.index];
         if (t !== undefined) {
@@ -189,12 +229,21 @@ export function createWordPrompt(
         // brightness beat so AC-6e.2's "visible response to every keystroke"
         // survives AC-19.3.
         nudgeUntil = nowMs + 140;
+        // D31 THROUGH THE FLIGHT TABLE, not through a judgement made here.
+        // `typo` is the quietest recipe in the game and `GENTLE_EVENTS` keeps
+        // it that way; `ignored` maps to the ordinary keystroke click and does
+        // not touch the pitched ladder. Both are `audio/wiring.ts`'s decisions.
+        audio?.routeFlightCue({ cue: emit.type, atMs: nowMs });
         options.onNudge?.();
       } else if (emit.type === "blast") {
         complete = true;
         typed = word;
         paintLetters();
         cue.clear();
+        // THE WORD BOUNDARY THE LADDER NEEDS (UR-30). No sound of its own: a
+        // finished prompt is not a rock exploding, and the sound that belongs
+        // to a finished piece of the ritual is the check row's (UR-101.5).
+        audio?.resetTone();
         options.onComplete?.(emit);
       }
     }

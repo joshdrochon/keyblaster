@@ -1,0 +1,23 @@
+# Vercel uploads the working directory, not the git tree, so anything large and
+# untracked has to be named here. `test-results` alone is 15,300 Playwright
+# artifacts, which is what pushed the first deploy past the 15,000 file limit.
+node_modules
+test-results
+playwright-report
+coverage
+gauntlet
+dist
+dist-play
+dist-feel
+dist-check
+dist-pf2
+dist-nested
+dist-map
+dist-diff
+
+# Not part of the app. The build needs src, api, public and the configs.
+tests
+docs
+design-reference
+scripts
+.claude

@@ -34,7 +34,12 @@ import {
   lanternBox,
   shipBandTop,
 } from "@game/scenes/support/warpLayout";
-import { ROW, WINDOW } from "@game/scenes/support/preflightLayout";
+import {
+  BULKHEAD,
+  RACK_PAD,
+  ROW,
+  WINDOW,
+} from "@game/scenes/support/preflightLayout";
 
 /**
  * EVERY PAGE FOLLOWS SUIT.
@@ -148,8 +153,24 @@ describe("every screen's column starts and ends on the grid", () => {
     expect(lanternBox().x + lanternBox().w).toBeLessThan(1920);
   });
 
-  it("Pre-flight: the system rows, and the window on the right gutter", () => {
-    expect(ROW.x).toBe(GUTTER);
+  it("Pre-flight: the system RACK, and the window on the right gutter", () => {
+    // ================== UR-101.1 MOVED THIS CLAIM, NOT WEAKENED IT ==========
+    // This asserted `ROW.x === GUTTER` - the system rows start on the product's
+    // left margin - and it was true and it was the wrong object. The rows are
+    // mounted on a bracket rack, and a rack is a PLATE; anchoring the ROWS to
+    // the gutter forced the plate they sit on out to `GUTTER - 28` = 68, which
+    // is what the project owner saw as the only element on the screen starting
+    // outside the column. Measured on the served build: heading ink 118, stop
+    // name 118, hint 118, rack 68.
+    //
+    // So the gutter claim moves to the plate, where UR-39 already put every
+    // other plate on this screen ("every PLATE starts on the gutter and text is
+    // inset from its plate"), and the rows are asserted to be inset INSIDE it -
+    // which is the same shape the warp meter's entry above already uses.
+    expect(BULKHEAD.x).toBe(GUTTER);
+    expect(ROW.x).toBeGreaterThan(GUTTER);
+    expect(ROW.x).toBe(BULKHEAD.x + RACK_PAD);
+    expect(ROW.x + ROW.w).toBe(BULKHEAD.x + BULKHEAD.w - RACK_PAD);
     expect(WINDOW.x + WINDOW.w).toBe(1920 - GUTTER);
   });
 

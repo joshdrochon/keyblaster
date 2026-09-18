@@ -50,3 +50,5 @@ docs/SUBMIT.md
 dist-feel/
 dist-check/
 dist-pf/
+.vercel
+.env*

@@ -636,6 +636,64 @@ describe("UR-60: launch is centred on the screen and the way out is small and le
     expect(btn.y).toBeGreaterThan(PAGE_MAX_BOTTOM);
   });
 
+  /**
+   * UR-101: LAUNCH AND THE WAY OUT ARE BACK ON ONE LINE, AND IT IS THE CHIP'S.
+   *
+   * ================== WHAT WAS REPORTED ==================
+   * The project owner, against this screen: launch and the back chip "bottom out
+   * 24 px from the foot of a 1080 frame", and it needs more air.
+   *
+   * Half of that was already untrue and the untrue half is the fix. C19/UR-95
+   * took the chip off `ACTION_BOTTOM` and put it in `ui/grid.backCorner`, whose
+   * foot is `BACK_CORNER_BOTTOM` - the hint plate's own bottom edge, 1048, i.e.
+   * 32 px off the frame. So the chip had 32 and launch had 24, the two controls
+   * the owner named as a pair were EIGHT PIXELS OUT OF LINE, and launch was the
+   * only one actually crowding the foot. Measured, not assumed.
+   *
+   * ================== WHERE THE AIR COMES FROM ==================
+   * Not from above. `es/neptune` flows a page to y 987 and launch's focus ring
+   * starts at `LAUNCH.y - 11`, so at `y` 998 the ring's top edge IS 987: there
+   * is one pixel of headroom on the whole screen and the note on `LAUNCH` says
+   * why none of it is spare. The air is therefore bought out of the button's
+   * HEIGHT, the same trade UR-76 made, and the line it comes down to is the one
+   * the chip is already on rather than a third number.
+   *
+   * ================== WHAT IT COSTS ==================
+   * Launch loses 8 px of height (58 -> 50) and is WIDENED to hold its area
+   * (420 x 58 = 24_360; 488 x 50 = 24_400). That is not decoration: UR-60's
+   * "launch is the focus" is asserted below as "the chip is under half launch's
+   * area", and at 420 x 50 the chip would be 10_752 against a half-area of
+   * 10_500 - the focus claim would go red. The button had to get wider or the
+   * invariant had to be weakened, and weakening it is not available.
+   *
+   * WATCHED FAILING, with `ACTION_BOTTOM = 1056` and `LAUNCH.w = 420`:
+   *   launch is not on the chip's line: expected 1056 to be 1048
+   */
+  it("UR-101: puts launch on the chip's own foot line, with more air under both", () => {
+    expect(ACTION_BOTTOM, "launch is not on the chip's line").toBe(BACK_CORNER_BOTTOM);
+    const btn = launchButton();
+    const chip = backChip();
+    expect(btn.y + btn.h).toBe(chip.y + chip.h);
+    // The air the report asked for, stated as the number the report used.
+    expect(GAME_HEIGHT - (btn.y + btn.h)).toBeGreaterThan(24);
+    expect(GAME_HEIGHT - (btn.y + btn.h)).toBe(32);
+    // ...and it was NOT bought from the page above, which has none to give.
+    expect(LAUNCH.y).toBe(998);
+    expect(focusRingBox(btn).y).toBeGreaterThanOrEqual(987);
+  });
+
+  it("UR-101: launch keeps its weight when it loses height", () => {
+    // The button is the screen's one forward action. Trading 8 px of height for
+    // air is only acceptable while it stays the heaviest thing on the foot, so
+    // the area is held rather than allowed to fall out of the arithmetic.
+    // 420 x 58 = 24_360 shipped; this must not be meaningfully under it.
+    const btn = launchButton();
+    expect(btn.w * btn.h).toBeGreaterThanOrEqual(24_360);
+    // And the focus claim the area buys, restated at the new size.
+    const chip = backChip();
+    expect(chip.w * chip.h).toBeLessThan((btn.w * btn.h) / 2);
+  });
+
   it("keeps BOTH inside the frame WITH their focus rings, and off the page", () => {
     // AC-18.1, and the reason launch is 68 px tall rather than 92. The ring is
     // drawn outside the control and its halo wider again, so the band between
@@ -819,3 +877,4 @@ describe("UR-19: the screen uses ONE anchoring model", () => {
     expect(WINDOW.x + WINDOW.w).toBe(RIGHT_MARGIN);
   });
 });
+

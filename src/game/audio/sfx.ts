@@ -604,6 +604,50 @@ export interface SfxPlayOptions {
 /** Cap on `SfxPlayOptions.pitchSemitones`. One octave each way. */
 export const MAX_PITCH_SEMITONES = 12;
 
+/**
+ * A SYSTEM COMING UP: the transposition each pre-flight check row is sounded at
+ * (UR-101.5).
+ *
+ * ================== WHAT WAS ASKED, AND WHAT WAS FOUND ==================
+ * The pre-flight screen's three check rows lit in silence. The ask was for each
+ * completing step to have its own sound, with three rows in sequence reading as
+ * a system coming up rather than as three identical beeps - and for the
+ * existing vocabulary to be READ before anything new was authored.
+ *
+ * It was, and nothing new was needed. `SFX_VARIANTS.lock` is already described
+ * in this file as "a small confident upward confirmation": 470-620 Hz gliding
+ * up a fifth, 110-150 ms, peak 0.15-0.17, three variants. That is a system
+ * confirming, at the right size. `beacon` is the game's reward bell and is 900
+ * ms at 0.28 - a stop being lit, not a row. `uiNav` is a focus blip. `shield`
+ * rises but is 420 ms of filtered noise and means absorption. `lock` is the one.
+ *
+ * ================== WHY THESE THREE NUMBERS ==================
+ * `SfxPlayOptions.pitchSemitones` already transposes ANY event and is capped at
+ * an octave, so the rising figure is composed from the cue the game already has
+ * rather than sampled: row 1 at the root, row 2 a major third up, row 3 a fifth
+ * up. Three rows, one triad, arriving in order.
+ *
+ * 0 / 4 / 7 AND NOT AN ARBITRARY CLIMB, because {0, 4, 7} is a subset of
+ * `keystrokeTone.PENTATONIC_SEMITONES` ({0, 2, 4, 7, 9}), which is the scale
+ * every keystroke in the game is already tuned to (D75). So the row chime lands
+ * in the key the child has been typing in for the previous twenty seconds
+ * instead of beside it. Nothing here is louder than a `lock` already is, so
+ * D31's ceiling on failure vocabulary and UR-34's loudness work are untouched:
+ * this only adds sound to moments that succeed.
+ *
+ * A step index past the end repeats the last entry rather than running off the
+ * top: the ritual has three steps today and a fourth must not silently transpose
+ * itself out of the octave the cap allows.
+ */
+export const SYSTEM_CHECK_SEMITONES: readonly number[] = [0, 4, 7];
+
+/** The transposition for check row `index`, held at the top of the figure. */
+export function systemCheckSemitones(index: number): number {
+  if (!Number.isFinite(index) || index < 0) return SYSTEM_CHECK_SEMITONES[0] ?? 0;
+  const last = SYSTEM_CHECK_SEMITONES.length - 1;
+  return SYSTEM_CHECK_SEMITONES[Math.min(Math.floor(index), last)] ?? 0;
+}
+
 export interface SfxPlayResult {
   readonly variant: SfxVariant;
   /** Linear peak gain actually scheduled, after reactive scaling. */

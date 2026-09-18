@@ -1,4 +1,4 @@
-import { GUTTER, HEADING_TOP, backCorner } from "@game/ui/grid";
+import { BACK_CORNER_BOTTOM, GUTTER, HEADING_TOP, backCorner } from "@game/ui/grid";
 import { CONSOLE_STRIP, consoleStripBelow } from "@game/ui/controlSurfaceLayout";
 import type { Rect } from "@game/ui/layout";
 import { DESIGN_WIDTH, GAME_HEIGHT } from "@game/sceneKeys";
@@ -373,8 +373,28 @@ export function controlStrip(): Rect {
  * the artboard is what it actually holds, and re-deriving it from the one
  * control left on it would move the only control the owner did not complain
  * about. See `backChip` below.
+ *
+ * ================== UR-101: AND THE NUMBER FINALLY MOVED ==================
+ * The project owner reported launch and the back chip as a pair that "bottom
+ * out 24 px from the foot of a 1080 frame". Half of that was already untrue,
+ * and the untrue half is the whole fix: C19/UR-95 took the chip OFF this line
+ * and put it in `ui/grid.backCorner`, whose foot is `BACK_CORNER_BOTTOM` - the
+ * hint plate's own bottom edge, 1048. So the chip had 32 px of air, launch had
+ * 24, and the two controls the owner named as one row were eight pixels out of
+ * line with each other.
+ *
+ * This line is therefore `BACK_CORNER_BOTTOM` rather than a literal. Launch
+ * gets the air, the two controls are genuinely on one line again, and the line
+ * is DERIVED from the corner rule so the next time that corner moves this one
+ * moves with it instead of being left behind a second time.
+ *
+ * WHERE THE AIR COMES FROM, MEASURED. Not from above: `es/neptune` flows a page
+ * to y 987 and launch's focus ring starts at `LAUNCH.y - 11`, so at `y` 998 the
+ * ring's top edge IS 987. There is one pixel of headroom on this screen. The
+ * 8 px comes out of the button's height, which is the same trade UR-76 made -
+ * see `LAUNCH`.
  */
-export const ACTION_BOTTOM = 1056;
+export const ACTION_BOTTOM = BACK_CORNER_BOTTOM;
 
 /**
  * LAUNCH SHRANK BY 10 px RATHER THAN MOVING UP 10, and that is forced.
@@ -389,8 +409,27 @@ export const ACTION_BOTTOM = 1056;
  * 58 px is still a fifth taller than the chip and three times its area at
  * 420 px wide, so the size argument below is untouched: launch is the widest
  * thing on the screen's foot and the only thing on its centre line.
+ *
+ * ================== UR-101: 50 px, AND 488 WIDE TO PAY FOR IT ==========
+ * `ACTION_BOTTOM` came down 8 px to meet the chip's own foot line, and since
+ * `y` is pinned by the page above (there is ONE pixel of headroom on this
+ * screen - see the note on `ACTION_BOTTOM`) the height is what pays, exactly as
+ * it did last time.
+ *
+ * THE WIDTH IS NOT A TASTE. UR-60's "launch is the focus" is asserted as "the
+ * chip is under half launch's area", and the chip is 224 x 48 = 10_752. At
+ * 420 x 50 launch's half-area is 10_500 and that invariant goes RED: the
+ * quiet control would be more than half the weight of the forward action. So
+ * the button is widened to hold the area it had - 420 x 58 = 24_360 against
+ * 488 x 50 = 24_400 - rather than the assertion being relaxed to fit the new
+ * number, which is the move `docs/coding-standards.md` rule 8 forbids.
+ *
+ * 488 is the area-preserving width rounded to the nearest multiple of 4. The
+ * MINIMUM that holds the focus invariant is 432, and it was rejected: 4% of
+ * margin on a claim about two controls' relative weight is not margin, it is
+ * the next silent breakage.
  */
-export const LAUNCH = { w: 420, h: ACTION_BOTTOM - 998, y: 998 } as const;
+export const LAUNCH = { w: 488, h: ACTION_BOTTOM - 998, y: 998 } as const;
 
 /**
  * THE WAY OUT, SMALL AND ON THE LEFT (UR-60).

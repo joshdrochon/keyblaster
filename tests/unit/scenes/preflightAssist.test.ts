@@ -107,11 +107,11 @@ describe("PreflightScene's prompt assist (AC-11.7, D100)", () => {
     expect(worst).toBeLessThan(RITUAL_BUDGET_MS * 1.1);
   });
 
-  it("AC-11.6: the ADVERSARIAL worst case is 48.1 s, and it is on the record", () => {
+  it("AC-11.6: the ADVERSARIAL worst case is 55.1 s, and it is on the record", () => {
     // The give-up needs two CONSECUTIVE words nobody touched. A child who
     // completes a word (resetting the counter) and is carried past the next,
     // alternating, never trips it - so the true upper bound is every word
-    // taking its full window. Six words at the ceiling plus the beats.
+    // taking its full window. Every planned word at the ceiling, plus the beats.
     //
     // This is NOT trimmed to fit either. It needs a pilot who finishes some
     // words just inside 7 s and misses others, i.e. around 1200 ms per key;
@@ -119,13 +119,21 @@ describe("PreflightScene's prompt assist (AC-11.7, D100)", () => {
     // long one carried). The number is asserted here so that a decision to
     // bound it - a whole-screen deadline - is a decision someone takes, not a
     // thing that quietly never got measured.
+    //
+    // UR-101.3 MOVED THIS NUMBER, and that is the point of asserting it. The
+    // systems check went from 3-4 short words to 4-5, so the plan's ceiling
+    // went 6 words -> 7 and this bound went 48.1 s -> 55.1 s. It is the
+    // adversarial path, not a path any measured pilot takes, but it is 7 s
+    // worse than it was and nobody would have noticed without this line.
+    //
+    // WATCHED FAILING, before the source change: "expected 6 to be 7".
     const beats =
       beat("LAUNCH_LEAD_MS") +
       3 * (beat("LAUNCH_STEP_INTRO_MS") + beat("LAUNCH_STEP_SETTLE_MS")) +
       beat("LAUNCH_FINALE_MS");
     const maxWords = RITUAL_STEPS.reduce((n, s) => n + s.maxWords, 0);
-    expect(maxWords).toBe(6);
-    expect(beats + maxWords * PREFLIGHT_ASSIST_CEILING_MS).toBe(48_140);
+    expect(maxWords).toBe(7);
+    expect(beats + maxWords * PREFLIGHT_ASSIST_CEILING_MS).toBe(55_140);
   });
 
   it("AC-11.8: the scene stores what computeCalibration believed, gate and all", () => {
@@ -134,5 +142,91 @@ describe("PreflightScene's prompt assist (AC-11.7, D100)", () => {
     // that skips it. If that ever splits into two functions, this goes red.
     expect(SCENE).toContain("computeCalibration(this.played).calibration");
     expect(SCENE).toContain("persistCalibration(this, this.calibration)");
+  });
+});
+
+/**
+ * UR-101.2 / UR-101.5: WHAT THE SCENE HAS TO DO WITH THE BAR AND THE ROW SOUND.
+ *
+ * The arithmetic is pure and tested in `preflightLayout.test.ts`
+ * (`checkBarProgress`); the sound is tested in `tests/unit/audio/pitch.test.ts`.
+ * What is left is the half that has burned this repo repeatedly and that no
+ * unit test of a pure function can see: whether the scene CALLS any of it, and
+ * on which path. `PreflightScene` imports Phaser, so - as everywhere else in
+ * this file - the source is what is read.
+ */
+describe("PreflightScene's check rows (UR-101.2, UR-101.5)", () => {
+  const CODE = SCENE.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+
+  it("UR-101.2: the bar is no longer drawn only for a lit row", () => {
+    // THE DEFECT, as a source property. `paintRow` guarded the whole bar with
+    // `if (row.state === "lit")`, which is a progress bar with two positions.
+    expect(CODE).not.toMatch(/if \(row\.state === "lit"\) \{\s*g\.fillStyle/);
+    // The track is always drawn and the fill is proportional to a value.
+    expect(CODE).toContain("barW * row.barShown");
+  });
+
+  it("UR-101.2: the value comes from the shared pure rule, not a second one", () => {
+    // If the scene grew its own arithmetic, the tested rule and the drawn rule
+    // would be two things - which is the shape of every geometry defect this
+    // screen has had.
+    expect(CODE).toContain("checkBarProgress({");
+    // ...fed by the step's TOTAL keystrokes, which is the denominator the
+    // sharpened brief asks for: one continuous fill across a step's words.
+    expect(CODE).toContain("stepKeysTotal");
+    expect(CODE).toContain("this.stepKeysTyped += 1");
+  });
+
+  it("UR-101.2: the target is a running maximum, so the bar cannot retreat", () => {
+    // D31 in one line. A typo advances nothing and the reading holds; without
+    // the `max` a dip in either input would draw a punishment.
+    expect(CODE).toMatch(/barTarget = Math\.max\(\s*[^)]*barTarget,[^)]*stepProgress/);
+  });
+
+  it("UR-101.2: it lands at exactly full when the row lights", () => {
+    // The give-up path skips a step's remaining words, so the bar has to be
+    // completed rather than left wherever the clock reached.
+    expect(CODE).toContain("row.barTarget = 1;");
+    // ...and the easing snaps rather than approaching 1 for ever.
+    expect(CODE).toContain("BAR_SNAP");
+  });
+
+  it("UR-101.2: the ease is the shortest thing on the product's duration scale", () => {
+    // Named, not a literal: `DUR.focus` is 140 ms and is the token already
+    // meaning "a control responding to input". A longer one and the child stops
+    // connecting their typing to the bar, which is the whole item.
+    expect(SCENE).toContain("const BAR_EASE_MS = DUR.focus;");
+    // Reduced motion takes the value straight (AC-19.3).
+    expect(CODE).toContain("reducedMotion");
+  });
+
+  it("UR-101.5: a row that lights plays the check cue, transposed by its index", () => {
+    expect(CODE).toContain('play("lock", "preflight:check-row"');
+    expect(CODE).toContain("pitchSemitones: systemCheckSemitones(index)");
+  });
+
+  it("UR-101.5: the sound and the fill are ONE event, not two near each other", () => {
+    // The seam this item could have opened: a chime fired from one place and a
+    // bar completed from another would drift by a frame or by a branch. Both
+    // are in `lightRow` and nothing else sets either.
+    const lightRow = CODE.slice(CODE.indexOf("private lightRow(")).slice(0, 400);
+    expect(lightRow).toContain("row.barTarget = 1;");
+    expect(lightRow).toContain('play("lock"');
+    expect((CODE.match(/row\.barTarget = 1;/g) ?? []).length).toBe(1);
+    expect((CODE.match(/play\("lock"/g) ?? []).length).toBe(1);
+  });
+
+  it("UR-101.5: the returning sequence gets the same instrument as a typed one", () => {
+    // The "none" fallback lights rows on a timer. A returning pilot seeing a
+    // silent, empty bar where a typing pilot sees a filling one is the shape of
+    // UR-28 - two experiences of one screen - and it is not being rebuilt.
+    expect(CODE).toContain("this.lightRow(next, this.rows.indexOf(next))");
+  });
+
+  it("AC-11.3: nothing about the bar reaches the screen as a number", () => {
+    // The counts exist on the snapshot, which is not rendered, and `paintRow`
+    // draws a LENGTH. No `setText`, no label, no percentage anywhere near it.
+    const paint = CODE.slice(CODE.indexOf("private paintRow(")).slice(0, 1400);
+    expect(paint).not.toMatch(/setText|label\(|toFixed|%/);
   });
 });

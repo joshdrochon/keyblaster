@@ -6,6 +6,7 @@ import type { Calibration } from "../types.js";
  * D81 fixes the steps and what each one is for:
  *   Hull check    - 1 short word      -> first-key latency
  *   Systems check - 3-4 short words   -> inter-key interval
+ *                   (AMENDED to 4-5 by UR-101.3; see the spec below)
  *   Engines       - 1 long word
  *
  * The steps are modelled as data, not as three hard-coded branches, because
@@ -78,7 +79,8 @@ export interface CalibrationStepSpec {
  * alone would leave `fkLatencyMs` a median of a single sample - which is not a
  * median at all, and is exactly the "one distracted keystroke" case the brief
  * says to defend against. So the systems and engines steps feed their word-
- * start latencies in too, giving five or six samples.
+ * start latencies in too, giving six or seven samples (UR-101.3; it was five
+ * or six before the systems check gained a word).
  *
  * The one exclusion runs the other way: the hull check's intervals are NOT
  * folded into `ikiMs`. It is the child's very first word of the whole game, on
@@ -101,8 +103,54 @@ export const RITUAL_STEPS: readonly CalibrationStepSpec[] = [
     id: "systems",
     order: 1,
     measures: "iki",
-    minWords: 3,
-    maxWords: 4,
+    /**
+     * 4-5, NOT D81'S 3-4 (UR-101.3, a deliberate amendment to D81's word counts
+     * rather than a drift).
+     *
+     * ================== WHY ANY MORE AT ALL ==================
+     * The project owner asked for more words in the ritual. The ritual is what
+     * measures `ikiMs` and `fkLatencyMs`, and both feed FR-8's fall budget, so
+     * this is one of the few requests where "more game" and "better data" point
+     * the same way.
+     *
+     * ================== WHY THEY LAND HERE ==================
+     * Measured, not chosen. `engines` cannot grow: it wants a 7-13 letter word,
+     * `en/mars` ships exactly ONE and `hi` ships none at four stops, so raising
+     * it to 2 makes `planRitual` return null there - which is the screen with
+     * nothing to type that UR-28 was about. `hull` sets `contributesIki` false
+     * on purpose, so a word added there buys a latency and no intervals.
+     * `systems` is the interval step and has the pool depth.
+     *
+     * ================== WHY ONE MORE AND NOT TWO ==================
+     * THE OWNER ASKED FOR "A COUPLE" AND THE SECOND ONE DOES NOT FIT. 5-6 was
+     * built, measured and backed out, because it turns
+     * `launchCeremony.test.ts`'s slow-baseline budget check red:
+     *
+     *   estimateRitualTypingMs(plan, { ikiMs: 600, fkLatencyMs: 700 })
+     *   expected 20_500 to be less than 20_000
+     *
+     * That is D51's whole ~20 s budget, blown by a grade-2 pilot, in the mode
+     * that runs SIX times on a route out to Pluto (`planLaunchCeremony`
+     * delegates here, UR-57). It is precisely the "do not make a grade-2 child
+     * type an essay before they can play" the brief asked to be checked, and it
+     * checked red. The budget is D51's number and is not this lane's to move.
+     *
+     * ================== WHAT ONE MORE BOUGHT, MEASURED ==================
+     * Across all 18 stop/language pairs at 64 seeds each, per plan:
+     *
+     *            words   fk samples     iki samples    typing @ FR-8 default
+     *   3-4      5-6     avg 5.5        avg 17.7       worst 13_150 ms
+     *   4-5      6-7     avg 6.5        avg 20.8       worst 15_050 ms
+     *   (5-6)    7-8     avg 7.5        avg 24.0       worst 16_950 ms
+     *
+     * +18% on both medians' sample counts, i.e. roughly 9% tighter, for 1.9 s of
+     * worst-case typing. Plans that come back null: 256 of 1152 before and 256
+     * of 1152 after - the same four Hindi stops with no long word, not one new
+     * failure. 5-6 is in `gauntlet/escalations.md` with this table if the owner
+     * wants the second word and is willing to move D51's budget for it.
+     */
+    minWords: 4,
+    maxWords: 5,
     wordLength: "short",
     contributesFkLatency: true,
     contributesIki: true,

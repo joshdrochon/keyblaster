@@ -224,12 +224,91 @@ describe("RITUAL_STEPS (AC-11.1, D81)", () => {
     expect(hull?.measures).toBe("fkLatency");
   });
 
-  it("AC-11.1: systems check is 3-4 short words measuring inter-key interval (D81)", () => {
+  /**
+   * UR-101.3: THE SYSTEMS CHECK IS 4-5 SHORT WORDS, NOT 3-4.
+   *
+   * ================== WHAT CHANGED AND WHY ==================
+   * The project owner asked for a couple more words in the ritual. The ritual is
+   * what MEASURES the child's inter-key interval and first-key latency, and both
+   * feed FR-8's fall-time budget, so more words is more signal - this is the
+   * rare request where the gameplay ask and the engineering ask point the same
+   * way.
+   *
+   * ================== WHY THEY ALL GO ON `systems` ==================
+   * Measured, not chosen. Three constraints decided it between them:
+   *
+   *   ENGINES CANNOT GROW. `en/mars` ships exactly ONE word in the 7-13 letter
+   *   band and `hi` ships none at four stops. `planRitual` returns null when a
+   *   step cannot be filled, and null means the screen falls back to "none" -
+   *   no typing at all. Raising `engines` to 2 would silently turn Mars's
+   *   first-run ritual into the costume UR-28 was about.
+   *
+   *   HULL MEASURES THE COLD START. Its intervals are deliberately excluded
+   *   from `ikiMs` (see RITUAL_STEPS), so a second hull word buys one extra
+   *   first-key latency and no intervals - the cheaper half of the measurement.
+   *
+   *   SYSTEMS IS THE `iki` STEP and the pools are deep enough: the thinnest
+   *   short-word pool in the product is `es/jupiter` at 8, against the 7 short
+   *   words hull-plus-systems now needs at the top of the range. Measured across
+   *   all 18 stop/language pairs at 64 seeds each: the number of plans that come
+   *   back null is 256 of 1152 BEFORE this change and 256 of 1152 after - the
+   *   same four Hindi stops with no long word, and not one new failure.
+   *
+   * ================== WHAT IT BOUGHT, MEASURED ==================
+   * Same sweep, per plan:
+   *
+   *              words   fk samples        iki samples      typing @default
+   *   3-4 (was)  5-6     5-6  (avg 5.5)    11-25 (17.7)     max 13_150 ms
+   *   4-5 (is)   6-7     6-7  (avg 6.5)    14-29 (20.8)     max 15_050 ms
+   *   (5-6)      7-8     7-8  (avg 7.5)    16-33 (24.0)     max 16_950 ms
+   *
+   * +18% on both medians' sample counts, i.e. roughly 9% tighter, and the
+   * worst-case typing still lands inside `RITUAL_BUDGET_MS` with 5 s to spare.
+   *
+   * ================== WHY NOT THE SECOND WORD ==================
+   * 5-6 was built and backed out on a measurement, not on taste. It turns
+   * `launchCeremony.test.ts`'s slow-baseline check red -
+   * `estimateRitualTypingMs(plan, { ikiMs: 600, fkLatencyMs: 700 })` reported
+   * "expected 20_500 to be less than 20_000" - i.e. a grade-2 pilot blows
+   * D51's entire ~20 s budget, in the mode that runs SIX times on a route
+   * (`planLaunchCeremony` delegates to `planRitual`, UR-57). That is exactly
+   * the "not an essay before they can play" constraint, and D51's budget is not
+   * this lane's number to move. 5-6 is in `gauntlet/escalations.md`.
+   *
+   * WATCHED FAILING, with 3-4 still declared: "expected 3 to be 5"
+   * (at the 5-6 attempt; the shipped 4-5 form reads "expected 3 to be 4").
+   */
+  it("AC-11.1 / UR-101.3: systems check is 4-5 short words measuring inter-key interval", () => {
     const systems = stepSpec("systems");
-    expect(systems?.minWords).toBe(3);
-    expect(systems?.maxWords).toBe(4);
+    expect(systems?.minWords).toBe(4);
+    expect(systems?.maxWords).toBe(5);
     expect(systems?.wordLength).toBe("short");
     expect(systems?.measures).toBe("iki");
+  });
+
+  it("UR-101.3: the extra words went on the step whose intervals are counted", () => {
+    // The point of the change is SIGNAL, and only `contributesIki` steps produce
+    // intervals. A step that grew without feeding the median would have been two
+    // more words for nothing.
+    const systems = stepSpec("systems")!;
+    expect(systems.contributesIki).toBe(true);
+    expect(systems.contributesFkLatency).toBe(true);
+    // And the two that could not grow are on the record as unchanged.
+    expect(stepSpec("hull")?.maxWords).toBe(1);
+    expect(stepSpec("engines")?.maxWords).toBe(1);
+  });
+
+  it("UR-101.3: the ritual still asks for fewer words than the thinnest pool has", () => {
+    // `es/jupiter` ships 8 short words - the thinnest in the product. Hull plus
+    // systems may want 6 of them and no word is reused across steps, so this is
+    // the margin that keeps a real content pool from degrading the screen to
+    // "nothing to type" (UR-28). Measured across all 18 stop/language pairs at
+    // 64 seeds: 256 null plans of 1152 before the change and 256 after - the
+    // same four Hindi stops that ship no long word, and no new failure.
+    const shortWordsWanted =
+      (stepSpec("hull")?.maxWords ?? 0) + (stepSpec("systems")?.maxWords ?? 0);
+    expect(shortWordsWanted).toBe(6);
+    expect(shortWordsWanted).toBeLessThanOrEqual(8);
   });
 
   it("AC-11.1: engines is 1 long word (D81)", () => {

@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { hexToNum, paletteAt, type StopPalette } from "@game/render/palette";
 import { EASE, buildParallax, skyAt, type Parallax } from "@game/render/parallax";
-import { INK, SPACE, TYPE } from "@game/ui/theme";
+import { DUR, INK, SPACE, TYPE } from "@game/ui/theme";
 import { PANEL, rivetPositions } from "@game/ui/panel";
 import { paintPlate } from "@game/ui/plate";
 import { drawShadow, type ShadowFigure, type ShadowPose } from "@game/render/shadow";
@@ -48,19 +48,20 @@ import {
 } from "./lib/init";
 import type { SceneStringKey } from "./lib/strings";
 import { audioFrom } from "@game/audio/wiring";
+import { systemCheckSemitones } from "@game/audio/sfx";
 
 /**
  * Screen inventory row 5 - Pre-flight (D51, D81, D99, PRD FR-11).
  *
  * The ship's startup sequence. It runs in one of three modes:
  *
- *   "full"   - D51's ~20 s measured ritual, D81's three steps, five or six
- *              words. Once per profile, for a pilot the game has never
- *              measured. UNCHANGED by D99.
- *   "launch" - D99's launch ceremony. Every LATER stop. Two short words on the
- *              systems row, about five seconds of typing, and a real
- *              re-measurement that is BLENDED into the stored baseline rather
- *              than replacing it (`foldLaunchCeremony`).
+ *   "full"   - D51's ~20 s measured ritual, D81's three steps, six or seven
+ *              words since UR-101.3. Once per profile, for a pilot the game has
+ *              never measured. UNCHANGED by D99.
+ *   "launch" - D99's launch ceremony. Every LATER stop. The same steps and the
+ *              same word counts (UR-57 delegated its planner to `planRitual`),
+ *              and a real re-measurement that is BLENDED into the stored
+ *              baseline rather than replacing it (`foldLaunchCeremony`).
  *   "none"   - the fallback, and now only the fallback: the rows light on a
  *              timer and nothing is typed. Reached when the stop's content pool
  *              cannot supply the ceremony's words (Earth ships an empty pool,
@@ -103,10 +104,19 @@ import { audioFrom } from "@game/audio/wiring";
  *     with a position and a time and NO CHARACTER, so accuracy is not withheld
  *     during the ritual, it is uncomputable from what the measuring code is
  *     given. This scene can only hand it positions and timestamps.
- *  2. By what is drawn: three lamps that go from dark to lit. There is no
- *     counter, no percentage, no tick-or-cross and no number anywhere on the
- *     screen - `snapshot().text` carries every string rendered so the e2e can
- *     assert that, rather than trusting this comment.
+ *  2. By what is drawn: three lamps that go from dark to lit, each over a bar
+ *     that fills as the step runs. There is no counter, no tick-or-cross and no
+ *     NUMBER anywhere on the screen - `snapshot().text` carries every string
+ *     rendered so the e2e can assert that, rather than trusting this comment.
+ *
+ *     UR-101.2 ADDED THE FILL AND IT IS STILL NOT A GRADE, for a structural
+ *     reason rather than an intention: the bar is `max(typed, elapsed)`
+ *     (`preflightLayout.checkBarProgress`), so at the end of a step it is FULL
+ *     for a child who typed every letter and FULL for a child who touched
+ *     nothing. A drawing that cannot tell those two apart cannot be read as a
+ *     mark on either of them. What it reports is how far through the ceremony
+ *     the SHIP is, which is exactly what the lamp beside it already reported,
+ *     at a resolution the lamp does not have.
  *  3. By what a mismatch does: the plate nudges and the letter stays unlit.
  *     Nothing is tallied, nothing turns red, nothing is called a mistake.
  *
@@ -169,6 +179,7 @@ import {
   SUBHEADING,
   WINDOW,
   backChip,
+  checkBarProgress,
   controlStrip,
   mullionHorizontalAt,
   windowRect,
@@ -197,7 +208,42 @@ interface RowView {
   readonly id: CalibrationStepId;
   readonly lamp: Phaser.GameObjects.Graphics;
   state: "dark" | "active" | "lit";
+  /**
+   * UR-101.2. `target` is what the step is actually worth right now and only
+   * ever rises; `shown` is what is drawn, easing toward it. Two numbers and not
+   * one because the bar has to be BOTH honest and smooth, and a single value
+   * lerped toward a raw reading is neither - it would retreat whenever the
+   * reading dipped, which D31 forbids in the one place the child is looking.
+   */
+  barTarget: number;
+  barShown: number;
 }
+
+/**
+ * HOW FAST THE CHECK BAR CATCHES UP WITH ITS OWN VALUE (UR-101.2).
+ *
+ * `DUR.focus`, 140 ms, used as an exponential time constant: the shortest thing
+ * on `theme.DUR`'s scale that is not a snap, and the one already named for "a
+ * control responding to input". At the FR-8 default the child's keys land 350 ms
+ * apart, so 140 ms delivers ~63% of a keystroke's step before the next key and
+ * ~95% within 420 ms. The bar therefore MOVES ON THE FRAME THE KEY IS TYPED and
+ * settles before the following one, which is what makes it read as caused by
+ * the key rather than as an animation that happens to be running.
+ *
+ * Anything longer was rejected on the stated ground: if the bar lags, the child
+ * stops connecting their typing to it, which is the entire point of the item.
+ */
+const BAR_EASE_MS = DUR.focus;
+
+/**
+ * How close to the target counts as arrived.
+ *
+ * Exponential easing is asymptotic, so without a snap the bar would sit at
+ * 99.8% for ever and the "reaches exactly full when the step completes" claim
+ * would be false by a fraction nobody can see and a test can. Half of one
+ * pixel of a 404 px bar is ~0.0012; 0.002 is past that.
+ */
+const BAR_SNAP = 0.002;
 
 /** mulberry32, seeded per stop so a screenshot compares like with like. */
 function rng(seed: number): () => number {
@@ -245,6 +291,12 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
   private played: RitualStepInput[] = [];
   private currentWords: RitualWordInput[] = [];
   private currentKeys: Keystroke[] = [];
+  /** UR-101.2: accepted keystrokes so far in THIS step, across all its words. */
+  private stepKeysTyped = 0;
+  /** UR-101.2: what the step is worth in keystrokes. The plan already knows. */
+  private stepKeysTotal = 0;
+  /** UR-101.2: the current prompt's assist window, for the clock half of the bar. */
+  private promptWindowMs = 0;
   private calibration: Calibration = DEFAULT_CALIBRATION;
 
   constructor() {
@@ -259,6 +311,9 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     this.played = [];
     this.currentWords = [];
     this.currentKeys = [];
+    this.stepKeysTyped = 0;
+    this.stepKeysTotal = 0;
+    this.promptWindowMs = 0;
     this.rows = [];
     this.prompt = null;
     this.assistAtMs = null;
@@ -578,7 +633,7 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
         lang,
       }).setDepth(18);
       const lamp = this.add.graphics().setDepth(17);
-      this.rows.push({ id: spec.id, lamp, state: "dark" });
+      this.rows.push({ id: spec.id, lamp, state: "dark", barTarget: 0, barShown: 0 });
     });
   }
 
@@ -604,10 +659,81 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     g.strokeCircle(x, y, 26);
     // A row that is done gets a filled bar, not a tick: a tick has a partner
     // that AC-22b.1 forbids, and this screen must never imply its opposite.
-    if (row.state === "lit") {
+    //
+    // ================== UR-101.2: IT WAS BINARY ==================
+    // This was `if (row.state === "lit")` and nothing else, so the bar went
+    // from nothing to everything with no state in between - a progress bar with
+    // two positions, on the one instrument the child is looking at while they
+    // type. It fills as they type now; `stepProgress` owns the value and this
+    // only draws `barShown`.
+    //
+    // THE TRACK IS ALWAYS THERE, lit or dark. A bar that appears when it starts
+    // filling is a second object arriving; a bar that was always an empty
+    // channel is an instrument reading. It also gives the rack something to
+    // hold before the ritual starts, which is the "8.6% busy" problem UR-39
+    // measured, answered with structure rather than decoration.
+    const barX = ROW.x + 128;
+    const barY = y + 16;
+    const barW = ROW.w - 180;
+    const barH = 8;
+    g.fillStyle(hexToNum(INK.line), 0.55);
+    g.fillRoundedRect(barX, barY, barW, barH, 4);
+    if (row.barShown > 0) {
       g.fillStyle(hexToNum(pal.accent), 0.85);
-      g.fillRoundedRect(ROW.x + 128, y + 16, ROW.w - 180, 8, 4);
+      // Floored at the bar's own height so the FIRST accepted keystroke moves
+      // something visible rather than drawing a 3 px sliver of a rounded rect.
+      g.fillRoundedRect(barX, barY, Math.max(barH, barW * row.barShown), barH, 4);
     }
+  }
+
+  /**
+   * HOW FULL THE ACTIVE STEP'S BAR SHOULD BE, 0..1 (UR-101.2).
+   *
+   * ================== THE RULE ==================
+   * `max(typed, elapsed)`. Not a sum, and not a switch between them.
+   *
+   *   TYPED    accepted keystrokes in this step / the step's total keystrokes,
+   *            across ALL of its words, so a four-word step is one continuous
+   *            fill and not four jumps. This is the half that makes the bar
+   *            feel driven by the child's hands.
+   *   ELAPSED  how far through the step the screen's own clock is - D100's
+   *            `promptAssistMs` window, per word, plus the words already
+   *            retired. This is UR-31's timeout, which until now had NO visible
+   *            form at all.
+   *
+   * ================== WHY BOTH ==================
+   * Nobody is forced to type and the ship cannot leave without pre-flight, so a
+   * bar driven only by keystrokes sits at zero while the step completes
+   * underneath it - the display and the truth would disagree, on the exact
+   * screen D100 exists to stop trapping a child. And a bar driven only by the
+   * clock ignores the child entirely.
+   *
+   * `max` is what makes typing only ever pull the bar AHEAD of the clock. A
+   * quick typist fills it in a second; a child who types nothing watches it fill
+   * on its own and still launches; a child typing slowly sees their own keys
+   * outrunning the clock, which is the honest picture of what is happening.
+   *
+   * ================== WHAT IT MAY NEVER DO ==================
+   * Go backwards. The caller keeps `barTarget` as a running maximum, so a typo -
+   * which advances nothing - leaves the bar exactly where it was. D31 governs
+   * that: a mistake is not punished, and a bar that retreats is a punishment
+   * drawn in the one place the child is looking.
+   */
+  private stepProgress(time: number): number {
+    const words = this.plan?.steps[this.stepIndex]?.words ?? [];
+    // `assistAtMs` is the deadline `nextWord` armed, so the time already spent
+    // is the window less what is left of it. Null between words, which reads as
+    // a clean slot edge rather than as a word that has been on screen forever.
+    const wordElapsedMs =
+      this.assistAtMs === null ? 0 : this.promptWindowMs - (this.assistAtMs - time);
+    return checkBarProgress({
+      typedKeys: this.stepKeysTyped,
+      totalKeys: this.stepKeysTotal,
+      wordIndex: this.wordIndex,
+      wordCount: words.length,
+      wordElapsedMs,
+      wordWindowMs: this.assistAtMs === null ? 0 : this.promptWindowMs,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -669,6 +795,16 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     }
     this.wordIndex = 0;
     this.currentWords = [];
+    // UR-101.2: the bar's denominator. The plan already knows every word this
+    // step will ask for, so the total is a fact about the step rather than
+    // something that has to be discovered as the child types - which is what
+    // lets the bar be continuous across a step's words instead of per word.
+    this.stepKeysTyped = 0;
+    this.stepKeysTotal = (this.plan?.steps[this.stepIndex]?.words ?? []).reduce(
+      (n, w) => n + [...w].length,
+      0,
+    );
+    this.promptWindowMs = 0;
     this.phase = "intro";
     this.phaseUntil = time + this.introMs();
     // The planet arrives one leg per step, so the view is still coming about
@@ -720,6 +856,11 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
       onAdvance: (index, nowMs) => {
         // Position and time. No character: AC-11.3 by construction.
         this.currentKeys.push({ charIndex: index, atMs: nowMs });
+        // UR-101.2. A COUNT, not a score. It is the numerator of a fill and
+        // never leaves this object - nothing derived from it is drawn as a
+        // number and no comparison against the target word reaches it, so
+        // AC-11.3 is as untouched here as it is in the engine.
+        this.stepKeysTyped += 1;
       },
       onComplete: () => {
         // A word the child finished. D100: the give-up counter is about words
@@ -736,6 +877,16 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     // screen where being stranded costs a child the whole game, because they
     // have not reached a single belt yet.
     this.assistAtMs = time + promptAssistMs(word, this.calibration);
+    // UR-101.2 fills the bar's clock half from this window, and it is DERIVED
+    // from the deadline that was just armed rather than taken from a second
+    // call to `promptAssistMs`. Two reasons, and the second one is the real one:
+    // the drawing and the timeout cannot disagree about how long the word had,
+    // and the line above keeps the exact shape `preflightAssist.test.ts` greps
+    // for. Writing this as `promptWindowMs = promptAssistMs(...)` and then
+    // `assistAtMs = time + this.promptWindowMs` turned that guard RED -
+    // "the scene never arms an assist window" - which is the guard doing its
+    // job: it is the only thing standing between this screen and UR-31.
+    this.promptWindowMs = this.assistAtMs - time;
   }
 
   /**
@@ -755,11 +906,46 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     this.prompt = null;
   }
 
+  /**
+   * A CHECK ROW COMES UP: the bar lands full and the system sounds (UR-101).
+   *
+   * ================== THE BAR (UR-101.2) ==================
+   * `barTarget = 1`, EXACTLY, and this is the only place it is set to a literal.
+   * A child who typed everything is already there - the last keystroke put
+   * `stepKeysTyped` equal to `stepKeysTotal` - so for them this line changes
+   * nothing and the bar simply arrives. It matters for the two paths where the
+   * step ends before the words run out: D100's give-up, which skips the rest of
+   * the step in silence, and a step with no words at all. Without it the bar
+   * would light a row at a third full, which is the one thing worse than a
+   * binary bar - a row that says "done" over an instrument that says "not".
+   *
+   * ================== THE SOUND (UR-101.5) ==================
+   * `lock`, transposed. The rows lit in silence before; the vocabulary that was
+   * already in the game and already right is `SFX_VARIANTS.lock` - "a small
+   * confident upward confirmation" - and `systemCheckSemitones` walks the three
+   * rows up a major triad so the sequence reads as a system coming up rather
+   * than as three identical beeps. Nothing new was sampled and the argument for
+   * those three numbers is in `audio/sfx.ts` next to them.
+   *
+   * IT LANDS WITH THE FILL, NOT NEAR IT. This runs on the same call that sets
+   * the bar to full, so the chime and the bar arriving are one event rather
+   * than two things happening at about the same time - which is the seam that
+   * would otherwise open between this item and the per-keystroke clack
+   * (UR-101.4) now running underneath it.
+   */
+  private lightRow(row: RowView, index: number): void {
+    row.barTarget = 1;
+    audioFrom(this.registry)?.play("lock", "preflight:check-row", {
+      pitchSemitones: systemCheckSemitones(index),
+    });
+  }
+
   private finishStep(time: number): void {
     const spec = RITUAL_STEPS[this.stepIndex];
     const row = this.rows[this.stepIndex];
     if (spec !== undefined && row !== undefined) {
       row.state = "lit";
+      this.lightRow(row, this.stepIndex);
       if (this.calibrating) {
         const input: RitualStepInput = { id: spec.id, words: [...this.currentWords] };
         this.played.push(input);
@@ -840,10 +1026,47 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     });
   }
 
+  /**
+   * Move every bar one frame toward what its step is worth (UR-101.2).
+   *
+   * TWO SEPARATE GUARANTEES, and they are why this is not one lerp:
+   *
+   *   MONOTONIC. `barTarget` is a running maximum, so nothing the child does or
+   *   fails to do can lower it. A typo advances no keystroke, the clock has not
+   *   moved backwards, and the bar therefore holds. D31.
+   *
+   *   SMOOTH BUT CAUSED. `barShown` eases toward the target on `BAR_EASE_MS`,
+   *   framerate-independently, so a keystroke moves the bar on the frame it is
+   *   typed without the bar lurching. `reducedMotion` takes the value straight
+   *   (AC-19.3): the information is in the length, never in the animation.
+   *
+   * The snap at `BAR_SNAP` is what makes "exactly full" true rather than
+   * asymptotically nearly true.
+   */
+  private advanceBars(time: number, delta: number): void {
+    const active = this.rows[this.stepIndex];
+    if (
+      active !== undefined &&
+      active.state === "active" &&
+      (this.phase === "typing" || this.phase === "intro")
+    ) {
+      active.barTarget = Math.max(active.barTarget, this.stepProgress(time));
+    }
+    const k = this.story.ctx.reducedMotion
+      ? 1
+      : 1 - Math.exp(-Math.max(0, delta) / BAR_EASE_MS);
+    for (const row of this.rows) {
+      if (row.barShown === row.barTarget) continue;
+      row.barShown += (row.barTarget - row.barShown) * k;
+      if (Math.abs(row.barTarget - row.barShown) < BAR_SNAP) row.barShown = row.barTarget;
+    }
+  }
+
   override update(time: number, delta: number): void {
     this.parallax.update(delta);
     this.shadow.update(time);
     this.prompt?.update(time);
+    this.advanceBars(time, delta);
     this.rows.forEach((row, i) => this.paintRow(row, i, time));
 
     switch (this.phase) {
@@ -895,6 +1118,12 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
             this.beginFinale(time);
           } else {
             next.state = "lit";
+            // UR-101: the "none" path lights rows on a timer with no plan
+            // behind them, so it fills and sounds them here rather than through
+            // `finishStep`. A returning pilot who is shown the sequence must
+            // see and hear the same instrument a typing one does - that
+            // divergence is the shape of UR-28 and it is not being rebuilt.
+            this.lightRow(next, this.rows.indexOf(next));
             this.phaseUntil = time + RETURNING_ROW_MS;
           }
         }
@@ -922,6 +1151,23 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
       phase: this.phase,
       stepIds: this.rows.map((r) => r.id),
       rowStates: this.rows.map((r) => r.state),
+      /**
+       * UR-101.2: how full each check bar is drawn, 0..1.
+       *
+       * NOT RENDERED, and that distinction is the whole of AC-11.3's survival
+       * here. The screen draws a LENGTH; this object carries the number that
+       * length was computed from so an e2e can assert the bar moved on the
+       * first keystroke, never retreated and landed at exactly 1 - none of
+       * which is checkable from a screenshot. `snapshot().text` still contains
+       * no number, and `visibleText` is what proves it.
+       *
+       * `barShown` rather than `barTarget`: the claim worth testing is about
+       * what the child sees, not about what the scene intends.
+       */
+      rowProgress: this.rows.map((r) => Math.round(r.barShown * 1000) / 1000),
+      /** The denominator the bar is filling against, for the same reason. */
+      stepKeysTotal: this.stepKeysTotal,
+      stepKeysTyped: this.stepKeysTyped,
       currentWord: this.prompt === null ? null : this.promptWord(),
       elapsedMs: Math.round(this.time.now - this.startedAtMs),
       budgetMs: RITUAL_BUDGET_MS,

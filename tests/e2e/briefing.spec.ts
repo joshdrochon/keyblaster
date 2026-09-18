@@ -588,11 +588,38 @@ test("the control rule can fail (negative control for the two tests below)", () 
         `${where}: launch centre`,
       ).toBeLessThanOrEqual(2);
       expect(launch.y + launch.h, `${where}: launch off the frame`).toBeLessThanOrEqual(1080);
-      // UR-60: the way out is on the left, smaller, and not beside it.
-      expect(back.x + back.w, `${where}: back is not left of launch`).toBeLessThan(launch.x);
+      // ================== UR-60, AS C19/UR-95 LEFT IT ==================
+      // This read `back.x + back.w < launch.x` - "the way out is on the LEFT" -
+      // and it had been stale since C19 moved the chip into the product's back
+      // corner and UR-95 moved that corner to the bottom-RIGHT. Measured here:
+      // the chip's right edge is 1824 against a launch x of 716, so the
+      // assertion reported "expected < 716, received 1824" and would have done
+      // so at any width launch has ever had. It is a test contradicting a
+      // shipped decision, not a test catching a regression.
+      //
+      // WHAT UR-60 WAS ACTUALLY ABOUT SURVIVES INTACT, and is what is asserted
+      // instead: the way out must be SMALL and must not read as launch's pair.
+      // Both of those are properties of size and separation, neither of which
+      // is a side of the screen - which is precisely why naming a side was the
+      // wrong way to write it the first time.
       expect(back.w * back.h, `${where}: back is not smaller`).toBeLessThan(
         (launch.w * launch.h) / 2,
       );
+      // Not beside it, in either direction, and nowhere near touching.
+      const gap =
+        back.x > launch.x ? back.x - (launch.x + launch.w) : launch.x - (back.x + back.w);
+      expect(gap, `${where}: back is beside launch (gap ${gap})`).toBeGreaterThan(200);
+      // In the product's back corner, which `ui/grid.backCorner` defines and
+      // Pre-flight reads too - the property that makes this a product rule
+      // rather than two screens that happen to agree today.
+      expect(back.x + back.w, `${where}: back is not in the back corner`).toBe(
+        DESIGN_WIDTH - 96,
+      );
+      // UR-101: and the two share a foot line, with real air under both.
+      expect(back.y + back.h, `${where}: back and launch are off one line`).toBe(
+        launch.y + launch.h,
+      );
+      expect(1080 - (launch.y + launch.h), `${where}: not enough air`).toBe(32);
       // ...and neither lands on the page, whatever height this stop's copy gave it.
       for (const [name, box] of [["launch", launch], ["back", back]] as const) {
         const clear =
