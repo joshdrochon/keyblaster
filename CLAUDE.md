@@ -14,6 +14,26 @@ Palettes from design-reference are promoted into src/content/palettes.json and b
 Do not mark a rubric item passed without citing its evidence artifact.
 A failed rubric item is a task: fix and re-run until green (D85). Never ship a known failure silently.
 
+SHARED-VALUE CHANGES — MANDATORY, IN THIS ORDER
+A one-line edit to a shared token is a WIDE change with a NARROW diff. Skipping
+step 1 turned a two-minute fix into thirty minutes: `SPACE.rowPadX` was changed
+three times (22, 28, the gutter, back to 22) because nobody asked what depended
+on it, and each attempt cost a rebuild, a census capture and a full test run.
+
+1. `node scripts/blast-radius.mjs <symbol>` BEFORE the first edit. Read every
+   TEST file it names. Tests that assert the value are what make a small edit
+   long, and they are also where the right answer usually is.
+2. Decide ONCE, from the measurement. Never try a value to see what breaks.
+   If two constraints conflict, the fix is usually the OTHER value - the one on
+   no scale - not the one being edited.
+3. Run the affected test FILE while iterating, never the whole suite. The full
+   run is the pre-commit hook's job and it costs 3.5 minutes each time.
+4. Do not re-build the preview or re-capture the contact sheet until the value
+   is settled.
+
+This applies to anything in `src/game/ui/theme.ts`, `ui/grid.ts`, `ui/layout.ts`,
+any exported layout constant, and any function two or more scenes call.
+
 HARD RULES
 - src/engine never imports Phaser or the DOM. Everything there is unit-tested (Vitest), 95% coverage gate.
 - Tests are written with the feature, in the same commit. No red merges. No skipped tests on main.
