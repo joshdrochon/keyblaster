@@ -586,7 +586,11 @@ export class TitleScene extends Phaser.Scene {
       const plateTop = height + FOCUS_PAD + STATUS_GAP;
       // NOT lowercased: the subline names the planet the beacon is on, and a
       // planet name is a proper noun that keeps its capital (D41).
-      const sub = skyText(this, PLATED_X, plateTop + CHROME_PAD_Y, subline, {
+      // The status line lives INSIDE the primary's container, which is itself
+    // inset by `PRIMARY_X` so the button's ring lands on the column. The line
+    // carries no ring, so it has to take that inset back off or it sits a
+    // focus-pad right of everything else on the screen.
+    const sub = skyText(this, PLATED_X - PRIMARY_X, plateTop + CHROME_PAD_Y, subline, {
         screen: "title",
         id: "title.primarySub",
         size: TYPE.label,

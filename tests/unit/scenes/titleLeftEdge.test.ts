@@ -70,8 +70,26 @@ describe("UR-80: every block on the title starts on one visible line", () => {
     //
     // WATCHED FAILING, with the tagline reverted to COLUMN_X:
     //   expected 2 to be 3
-    const plated = source().match(/skyText\(this, PLATED_X,/g) ?? [];
-    expect(plated.length, "a plated line was left on the bare column").toBe(3);
+    const s = source();
+    const plain = (s.match(/skyText\(this, PLATED_X,/g) ?? []).length;
+    const inherited = (s.match(/skyText\(this, PLATED_X - PRIMARY_X,/g) ?? []).length;
+    expect(plain + inherited, "a plated line was left on the bare column").toBe(3);
+  });
+
+  it("takes the primary's inset back off its own status line", () => {
+    // The status line is a CHILD of the primary's container, so it inherits
+    // `PRIMARY_X`. It carries no focus ring, so it must subtract that inset or
+    // it sits a focus-pad right of every other plate on the screen - which is
+    // exactly what shipped the first time this column was "fixed".
+    //
+    // WATCHED FAILING, with the subtraction removed:
+    //   the status line keeps the primary's ring inset, so its plate sits right
+    //   of every other plate: expected false to be true
+    expect(
+      /skyText\(this, PLATED_X - PRIMARY_X,/.test(source()),
+      "the status line keeps the primary's ring inset, so its plate sits right " +
+        "of every other plate",
+    ).toBe(true);
   });
 
   it("moves the whole primary, never just its plate", () => {
