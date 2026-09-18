@@ -1,4 +1,5 @@
 import { GUTTER, HEADING_TOP } from "@game/ui/grid";
+import { CONSOLE_STRIP, consoleStripBelow } from "@game/ui/controlSurfaceLayout";
 import type { Rect } from "@game/ui/layout";
 import { DESIGN_WIDTH, GAME_HEIGHT } from "@game/sceneKeys";
 import { SPACE } from "@game/ui/theme";
@@ -297,36 +298,22 @@ export const RIGHT_MARGIN = WINDOW.x + WINDOW.w;
  * right about the screen and wrong about which rectangle; the fix is the one
  * the report asked for either way.
  */
+/**
+ * EVERY NUMBER HERE IS `ui/controlSurfaceLayout.CONSOLE_STRIP`'s NOW (UR-77).
+ *
+ * The height and the lamp count used to be declared on this screen, which is
+ * how the Pre-flight came to keep a 76 px version of the same object after
+ * UR-61 raised this one to 124. Two screens that must agree read one
+ * declaration; the box is derived from each screen's own glass.
+ */
 export const SHELF = {
-  x: WINDOW.x,
-  y: WINDOW.y + WINDOW.h + 24,
-  w: WINDOW.w,
-  /**
-   * 124, NOT 76 (UR-61).
-   *
-   * The strip is meant to be the console the pilot is sitting at and it read as
-   * a row of dots, which is what 76 px of bar with nothing in it but nine
-   * circles can read as. The 48 px it gains are 48 px nobody was using: UR-56
-   * deleted the hint line under this column and UR-60 moved both actions out of
-   * it altogether, so everything between the strip and the foot of the screen
-   * was empty hull. `ui/controlSurface.ts` fills the height with the vocabulary
-   * the Settings console already speaks - bezel, milled face, screws, vents and
-   * a recessed lamp bank - rather than a second invented one.
-   */
-  h: 124,
-  /**
-   * SEVEN, one per stop, and the one that burns is the stop you are being
-   * briefed for. It was nine, lit at `i % 3 === 0`, which is decoration in the
-   * shape of a readout: three lamps of nine burning says something specific and
-   * false. A count that matches the route says the true thing for free, and the
-   * strip is called the stop-progress shelf in every comment that touches it.
-   */
-  lamps: 7,
+  ...consoleStripBelow(WINDOW),
+  lamps: CONSOLE_STRIP.lamps,
 } as const;
 
 /** The strip's box, for the shared control surface that dresses it. */
 export function controlStrip(): Rect {
-  return { x: SHELF.x, y: SHELF.y, w: SHELF.w, h: SHELF.h };
+  return consoleStripBelow(WINDOW);
 }
 
 // ---------------------------------------------------------------------------

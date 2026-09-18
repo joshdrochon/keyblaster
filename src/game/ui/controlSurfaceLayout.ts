@@ -76,6 +76,49 @@ export const CONTROL_SURFACE = {
 } as const;
 
 /**
+ * THE STRIP UNDER A COCKPIT WINDOW, AS SHARED GEOMETRY (UR-61, shared by UR-77).
+ *
+ * UR-61 raised the Briefing's strip from 76 px of bar with nine flat circles on
+ * it to a 124 px console with the whole vocabulary - bezel, milled face,
+ * screws, vents, a recessed lamp bank. The Pre-flight, which is the SAME
+ * COCKPIT one screen later, was never brought along: it kept a 76 px plate with
+ * nine dots on it, hanging 30 px past the glass on each side, and drew the dots
+ * itself rather than calling `drawControlSurface` at all.
+ *
+ * That is what "Pre-flight has no vent" means. The vents, the screws and the
+ * seams are drawn from exactly one place and the Pre-flight was not reaching
+ * it. The height and the lamp count live here now so the two screens cannot own
+ * different ones again, and both derive the box from their own glass.
+ */
+export const CONSOLE_STRIP = {
+  /** Air between the foot of the glass and the top of the strip. */
+  gap: 24,
+  /**
+   * 124, NOT 76. The Briefing's value, which is the reference: the 48 px it
+   * gains are what the bezel, the vents and the screws need in order to read as
+   * hardware rather than as a bar with dots on it.
+   */
+  h: 124,
+  /**
+   * SEVEN, one per stop, and the one that burns is the stop you are at. Nine
+   * lit at `i % 3 === 0` is decoration in the shape of a readout: three lamps
+   * of nine burning says something specific and false. A count that matches the
+   * route says the true thing for free.
+   */
+  lamps: 7,
+} as const;
+
+/** The strip's box, under a window's glass. Both cockpit screens use this. */
+export function consoleStripBelow(glass: Rect): Rect {
+  return {
+    x: glass.x,
+    y: glass.y + glass.h + CONSOLE_STRIP.gap,
+    w: glass.w,
+    h: CONSOLE_STRIP.h,
+  };
+}
+
+/**
  * Where a row of lamps sits inside a box it is centred in.
  *
  * ONE IMPLEMENTATION (standards rule 3). The Settings selector's position lamps

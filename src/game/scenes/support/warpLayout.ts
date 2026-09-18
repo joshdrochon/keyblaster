@@ -328,20 +328,34 @@ export const INSTRUMENT: Rect = {
 export const INSTRUMENT_INSET = PLATE_RHYTHM.instrument.padX;
 export const METER: Rect = stackRows(INSTRUMENT, INSTRUMENT_ROWS, "instrument")[1] as Rect;
 
+/** Ink-to-ink air between the charge label and its bolt (UR-78). */
+export const BOLT_GAP_PX = 5;
+
 /**
- * The charge bolt's box, in the track's left cap (UR-70).
+ * The charge bolt's box, set beside the words rather than inside the track
+ * (UR-78, revising UR-70).
  *
- * WHERE THE CHARGE STARTS, which is why it is the LEFT cap and not the middle:
- * the mark is a label for the bar's zero, and a bolt floating in the centre of
- * an empty track reads as a decoration on a track rather than as the thing the
- * track is filling with. Centred vertically in `METER` and sized from
- * `MARK.bolt`, so it can never be taller than the track it is inside - which
- * `warpLayout.test.ts` asserts, because the track is 26 px and the mark is 22.
+ * UR-70 put the mark in the track's left cap on the reasoning that a bolt is a
+ * label for the bar's zero. That reasoning cost more than it bought: inside the
+ * track the mark is behind the fill, so it had to be drawn twice - accent under
+ * the fill, sunken ink over it - to stay legible on an empty bar and a charged
+ * one, and at no charge level was it the same colour as the percentage it is
+ * measuring with.
+ *
+ * Beside the label it is never overdrawn, so it is one drawing in one colour,
+ * and it reads as what it is: the left end of the line whose right end is the
+ * number.
+ *
+ * TAKES THE LABEL'S MEASURED BOUNDS rather than computing where the text ends.
+ * "warp drive" is a translated string at a themed type size; the only honest
+ * source for its right edge is the object that drew it. Vertically CENTRED on
+ * that same box, so the mark shares the line's middle at any type size instead
+ * of sharing a baseline the glyph does not sit on.
  */
-export function boltRow(): Rect {
+export function boltBesideLabel(label: Rect): Rect {
   return {
-    x: METER.x + PLATE_STEP.glass,
-    y: METER.y + (METER.h - MARK.bolt.h) / 2,
+    x: label.x + label.w + BOLT_GAP_PX,
+    y: label.y + label.h / 2 - MARK.bolt.h / 2,
     w: MARK.bolt.w,
     h: MARK.bolt.h,
   };

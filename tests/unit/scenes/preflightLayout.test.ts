@@ -28,7 +28,34 @@ import {
   inset,
   promptPlate,
   windowRect,
+  MULLION_CLEARANCE,
+  PLANET,
+  controlStrip,
+  mullionHorizontalAt,
+  planetCy,
+  planetFill,
+  planetLegX,
+  planetParkX,
+  planetRadius,
+  planetRestX,
 } from "@game/scenes/support/preflightLayout";
+import {
+  SHELF as BRIEFING_SHELF,
+  controlStrip as briefingStrip,
+} from "@game/scenes/support/briefingLayout";
+import {
+  CONSOLE_STRIP,
+  CONTROL_SURFACE,
+  controlSurfaceElementCount,
+  controlSurfaceLayout,
+} from "@game/ui/controlSurfaceLayout";
+import { VIEWPORT_WINDOW } from "@game/ui/viewportWindowLayout";
+import {
+  PALETTE_STOP_IDS,
+  lightness,
+  paletteFor,
+  skyStops,
+} from "@game/render/palette";
 
 /**
  * THE TYPED WORD IS ON THE GLASS, NOT ON THE FRAME.
@@ -199,5 +226,187 @@ describe("UR-39: the screen has a header, one column and a way out", () => {
     expect(overlaps(line, { x: SHELF.x, y: SHELF.y, w: SHELF.w, h: SHELF.h })).toBe(false);
     expect(line.y + line.h).toBeLessThan(HINT.y);
     expect(SHELF.y + SHELF.h).toBeLessThan(1080);
+  });
+});
+
+/**
+ * UR-77: THE PRE-FLIGHT AND THE BRIEFING ARE ONE COCKPIT SEEN TWICE.
+ *
+ * Three of the four things reported against this screen share one root cause -
+ * the two screens drew the same furniture twice, differently - and each of them
+ * had a green guard sitting beside it the whole time. So these assertions are
+ * about SHARING, not about resemblance: the same function, the same constants,
+ * the same arithmetic, checked against the Briefing's own module and against
+ * `render/parallax.ts`'s own source rather than against a copy of its numbers.
+ *
+ *   npx vitest run tests/unit/scenes/preflightLayout.test.ts --coverage.enabled=false
+ */
+describe("UR-77.2: the strip under the glass is the Briefing's, not a second one", () => {
+  it("is the same box the Briefing's is, under each screen's own glass", () => {
+    // WATCHED FAILING: put `h: 76` back on this screen's SHELF and the shared
+    // height check reports "expected 76 to be 124".
+    expect(SHELF.h).toBe(CONSOLE_STRIP.h);
+    expect(SHELF.h).toBe(BRIEFING_SHELF.h);
+    expect(SHELF.lamps).toBe(BRIEFING_SHELF.lamps);
+    // What shipped: 76 px of plate with nine dots on it.
+    expect(SHELF.h).toBeGreaterThan(76);
+    expect(SHELF.lamps).not.toBe(9);
+  });
+
+  it("stops hanging past the glass on both sides", () => {
+    // The shipped strip was `WINDOW.x - 30, WINDOW.w + 60` - 30 px of bar
+    // sticking out beyond the window on each side, which is the one rectangle
+    // on this screen that genuinely started left of everything else.
+    expect(SHELF.x).toBe(WINDOW.x);
+    expect(SHELF.w).toBe(WINDOW.w);
+    expect(controlStrip()).toEqual({ x: SHELF.x, y: SHELF.y, w: SHELF.w, h: SHELF.h });
+  });
+
+  it("has the vents, the screws and the bezel - the thing that was missing", () => {
+    // `drawControlSurface` had exactly ONE caller in the product and it was the
+    // Briefing, so this screen had no vents at all. The claim is about the
+    // GEOMETRY the shared surface lays out in this screen's own box.
+    const parts = controlSurfaceLayout(controlStrip(), SHELF.lamps);
+    expect(parts.vents.length).toBe(CONTROL_SURFACE.ventCount * 2);
+    expect(parts.rivets.length).toBe(4);
+    expect(parts.lamps.length).toBe(SHELF.lamps);
+    expect(controlSurfaceElementCount(parts)).toBe(26);
+    // ...the same count the Briefing's strip has, because it is the same strip.
+    expect(controlSurfaceElementCount(parts)).toBe(
+      controlSurfaceElementCount(controlSurfaceLayout(briefingStrip(), BRIEFING_SHELF.lamps)),
+    );
+  });
+
+  it("still leaves the dialogue plate and the hint alone at 124 px", () => {
+    // The strip gained 48 px. It is 48 px of hull nobody was using, but that is
+    // a claim about this screen's foot and not a general truth.
+    expect(SHELF.y + SHELF.h).toBeLessThan(HINT.y);
+    expect(SHELF.x).toBeGreaterThan(LINE_PLATE.x + LINE_PLATE.w);
+  });
+});
+
+describe("UR-77.1: the crosshatch, and where it is allowed to differ", () => {
+  it("keeps the horizontal strut off the typed word", () => {
+    // The ONLY thing about this window that is genuinely per-screen. The
+    // Briefing's 0.7 puts the strut at y 590 and the widest prompt plate's top
+    // edge is at 580, so the strut would run along the top of the one thing
+    // the child is asked to read.
+    //
+    // WATCHED FAILING: return `VIEWPORT_WINDOW.horizontalAt` unconditionally
+    // from `mullionHorizontalAt` - "the strut runs through the typed word:
+    // expected 602 to be less than or equal to 556.04".
+    const at = mullionHorizontalAt();
+    const strutBottom = WINDOW.y + WINDOW.h * at + VIEWPORT_WINDOW.mullionH;
+    const plateTop = promptPlate(MAX_PROMPT_GLYPHS).y;
+    expect(
+      strutBottom,
+      "the strut runs through the typed word",
+    ).toBeLessThanOrEqual(plateTop - MULLION_CLEARANCE);
+    // ...and it is a real strut on real glass, not one pushed off the top.
+    expect(at).toBeGreaterThan(0.4);
+    expect(at).toBeLessThanOrEqual(VIEWPORT_WINDOW.horizontalAt);
+  });
+
+  it("NEGATIVE CONTROL: the Briefing's own fraction lands on the plate", () => {
+    const shipped = WINDOW.y + WINDOW.h * VIEWPORT_WINDOW.horizontalAt;
+    const plate = promptPlate(MAX_PROMPT_GLYPHS);
+    expect(shipped).toBeGreaterThan(plate.y);
+    expect(shipped).toBeLessThan(plate.y + plate.h);
+  });
+});
+
+/**
+ * UR-77.3: THE PLANET WAS A THUMBPRINT.
+ *
+ * A blind critic called it a desaturated grey-brown disc and a thumbprint, and
+ * said it was most of what made the window unreadable. The answer taken at the
+ * time changed the TERMINATOR'S HUE and it did not work, because the hue was
+ * never the problem: four stacked translucent circles average to mud whatever
+ * colour each one is.
+ *
+ * The Briefing has no hand-drawn planet at all - it passes `celestial` to the
+ * parallax and gets ONE FLAT DISC, hazed into the sky and separated from it by
+ * value. This screen has to keep its own because the disc SWINGS IN over the
+ * ritual and the parallax owns its layer's position, so what it shares is the
+ * arithmetic. These assertions read the shared arithmetic back out of
+ * `render/parallax.ts` rather than trusting a copy of it.
+ */
+describe("UR-77.3: the planet is the shared celestial body, not a second one", () => {
+  const PARALLAX = readFileSync(resolve(SRC, "../render/parallax.ts"), "utf8");
+
+  it("uses `celestialBody`'s own size rule, read back from its source", () => {
+    // A restatement is only evidence while it matches.
+    expect(PARALLAX).toContain("const r = Math.min(w, h) * 0.12;");
+    expect(planetRadius(1920, 1080)).toBeCloseTo(Math.min(1920, 1080) * 0.12, 6);
+    // What shipped: r = 300, more than twice the shared body at the same world.
+    expect(planetRadius(1920, 1080)).toBeLessThan(300 / 2);
+  });
+
+  it("uses its haze and its L* separation, read back from its source", () => {
+    expect(PARALLAX).toContain(
+      "const hazed = atmospheric(pal.colors[2] ?? pal.accent, sky, 0.84);",
+    );
+    expect(PARALLAX).toContain(
+      "const body = withLightness(hazed, target > 50 ? Math.max(4, target - 14) : Math.min(96, target + 14));",
+    );
+    expect(PLANET.haze).toBe(0.84);
+    expect(PLANET.separationL).toBe(14);
+  });
+
+  it("separates from whatever sky it is put against, at every stop", () => {
+    // The defect the shared body already fixed once: a critic measured it at
+    // L* 77.7 against a local sky of L* 77.8 - a ratio of 1.00:1, pure hue,
+    // invisible on a tablet at half brightness and invisible to a colour-blind
+    // child always. Both ends of each stop's sky gradient are probed, because
+    // the disc crosses the glass rather than sitting at one height.
+    for (const stopId of PALETTE_STOP_IDS) {
+      const pal = paletteFor(stopId);
+      for (const sky of skyStops(pal)) {
+        const gap = Math.abs(lightness(planetFill(pal, sky)) - lightness(sky));
+        expect(gap, `${stopId} against ${sky}`).toBeGreaterThan(11);
+      }
+    }
+  });
+
+  it("is ONE flat disc in the scene - no glow, no highlight, no terminator", () => {
+    // The source is the evidence here, because "how many circles" is not a
+    // property of a layout module. Four `fillCircle` calls on one Graphics is
+    // what a thumbprint is made of.
+    //
+    // WATCHED FAILING: paste the shipped glow back -
+    //   disc.fillStyle(hexToNum(accent), 0.1); disc.fillCircle(0, 0, r * 1.4);
+    // - and this reports "the planet is drawn from 2 circles: expected 2 to be 1".
+    const scene = readFileSync(resolve(SRC, "PreflightScene.ts"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "");
+    const circles = scene.match(/disc\.fillCircle\(/g) ?? [];
+    expect(circles.length, `the planet is drawn from ${circles.length} circles`).toBe(1);
+    // The four that shipped, by their own arithmetic.
+    expect(scene).not.toContain("r * 1.4");
+    expect(scene).not.toContain("-r * 0.26");
+    expect(scene).not.toContain("r * 0.22");
+  });
+
+  it("swings in from off the glass and comes to rest on it", () => {
+    const r = planetRadius(1920, 1080);
+    expect(planetParkX(r), "parked on the glass").toBeGreaterThan(WINDOW.x + WINDOW.w);
+    // Three ritual steps, three legs, ending at rest.
+    expect(planetLegX(0)).toBe(planetRestX());
+    expect(planetLegX(2)).toBeLessThan(planetLegX(1));
+    expect(planetLegX(1)).toBeLessThan(planetLegX(0));
+    // WHOLLY ON THE GLASS AT EVERY LEG, which is new: the leg length was sized
+    // against a 300 px disc that could not fall off the left edge, and at the
+    // shared body's 130 px the first leg put a third of the planet outside the
+    // window. WATCHED FAILING: put `legShare` back to 0.28 - "leg 2 hangs off
+    // the glass: expected 955.44 to be greater than or equal to 1029.6".
+    for (let leg = 0; leg < 3; leg += 1) {
+      expect(planetLegX(leg), `leg ${leg} hangs off the glass`).toBeGreaterThanOrEqual(
+        WINDOW.x + r,
+      );
+      expect(planetLegX(leg) + r).toBeLessThanOrEqual(WINDOW.x + WINDOW.w);
+    }
+    expect(planetRestX() + r).toBeLessThan(WINDOW.x + WINDOW.w);
+    expect(planetCy()).toBeGreaterThan(WINDOW.y);
+    expect(planetCy()).toBeLessThan(WINDOW.y + WINDOW.h);
   });
 });

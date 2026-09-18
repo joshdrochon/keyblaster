@@ -123,6 +123,37 @@ import {
 /** art-direction section 8: the stack accelerates x4 over 1.2 s, then cuts. */
 const WARP_MULTIPLIER = 4;
 const WARP_DURATION_MS = 1200;
+
+/**
+ * THE SCREEN CLEARS AND THE SHIP LEAVES (UR-78).
+ *
+ * The sentence used to be answered by a world that sped up and then a hard cut
+ * to Beacon, with the panels still on screen at the moment of the cut. A child
+ * typed the last letter and the reward was a jump. The drive is charged: the
+ * thing that should happen is that the ship goes.
+ *
+ * Three beats, deliberately overlapping rather than queued, so the whole exit
+ * costs a beat and a half instead of three:
+ *
+ *   0 ms      the panels lift a little and fade - the screen gets out of the
+ *             way first, so nothing is covering the ship when it moves
+ *   260 ms    the ship launches, accelerating OUT of frame (`Cubic.In`: slow
+ *             off the mark, fastest at the edge, which is what leaving looks
+ *             like - `blast` is Expo.OUT and would have it brake on the way up)
+ *   ~1160 ms  the cut, once the hull is past the top of the frame
+ *
+ * REDUCED MOTION (D41) TAKES THE SAME ROUTE, NOT A SHORTER ONE. The beats are
+ * kept and the travel is dropped: the panels fade where they stand and the ship
+ * fades out rather than flying. Cutting straight to Beacon instead would make
+ * the one setting that exists for children who are hurt by motion the one
+ * setting that skips the story beat.
+ */
+const PANEL_CLEAR_MS = 320;
+const PANEL_CLEAR_LIFT_PX = 28;
+const SHIP_LAUNCH_DELAY_MS = 260;
+const SHIP_LAUNCH_MS = 900;
+/** How far above the frame the hull must be before the cut. */
+const SHIP_EXIT_CLEARANCE_PX = 420;
 /** `flight/stage.ts` DEFAULT_FLIGHT_CONFIG.worldSpeedPxPerSec. x1 is this. */
 const FLIGHT_WORLD_SPEED = 110;
 
@@ -162,7 +193,7 @@ import {
   WORD_PULSE_SCALE,
   completedWordRange,
   badgeRow,
-  boltRow,
+  boltBesideLabel,
   destinationRow,
   hintRow,
   sentenceRow,
@@ -605,21 +636,22 @@ export class WarpScene extends Phaser.Scene {
    * so this header is now measured by V-22.8 along with everything else.
    */
   private buildHeader(): Phaser.GameObjects.GameObject[] {
-    const at = headerText(0, undefined, 14);
-    const heading = skyText(this, at.x, at.y, this.lane.copy.text("warp.heading"), {
-      screen: "warp",
-      id: "warp.heading",
-      size: TYPE.heading,
-      color: INK.text,
-      lang: this.lane.lang,
-      depth: this.headerDepth(),
-      padY: 14,
-    });
+    // THE TAB IS GONE (UR-78). "warp break" named the screen to a reader who
+    // was already looking at it, and it cost the top line of the screen to say
+    // nothing the line under it did not say better. The instruction line is the
+    // header now, and it is the first thing on the screen because it is the
+    // only thing on the screen a player has to act on.
+    //
+    // `warp.heading` IS KEPT IN THE STRING TABLE, unused. It is the screen's
+    // name in three languages and deleting it would make restoring the tab a
+    // translation job rather than one line of layout.
     // "belt cleared - type this to charge the warp drive". The line used to be
     // "the belt is clear. everything is still out here.", which is atmosphere:
     // it never said that the asteroids were GONE because the player destroyed
     // them, and it never said what the typing below it was for.
-    const under = headerText(1, undefined, 10);
+    // ROW 0 NOW, not row 1: the line moved up into the space the tab was using
+    // rather than leaving a gap where it used to be.
+    const under = headerText(0, undefined, 10);
     const calm = skyText(this, under.x, under.y, this.lane.copy.text("warp.beltCleared"), {
       screen: "warp",
       id: "warp.beltCleared",
@@ -638,15 +670,16 @@ export class WarpScene extends Phaser.Scene {
     // thing UR-69's census is counting: a glyph placed before the heading would
     // either push the heading off `GUTTER` or add an eleventh left edge to a
     // screen that has fifteen.
+    // The prompt glyph went WITH the tab it was set into - it was a mark on the
+    // tab, not on the screen, so keeping it would leave a terminal cursor
+    // hanging off a sentence. The two dots stay: they hang off the instruction
+    // line, which is still here.
     const marks = this.add.graphics().setDepth(this.headerDepth());
-    paintPromptGlyph(marks, this.markBoxAfter(heading, MARK.glyph), INK.text, {
-      alpha: 0.85,
-    });
     paintStatusDots(marks, this.markBoxAfter(calm, MARK.glyph + MARK.dot * 2), INK.textDim, {
       count: 2,
       alpha: 0.75,
     });
-    return [...heading.objects, ...calm.objects, marks];
+    return [...calm.objects, marks];
   }
 
   /**
@@ -1055,17 +1088,32 @@ export class WarpScene extends Phaser.Scene {
      * gold. Neither pass is a new colour: both inks are already on this
      * instrument.
      */
-    const boltUnder = this.add.graphics();
-    paintBolt(boltUnder, boltRow(), pal.accent, { alpha: 0.75 });
-    made.push(boltUnder);
+    // THE BOLT SITS WITH THE WORDS, NOT IN THE TRACK (UR-78).
+    //
+    // It used to live in the track's left cap, which meant it had to be drawn
+    // TWICE - once in the stop's accent under the fill and once in the sunken
+    // ink over it - so that it stayed legible on an empty bar and a charged
+    // one. Put beside the label it is never behind the fill, so it is one
+    // drawing again, and it is the same gold as the percentage because the two
+    // are the ends of one line: the mark says what the number is measuring.
+    //
+    // PLACED OFF THE MEASURED TEXT, not off a guessed width. `boltBesideLabel`
+    // takes the label's own bounds, so the gap is five pixels of ink-to-ink air
+    // at every type size and in every language rather than five pixels from
+    // wherever the string was assumed to end.
+    const bolt = this.add.graphics();
+    const labelBox = chargeLabel.text.getBounds();
+    paintBolt(
+      bolt,
+      boltBesideLabel({ x: labelBox.x, y: labelBox.y, w: labelBox.width, h: labelBox.height }),
+      INK.accent,
+      { alpha: 1 },
+    );
+    made.push(bolt);
 
     this.meterFill = this.add.graphics();
     made.push(this.meterFill);
     this.paintMeter();
-
-    const boltOver = this.add.graphics();
-    paintBolt(boltOver, boltRow(), INK.panelSunken, { alpha: 0.9 });
-    made.push(boltOver);
 
     // "warp drive charged - next stop Jupiter". The old line was "warp drive
     // charged. hold on." - true, and it never told the player they were about
@@ -1874,8 +1922,50 @@ export class WarpScene extends Phaser.Scene {
       onComplete: () => {
         this.multiplier = WARP_MULTIPLIER;
         this.accelerateWorld(WARP_MULTIPLIER);
-        this.cutToBeacon();
       },
+    });
+
+    this.clearAndLaunch();
+  }
+
+  /**
+   * Clear the screen, fly the ship out, and only then cut to Beacon.
+   *
+   * THE CUT IS OWNED BY THE SHIP, not by the world's acceleration tween, so it
+   * cannot happen while the hull is still on screen. The fallback matters: if
+   * there is no lantern to fly - the overlay path draws no ship of its own,
+   * because the one on screen is Flight's - the exit still has to end, so the
+   * timer below is what cuts and it is armed whether or not a ship exists.
+   */
+  private clearAndLaunch(): void {
+    const reduced = this.lane.reducedMotion;
+
+    this.tweens.add({
+      targets: this.panelRoot,
+      alpha: 0,
+      ...(reduced ? {} : { y: this.panelRoot.y - PANEL_CLEAR_LIFT_PX }),
+      duration: PANEL_CLEAR_MS,
+      ease: EASE.arrive,
+    });
+
+    const ship = this.lantern?.container ?? null;
+    if (ship !== null) {
+      this.tweens.add({
+        targets: ship,
+        ...(reduced
+          ? { alpha: 0 }
+          : { y: -SHIP_EXIT_CLEARANCE_PX, scale: ship.scale * 0.72 }),
+        delay: SHIP_LAUNCH_DELAY_MS,
+        duration: SHIP_LAUNCH_MS,
+        ease: reduced ? EASE.arrive : "Cubic.In",
+      });
+    }
+
+    // ONE CUT, however many things are moving. `delayedCall` rather than an
+    // onComplete so the overlay path - which has no ship - leaves on the same
+    // beat as the standalone one.
+    this.time.delayedCall(SHIP_LAUNCH_DELAY_MS + SHIP_LAUNCH_MS, () => {
+      this.cutToBeacon();
     });
   }
 

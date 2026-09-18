@@ -1,6 +1,15 @@
 import { GUTTER, HEADING_TOP, HINT_TOP, headerText } from "@game/ui/grid";
 import { TYPE } from "@game/ui/theme";
 import type { Rect } from "@game/ui/layout";
+import { CONSOLE_STRIP, consoleStripBelow } from "@game/ui/controlSurfaceLayout";
+import { VIEWPORT_WINDOW } from "@game/ui/viewportWindowLayout";
+import {
+  atmospheric,
+  lightness,
+  skyStops,
+  withLightness,
+  type StopPalette,
+} from "@game/render/palette";
 
 /**
  * THE PRE-FLIGHT SCREEN'S GEOMETRY (screen 5).
@@ -187,18 +196,175 @@ export function backChip(): Rect {
 }
 
 /**
- * The instrument shelf under the glass.
+ * THE INSTRUMENT SHELF UNDER THE GLASS - THE BRIEFING'S, NOT A SECOND ONE
+ * (UR-39, corrected by UR-77).
  *
- * The Briefing has one and this screen did not, which is most of the 5-point
- * busy-pixel gap between two screens that are meant to be the same cockpit.
- * It is quiet and unlabelled on purpose - no readout a child could fail.
+ * ================== WHAT WAS WRONG WITH IT ==================
+ * UR-39 gave this screen a shelf because the Briefing had one and this screen
+ * did not. What it got was a SECOND shelf: 76 px of plain plate, hung 30 px
+ * past the glass on each side, with nine flat dots painted on it by the scene.
+ * UR-61 then rebuilt the Briefing's as real console hardware - bezel, milled
+ * face, screws, cooling vents, a recessed lamp bank, `drawControlSurface` - and
+ * raised it to 124 px, and this screen was never brought along, because there
+ * was nothing structural tying the two together.
+ *
+ * "Pre-flight has no vent" is exactly that: `drawControlSurface` had ONE caller
+ * in the product and it was not this screen.
+ *
+ * ================== WHAT IT IS NOW ==================
+ * The same box, from the same function, under each screen's own glass
+ * (`ui/controlSurfaceLayout.consoleStripBelow`), dressed by the same
+ * `drawControlSurface` call the Briefing makes. Neither screen owns the height
+ * or the lamp count any more, so one cannot be raised without the other.
  */
 export const SHELF = {
-  x: WINDOW.x - 30,
-  y: WINDOW.y + WINDOW.h + 24,
-  w: WINDOW.w + 60,
-  h: 76,
+  ...consoleStripBelow(windowRect()),
+  lamps: CONSOLE_STRIP.lamps,
 } as const;
+
+/** The strip's box, for the shared control surface that dresses it. */
+export function controlStrip(): Rect {
+  return consoleStripBelow(windowRect());
+}
+
+// ---------------------------------------------------------------------------
+// UR-77: one cockpit, seen twice
+// ---------------------------------------------------------------------------
+
+/**
+ * WHERE THE HORIZONTAL MULLION CROSSES THIS GLASS.
+ *
+ * Both cockpit windows carry a CROSS now (`ui/viewportWindowLayout.ts`); the
+ * single vertical strut this screen had was never a decision, it was the older
+ * screen not being brought along. The one thing that genuinely has to differ is
+ * the HEIGHT the horizontal strut crosses at, and it differs for a reason that
+ * is a property of this screen rather than a taste: only this glass has
+ * something printed on it.
+ *
+ * The typed word's plate is up to 848 px wide and sits low on the glass. The
+ * Briefing's 0.7 puts the strut at y 590, and the widest plate's top edge is at
+ * 580 - the strut would run along the top of the one thing the child is asked
+ * to read. So the fraction is DERIVED from the plate it has to clear rather
+ * than typed in: change the display size, the word pool or the plate's padding
+ * and this moves with them.
+ */
+export const MULLION_CLEARANCE = 24;
+
+export function mullionHorizontalAt(): number {
+  const plateTop = promptPlate(MAX_PROMPT_GLYPHS).y;
+  const highest =
+    (plateTop - MULLION_CLEARANCE - VIEWPORT_WINDOW.mullionH - WINDOW.y) / WINDOW.h;
+  // Floored to a whole percent so the number a capture is judged against is one
+  // a person can hold in their head, and never lower than the clearance allows.
+  return Math.min(VIEWPORT_WINDOW.horizontalAt, Math.floor(highest * 100) / 100);
+}
+
+/**
+ * THE PLANET IN THE WINDOW (UR-77 item 3).
+ *
+ * ================== WHAT IT WAS ==================
+ * A 300 px disc built from FOUR overlapping translucent circles: a 420 px
+ * accent glow, the body, a 55%-alpha highlight up and left, and a 62%-alpha
+ * terminator down and right. A blind critic called the result a desaturated
+ * grey-brown disc and a thumbprint, and said it was most of what made the
+ * window unreadable. The answer taken at the time was to change the
+ * TERMINATOR'S HUE - keep the planet's own colour in shadow instead of washing
+ * it with `INK.bgDeep` - and it did not work, because the hue was never the
+ * problem. Four translucent circles stacked on each other average out to mud
+ * whatever colour each one is, and at Jupiter it still read as a thumbprint.
+ *
+ * ================== WHAT THE BRIEFING DOES, ONE SCREEN EARLIER ==========
+ * Nothing like it. The Briefing has no hand-drawn planet at all: it passes
+ * `celestial` to `buildParallax` and the shared celestial body is ONE FLAT
+ * DISC, about 130 px, hazed 0.84 into the sky and then pinned 14 L* off the
+ * LOCAL sky value so it separates without coming forward. `render/parallax.ts`
+ * carries the whole argument at length - it has been three circles ("from any
+ * distance a RING"), then two ("a hard seam at x=850"), and the resolved answer
+ * is a flat disc and nothing else.
+ *
+ * ================== WHY THIS SCREEN STILL DRAWS ITS OWN ==================
+ * Because it has to MOVE. The planet swings into the window one leg per ritual
+ * step, and the parallax owns its celestial layer's position, so this screen
+ * cannot use the layer and keep the choreography. What it can do - and now does
+ * - is use the same arithmetic and the same shape: same radius rule, same haze,
+ * same L* separation, one flat disc, no glow, no highlight, no terminator.
+ * `preflightLayout.test.ts` reads those three lines back out of
+ * `render/parallax.ts`, so if the shared body changes and this does not, the
+ * restatement goes red rather than quietly drifting.
+ *
+ * Exporting the drawing itself from `render/parallax.ts` is the real fix and it
+ * is a read-only file for this lane; it is in `gauntlet/escalations.md`.
+ */
+export const PLANET = {
+  /** The same share of the world `celestialBody` uses. A distant body is small. */
+  rShare: 0.12,
+  /** Where it comes to rest, as a fraction of the glass. */
+  restXShare: 0.62,
+  /** How high it sits in the glass. */
+  cyShare: 0.52,
+  /**
+   * One ritual step's worth of travel, as a fraction of the glass.
+   *
+   * 0.23, NOT THE 0.28 THE SHIPPED 260 px WORKED OUT TO. The leg was sized
+   * against a 300 px disc that could not fall off the left edge; at the shared
+   * body's 130 px the first leg put a third of the planet outside the glass,
+   * which the capture showed. Every leg now lands the whole disc on the glass,
+   * which `preflightLayout.test.ts` checks rather than the eye.
+   */
+  legShare: 0.23,
+  /** How far off the right edge it is parked, in radii. */
+  parkRadii: 1.2,
+  /** How hard it is hazed into the sky. `celestialBody`'s number. */
+  haze: 0.84,
+  /** How far off the LOCAL sky its value is pinned, in L*. */
+  separationL: 14,
+} as const;
+
+/** The disc's radius on this world. Grows with the window (D99). */
+export function planetRadius(worldW: number, worldH: number): number {
+  return Math.min(worldW, worldH) * PLANET.rShare;
+}
+
+/** Where the disc comes to rest, once every system is lit. */
+export function planetRestX(): number {
+  return WINDOW.x + WINDOW.w * PLANET.restXShare;
+}
+
+/** The height it crosses the glass at. */
+export function planetCy(): number {
+  return WINDOW.y + WINDOW.h * PLANET.cyShare;
+}
+
+/** Where it stands with `stepsRemaining` legs of the swing still to run. */
+export function planetLegX(stepsRemaining: number): number {
+  return planetRestX() - stepsRemaining * WINDOW.w * PLANET.legShare;
+}
+
+/** Where it waits before the ritual starts: off the right edge of the glass. */
+export function planetParkX(r: number): number {
+  return WINDOW.x + WINDOW.w + r * PLANET.parkRadii;
+}
+
+/**
+ * The disc's ONE colour, by `celestialBody`'s own rule.
+ *
+ * `localSky` is the sky's value AT THE DISC'S OWN HEIGHT, not the gradient's
+ * middle stop. That distinction is not pedantry: a critic once measured the
+ * shared body at L* 77.7 against a local sky of L* 77.8 - a ratio of 1.00:1,
+ * pure hue difference, invisible on a tablet at half brightness and invisible
+ * to a colour-blind child always - because the separation had been taken from
+ * the middle stop while the disc sat near the top of the frame.
+ */
+export function planetFill(pal: StopPalette, localSky: string): string {
+  const hazed = atmospheric(pal.colors[2] ?? pal.accent, skyStops(pal)[1], PLANET.haze);
+  const target = lightness(localSky);
+  return withLightness(
+    hazed,
+    target > 50
+      ? Math.max(4, target - PLANET.separationL)
+      : Math.min(96, target + PLANET.separationL),
+  );
+}
 
 /**
  * The bulkhead the system rows are bolted to.

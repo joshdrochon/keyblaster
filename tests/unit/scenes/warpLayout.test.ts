@@ -19,7 +19,8 @@ import {
   SHIP_HALF_W,
   WARP_CARDS,
   badgeRow,
-  boltRow,
+  BOLT_GAP_PX,
+  boltBesideLabel,
   destinationRow,
   hintRow,
   sentenceRow,
@@ -384,15 +385,44 @@ describe("UR-70: the column is condensed, and the gap is not a function of the s
     expect(badge.y + badge.h).toBeLessThanOrEqual(sentenceRow().y);
   });
 
-  it("puts the charge bolt inside the track, at the end the fill starts from", () => {
-    const bolt = boltRow();
-    expect(bolt.h).toBeLessThan(METER.h);
-    expect(bolt.y).toBe(METER.y + (METER.h - MARK.bolt.h) / 2);
-    expect(bolt.y + bolt.h).toBeLessThanOrEqual(METER.y + METER.h);
-    // The LEFT cap: the mark labels the bar's zero, so it sits where the fill
-    // starts rather than floating in the middle of an empty track.
-    expect(bolt.x).toBe(METER.x + 12);
-    expect(bolt.x + bolt.w).toBeLessThan(METER.x + METER.w / 2);
+  /**
+   * UR-78 MOVED THE BOLT OUT OF THE TRACK.
+   *
+   * UR-70 set it in the track's left cap. Inside the track the mark is behind
+   * the fill, so it had to be drawn twice - accent under, sunken ink over - and
+   * at no charge level was it the gold the percentage is drawn in. Beside the
+   * label it is one drawing in one colour, and it is the left end of the line
+   * whose right end is the number.
+   *
+   * MEASURED OFF THE LABEL, so this takes a box rather than reading a constant:
+   * "warp drive" is a translated string at a themed size and the only honest
+   * source for its right edge is the object that drew it.
+   *
+   * WATCHED FAILING, with the gap put back to `PLATE_STEP.glass` (12):
+   *   sets the charge bolt five pixels past the label, centred on its line
+   *     expected 312 to be 305
+   * and with `y: label.y` instead of the centred y:
+   *     expected 100 to be 91
+   */
+  it("sets the charge bolt five pixels past the label, centred on its line", () => {
+    const label = { x: 200, y: 100, w: 100, h: 24 };
+    const bolt = boltBesideLabel(label);
+    expect(BOLT_GAP_PX).toBe(5);
+    expect(bolt.x).toBe(305);
+    expect(bolt.w).toBe(MARK.bolt.w);
+    expect(bolt.h).toBe(MARK.bolt.h);
+    // Centred on the label's own middle, not hung off its baseline - a glyph
+    // does not sit on the baseline a mark would share.
+    expect(bolt.y + bolt.h / 2).toBe(label.y + label.h / 2);
+  });
+
+  it("keeps the bolt clear of the track it used to sit inside", () => {
+    // The mark is now on the LABEL row, so it must not reach down into the
+    // charge track - which is what it would do if a later edit centred it on
+    // the instrument instead of on its line.
+    const label = { x: METER.x, y: METER.y - 32, w: 120, h: 24 };
+    const bolt = boltBesideLabel(label);
+    expect(bolt.y + bolt.h).toBeLessThanOrEqual(METER.y);
   });
 
   it("measures its rows in Devanagari, so Hindi does not collide", () => {

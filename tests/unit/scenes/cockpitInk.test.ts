@@ -132,12 +132,40 @@ describe("the cockpit hull is a surface, not a hole", () => {
   });
 
   it("is what the two scenes actually fill the frame with", () => {
+    /**
+     * UR-77 MOVED THE HULL OUT OF THE SCENES, so this asks the question one
+     * level up.
+     *
+     * It used to grep each scene for `HULL`, which was the right question while
+     * each scene owned its own wall - and the fact that BOTH scenes had to be
+     * grepped for the same token is the defect UR-77 is about. The hull, the
+     * aperture mask and the frame are one component now
+     * (`ui/viewportWindow.ts`), so the claim splits in two: the component
+     * draws the lit material, and NEITHER SCENE fills the frame itself any
+     * more - not with `HULL` and certainly not with `INK.bg`.
+     *
+     * WATCHED FAILING: put the gradient fill back into `BriefingScene` and the
+     * second assertion reports "BriefingScene.ts fills the frame itself".
+     */
+    const component = readFileSync(
+      resolve(SRC, "../ui/viewportWindow.ts"),
+      "utf8",
+    );
+    expect(component, "the window component draws the hull").toContain("HULL.top");
+    expect(component).toContain("HULL.bottom");
+
     for (const file of ["BriefingScene.ts", "PreflightScene.ts"]) {
       const source = code(file);
-      expect(source, `${file} draws its hull`).toContain("HULL");
+      expect(source, `${file} does not reach the window component`).toContain(
+        "drawCockpitWindow(",
+      );
       // The defect, exactly: a full-frame fill in the darkest ink there is.
       expect(source, `${file} still fills the frame with INK.bg`).not.toMatch(
         /fillStyle\(hexToNum\(INK\.bgDeep?\), 1\);\s*\n\s*\w+\.fillRect\(0, 0,/,
+      );
+      // ...and it does not fill the frame at all, in any ink.
+      expect(source, `${file} fills the frame itself`).not.toMatch(
+        /\.fillRect\(0,\s*0,\s*GAME_WIDTH/,
       );
     }
   });

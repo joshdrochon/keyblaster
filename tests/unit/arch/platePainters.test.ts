@@ -102,22 +102,20 @@ const NOT_A_PLATE: Record<string, string> = {
   "EarthActivationScene.ts::strokeRoundedRect(x - 48, y - 36, 96, 78, 14)":
     "the same housing's edge.",
 
-  // -- masks and frames. A hole in the hull is not a plate. -----------------
-  "PreflightScene.ts::fillRoundedRect(WINDOW.x, WINDOW.y, WINDOW.w, WINDOW.h, WINDOW.r)":
-    "the cockpit window's GEOMETRY MASK. Drawn white into an off-screen " +
-    "graphics and never added to the scene; it is a shape, not a surface.",
-  "PreflightScene.ts::strokeRoundedRect(WINDOW.x - 7, WINDOW.y - 7, WINDOW.w + 14, WINDOW.h + 14, WINDOW.r + 7)":
-    "the window FRAME's outer ring. The frame is a hole in the hull with a " +
-    "bezel round it; the thing behind it is the sky, not a fill.",
-  "PreflightScene.ts::strokeRoundedRect(WINDOW.x, WINDOW.y, WINDOW.w, WINDOW.h, WINDOW.r)":
-    "the same frame's inner ring, which catches the light from outside.",
-  "BriefingScene.ts::fillRoundedRect(WINDOW.x, WINDOW.y, WINDOW.w, WINDOW.h, WINDOW.r)":
-    "the same window mask, cut twice - once for the parallax clip and once " +
-    "for the hull's inverted cutout.",
-  "BriefingScene.ts::strokeRoundedRect(WINDOW.x - 7, WINDOW.y - 7, WINDOW.w + 14, WINDOW.h + 14, WINDOW.r + 7)":
-    "the same frame, outer ring.",
-  "BriefingScene.ts::strokeRoundedRect(WINDOW.x, WINDOW.y, WINDOW.w, WINDOW.h, WINDOW.r)":
-    "the same frame, inner ring.",
+  // -- masks and frames -----------------------------------------------------
+  //
+  // SIX ENTRIES USED TO LIVE HERE and UR-77 deleted all six. They were the
+  // cockpit window's geometry mask and its two frame rings, written out once in
+  // `PreflightScene.ts` and again in `BriefingScene.ts` - which is exactly what
+  // this allowlist looks like when a drawing is duplicated rather than shared:
+  // the same three shapes, named twice, with the second entry's reason reading
+  // "the same window mask" and "the same frame, outer ring".
+  //
+  // An allowlist saying "the same X" twice is a component that has not been
+  // extracted. The window is `ui/viewportWindow.ts` now and both scenes call
+  // it, so the rounded rects are in `ui/` where this sweep correctly does not
+  // look - and `BriefingScene.ts` left the "still draws a rounded rect" list
+  // altogether, the second screen in the game to reach zero.
 
   // -- marks and bars. A 3x16 rule is not a card. ---------------------------
   "HudScene.ts::fillRoundedRect(placeRect.x + 16, placeRect.y + 15, 3, 16, 1.5)":
@@ -274,7 +272,10 @@ describe("UR-69: a scene does not paint its own plate", () => {
     ).toEqual(
       [
         "BeaconScene.ts",
-        "BriefingScene.ts",
+        // BriefingScene.ts IS NOT HERE ANY MORE (UR-77). It drew three rounded
+        // rects - the window's geometry mask and the frame's two rings - and
+        // now draws none: the window is `ui/viewportWindow.ts` and this screen
+        // calls it. It is the second screen in the game to reach zero.
         "EarthActivationScene.ts",
         "HudScene.ts",
         "PreflightScene.ts",

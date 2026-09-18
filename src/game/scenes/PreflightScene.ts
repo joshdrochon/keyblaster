@@ -1,9 +1,9 @@
 import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
-import { hexToNum, mixHex, paletteAt } from "@game/render/palette";
-import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
+import { hexToNum, paletteAt, type StopPalette } from "@game/render/palette";
+import { EASE, buildParallax, skyAt, type Parallax } from "@game/render/parallax";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
-import { HULL, PANEL, rivetPositions } from "@game/ui/panel";
+import { PANEL, rivetPositions } from "@game/ui/panel";
 import { paintPlate } from "@game/ui/plate";
 import { drawShadow, type ShadowFigure, type ShadowPose } from "@game/render/shadow";
 import {
@@ -168,7 +168,18 @@ import {
   SUBHEADING,
   WINDOW,
   backChip,
+  controlStrip,
+  mullionHorizontalAt,
+  planetCy,
+  planetFill,
+  planetLegX,
+  planetParkX,
+  planetRadius,
+  windowRect,
 } from "./support/preflightLayout";
+import { drawCockpitWindow } from "@game/ui/viewportWindow";
+import { VIEWPORT_WINDOW } from "@game/ui/viewportWindowLayout";
+import { drawControlSurface } from "@game/ui/controlSurface";
 
 const STEP_LABEL_KEY: Readonly<Record<CalibrationStepId, SceneStringKey>> = {
   hull: "preflight.step.hull",
@@ -315,11 +326,7 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
       seed: 0x51f1,
     });
 
-    this.drawWindowAndPlanet(
-      pal.accent,
-      pal.colorRoles["sky"] ?? pal.colors[0] ?? INK.panel,
-      pal.colors[5] ?? INK.panel,
-    );
+    this.drawWindowAndPlanet(pal.accent, pal);
     this.drawRows();
     this.drawHeader(pal.accent);
 
@@ -394,84 +401,74 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
   // Drawing
   // -------------------------------------------------------------------------
 
-  private drawWindowAndPlanet(accent: string, body: string, shade: string): void {
-    const shape = this.make.graphics({}, false);
-    shape.fillStyle(0xffffff, 1);
-    shape.fillRoundedRect(WINDOW.x, WINDOW.y, WINDOW.w, WINDOW.h, WINDOW.r);
+  /**
+   * THE COCKPIT, AND THE PLANET COMING ABOUT IN IT.
+   *
+   * ================== ONE WINDOW, NOT TWO (UR-77) ==================
+   * This method used to hand-draw the whole cockpit: the aperture mask, the
+   * gradient hull, the inverted cutout, two frame rings and a single vertical
+   * strut. `BriefingScene.drawCockpit` did the same thing thirty lines at a
+   * time, differently - a CROSS instead of one strut, at a different fraction,
+   * in a slightly different ink. The owner noticed the missing crosshatch and
+   * inferred the real fault from it: the window was never a shared component.
+   *
+   * So the window is `ui/viewportWindow.drawCockpitWindow` and both screens
+   * call it. The strip under the glass is `ui/controlSurface.drawControlSurface`
+   * and both screens call that too - it had exactly one caller in the whole
+   * product before this, and it was not this screen, which is why Pre-flight
+   * had no vents, no screws and no bezel under a 76 px plate with nine painted
+   * dots on it.
+   */
+  private drawWindowAndPlanet(accent: string, pal: StopPalette): void {
+    const win = drawCockpitWindow(this, {
+      aperture: windowRect(),
+      radius: WINDOW.r,
+      accent,
+      world: { w: GAME_WIDTH, h: GAME_HEIGHT },
+      // The cross, with the horizontal strut lifted clear of the typed word -
+      // the one thing about this window that is genuinely per-screen, and it is
+      // derived from the plate rather than chosen (`preflightLayout`).
+      mullions: {
+        verticalAt: VIEWPORT_WINDOW.verticalAt,
+        horizontalAt: mullionHorizontalAt(),
+      },
+      hullDepth: 13,
+      frameDepth: 14,
+    });
     // KEPT, so `teardown` can destroy it: a Graphics from `make.graphics` is
-    // not on the display list and `scene.restart()` leaves it behind. See the
-    // same note in `BriefingScene.drawCockpit`.
-    this.maskSource = shape;
-    const mask = shape.createGeometryMask();
-    for (const l of this.parallax.layers) l.container.setMask(mask);
+    // not on the display list and `scene.restart()` leaves it behind.
+    this.maskSource = win.maskSources[0] ?? null;
+    for (const l of this.parallax.layers) l.container.setMask(win.glass);
 
-    // The planet, parked off the right edge of the glass. It arrives over the
-    // whole sequence on Cubic.Out, so the ship reads as coming about.
-    const r = 300;
+    /**
+     * THE PLANET: ONE FLAT DISC (UR-77 item 3).
+     *
+     * It was four overlapping translucent circles - an accent glow, a body, a
+     * highlight and a terminator - at r=300, and it read as a grey-brown
+     * thumbprint however the terminator's hue was adjusted, because stacking
+     * translucent circles is what makes mud. The Briefing's planet is the
+     * shared celestial body: one flat disc, a third the size, hazed into the
+     * sky and separated from it by value. This is that, with the swing the
+     * ritual needs. The arithmetic is in `preflightLayout.planetFill`, checked
+     * against `render/parallax.ts`'s own lines by the unit test.
+     */
+    const r = planetRadius(GAME_WIDTH, GAME_HEIGHT);
+    const cy = planetCy();
     const disc = this.add.graphics();
-    disc.fillStyle(hexToNum(accent), 0.1);
-    disc.fillCircle(0, 0, r * 1.4);
-    disc.fillStyle(hexToNum(body), 1);
+    disc.fillStyle(hexToNum(planetFill(pal, skyAt(pal, cy / GAME_HEIGHT))), 1);
     disc.fillCircle(0, 0, r);
-    disc.fillStyle(hexToNum(mixHex(body, INK.text, 0.24)), 0.55);
-    disc.fillCircle(-r * 0.26, -r * 0.28, r * 0.66);
-    // The night side has to stay INSIDE the disc. An offset circle big enough
-    // to read as a terminator spills past the limb and draws a second planet
-    // beside the first, so the offset plus the radius is kept under 1.0.
-    // THE NIGHT SIDE KEEPS THE PLANET'S OWN HUE. It was `INK.bgDeep` at 0.4 -
-    // a blue-black wash over a warm ochre disc, which desaturates to grey-brown
-    // and covers two thirds of the body; the blind critic read the result as "a
-    // desaturated grey-brown disc ... a thumbprint" and it was most of what
-    // made the window unreadable. A planet in shadow is the same planet darker,
-    // so the terminator is now the stop's own shadow role, not a grey veil.
-    disc.fillStyle(hexToNum(mixHex(shade, INK.bgDeep, 0.3)), 0.62);
-    disc.fillCircle(r * 0.22, r * 0.2, r * 0.66);
-    this.planet = this.add
-      .container(WINDOW.x + WINDOW.w + r * 1.2, WINDOW.y + WINDOW.h * 0.52, [disc])
-      .setDepth(2);
-    this.planet.setMask(mask);
+    // Parked off the right edge of the glass. It arrives over the whole
+    // sequence on Cubic.Out, so the ship reads as coming about.
+    this.planet = this.add.container(planetParkX(r), cy, [disc]).setDepth(2);
+    this.planet.setMask(win.glass);
 
-    const frame = this.add.graphics().setDepth(14);
-    // A LIT SURFACE, NOT A HOLE. Same change, same reason, as the Briefing's
-    // wall: a flat `INK.bg` fill is L* 4.98 and reads as absence rather than as
-    // the inside of a ship. See `ui/panel.ts` HULL / VOID_LSTAR.
-    const hull = this.add.graphics().setDepth(13);
-    hull.fillGradientStyle(
-      hexToNum(HULL.top),
-      hexToNum(HULL.top),
-      hexToNum(HULL.bottom),
-      hexToNum(HULL.bottom),
-      1,
-    );
-    hull.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-    const cutout = shape.createGeometryMask();
-    cutout.setInvertAlpha(true);
-    hull.setMask(cutout);
-
-    frame.lineStyle(14, hexToNum(INK.panelRaised), 1);
-    frame.strokeRoundedRect(WINDOW.x - 7, WINDOW.y - 7, WINDOW.w + 14, WINDOW.h + 14, WINDOW.r + 7);
-    frame.lineStyle(3, hexToNum(mixHex(accent, INK.text, 0.45)), 0.45);
-    frame.strokeRoundedRect(WINDOW.x, WINDOW.y, WINDOW.w, WINDOW.h, WINDOW.r);
-    frame.fillStyle(hexToNum(INK.panelRaised), 0.9);
-    frame.fillRect(WINDOW.x + WINDOW.w * 0.38 - 8, WINDOW.y, 16, WINDOW.h);
-
-    // THE INSTRUMENT SHELF (UR-39). The Briefing has one and this screen did
-    // not, which is most of the gap between two screens that are meant to be
-    // the same cockpit: busy-pixel fraction 8.6% here against 14.0% there,
-    // lowest in the product. Quiet and unlabelled on purpose - no readout a
-    // child could fail (AC-11.3).
-    // THE SHARED PLATE (UR-69). Painted into the frame's own Graphics rather
-    // than adding a second one, which is what `paintPlate` is for.
-    paintPlate(
-      frame,
-      SHELF,
-      { fill: INK.panel, alpha: 1, strokeWidth: 0, rhythm: "instrument" },
-    );
-    for (let i = 0; i < 9; i += 1) {
-      const lit = i % 3 === 0;
-      frame.fillStyle(hexToNum(lit ? accent : INK.line), lit ? 0.75 : 1);
-      frame.fillCircle(SHELF.x + 60 + i * 92, SHELF.y + SHELF.h / 2, 11);
-    }
+    // THE STRIP, AS THE BRIEFING'S OWN HARDWARE (UR-61 by way of UR-77).
+    // Painted into the frame's Graphics rather than adding a second one.
+    drawControlSurface(win.frame, controlStrip(), {
+      lamps: SHELF.lamps,
+      lit: STOP_IDS.indexOf(this.story.stopId),
+      accent,
+    });
   }
 
   /**
@@ -683,10 +680,9 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     this.phaseUntil = time + this.introMs();
     // The planet arrives one leg per step, so the view is still coming about
     // when the last system lights.
-    const legs = RITUAL_STEPS.length;
     this.tweens.add({
       targets: this.planet,
-      x: WINDOW.x + WINDOW.w * 0.62 - (legs - 1 - this.stepIndex) * 260,
+      x: planetLegX(RITUAL_STEPS.length - 1 - this.stepIndex),
       duration: this.introMs() + 900,
       ease: EASE.arrive,
     });

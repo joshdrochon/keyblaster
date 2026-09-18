@@ -56,7 +56,8 @@ export const EN = {
    * the belt is GONE, this typing is what charges the drive, and the drive
    * being full means you are ABOUT TO TRAVEL, to a named place.
    */
-  "warp.beltCleared": "Belt cleared. Type this to charge the warp drive.",
+  "warp.beltCleared":
+    "Asteroid belt cleared. Type the sentence below to charge the warp drive.",
   "warp.nextStop": "Destination: {stop}.",
   "warp.chargedNext": "Warp drive charged. Next stop: {stop}.",
   "warp.chargedLast": "Warp drive charged. The last jump. Hold on.",

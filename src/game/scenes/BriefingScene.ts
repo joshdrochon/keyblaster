@@ -4,7 +4,6 @@ import { hexToNum, mixHex, paletteAt } from "@game/render/palette";
 import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
 import { INK, SPACE, STEP, TYPE } from "@game/ui/theme";
 import { paintPlate } from "@game/ui/plate";
-import { HULL } from "@game/ui/panel";
 import type { Rect } from "@game/ui/layout";
 import {
   PAGE_TOP,
@@ -27,6 +26,7 @@ import {
   revealPerBlock,
 } from "./support/briefingTypewriter";
 import { drawControlSurface } from "@game/ui/controlSurface";
+import { drawCockpitWindow } from "@game/ui/viewportWindow";
 import { STOP_IDS } from "@engine/types";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import {
@@ -169,22 +169,6 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
       crossDrift: false,
       seed: 0x8e11,
     });
-    // The window is the only hole in the hull, so the whole stack is clipped
-    // to it. A mask, not a crop: the layers keep moving behind the frame.
-    const shape = this.make.graphics({}, false);
-    shape.fillStyle(0xffffff, 1);
-    shape.fillRoundedRect(WINDOW.x, WINDOW.y, WINDOW.w, WINDOW.h, WINDOW.r);
-    const mask = shape.createGeometryMask();
-    // KEPT, so `teardown` can destroy it. A Graphics made with `make.graphics`
-    // is NOT on the display list, so `scene.restart()` does not sweep it up:
-    // every restart left another mask source and another GeometryMask behind,
-    // and the WebGL stencil work grew with them. It only shows up under
-    // repeated restarts, which is exactly what a per-stop sweep does - the
-    // UR-20 collision spec ran Warp and Beacon in 35 s each and hung for five
-    // minutes on the two screens that use masks.
-    this.maskSources.push(shape);
-    for (const l of this.parallax.layers) l.container.setMask(mask);
-
     this.drawCockpit(pal.accent);
 
     // --- the page ---------------------------------------------------------
@@ -317,45 +301,39 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
 
   /** Hull, window frame, struts and the instrument shelf below the glass. */
   private drawCockpit(accent: string): void {
-    // The hull is a full-bleed fill with the window cut out of it by an
-    // INVERTED geometry mask. Hand-assembling four bands and four corner arcs
-    // would put a seam exactly where the eye is, and the aperture has to be
-    // pixel-identical to the mask the parallax uses or the glass shows a rim.
-    // A LIT SURFACE, NOT A HOLE. This was a flat `INK.bg` fill - #08111F, L*
-    // 4.98 - over every pixel the page and the glass did not cover, which is
-    // about 40% of the frame; a blind critic measured it and called the left
-    // and right thirds voids. It is milled charcoal now, lit from above like
-    // every other surface in the game, with its darkest value at L* 7.5. See
-    // `ui/panel.ts` HULL / VOID_LSTAR.
-    const hull = this.add.graphics().setDepth(15);
-    hull.fillGradientStyle(
-      hexToNum(HULL.top),
-      hexToNum(HULL.top),
-      hexToNum(HULL.bottom),
-      hexToNum(HULL.bottom),
-      1,
-    );
-    hull.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-    const aperture = this.make.graphics({}, false);
-    aperture.fillStyle(0xffffff, 1);
-    aperture.fillRoundedRect(WINDOW.x, WINDOW.y, WINDOW.w, WINDOW.h, WINDOW.r);
-    this.maskSources.push(aperture);
-    const cutout = aperture.createGeometryMask();
-    cutout.setInvertAlpha(true);
-    hull.setMask(cutout);
+    /**
+     * THE WINDOW IS A COMPONENT, NOT A DRAWING IN THIS FILE (UR-77).
+     *
+     * There used to be about thirty lines here - a gradient hull, an inverted
+     * geometry mask cut out of it, two frame rings and two struts - and thirty
+     * more of nearly the same lines in `PreflightScene`. Nearly, not exactly:
+     * that screen had ONE strut where this has a cross, at a different
+     * fraction, in a slightly different ink. The owner noticed the missing
+     * crosshatch and read the real fault off it, which is that the window was
+     * never shared. `ui/viewportWindow.ts` is the one implementation and both
+     * screens call it; making the second copy match would have closed the
+     * symptom and left the fault.
+     *
+     * The mask sources are kept so `teardown` can destroy them: a Graphics from
+     * `make.graphics` is not on the display list, so `scene.restart()` does not
+     * sweep it up, and every restart used to leave another mask behind. The
+     * UR-20 collision spec ran Warp and Beacon in 35 s each and hung for five
+     * minutes on the two screens that use masks.
+     */
+    const win = drawCockpitWindow(this, {
+      aperture: { x: WINDOW.x, y: WINDOW.y, w: WINDOW.w, h: WINDOW.h },
+      radius: WINDOW.r,
+      accent,
+      world: { w: GAME_WIDTH, h: GAME_HEIGHT },
+      hullDepth: 15,
+      frameDepth: 16,
+    });
+    this.maskSources.push(...win.maskSources);
+    // The window is the only hole in the hull, so the whole stack is clipped to
+    // it. A mask, not a crop: the layers keep moving behind the frame.
+    for (const l of this.parallax.layers) l.container.setMask(win.glass);
 
-    const g = this.add.graphics().setDepth(16);
-
-    // Frame: two rings, the inner one catching the light from outside.
-    g.lineStyle(14, hexToNum(INK.panelRaised), 1);
-    g.strokeRoundedRect(WINDOW.x - 7, WINDOW.y - 7, WINDOW.w + 14, WINDOW.h + 14, WINDOW.r + 7);
-    g.lineStyle(3, hexToNum(mixHex(accent, INK.text, 0.5)), 0.5);
-    g.strokeRoundedRect(WINDOW.x, WINDOW.y, WINDOW.w, WINDOW.h, WINDOW.r);
-
-    // Two struts across the glass: this is a ship, not a picture frame.
-    g.fillStyle(hexToNum(INK.panelRaised), 0.92);
-    g.fillRect(WINDOW.x + WINDOW.w * 0.42, WINDOW.y, 16, WINDOW.h);
-    g.fillRect(WINDOW.x, WINDOW.y + WINDOW.h * 0.7, WINDOW.w, 12);
+    const g = win.frame;
 
     /**
      * THE CONTROL STRIP, AS SHIP HARDWARE (UR-61).
