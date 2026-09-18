@@ -25,30 +25,30 @@ import type { Lang } from "../types.js";
 /** English is the source table; every other language is typed against it. */
 export const EN = {
   "title.tagline": "Type the way through the solar system.",
-  "title.play": "play",
-  "title.settings": "settings",
-  "title.beaconLog": "beacon log",
+  "title.play": "Play",
+  "title.settings": "Settings",
+  "title.beaconLog": "Beacon Log",
 
   "profile.heading": "Who is flying today?",
-  "profile.pilotName": "pilot name",
-  "profile.chooseShip": "choose your ship",
-  "profile.nameShip": "name your ship",
+  "profile.pilotName": "Pilot Name",
+  "profile.chooseShip": "Choose Your Ship",
+  "profile.nameShip": "Name Your Ship",
   "profile.shipNameDefault": "Lantern",
 
-  "map.heading": "route to Pluto",
-  "map.locked": "locked",
+  "map.heading": "Route to Pluto",
+  "map.locked": "Locked",
   "map.stars": "{stars} of 3 stars",
 
   "briefing.shipReady": "The {shipName} is fuelled and ready.",
-  "briefing.start": "launch",
+  "briefing.start": "Launch",
 
-  "preflight.heading": "warm up your hands",
+  "preflight.heading": "Warm Up Your Hands",
   "preflight.prompt": "Type the words you see.",
 
-  "flight.hull": "hull",
+  "flight.hull": "Hull",
   "flight.wpm": "{wpm} words per minute",
 
-  "warp.heading": "warp break",
+  "warp.heading": "Warp Break",
   "warp.prompt": "Type the sentence to charge the warp drive.",
   /*
    * D30. The break is the most important five seconds in the game and it used
@@ -66,16 +66,16 @@ export const EN = {
 
   "results.accuracy": "Accuracy {accuracy}%",
   "results.shipIntact": "The {shipName} came through without a scratch.",
-  "results.continue": "continue",
+  "results.continue": "Continue",
 
-  "settings.uiLang": "menu language",
-  "settings.contentLang": "typing language",
-  "settings.inputMethod": "how you type Hindi",
+  "settings.uiLang": "Menu Language",
+  "settings.contentLang": "Typing Language",
+  "settings.inputMethod": "How You Type Hindi",
   "settings.inputMethodTranslit": "Roman letters (type ghar for घर)",
   "settings.inputMethodInscript": "Devanagari keyboard",
   "settings.contentLangUnavailable": "Pick a Hindi keyboard to type in Hindi.",
 
-  "common.back": "back",
+  "common.back": "Back",
 } as const;
 
 /** Every UI string the engine knows about. */

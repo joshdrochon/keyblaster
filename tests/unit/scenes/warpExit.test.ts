@@ -52,7 +52,7 @@ describe("UR-78: the warp break says what to do and then gets out of the way", (
     ).toBe(false);
     // The string itself is KEPT so restoring the tab stays a layout change
     // rather than a translation job.
-    expect(TABLES.en["warp.heading"]).toBe("warp break");
+    expect(TABLES.en["warp.heading"]).toBe("Warp Break");
   });
 
   it("draws the charge bolt once, in the gold the percentage is drawn in", () => {

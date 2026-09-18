@@ -249,7 +249,16 @@ export const DUR = {
  * child's own words and keep the capitals they typed.
  */
 export function chromeCase(text: string, uppercase: boolean): string {
-  return uppercase ? text.toLocaleUpperCase() : text.toLocaleLowerCase();
+  // CASE IS AUTHORED, NOT IMPOSED (UR-81).
+  //
+  // This used to force every chrome string to lower case, which meant the
+  // string table could not decide anything: "Type the way through the solar
+  // system." was written with a capital and drawn without one, and no amount
+  // of editing the copy could change that. D41's increased-legibility setting
+  // still gets its upper case - that one is a reading aid and is a property of
+  // the READER rather than of the string - but the default is now whatever the
+  // translator wrote.
+  return uppercase ? text.toLocaleUpperCase() : text;
 }
 
 /** D41 increased letter spacing (Zorzi et al. 2012), in px at `fontPx`. */
