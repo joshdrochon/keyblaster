@@ -37,7 +37,7 @@ import { drawPlayerLantern, playerLivery } from "./lib/livery.js";
 import { LANGS, type Lang } from "../../engine/types.js";
 import { SHIPPED_LANGS } from "../../engine/i18n/index.js";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
-import { INK, SPACE, STEP, TYPE, chromeCase } from "@game/ui/theme";
+import { INK, SKY_PLATE, SPACE, STEP, TYPE, chromeCase } from "@game/ui/theme";
 import { paintFocusRing, paintPlate } from "@game/ui/plate";
 import { skyText, skyTextSamples, type SceneSnapshot } from "./lib/kit.js";
 import { WORDMARK_X, WORDMARK_Y, titleKeepClear } from "./support/titleLayout.js";
@@ -82,6 +82,35 @@ const LOCKUP_H = 218;
  * chose.
  */
 const COLUMN_X = 0;
+
+/**
+ * THE COLUMN IS WHERE THE INK STARTS, NOT WHERE THE TEXT OBJECT STARTS (UR-80).
+ *
+ * `COLUMN_X` above gave every block ONE ORIGIN, and that is not the same thing
+ * as one left edge, which is what a person actually sees. Three of these blocks
+ * draw something to the LEFT of their own origin:
+ *
+ *   a glass plate  bleeds `SKY_PLATE.padX` (22) left of its type
+ *   a focus ring   reaches `FOCUS_PAD` (14) outside the control
+ *   the wordmark   bleeds nothing; glyphs start at the origin
+ *
+ * So placing all three at x 0 drew their visible edges at three different
+ * places - the tagline, status and settings plates 22 px left of the wordmark,
+ * the focused primary's ring 14 px left of it - and the screen read as ragged
+ * down its whole left side. The previous pass measured this, called it "the
+ * plate's own geometry" and left it, which is true about the cause and wrong
+ * about the result: a child does not see an origin.
+ *
+ * Every block is now offset by ITS OWN BLEED, so the thing that reaches
+ * furthest left lands on the column and the column is a line you can see.
+ * `PRIMARY_X` moves the WHOLE control rather than its plate: the ring and the
+ * pointer hit zone are both struck from `root.x`, and the label is centred on
+ * the same origin, so shifting the plate alone would put the ring on the column
+ * and the word 14 px off the middle of the button it sits in.
+ */
+const PLATE_BLEED_X = SKY_PLATE.padX;
+const PLATED_X = COLUMN_X + PLATE_BLEED_X;
+const PRIMARY_X = COLUMN_X + FOCUS_PAD;
 
 /**
  * The gap between "KEY" and "BLASTER", in the wordmark only.
@@ -326,7 +355,7 @@ export class TitleScene extends Phaser.Scene {
     // is its own type's line box plus padding, and Devanagari's line box is
     // 1.56 em against Latin's 1.3 (`ui/theme.LINE_HEIGHT`, measured) - so a
     // column placed from constants is a column that has guessed them.
-    const primary = this.buildPrimary(primaryLabel, primarySub, WORDMARK_X, 0);
+    const primary = this.buildPrimary(primaryLabel, primarySub, WORDMARK_X + PRIMARY_X, 0);
     const settings = this.buildQuiet(t.t("title.settings"), WORDMARK_X, 0);
     // D95: the language row only exists when there is a choice to make. With a
     // single shipped language it is a one-option selector, which is noise on
@@ -455,7 +484,7 @@ export class TitleScene extends Phaser.Scene {
     // The tagline is chrome, so it is lowercase (D41) and on a plate: on a
     // bright stop's sky - Saturn's is near ivory - cream type on open sky is
     // unreadable, and the Title wears the palette of the furthest beacon.
-    const sub = skyText(this, COLUMN_X, 178, chromeCase(tagline, typographyOf(this).uppercase), {
+    const sub = skyText(this, PLATED_X, 178, chromeCase(tagline, typographyOf(this).uppercase), {
       screen: "title",
       id: "title.tagline",
       size: TYPE.body,
@@ -557,7 +586,7 @@ export class TitleScene extends Phaser.Scene {
       const plateTop = height + FOCUS_PAD + STATUS_GAP;
       // NOT lowercased: the subline names the planet the beacon is on, and a
       // planet name is a proper noun that keeps its capital (D41).
-      const sub = skyText(this, COLUMN_X, plateTop + CHROME_PAD_Y, subline, {
+      const sub = skyText(this, PLATED_X, plateTop + CHROME_PAD_Y, subline, {
         screen: "title",
         id: "title.primarySub",
         size: TYPE.label,
@@ -584,7 +613,7 @@ export class TitleScene extends Phaser.Scene {
 
   private buildQuiet(label: string, x: number, y: number): MenuItem {
     const root = this.add.container(x, y);
-    const item = skyText(this, COLUMN_X, 0, chromeCase(label, typographyOf(this).uppercase), {
+    const item = skyText(this, PLATED_X, 0, chromeCase(label, typographyOf(this).uppercase), {
       screen: "title",
       id: "title.settings",
       size: TYPE.body,
@@ -702,11 +731,27 @@ export class TitleScene extends Phaser.Scene {
    * entrance tweens run, while `root.x` still holds each item's final x - the
    * tween starts 26 px to the left of it and arrives back at it.
    */
+  /**
+   * The rectangle an item's focus ring and hit zone are struck around, placed
+   * so the RING's left edge lands on the column (UR-80).
+   *
+   * The primary's root is already inset by `PRIMARY_X`, so its ring falls on
+   * the column unaided. A quiet row's root is the column itself, so its ring
+   * would reach `FOCUS_PAD` left of everything else on the screen - which is
+   * the same ragged edge this ticket is about, just one that only appears when
+   * that row happens to hold focus.
+   */
+  private ringBox(item: MenuItem): { x: number; y: number; w: number; h: number } {
+    const inset = item.id === "primary" ? 0 : FOCUS_PAD;
+    return { x: item.root.x + inset, y: item.root.y, w: item.width, h: item.height };
+  }
+
   private bindPointers(): void {
     const pad = FOCUS_PAD;
     for (const [i, item] of this.items.entries()) {
+      const box = this.ringBox(item);
       this.add
-        .zone(item.root.x - pad, item.root.y - pad, item.width + pad * 2, item.height + pad * 2)
+        .zone(box.x - pad, box.y - pad, box.w + pad * 2, box.h + pad * 2)
         .setOrigin(0, 0)
         .setName(`${HIT_ZONE_PREFIX}${item.id}`)
         .setInteractive({ useHandCursor: true })
@@ -749,7 +794,7 @@ export class TitleScene extends Phaser.Scene {
     // concentric with the plate it is around by construction.
     paintFocusRing(
       this.focusRing,
-      { x: item.root.x, y: item.root.y, w: item.width, h: item.height },
+      this.ringBox(item),
       this.accent,
       {
         offset: FOCUS_PAD,
