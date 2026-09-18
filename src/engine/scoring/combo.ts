@@ -172,6 +172,76 @@ export function wordScore(wordLength: number, multiplier: number): number {
   );
 }
 
+/**
+ * WHAT A TWO-LAYER ROCK PAYS (D101, AC-26.5).
+ *
+ * ================== THE QUESTION ==================
+ * Two words, one rock. Each layer is a completed word and is scored as one -
+ * `wordScore(len, multiplier)`, the combo advancing on each, exactly as if they
+ * had been two rocks. That much is not a decision; it is what a completed word
+ * is worth and there is no reason for this rock's words to be worth less.
+ *
+ * The decision is what CRACKING THE WHOLE ROCK pays on top, and "nothing" was a
+ * real candidate. It is rejected because scoring two layers at face value makes
+ * a nested rock pay exactly what two ordinary rocks pay while being the harder
+ * object: both words are answered inside one budget with no gap between them,
+ * the rock is the biggest thing on the board, and one slip anywhere across
+ * either word resets the chain that was riding on both of them. A reward that
+ * is identical to the easy case is a mechanic the game is not paying for.
+ *
+ * ================== THE BONUS IS THE CURVE ALREADY HERE ==================
+ * It is what the rock would have been worth AS ONE WORD of the combined length,
+ * minus what the two layers already paid:
+ *
+ *     crack(a, b) = base(a + b) - base(a) - base(b)
+ *
+ * which, since `base` is linear plus `LENGTH_BONUS_PER_LETTER x over^2`, is
+ * exactly the superlinear term the child earned by facing the letters together
+ * instead of in two separate jobs. No new constant, no new curve, and it pays
+ * for reach on the same slope `UR-72` put there:
+ *
+ *     shell  core   base(a)  base(b)  base(a+b)  crack
+ *       3      3       60       60       160       40
+ *       4      4       80       80       320      160
+ *       5      3      110       60       320      150
+ *       6      5      160      110       710      440
+ *
+ * ================== IT IS PAID ONLY WHEN THE ROCK IS GONE ==================
+ * On the CORE's blast, at the core's multiplier, because that is the instant
+ * the whole rock was answered. A child who cracks the shell and loses the core
+ * keeps the shell's own points and does not get this - which is the one place
+ * the scoring says out loud that the rock was the job, not the word.
+ *
+ * Non-finite or non-positive lengths are not words, so they are worth nothing;
+ * `wordBaseScore` already holds that policy and this inherits it rather than
+ * restating it.
+ */
+export function nestedCrackBonus(shellLength: number, coreLength: number): number {
+  const a = Number.isFinite(shellLength) ? Math.floor(Math.max(0, shellLength)) : 0;
+  const b = Number.isFinite(coreLength) ? Math.floor(Math.max(0, coreLength)) : 0;
+  if (a <= 0 || b <= 0) return 0;
+  return Math.max(0, wordBaseScore(a + b) - wordBaseScore(a) - wordBaseScore(b));
+}
+
+/**
+ * The bonus at a multiplier, i.e. what actually lands on the score.
+ *
+ * Shares `wordScore`'s ownership contract to the letter: `multiplier` is the
+ * multiplier AFTER the core's hit has advanced the combo, so cracking a rock on
+ * the first word of a chain pays at x1 rather than at x0.
+ */
+export function nestedCrackScore(
+  shellLength: number,
+  coreLength: number,
+  multiplier: number,
+): number {
+  if (!Number.isFinite(multiplier) || multiplier <= 0) return 0;
+  return (
+    nestedCrackBonus(shellLength, coreLength) *
+    Math.min(Math.floor(multiplier), MAX_MULTIPLIER)
+  );
+}
+
 export interface ScoredHit {
   readonly combo: ComboState;
   readonly points: number;

@@ -15,6 +15,7 @@ import {
   type DebrisType,
   asteroidSizePx,
   drawDebris,
+  drawNestedShell,
   drawShieldCanister,
   ensureMoteTexture,
   ensureShardTexture,
@@ -67,10 +68,20 @@ import {
   accuracy,
   comboReducer,
   hudMultiplierFor,
+  nestedCrackScore,
   starsForHullHits,
   wordScore,
   wpm,
 } from "@engine/scoring/index.js";
+import {
+  liveWordsOf,
+  nestedClearEstimateMs,
+  nestedFallMs,
+  nestedHullCost,
+  nestedShellSizePx,
+  nestingAllowed,
+  nestingDrawPasses,
+} from "@engine/nested/index.js";
 import type { StageAward } from "@engine/awards/index.js";
 import {
   type WordBook,
@@ -109,6 +120,7 @@ import {
 import {
   LAMP_GUTTER_FRACTION,
   HULL_PASS_COST,
+  HULL_STRIKE_COST,
   hullAfterShield,
   hullAfterStrike,
   hullForStage,
@@ -272,15 +284,56 @@ const SHIP_SCALE = SHIP_HALF_WIDTH_PX / LANTERN_DESIGN_HALF_WIDTH;
  */
 const CALM_WORLD_SPEED_FRACTION = 0.22;
 
+/**
+ * THE ROCK WAITING INSIDE A SHELL (D101).
+ *
+ * Everything about the second layer that is decided at SPAWN, which is all of
+ * it except when the child gets to it. It is held here rather than picked at
+ * the reveal because both AC-2.1 and AC-22.8 are proved up front: the word's
+ * first letter is reserved for the shell's whole life, and its plate's
+ * trajectory is cleared against the live board by the same column rule that
+ * cleared the shell's. See `@engine/nested` for why neither can be deferred.
+ */
+interface NestedCore {
+  readonly word: string;
+  /** The ordinary rock this word would have made on its own. */
+  readonly sizePx: number;
+  /** Plate centre below the rock centre once the core is the rock, px. */
+  readonly plateOffsetY: number;
+  readonly plateHalfWidthPx: number;
+  readonly plateHalfHeightPx: number;
+}
+
 interface LiveRock {
   readonly id: string;
-  readonly word: string;
+  /**
+   * The word ON THE PLATE RIGHT NOW. Mutable for exactly one reason: a
+   * two-layer rock's shell breaks and the core's word takes its place on the
+   * same rock (D101). Everything that reads a rock's word - the lock registry,
+   * the word book, the blast history - is told about the swap explicitly at the
+   * moment it happens (`crackShell`), so nothing reads a stale value.
+   */
+  word: string;
   readonly container: Phaser.GameObjects.Container;
   readonly body: Phaser.GameObjects.Graphics;
-  readonly plate: WordPlate;
-  readonly sizePx: number;
+  /** Mutable for the same reason as `word`: the shell's plate is replaced. */
+  plate: WordPlate;
+  /** Mutable for the same reason: the core is a smaller rock. */
+  sizePx: number;
   readonly debris: DebrisType;
   readonly isCanister: boolean;
+  /**
+   * D101: the second layer, or null for an ordinary rock. Nulled the instant
+   * the shell breaks, so `core !== null` is exactly "the shell is still on" -
+   * which is what the hull rule and the AC-2.1 live set both ask.
+   */
+  core: NestedCore | null;
+  /**
+   * D101: the word the shell carried, once it has been broken. Kept because the
+   * crack bonus is paid on the CORE's blast and is a function of both lengths
+   * (`@engine/scoring.nestedCrackScore`), and by then `word` is the core's.
+   */
+  crackedShellWord: string | null;
   /**
    * D21/D23: this word is COMING BACK - a retention probe, or one the player
    * missed - so the game chose to show it again. `@engine/selection` decides;
@@ -288,9 +341,18 @@ interface LiveRock {
    * let the rock sail past instead of into the hull. See `spawnRock`.
    */
   readonly isPractice: boolean;
-  /** Plate centre below the rock centre, px (`render/wordPlate.plateOffsetY`). */
-  readonly plateOffsetY: number;
+  /**
+   * Plate centre below the rock centre, px (`render/wordPlate.plateOffsetY`).
+   * Mutable for D101: a smaller core hangs its plate closer than its shell did.
+   */
+  plateOffsetY: number;
   readonly spawnedAtMs: number;
+  /**
+   * The WHOLE rock's budget. For a two-layer rock that is the sum of both
+   * words' FR-8 budgets and the descent is one constant rate across it
+   * (`@engine/nested.nestedFallMs`) - so the break changes what is drawn and
+   * never how fast the rock is moving.
+   */
   readonly fallMs: number;
   /**
    * What `@engine/pacing` expected this rock to cost THIS player, at spawn.
@@ -411,6 +473,12 @@ export interface FlightDebugState {
     readonly isCanister: boolean;
     /** D21/D23: this word came back, so it is not aimed at the ship. */
     readonly isPractice: boolean;
+    /** D101: this rock has a second word inside and its shell is still on. */
+    readonly shellIntact: boolean;
+    /** D101: the word waiting inside, or null. Evidence only, never gameplay. */
+    readonly coreWord: string | null;
+    /** D101: the shell's word, once this rock has been cracked open. */
+    readonly crackedShellWord: string | null;
     /** True if this rock's column would bring it down onto the Lantern. */
     readonly onShipLane: boolean;
     readonly debrisType: string;
@@ -1323,7 +1391,14 @@ export class FlightScene extends Phaser.Scene {
     if (this.rocks.length > 0 && now < this.nextSpawnAtMs) return;
 
     const outcome = pickNext(this.selection, {
-      live: this.rocks.map((r) => r.word),
+      // D101: BOTH WORDS OF A TWO-LAYER ROCK ARE LIVE while its shell is on.
+      // AC-2.1 is what makes auto-lock unambiguous, and a core revealed
+      // mid-belt is a new live word - so its first letter is reserved from the
+      // instant its shell spawns rather than checked when the shell breaks.
+      // `liveWordsOf` is the one definition of this, shared with the belt
+      // simulation so the harness cannot prove the invariant on a board the
+      // game does not fly.
+      live: this.liveWords(),
       book: this.book,
       rng: this.rng,
       // FR-10's SECOND KNOB, FINALLY READ BY SOMETHING (UR-79/AC-10.4).
@@ -1353,12 +1428,65 @@ export class FlightScene extends Phaser.Scene {
     // child still gets it, one tick later, somewhere readable. The retry is the
     // same 200 ms the "no-legal-word" branch above waits, and it is bounded for
     // the same reason - live plates retire, so the conflict set always empties.
-    if (!this.spawnRock(outcome.word, now, outcome.practice)) {
+    // ===================== D101: DOES THIS ONE NEST? =====================
+    // Asked here rather than inside `spawnRock` because the answer needs a
+    // SECOND word out of the picker, and the picker is the belt's business.
+    //
+    // THE SECOND PICK CARRIES THE FIRST IN ITS LIVE SET, which is what stops
+    // the two layers of one rock colliding with each other under AC-2.1. It
+    // also threads `outcome.state`, so the core is drawn from the bag the shell
+    // was just taken out of - no word is served twice and the no-replacement
+    // cycle (AC-9.1) sees a two-word rock as two spawns, which is what it is.
+    let selection = outcome.state;
+    let core: NestedCore | null = null;
+    let coreOutcome: ReturnType<typeof pickNext> | null = null;
+    if (
+      nestingAllowed({
+        stopId: this.cfg.stopId,
+        nestedLive: this.rocks.filter((r) => r.core !== null).length,
+        wordsLeft: this.cfg.stageWordCount - this.spawnedCount,
+        anyPractice: outcome.practice,
+      }) &&
+      nestingDrawPasses(this.cfg.stopId, this.rockDraws(this.spawnedCount).nest)
+    ) {
+      coreOutcome = pickNext(selection, {
+        live: [...this.liveWords(), outcome.word],
+        book: this.book,
+        rng: this.rng,
+        lengthBias: this.controller.knobs.lengthBias,
+      });
+      // A core that came back is a practice word, and a practice rock sails
+      // PAST the ship rather than into it (D21/D23). A rock with one practice
+      // layer has no sensible answer to "does it pass by", so the question is
+      // refused: this spawn is an ordinary rock and the pass-by promise is
+      // untouched. Same for "no legal word" - the board has run out of first
+      // letters for a second one, which is exactly the pressure
+      // `NESTED_MAX_LIVE` exists to bound.
+      if (coreOutcome.ok && !coreOutcome.practice) {
+        const coreSizePx = asteroidSizePx([...coreOutcome.word].length);
+        const corePlateSize = plateSize(coreOutcome.word, this.plateStyle);
+        core = {
+          word: coreOutcome.word,
+          sizePx: coreSizePx,
+          plateOffsetY: plateOffsetY(coreSizePx, this.plateStyle),
+          plateHalfWidthPx: corePlateSize.width / 2,
+          plateHalfHeightPx: corePlateSize.height / 2,
+        };
+        selection = coreOutcome.state;
+      } else {
+        coreOutcome = null;
+      }
+    }
+
+    if (!this.spawnRock(outcome.word, now, outcome.practice, core)) {
       this.nextSpawnAtMs = now + 200;
       return;
     }
-    this.selection = outcome.state;
+    this.selection = selection;
     if (outcome.source === "retention") this.retentionWords.add(outcome.word);
+    if (coreOutcome !== null && coreOutcome.ok && coreOutcome.source === "retention") {
+      this.retentionWords.add(coreOutcome.word);
+    }
     this.lastSpawnGapMs = this.spawnGapAfter(now);
     this.nextSpawnAtMs = now + this.lastSpawnGapMs;
   }
@@ -1438,7 +1566,12 @@ export class FlightScene extends Phaser.Scene {
    * this spec is about the SILHOUETTE - a rock is what collides with the
    * Lantern - and at one letter the rock is the wider of the two.
    */
-  private laneSpec(sizePx: number, word: string, plate?: PlateTrack): LaneSpec {
+  private laneSpec(
+    sizePx: number,
+    word: string,
+    plate?: PlateTrack,
+    corePlate?: PlateTrack,
+  ): LaneSpec {
     const plateHalfWidth = plateSize(word, this.plateStyle).width / 2;
     return {
       width: this.scale.width,
@@ -1447,6 +1580,9 @@ export class FlightScene extends Phaser.Scene {
       shipHalfWidthPx: SHIP_HALF_WIDTH_PX,
       rockHalfWidthPx: Math.max(sizePx / 2, plateHalfWidth),
       ...(plate === undefined ? {} : { plate, livePlates: this.livePlateTracks() }),
+      // D101: only meaningful alongside `plate`, and `@engine/spawn` ignores it
+      // without one - the same rule the live-plate list already follows.
+      ...(corePlate === undefined ? {} : { corePlate }),
     };
   }
 
@@ -1466,21 +1602,59 @@ export class FlightScene extends Phaser.Scene {
    * once the tween lands.
    */
   private livePlateTracks(): readonly LivePlateTrack[] {
-    return this.rocks
-      .filter((rock) => !rock.resolved)
-      .map((rock) => ({
+    const out: LivePlateTrack[] = [];
+    for (const rock of this.rocks) {
+      if (rock.resolved) continue;
+      const base = {
         homeX: rock.homeX,
-        halfWidthPx: rock.plate.plateSizePx.width / 2,
-        halfHeightPx: rock.plate.plateSizePx.height / 2,
-        fromY: rock.fromY + rock.plateOffsetY,
-        toY: rock.toY + rock.plateOffsetY,
+        fromY: rock.fromY,
+        toY: rock.toY,
         spawnedAtMs: rock.spawnedAtMs,
         fallMs: rock.fallMs,
         // UR-83: the keep-out cannot hold without this. An angled rock's column
         // is not its column for the whole fall, and a band sized for where it
         // STARTED is a guarantee about a board this scene does not draw.
         travelPx: rock.travelPx,
-      }));
+      };
+      out.push({
+        ...base,
+        halfWidthPx: rock.plate.plateSizePx.width / 2,
+        halfHeightPx: rock.plate.plateSizePx.height / 2,
+        fromY: base.fromY + rock.plateOffsetY,
+        toY: base.toY + rock.plateOffsetY,
+      });
+      // D101: A SHELLED ROCK PUTS TWO PLATES DOWN ONE COLUMN, and the board has
+      // to be told about both. The core's plate is not drawn yet, but it WILL
+      // be, on this same line, at a moment nothing here can predict - so an
+      // arriving rock has to clear it exactly as it clears a plate already on
+      // screen. Leaving it out would mean the shell's own column was proved and
+      // the core's was proved only against the board as it looked at spawn,
+      // which is the half-guarantee AC-22.8 exists to rule out.
+      if (rock.core !== null) {
+        out.push({
+          ...base,
+          halfWidthPx: rock.core.plateHalfWidthPx,
+          halfHeightPx: rock.core.plateHalfHeightPx,
+          fromY: base.fromY + rock.core.plateOffsetY,
+          toY: base.toY + rock.core.plateOffsetY,
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Every word a child could legally start typing right now (AC-2.1's scope).
+   *
+   * A shelled rock contributes BOTH of its words: the shell because it is on
+   * screen, and the core because its first letter is reserved for the shell's
+   * whole life so that the reveal cannot collide with anything. See
+   * `@engine/nested.liveWordsOf`, which is the shared definition.
+   */
+  private liveWords(): readonly string[] {
+    return this.rocks.flatMap((r) =>
+      liveWordsOf({ word: r.word, coreWord: r.core?.word ?? null }),
+    );
   }
 
   /**
@@ -1524,17 +1698,39 @@ export class FlightScene extends Phaser.Scene {
    * is identical rock for rock, and a decline re-derives the same pair rather
    * than consuming anything.
    */
-  private rockDraws(index: number): { spread: number; travelPx: number } {
+  private rockDraws(index: number): {
+    spread: number;
+    travelPx: number;
+    nest: number;
+  } {
     const rng = mulberry32((this.cfg.seed ^ 0x5f3a9c2b) + index * 0x9e3779b1);
     const spread = rng();
     const travel = (rng() - 0.5) * 2 * ROCK_ANGLE_MAX_PX;
-    return { spread, travelPx: travel };
+    // D101: THE NESTING DRAW GOES HERE AND NOT ON `this.rng`, for both of the
+    // reasons above and for a third that is this feature's own. Taken LAST, so
+    // `spread` and `travelPx` are byte-for-byte the pair they were - which is
+    // what keeps `tests/unit/flight/plateSeparation.test.ts`'s 3456-board sweep
+    // measuring the same boards it has been measuring. Off `this.rng` it would
+    // have shifted every column at Neptune and Pluto whether or not a single
+    // rock ever nested, and a difficulty feature is not allowed to silently
+    // re-roll a legibility proof.
+    const nest = rng();
+    return { spread, travelPx: travel, nest };
   }
 
-  private spawnRock(word: string, now: number, practice = false): boolean {
+  private spawnRock(
+    word: string,
+    now: number,
+    practice = false,
+    core: NestedCore | null = null,
+  ): boolean {
     const width = this.scale.width;
     const letters = [...word].length;
-    const sizePx = asteroidSizePx(letters);
+    // D101: A SHELL IS BIGGER THAN ANY ORDINARY ROCK. `nestedShellSizePx` puts
+    // the floor above `MAX_SIZE_PX` so "visibly bigger than a normal rock" is
+    // arithmetic rather than a hope about which words this pool carries.
+    const sizePx =
+      core === null ? asteroidSizePx(letters) : nestedShellSizePx(asteroidSizePx(letters));
     const draws = this.rockDraws(this.spawnedCount);
 
     // ===================== THE PURE PROLOGUE, HOISTED =====================
@@ -1567,11 +1763,43 @@ export class FlightScene extends Phaser.Scene {
       // absolute terms, and FR-8's 2500/14000 clamp is applied after it.
       spread: draws.spread,
     });
-    const clearEstimateMs = expectedClearMs({
+    // D101: THE PAIR'S BUDGET IS THE SUM OF THE TWO WORDS' OWN BUDGETS, and the
+    // rock falls at one constant rate across the whole of it. That is what
+    // makes the core answerable by construction rather than by luck - it is
+    // exactly the budget it would have had as a rock of its own. See
+    // `@engine/nested.nestedFallMs` for why a fresh clock at the reveal was
+    // rejected, and what it would have looked like on screen.
+    const coreFallMs =
+      core === null
+        ? 0
+        : fallTimeMs({
+            word: core.word,
+            ease: recordFor(this.book, core.word).ease,
+            calibration: this.fallTimeCalibration(),
+            knobs: this.controller.knobs,
+            spread: draws.spread,
+          });
+    const totalFallMs = core === null ? fallMs : nestedFallMs(fallMs, coreFallMs);
+    const shellEstimateMs = expectedClearMs({
       length: letters,
       ease: record.ease,
       calibration: this.calibration,
     });
+    // And the belt is paced off what the rock COSTS, so a two-word rock must
+    // not be reported as one word's work. `@engine/pacing` feeds the board from
+    // `liveClearMs`; understate it and the spawner treats the biggest object on
+    // the screen as free and queues rocks behind it.
+    const clearEstimateMs =
+      core === null
+        ? shellEstimateMs
+        : nestedClearEstimateMs(
+            shellEstimateMs,
+            expectedClearMs({
+              length: [...core.word].length,
+              ease: recordFor(this.book, core.word).ease,
+              calibration: this.calibration,
+            }),
+          );
     // `plateSize`, not the WordPlate that does not exist yet - the same pure
     // function the plate lays itself out with and the same one `laneSpec`
     // sizes the margin keep-out with, so the three cannot disagree.
@@ -1582,13 +1810,30 @@ export class FlightScene extends Phaser.Scene {
       fromY: -sizePx + offsetY,
       toY: this.breachY + offsetY,
       spawnedAtMs: now,
-      fallMs,
+      fallMs: totalFallMs,
       // UR-83: the angle is declared to the keep-out BEFORE the column is
       // chosen, so `@engine/spawn` reserves the whole x range this rock will
       // travel through rather than the column it happens to start in.
       travelPx: draws.travelPx,
     };
-    const spec = this.laneSpec(sizePx, word, track);
+    // D101: the core's plate, declared to the column rule at the same instant
+    // and over the SAME window. It shares the shell's column, angle and fall
+    // line, so its whole trajectory is known here; giving it the full window
+    // rather than the window after the break is conservative in the direction
+    // that keeps AC-22.8, because the break time belongs to the child.
+    const corePlate: PlateTrack | undefined =
+      core === null
+        ? undefined
+        : {
+            halfWidthPx: core.plateHalfWidthPx,
+            halfHeightPx: core.plateHalfHeightPx,
+            fromY: -sizePx + core.plateOffsetY,
+            toY: this.breachY + core.plateOffsetY,
+            spawnedAtMs: now,
+            fallMs: totalFallMs,
+            travelPx: draws.travelPx,
+          };
+    const spec = this.laneSpec(sizePx, word, track, corePlate);
     // No column on this board leaves this word readable. Hold it.
     if (!hasCleanColumn(spec, practice)) return false;
 
@@ -1611,6 +1856,15 @@ export class FlightScene extends Phaser.Scene {
         lightAngle: -Math.PI / 4,
         fillOverride: this.cfg.colorblindPalette ? this.palette.colorblind.debris : null,
         accent: this.palette.accent,
+      });
+    } else if (core !== null) {
+      // D101. The same rock, plus the wall and the joins that say it has a skin.
+      drawNestedShell(body, {
+        type: debris,
+        variantIndex: this.nextRockIndex,
+        sizePx,
+        lightAngle: -Math.PI / 4,
+        fillOverride: this.cfg.colorblindPalette ? this.palette.colorblind.debris : null,
       });
     } else {
       drawDebris(body, {
@@ -1642,9 +1896,11 @@ export class FlightScene extends Phaser.Scene {
       debris,
       isCanister,
       isPractice: practice,
+      core,
+      crackedShellWord: null,
       plateOffsetY: offsetY,
       spawnedAtMs: now,
-      fallMs,
+      fallMs: totalFallMs,
       clearEstimateMs,
       fromY: -sizePx,
       toY: this.breachY,
@@ -1662,7 +1918,13 @@ export class FlightScene extends Phaser.Scene {
     };
     this.rocks.push(rock);
     if (isCanister) this.canisterId = id;
-    this.spawnedCount += 1;
+    // D101: A TWO-LAYER ROCK IS TWO OF THE STAGE'S WORDS, NOT ONE. The belt is
+    // 58 WORDS (`stageWordCount`, FR-6, and the 90-150 s arithmetic behind it),
+    // and counting a nested rock as one spawn would quietly lengthen every
+    // Neptune and Pluto belt by however many nested rocks it happened to draw.
+    // Hull marks are unaffected either way - `hullForStage` reads the config's
+    // count, not this one.
+    this.spawnedCount += core === null ? 1 : 2;
 
     // Arrive, never appear: Back.Out is the pop curve (art-direction section 8).
     // The plate pops with its rock even though it is no longer parented to it -
@@ -1953,12 +2215,38 @@ export class FlightScene extends Phaser.Scene {
   ): void {
     const rock = this.rockById(id);
     this.parked = null;
+    /**
+     * D101: IS THIS THE SHELL OF A TWO-LAYER ROCK COMING OFF?
+     *
+     * A shell break is a completed word in every sense that matters to the
+     * engine - the combo advances, it scores, the word book learns it, the warp
+     * sentence may light it up - and is NOT the rock leaving the board. So
+     * everything above `fractureRock` runs unchanged and only the three things
+     * that are about the ROCK rather than about the WORD are held back: the
+     * explosion, the service sample the pacer learns from, and the controller's
+     * one margin reading. All three belong to the rock, and the rock is still
+     * falling.
+     */
+    const cracking = rock !== undefined && rock.core !== null;
 
     this.combo = comboReducer(this.combo, "hit");
     // The peak, kept because the live chain is about to be resettable and a
     // chain is the one thing about a stage that nothing persists.
     this.bestCombo = Math.max(this.bestCombo, this.combo.combo);
-    const points = wordScore([...word].length, this.combo.multiplier);
+    let points = wordScore([...word].length, this.combo.multiplier);
+    // D101: the crack bonus, paid on the CORE's blast because that is the
+    // instant the whole rock was answered. `nestedCrackScore` is what the rock
+    // would have been worth as one word of the combined length, minus what the
+    // two layers already paid - the same superlinear curve `UR-72` put on
+    // length, applied to the object the child actually faced. A child who
+    // cracks the shell and loses the core keeps the shell's points and not this.
+    if (rock !== undefined && rock.crackedShellWord !== null) {
+      points += nestedCrackScore(
+        [...rock.crackedShellWord].length,
+        [...word].length,
+        this.combo.multiplier,
+      );
+    }
     this.score += points;
     this.hits += 1;
     // D09. Recorded HERE, off the lock machine's own `blast` emission, because
@@ -1988,7 +2276,14 @@ export class FlightScene extends Phaser.Scene {
     this.controller = recordOutcome(
       this.controller,
       "blasted",
-      rock === undefined
+      // D101: ONE ROCK, ONE MARGIN SAMPLE. A shell break reports no margin - it
+      // would be a large one, since the rock is nowhere near the breach line
+      // and half its budget is still to run, and feeding it in would let a
+      // two-layer rock put TWO readings into the controller's window for one
+      // object and both of them flattering. The reading that tells the truth
+      // about this rock is the one taken when the rock is finally gone, and it
+      // is measured against the whole pair's budget.
+      rock === undefined || cracking
         ? null
         : clearanceMargin({
             spawnedAtMs: rock.spawnedAtMs,
@@ -1996,7 +2291,10 @@ export class FlightScene extends Phaser.Scene {
             fallMs: rock.fallMs,
           }),
     );
-    this.recordClear(rock, nowMs);
+    // Likewise the pacer's service sample: `clearEstimateMs` is what the belt
+    // expected the WHOLE rock to cost, so comparing it against half the work
+    // would teach `@engine/pacing` that this child is twice as fast as they are.
+    if (!cracking) this.recordClear(rock, nowMs);
 
     if (rock !== undefined) {
       if (rock.isCanister) {
@@ -2010,7 +2308,8 @@ export class FlightScene extends Phaser.Scene {
         this.cue("shield");
       }
       this.fireBeam(rock);
-      this.fractureRock(rock, points);
+      if (cracking) this.crackShell(rock, points, nowMs);
+      else this.fractureRock(rock, points);
       // UR-33. Here rather than in `fractureRock`, because `fractureRock` is
       // the explosion and this is the beat BEFORE it lands - and because the
       // only caller that should ever hold the world is a rock the player
@@ -2174,6 +2473,118 @@ export class FlightScene extends Phaser.Scene {
       duration: 240,
       ease: "Expo.Out",
       onComplete: () => rock.container.destroy(),
+    });
+  }
+
+  /**
+   * THE SHELL COMES OFF AND THE ROCK KEEPS FALLING (D101, AC-26.1).
+   *
+   * ================== WHAT THE CHILD HAS TO SEE ==================
+   * Three things, on the same frame, or the mechanic reads as the game failing
+   * to kill a rock they typed correctly:
+   *
+   *   IT BROKE.    The same shards, flash, shockwave and shake a blast gets -
+   *                because a blast is exactly what happened. The one difference
+   *                is the population: a shell is a skin coming off, not a rock
+   *                coming apart, so it sheds rather than explodes.
+   *   THE OLD WORD LEFT. The shell's plate dissolves upward on the same 520 ms
+   *                curve `fractureRock` uses, so "my word landed" reads
+   *                identically whether or not there was something underneath.
+   *   SOMETHING IS STILL THERE, AND IT IS SMALLER AND IT SAYS SOMETHING ELSE.
+   *                The body is redrawn at the core's size and a new plate pops
+   *                in on the Back.Out curve every arriving rock uses.
+   *
+   * ================== WHAT DOES NOT CHANGE, AND IT MATTERS ==================
+   * The trajectory. Same column, same angle, same constant rate, same deadline
+   * - `@engine/nested.nestedFallMs` granted the pair one budget for exactly
+   * this reason. The rock does not jump, does not slow down and does not
+   * re-aim. A child watching it sees the same object minus its skin, which is
+   * the only reading that does not look like a bug.
+   *
+   * ================== AND THE LOCK IS TOLD ==================
+   * `despawn` then `spawn` under the SAME id, which the lock machine handles
+   * exactly (it refuses a duplicate id, and the despawn has already removed
+   * it). Re-spawning is what re-bases first-key latency to the reveal, which is
+   * right: the child could not have started reading the core before it existed,
+   * and charging them the shell's latency for it would poison the calibration
+   * this belt folds back into the profile.
+   */
+  private crackShell(rock: LiveRock, points: number, nowMs: number): void {
+    const core = rock.core;
+    if (core === null) return;
+
+    const x = rock.container.x;
+    const y = rock.container.y;
+    const shellWord = rock.word;
+
+    // The shell sheds. Deliberately fewer fragments than `fractureRock`'s full
+    // population and no `+points` floater duplication - the floater below is
+    // the shell's own score, and the fragments are a skin's worth of debris.
+    const shardSpec = particleSpec("blastShards");
+    const fill = wordRockFill(
+      rock.debris,
+      this.cfg.colorblindPalette ? this.palette.colorblind.debris : null,
+    );
+    const tint = hexToInt(fill);
+    for (const wave of shardWaves(Math.max(4, Math.round(shardSpec.quantity * 0.75)))) {
+      const emit = (): void => {
+        if (!this.scene.isActive()) return;
+        this.shards.setParticleTint(tint);
+        this.shards.emitParticleAt(x, y, wave.count);
+      };
+      if (wave.atMs <= 0) emit();
+      else this.time.delayedCall(wave.atMs, emit);
+    }
+    this.blastFlash(x, y, rock.sizePx);
+    this.shockwave(x, y, rock.sizePx);
+    this.shakeBy(3 + Math.min(10, this.combo.combo) * 0.6, 160);
+
+    const floater = this.add
+      .text(x, y, `+${points}`, {
+        fontFamily: this.plateStyle.fontFamily,
+        fontSize: "26px",
+        color: this.palette.accent,
+      })
+      .setOrigin(0.5)
+      .setDepth(layer("shipFx").depth);
+    this.tweens.add({
+      targets: floater,
+      y: floater.y - 70,
+      alpha: 0,
+      duration: 400,
+      ease: "Expo.Out",
+      onComplete: () => floater.destroy(),
+    });
+
+    // The shell's plate goes the way every cleared word's plate goes.
+    rock.plate.dissolveUpward(520);
+
+    // The rock becomes the core. `rock.container` and `rock.body` are reused,
+    // so the object on screen is continuous - nothing is destroyed and nothing
+    // is created in its place, which is what keeps the descent from flickering.
+    rock.word = core.word;
+    rock.crackedShellWord = shellWord;
+    rock.core = null;
+    rock.sizePx = core.sizePx;
+    rock.plateOffsetY = core.plateOffsetY;
+    drawDebris(rock.body, {
+      type: rock.debris,
+      variantIndex: this.nextRockIndex,
+      sizePx: core.sizePx,
+      lightAngle: -Math.PI / 4,
+      fillOverride: this.cfg.colorblindPalette ? this.palette.colorblind.debris : null,
+    });
+
+    const plate = new WordPlate(this, x, y + core.plateOffsetY, core.word, this.plateStyle);
+    this.plateLayer.add(plate);
+    rock.plate = plate;
+    plate.setScale(0.7);
+    this.tweens.add({ targets: plate, scale: 1, duration: 260, ease: "Back.Out" });
+
+    this.applyLock({ type: "despawn", id: rock.id, nowMs });
+    this.applyLock({
+      type: "spawn",
+      asteroid: { id: rock.id, word: core.word, spawnedAtMs: nowMs },
     });
   }
 
@@ -2359,9 +2770,26 @@ export class FlightScene extends Phaser.Scene {
 
   /** AC-4.2 / D28: shake + one spark burst + a scorch. No flash, no explosion. */
   private breach(rock: LiveRock, now: number): void {
+    /**
+     * D101, AC-26.4: WHAT A TWO-LAYER ROCK COSTS, BY HOW MUCH OF IT WAS DONE.
+     *
+     *   shell still on   a whole mark   nothing on it was typed; it is AC-4.2
+     *   core exposed     half a mark    the child removed a layer and it still
+     *                                   got through
+     *
+     * The reasoning, and the alternative that was rejected, are in
+     * `@engine/nested.nestedHullCost`. The short of it: a nested rock is never
+     * DEARER than the two ordinary rocks it replaces (D31 rules out a rock that
+     * punishes harder than other rocks), and the exposed core is the only place
+     * in this game where a child can do half a job, so it is the only place the
+     * hull can say so.
+     */
+    const cost = rock.core === null && rock.crackedShellWord !== null
+      ? nestedHullCost(false)
+      : HULL_STRIKE_COST;
     this.retireAtBreachLine(rock, now);
     this.combo = comboReducer(this.combo, "hullHit");
-    this.hull = hullAfterStrike(this.hull, this.maxHull);
+    this.hull = hullAfterStrike(this.hull, this.maxHull, cost);
     this.hullHitsTaken += 1;
 
     rock.plate.destroy();
@@ -2984,6 +3412,9 @@ export class FlightScene extends Phaser.Scene {
             typedCount: r.plate.typedCount,
             isCanister: r.isCanister,
             isPractice: r.isPractice,
+            shellIntact: r.core !== null,
+            coreWord: r.core?.word ?? null,
+            crackedShellWord: r.crackedShellWord,
             onShipLane: isOnShipLane(r.container.x, this.laneSpec(r.sizePx, r.word)),
             debrisType: r.debris.id,
           })),

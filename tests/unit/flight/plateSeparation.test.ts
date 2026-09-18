@@ -43,6 +43,13 @@ import {
   stagePoolFor,
 } from "@game/flight/stage.js";
 import { asteroidSizePx } from "@game/render/asteroid.js";
+import {
+  liveWordsOf,
+  nestedFallMs,
+  nestedShellSizePx,
+  nestingAllowed,
+  nestingDrawPasses,
+} from "@engine/nested/index.js";
 // THE RENDERER'S OWN GEOMETRY, imported rather than restated. `wordPlate.ts`
 // used to be unloadable here because it extends a Phaser class; the pure half
 // now lives in `wordPlateGeometry.ts` and this file binds to it, so a change to
@@ -206,13 +213,32 @@ const PILOTS: readonly Pilot[] = [
  * costs nothing and `this.rng`'s order is untouched. A harness that drew them
  * from `rng` would fly a different belt AND shift every column.
  */
-function rockDraws(seed: number, index: number): { spread: number; travelPx: number } {
+function rockDraws(
+  seed: number,
+  index: number,
+): { spread: number; travelPx: number; nest: number } {
   const rng = mulberry32((seed ^ 0x5f3a9c2b) + index * 0x9e3779b1);
   const spread = rng();
-  return { spread, travelPx: (rng() - 0.5) * 2 * ROCK_ANGLE_MAX_PX };
+  const travelPx = (rng() - 0.5) * 2 * ROCK_ANGLE_MAX_PX;
+  // D101's nesting draw, taken LAST so `spread` and `travelPx` are the same two
+  // numbers this sweep has always used and every board it has ever measured is
+  // the same board. The scene draws them in this order for this reason.
+  return { spread, travelPx, nest: rng() };
 }
 
 interface SimRock {
+  /**
+   * D101: WHICH PHYSICAL ROCK THIS PLATE BELONGS TO.
+   *
+   * A two-layer rock contributes TWO entries here - the shell's plate and the
+   * core's - because they are two different rectangles the child is asked to
+   * read. They are never on screen at the same time (one replaces the other),
+   * so `worstOverlap` skips pairs that share this id; everything else in the
+   * sweep treats them as the two plates they are.
+   */
+  readonly rockId: string;
+  /** D101: this entry is the plate that appears AFTER the shell breaks. */
+  readonly isCore: boolean;
   readonly word: string;
   readonly homeX: number;
   /** UR-83: signed px this column slides over the whole fall. */
@@ -275,6 +301,12 @@ function worstOverlap(rocks: readonly SimRock[], untilMs: number): Overlap | nul
     const live = rocks.filter((r) => t >= r.spawnedAtMs && t <= r.retiredAtMs);
     for (let a = 0; a < live.length; a += 1) {
       for (let b = a + 1; b < live.length; b += 1) {
+        // D101: A ROCK NEVER COVERS ITSELF. The shell's plate and its core's
+        // are recorded over the same window - which is the window the column
+        // rule proves, because the break time belongs to the child - but only
+        // one of them is ever drawn at a time. Counting the pair would be
+        // counting a frame that cannot exist.
+        if ((live[a] as SimRock).rockId === (live[b] as SimRock).rockId) continue;
         const p = plateRectAt(live[a] as SimRock, t);
         const q = plateRectAt(live[b] as SimRock, t);
         const ow = Math.min(p.right, q.right) - Math.max(p.left, q.left);
@@ -332,12 +364,21 @@ interface BoardSpec {
    * second pass. The negative control, not a restatement of it.
    */
   readonly separate: boolean;
+  /**
+   * D101's half of the rule. FALSE keeps two-layer rocks flying but stops
+   * declaring the CORE's plate to the column rule - the exact state the shipped
+   * proof would have been in if the feature had been added without extending
+   * it. The negative control for `L-core-on-plate`.
+   */
+  readonly coreSeparate: boolean;
 }
 
 interface BoardResult {
   readonly rocks: readonly SimRock[];
   readonly peakLive: number;
   readonly untilMs: number;
+  /** D101: two-layer rocks this board actually flew. */
+  readonly nestedRocks: number;
 }
 
 /**
@@ -371,8 +412,14 @@ function flyBoard(spec: BoardSpec): BoardResult {
   let book: WordBook = {};
 
   const rocks: SimRock[] = [];
+  /**
+   * D101: THIS IS A LIST OF PLATES, NOT OF ROCKS. A shelled rock puts two in
+   * it, because the column rule has to clear both. The feed gate below counts
+   * distinct `rockId`s, so `maxLive` still means what it has always meant.
+   */
   let live: SimRock[] = [];
   let busy: { rock: SimRock; doneAtMs: number } | null = null;
+  let nestedRocks = 0;
   let nowMs = 0;
   let nextSpawnAtMs = 0;
   const residuals: number[] = [];
@@ -382,10 +429,16 @@ function flyBoard(spec: BoardSpec): BoardResult {
   let peakLive = 0;
   let guard = 0;
 
+  /** Retiring a rock retires BOTH of its plates (D101). */
   const retire = (rock: SimRock, atMs: number): void => {
-    rock.retiredAtMs = atMs;
-    live = live.filter((r) => r !== rock);
+    for (const entry of live) {
+      if (entry.rockId === rock.rockId) entry.retiredAtMs = atMs;
+    }
+    live = live.filter((r) => r.rockId !== rock.rockId);
   };
+  const liveRocks = (): number => new Set(live.map((r) => r.rockId)).size;
+  /** One entry per rock - the shell's, which is what the typist answers first. */
+  const shells = (): SimRock[] => live.filter((r) => !r.isCore);
 
   while ((spawned < spawnCount || live.length > 0) && (guard += 1) < 200_000) {
     if (busy !== null && busy.doneAtMs <= nowMs) {
@@ -406,7 +459,7 @@ function flyBoard(spec: BoardSpec): BoardResult {
       continue;
     }
 
-    const due = live.find((r) => r.spawnedAtMs + r.fallMs <= nowMs);
+    const due = shells().find((r) => r.spawnedAtMs + r.fallMs <= nowMs);
     if (due !== undefined) {
       book = {
         ...book,
@@ -422,14 +475,22 @@ function flyBoard(spec: BoardSpec): BoardResult {
       continue;
     }
 
-    const boardEmpty = live.length === 0;
+    const boardEmpty = liveRocks() === 0;
     const mayFeed =
       spawned < spawnCount &&
-      live.length < controller.knobs.maxLive &&
+      liveRocks() < controller.knobs.maxLive &&
       (boardEmpty || nowMs >= nextSpawnAtMs);
     if (mayFeed) {
+      // D101: both words of a shelled rock are live for AC-2.1's purposes, so
+      // both are declared. `liveWordsOf` is the shared definition.
+      const liveWords = shells().flatMap((r) =>
+        liveWordsOf({
+          word: r.word,
+          coreWord: live.find((e) => e.rockId === r.rockId && e.isCore)?.word ?? null,
+        }),
+      );
       const outcome = pickNext(selection, {
-        live: live.map((r) => r.word),
+        live: liveWords,
         book,
         rng,
       });
@@ -443,22 +504,74 @@ function flyBoard(spec: BoardSpec): BoardResult {
       // UR-83: the two per-rock draws, derived the way the scene derives them,
       // BEFORE the decline - fall time feeds the vertical test and the travel
       // feeds the keep-out, and a declined tick must re-derive the same pair.
+      // D101 adds a third, taken last so the first two are unchanged.
       const draws = rockDraws(spec.seed, spawned);
+      const budget = {
+        ...spec.pilot.calibration,
+        ikiMs: Math.max(spec.pilot.calibration.ikiMs, DEFAULT_CALIBRATION.ikiMs),
+      };
+
+      // ================== D101: DOES THIS ONE NEST? ==================
+      // `FlightScene.trySpawn`, restated: the deterministic gate, the draw off
+      // the rock's own stream, then a SECOND pick whose live set carries the
+      // shell - which is what stops the two layers of one rock colliding under
+      // AC-2.1. A core that comes back practice is refused, exactly as the
+      // scene refuses it.
+      let coreWord: string | null = null;
+      let coreState = outcome.state;
+      if (
+        nestingAllowed({
+          stopId: spec.stopId,
+          nestedLive: new Set(live.filter((r) => r.isCore).map((r) => r.rockId)).size,
+          wordsLeft: spawnCount - spawned,
+          anyPractice: outcome.practice,
+        }) &&
+        nestingDrawPasses(spec.stopId, draws.nest)
+      ) {
+        const picked = pickNext(coreState, {
+          live: [...(shells().flatMap((r) => [r.word])), word],
+          book,
+          rng,
+        });
+        if (picked.ok && !picked.practice) {
+          coreWord = picked.word;
+          coreState = picked.state;
+        }
+      }
+
       const letters = [...word].length;
-      const sizePx = asteroidSizePx(letters);
+      const sizePx =
+        coreWord === null
+          ? asteroidSizePx(letters)
+          : nestedShellSizePx(asteroidSizePx(letters));
       const offsetY = plateOffsetY(sizePx, spec.style);
       const half = plateSize(word, spec.style).width / 2;
       const halfH = plateHalfHeightPx(spec.style);
-      const fallMs = fallTimeMs({
+      const shellFallMs = fallTimeMs({
         word,
         ease: record.ease,
-        calibration: {
-          ...spec.pilot.calibration,
-          ikiMs: Math.max(spec.pilot.calibration.ikiMs, DEFAULT_CALIBRATION.ikiMs),
-        },
+        calibration: budget,
         knobs: controller.knobs,
         spread: draws.spread,
       });
+      // D101: the pair falls at one constant rate over BOTH words' budgets.
+      const fallMs =
+        coreWord === null
+          ? shellFallMs
+          : nestedFallMs(
+              shellFallMs,
+              fallTimeMs({
+                word: coreWord,
+                ease: (book[coreWord] ?? blankRecord()).ease,
+                calibration: budget,
+                knobs: controller.knobs,
+                spread: draws.spread,
+              }),
+            );
+
+      const coreSizePx = coreWord === null ? 0 : asteroidSizePx([...coreWord].length);
+      const coreOffsetY = coreWord === null ? 0 : plateOffsetY(coreSizePx, spec.style);
+      const coreHalf = coreWord === null ? 0 : plateSize(coreWord, spec.style).width / 2;
 
       const track: PlateTrack = {
         halfWidthPx: half,
@@ -469,6 +582,20 @@ function flyBoard(spec: BoardSpec): BoardResult {
         fallMs,
         travelPx: draws.travelPx,
       };
+      // D101: the core's plate, over the SAME window. It shares the shell's
+      // column, angle and fall line, so its whole trajectory is known here.
+      const coreTrack: PlateTrack | undefined =
+        coreWord === null
+          ? undefined
+          : {
+              halfWidthPx: coreHalf,
+              halfHeightPx: halfH,
+              fromY: -sizePx + coreOffsetY,
+              toY: BREACH_Y + coreOffsetY,
+              spawnedAtMs: nowMs,
+              fallMs,
+              travelPx: draws.travelPx,
+            };
       const livePlates: readonly LivePlateTrack[] = live.map((r) => ({
         homeX: r.homeX,
         travelPx: r.travelPx,
@@ -488,6 +615,13 @@ function flyBoard(spec: BoardSpec): BoardResult {
         shipHalfWidthPx: SHIP_HALF_WIDTH_PX,
         rockHalfWidthPx: Math.max(sizePx / 2, half),
         ...(spec.separate ? { plate: track, livePlates } : {}),
+        // D101: the core's plate is declared only when the sweep is testing the
+        // shipped rule. `coreSeparate: false` is the control - the rock still
+        // nests and the core's plate still appears, the column rule is simply
+        // never told about it.
+        ...(spec.separate && spec.coreSeparate && coreTrack !== undefined
+          ? { corePlate: coreTrack }
+          : {}),
       };
       // THE BELT DECLINES RATHER THAN COVERS A WORD (AC-22.8).
       // `FlightScene.trySpawn`, verbatim: a board where every column would put
@@ -501,13 +635,17 @@ function flyBoard(spec: BoardSpec): BoardResult {
         if (boardEmpty) nowMs += 200;
         continue;
       }
-      selection = outcome.state;
+      selection = coreState;
       const homeX = spawnX(lane, rng, outcome.practice);
+      const rockId = `rock-${rocks.length}`;
+      const driftPhase = rng() * Math.PI * 2;
       const rock: SimRock = {
+        rockId,
+        isCore: false,
         word,
         homeX,
         travelPx: draws.travelPx,
-        driftPhase: rng() * Math.PI * 2,
+        driftPhase,
         spawnedAtMs: nowMs,
         fallMs,
         rockFromY: -sizePx,
@@ -521,11 +659,37 @@ function flyBoard(spec: BoardSpec): BoardResult {
       rng();
       rocks.push(rock);
       live.push(rock);
-      peakLive = Math.max(peakLive, live.length);
-      spawned += 1;
+      if (coreWord !== null) {
+        // D101: the core's plate, recorded over the SHELL'S WHOLE WINDOW. That
+        // is the strong reading and it is deliberate: the break time belongs to
+        // the child, so the column has to be legal for the core whenever it
+        // happens - including not at all. `worstOverlap` skips the pair that
+        // shares this `rockId`, because the two are never drawn together.
+        const coreRock: SimRock = {
+          rockId,
+          isCore: true,
+          word: coreWord,
+          homeX,
+          travelPx: draws.travelPx,
+          driftPhase,
+          spawnedAtMs: nowMs,
+          fallMs,
+          rockFromY: -sizePx,
+          rockToY: BREACH_Y,
+          plateOffsetY: coreOffsetY,
+          plateHalfW: coreHalf,
+          plateHalfH: halfH,
+          retiredAtMs: nowMs + fallMs,
+        };
+        rocks.push(coreRock);
+        live.push(coreRock);
+        nestedRocks += 1;
+      }
+      peakLive = Math.max(peakLive, liveRocks());
+      spawned += coreWord === null ? 1 : 2;
 
       const gap = spawnGapMs({
-        liveClearMs: live.map((r) =>
+        liveClearMs: shells().map((r) =>
           expectedClearMs({
             length: [...r.word].length,
             ease: (book[r.word] ?? blankRecord()).ease,
@@ -543,13 +707,19 @@ function flyBoard(spec: BoardSpec): BoardResult {
     }
 
     if (busy === null && live.length > 0) {
-      const target = live.reduce((a, b) =>
+      const target = shells().reduce((a, b) =>
         b.spawnedAtMs + b.fallMs < a.spawnedAtMs + a.fallMs ? b : a,
       );
-      const letters = [...target.word].length;
+      // D101: a shelled rock is TWO words of typing before it leaves the board,
+      // so the typist is busy for both. Longer occupancy means a fuller board,
+      // which is the conservative direction for this measurement.
+      const core = live.find((e) => e.rockId === target.rockId && e.isCore);
+      const letters =
+        [...target.word].length + (core === undefined ? 0 : [...core.word].length);
+      const words = core === undefined ? 1 : 2;
       const need =
-        spec.pilot.calibration.fkLatencyMs +
-        Math.max(0, letters - 1) * spec.pilot.calibration.ikiMs;
+        spec.pilot.calibration.fkLatencyMs * words +
+        Math.max(0, letters - words) * spec.pilot.calibration.ikiMs;
       busy = { rock: target, doneAtMs: nowMs + need };
       continue;
     }
@@ -557,7 +727,7 @@ function flyBoard(spec: BoardSpec): BoardResult {
     const candidates: number[] = [];
     if (busy !== null) candidates.push(busy.doneAtMs);
     for (const r of live) candidates.push(r.spawnedAtMs + r.fallMs);
-    if (spawned < spawnCount && live.length < controller.knobs.maxLive) {
+    if (spawned < spawnCount && liveRocks() < controller.knobs.maxLive) {
       candidates.push(nextSpawnAtMs);
     }
     const next = Math.min(...candidates.filter((t) => t > nowMs));
@@ -565,7 +735,7 @@ function flyBoard(spec: BoardSpec): BoardResult {
     nowMs = next;
   }
 
-  return { rocks, peakLive, untilMs: nowMs };
+  return { rocks, peakLive, untilMs: nowMs, nestedRocks };
 }
 
 // ---------------------------------------------------------------------------
@@ -581,13 +751,15 @@ interface Reading {
   readonly feed: "paced" | "saturated";
   readonly peakLive: number;
   readonly rocks: number;
+  /** D101: two-layer rocks this board flew. */
+  readonly nestedRocks: number;
   readonly columns: readonly number[];
   readonly worst: Overlap | null;
 }
 
 const SEEDS = [0x9101, 1, 2, 3, 4, 5, 6, 7];
 
-function sweep(separate: boolean): Reading[] {
+function sweep(separate: boolean, coreSeparate = true): Reading[] {
   const out: Reading[] = [];
   for (const stopId of BELTED_STOPS) {
     for (let maxLive = MAX_LIVE_MIN; maxLive <= MAX_LIVE_MAX; maxLive += 1) {
@@ -603,6 +775,7 @@ function sweep(separate: boolean): Reading[] {
                 seed,
                 feed,
                 separate,
+                coreSeparate,
               });
               out.push({
                 stopId,
@@ -613,7 +786,11 @@ function sweep(separate: boolean): Reading[] {
                 feed,
                 peakLive: board.peakLive,
                 rocks: board.rocks.length,
-                columns: board.rocks.map((r) => r.homeX),
+                nestedRocks: board.nestedRocks,
+                // One column per physical ROCK - a shelled rock's two plates
+                // share a column and counting it twice would tilt the
+                // width-usage histogram toward wherever shells happened to go.
+                columns: board.rocks.filter((r) => !r.isCore).map((r) => r.homeX),
                 worst: worstOverlap(board.rocks, board.untilMs),
               });
             }
@@ -635,6 +812,8 @@ const describeWorst = (r: Reading): string =>
 describe("UR-23 / AC-22.8: a word plate never covers another word plate", () => {
   const shipped = sweep(true);
   const reverted = sweep(false);
+  // D101's own control: the feature flying, the core's plate never declared.
+  const coreBlind = sweep(true, false);
 
   const worstOf = (rs: readonly Reading[]): Reading | null =>
     rs.reduce<Reading | null>(
@@ -691,6 +870,78 @@ describe("UR-23 / AC-22.8: a word plate never covers another word plate", () => 
     // AND IT IS NOT A ONE-STOP DEFECT. The asteroid-visibility gate booted Mars
     // only and Uranus passed the defect; naming the stops keeps that honest.
     expect(new Set(hits.map((h) => h.stopId)).size, "stops with an overlap").toBeGreaterThan(1);
+  });
+
+  it("D101: the sweep actually flew two-layer rocks at Neptune and Pluto", () => {
+    // ANTI-VACUITY FOR THE FEATURE. "Zero overlap" is worthless as a statement
+    // about nested rocks if no nested rock was ever on a board.
+    for (const stopId of BELTED_STOPS) {
+      const nested = shipped
+        .filter((r) => r.stopId === stopId)
+        .reduce((n, r) => n + r.nestedRocks, 0);
+      const expected = stopId === "neptune" || stopId === "pluto";
+      expect(nested > 0, `${stopId} flew ${nested} two-layer rocks`).toBe(expected);
+    }
+  });
+
+  /**
+   * D101's CORE KEEP-OUT: WHAT IT IS WORTH, MEASURED, INCLUDING THE PART THAT
+   * IS LESS THAN EXPECTED.
+   *
+   * `coreBlind` is the feature flying exactly as it ships with one line
+   * removed - the core's plate is never declared to the column rule. Same
+   * seeds, same picks, same shells, same reveals. It is the control this
+   * extension was written to be judged against, and the honest reading of it is
+   * NOT the one this file was expecting to write:
+   *
+   *   5080 two-layer rocks over 1152 boards
+   *   the core's band moved the chosen column on  8  of those boards
+   *   overlapping boards WITHOUT the core's band:  0
+   *
+   * So at the shipped nesting rate the band is CONSERVATIVE RATHER THAN
+   * LOAD-BEARING: it is doing work - eight boards is not none - but on none of
+   * the 3456 boards swept did omitting it actually put a word over a word. That
+   * is reported rather than buried, because a control that fails to reproduce a
+   * defect is evidence about the defect's reachability and not permission to
+   * skip the guard.
+   *
+   * IT IS KEPT ANYWAY, AND THE REASON IS WHAT AC-22.8 IS. The AC says zero, and
+   * zero is a guarantee rather than a measurement - "no board in 3456 happened
+   * to hit it" is exactly the shape of claim this project has been bitten by
+   * (docs/verification-gaps.md). The case the band guards is constructed and
+   * shown to bite in `tests/unit/spawn/nestedKeepOut.test.ts`: a live plate
+   * level with where the CORE's plate will be and clear of where the shell's
+   * ever is, which the shell's own proof cannot see at all. It becomes
+   * reachable here the moment `NESTED_SHARE` or `NESTED_MAX_LIVE` goes up, and
+   * this number is what a future change to either should be re-read against.
+   */
+  it("D101: the core's keep-out is measured, and the figure is recorded", () => {
+    let nestedBoards = 0;
+    let movedColumns = 0;
+    for (let i = 0; i < shipped.length; i += 1) {
+      const a = shipped[i] as Reading;
+      const b = coreBlind[i] as Reading;
+      if (a.nestedRocks === 0) continue;
+      nestedBoards += 1;
+      if (JSON.stringify(a.columns) !== JSON.stringify(b.columns)) movedColumns += 1;
+    }
+    const nestedRocks = shipped.reduce((n, r) => n + r.nestedRocks, 0);
+    // MEASURED, printed by this file: 5080 nested rocks, 1152 boards, 8 moved.
+    expect(nestedRocks).toBe(5080);
+    expect(nestedBoards).toBe(1152);
+    expect(
+      movedColumns,
+      `the core's keep-out moved no column at all on ${nestedBoards} boards, ` +
+        "so it is not connected to anything",
+    ).toBeGreaterThan(0);
+    // And the control's own result, asserted rather than assumed: dropping the
+    // core's band did not, on this sweep, produce an overlap. If this ever goes
+    // red it is GOOD news for the guard and the header above is out of date.
+    expect(
+      overlapping(coreBlind).length,
+      "the core-blind sweep now reaches a defect the header says it cannot; " +
+        "update the header rather than this number",
+    ).toBe(0);
   });
 
   it("the shipped column rule produces no overlap at any stop, knob or seed", () => {
@@ -757,9 +1008,9 @@ describe("UR-23 / AC-22.8: a word plate never covers another word plate", () => 
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/\/\/[^\n]*/g, "");
     expect(
-      /const spec = this\.laneSpec\(sizePx,\s*word,\s*track\)/.test(source),
-      "spawnRock no longer hands the column rule the arriving plate, so " +
-        "@engine/spawn cannot know what it is separating",
+      /const spec = this\.laneSpec\(sizePx,\s*word,\s*track,\s*corePlate\)/.test(source),
+      "spawnRock no longer hands the column rule the arriving plate and the " +
+        "core's plate, so @engine/spawn cannot know what it is separating",
     ).toBe(true);
     // ONE SPEC, TESTED AND USED. Two `laneSpec` calls would be two boards -
     // the one the decline was decided on and the one the column came from -
@@ -775,7 +1026,9 @@ describe("UR-23 / AC-22.8: a word plate never covers another word plate", () => 
         "AC-22.8 rests on a fallback that is known not to reach zero",
     ).toBe(true);
     expect(
-      /if \(!this\.spawnRock\(outcome\.word,\s*now,\s*outcome\.practice\)\)/.test(source),
+      /if \(!this\.spawnRock\(outcome\.word,\s*now,\s*outcome\.practice,\s*core\)\)/.test(
+        source,
+      ),
       "trySpawn ignores spawnRock's refusal, so a declined rock is simply " +
         "never drawn and the belt goes quiet instead of waiting",
     ).toBe(true);
@@ -809,9 +1062,29 @@ describe("UR-23 / AC-22.8: a word plate never covers another word plate", () => 
         "column slides, so the keep-out is sized for a board this scene does not draw",
     ).toBe(true);
     expect(
-      /travelPx: draws\.travelPx,\s*\};\s*const spec = this\.laneSpec/.test(source),
+      /travelPx: draws\.travelPx,\s*\};[\s\S]{0,900}?const spec = this\.laneSpec/.test(source),
       "spawnRock no longer declares the arriving rock's angle to the column " +
         "rule before the column is chosen",
+    ).toBe(true);
+    // D101. WATCHED FAILING by reverting each of these in `FlightScene.ts`:
+    //
+    //   with `liveWords()` put back to `this.rocks.map((r) => r.word)`:
+    //     trySpawn no longer reserves a hidden core's first letter, so AC-2.1
+    //     can be broken by a reveal: expected false to be true
+    //
+    //   with the second `LivePlateTrack` dropped from `livePlateTracks`:
+    //     livePlateTracks no longer tells an arriving rock about the plate a
+    //     live shell is hiding: expected false to be true
+    expect(
+      /live: this\.liveWords\(\)/.test(source),
+      "trySpawn no longer declares a hidden core as live, so AC-2.1 rests on " +
+        "nothing at the instant a shell breaks",
+    ).toBe(true);
+    expect(
+      /if \(rock\.core !== null\) \{\s*out\.push\(\{/.test(source),
+      "livePlateTracks no longer tells an arriving rock about the plate a live " +
+        "shell is hiding, so the core's column was proved against a board that " +
+        "has since changed",
     ).toBe(true);
   });
 

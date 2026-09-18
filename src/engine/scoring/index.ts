@@ -30,6 +30,8 @@ export {
   comboState,
   hudMultiplierFor,
   multiplierFor,
+  nestedCrackBonus,
+  nestedCrackScore,
   scoreWordWithCombo,
   wordBaseScore,
   wordScore,

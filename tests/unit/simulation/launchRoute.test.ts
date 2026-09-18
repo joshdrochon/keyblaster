@@ -758,6 +758,35 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
             spawnCount: WORDS,
             calibration,
             knobs: opened,
+            /**
+             * ================== D101 IS PINNED OFF IN THIS BLOCK ==============
+             *
+             * NOT because two-layer rocks are unshipped - they ship at Neptune
+             * and Pluto - but because THE FLOOR CONTROL IN THIS BLOCK CANNOT
+             * FLY THEM. `freezeKnob` deliberately passes `stopId: undefined` so
+             * the per-stop band cannot move the pinned knob, and `stopId` is
+             * also what tells the belt which stop it is nesting at. So with
+             * nesting left on, `climb()` would compare a route that nests
+             * against a floor that structurally cannot, and every difference
+             * between them would be credited to the KNOB - which is the one
+             * thing this block exists to measure.
+             *
+             * MEASURED, and this is why it matters rather than being tidiness.
+             * With nesting left on and the floor unchanged, the two assertions
+             * below read:
+             *
+             *   fast meanLive 3.09 against grade2 + 0.5 (was above 3.39)
+             *   fast marginP25 0.409 against 0.377 at the pinned floor
+             *
+             * Both move in the SAFE direction - a two-layer rock is one object
+             * carrying two words, so the board holds fewer rocks, and the pair's
+             * budget is spent with no queueing gap between the layers, so a
+             * fast pilot ends with more of it spare. Neither is a stall and
+             * neither is hidden: D101's effect on these exact quantities, with
+             * both arms nesting, is `tests/unit/simulation/nestedRoute.test.ts`,
+             * and the stall bar is asserted there against this file's zero.
+             */
+            nested: false,
           },
           player,
           {},
