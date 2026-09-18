@@ -319,16 +319,12 @@ export class FocusRing {
         this.box.h,
         SPACE.radius + o,
       );
-      // A second, softer ring outside the first: the state stays legible
-      // against both the bright and the dark half of a gradient.
-      this.g.lineStyle(SPACE.focusRingWidth + 6, hexToNum(INK.accent), 0.18);
-      this.g.strokeRoundedRect(
-        this.box.x - 3,
-        this.box.y - 3,
-        this.box.w + 6,
-        this.box.h + 6,
-        SPACE.radius + o + 3,
-      );
+      // ONE RING (UR-82). There used to be a second, softer stroke 3 px outside
+      // this one, added so the state stayed legible against both the bright and
+      // the dark half of a gradient. On a dark panel the two are the same gold
+      // at two alphas, 3 px apart, and they read as exactly what the project
+      // owner called them: a double highlight. Legibility against a light
+      // background is the RING WIDTH's job, not a second ring's.
     };
 
     const wasHidden = !this.visible || this.box.w === 0;

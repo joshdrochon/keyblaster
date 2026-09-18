@@ -10,6 +10,11 @@ import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { uiText } from "@game/ui/text";
 import type { MenuKey } from "@game/ui/i18n";
 
+/** The avatar disc on a pilot row. */
+const GLYPH_PX = 84;
+/** Room reserved at a row's right edge for the lit-beacon mark. */
+const BEACON_ROOM_PX = 112;
+
 /**
  * SCREEN 1b - PROFILE PICKER (design brief screen inventory row "Profile
  * picker": 1 profile / several / none).
@@ -110,8 +115,58 @@ export class ProfilePickerScene extends MenuScene {
     this.setControls(this.rows);
   }
 
+  /**
+   * How wide the list has to be to hold its own words, and no wider (UR-82).
+   *
+   * The rows were a flat 1180 px - the screen's whole column - for content that
+   * is a name and four words of detail. A list whose rows are three times the
+   * length of anything in them reads as an empty table, and the focus ring is
+   * then a 1180 px rectangle drawn around a word.
+   *
+   * MEASURED, NOT ESTIMATED. The strings are a child's own pilot name in
+   * whatever language the menu is in, so the only honest width is what the same
+   * `uiText` call that draws them reports. The probes are destroyed before
+   * anything is built; `TYPE.body` and `TYPE.caption` here are the two sizes
+   * `ListRow` uses for a title and a detail, and `GLYPH` is its avatar.
+   */
+  private naturalRowWidth(labels: readonly string[], details: readonly string[]): number {
+    const measure = (text: string, size: number): number => {
+      const probe = uiText(this, -4000, -4000, text, {
+        size,
+        lang: this.uiStyle.lang,
+        uppercase: this.uiStyle.uppercase,
+        increasedLetterSpacing: this.uiStyle.increasedLetterSpacing,
+      });
+      const w = probe.width;
+      probe.destroy();
+      return w;
+    };
+    let widest = 0;
+    for (const t of labels) widest = Math.max(widest, measure(t, TYPE.body));
+    for (const t of details) widest = Math.max(widest, measure(t, TYPE.caption));
+    const textLeft = SPACE.rowPadX + GLYPH_PX + SPACE.gap;
+    return Math.ceil(textLeft + widest + SPACE.rowPadX);
+  }
+
   private buildList(profiles: readonly Profile[]): void {
-    const width = Math.min(1180, GAME_WIDTH - SPACE.gutter * 2);
+    const detailOf = (profile: Profile): string => {
+      const stop = furthestBeacon(profile);
+      return stop === null
+        ? this.t.t("ui.pick.noBeacons")
+        : this.t.t("ui.pick.furthest", { stop: this.t.t(`ui.stop.${stop}` as MenuKey) });
+    };
+    const newPilotLabel = this.t.t("ui.pick.newPilot");
+    // THE BEACON NEEDS ITS OWN ROOM. It is drawn at the row's right edge, so on
+    // a row sized to its text it would land on the words. Only paid for when a
+    // profile actually has one.
+    const anyBeacon = profiles.some((p) => furthestBeacon(p) !== null);
+    const width = Math.min(
+      GAME_WIDTH - SPACE.gutter * 2,
+      this.naturalRowWidth(
+        [...profiles.map((p) => p.name), newPilotLabel],
+        profiles.map(detailOf),
+      ) + (anyBeacon ? BEACON_ROOM_PX : 0),
+    );
     // Shadow stands beside the list, not in it. The "several" variant is the
     // busiest this screen gets, so he moves out of the column.
     this.shadows.push(
@@ -128,15 +183,36 @@ export class ProfilePickerScene extends MenuScene {
     this.profileIds = [];
     let y = 250;
 
+    // NEW PILOT IS THE FIRST ROW, NOT THE LAST (UR-82).
+    //
+    // It was under the list, which reads as an afterthought and puts the one
+    // action a first-time visitor needs at the bottom of a column of things
+    // that are not theirs. It is also the only row whose meaning does not
+    // depend on reading the ones above it.
+    //
+    // SAME WIDTH AS THE ROWS, so the column has one right edge as well as one
+    // left one - a button two thirds the width of the list above it is the
+    // ragged edge this project has spent the night removing.
+    const create = new MenuButton(
+      this,
+      this.uiStyle,
+      "pick.new",
+      SPACE.gutter,
+      y,
+      this.depth,
+      {
+        label: newPilotLabel,
+        minWidth: width,
+        onPress: () => this.goTo(SCENE_KEYS.profileCreate),
+      },
+    );
+    controls.push(create);
+    y += create.ringBounds().h + SPACE.gap;
+
     for (const profile of profiles) {
       const livery = liveryFor(profile);
       const stop = furthestBeacon(profile);
-      const detail =
-        stop === null
-          ? this.t.t("ui.pick.noBeacons")
-          : this.t.t("ui.pick.furthest", {
-              stop: this.t.t(`ui.stop.${stop}` as MenuKey),
-            });
+      const detail = detailOf(profile);
 
       const row = new ListRow(
         this,
@@ -150,7 +226,7 @@ export class ProfilePickerScene extends MenuScene {
           detail,
           width,
           role: "listitem",
-          glyphSize: 84,
+          glyphSize: GLYPH_PX,
           glyph: (scene, gx, gy) =>
             drawAvatar(scene, gx, gy, 84, profile.avatar, livery.stripe),
           onPress: () => this.fly(profile.id),
@@ -164,7 +240,7 @@ export class ProfilePickerScene extends MenuScene {
       if (stop !== null && isStopId(stop)) {
         const beacon = drawBeacon(
           this,
-          SPACE.gutter + width - 92,
+          SPACE.gutter + width - BEACON_ROOM_PX + 20,
           y + row.ringBounds().h / 2,
           72,
           this.app.palette(stop).accent,
@@ -176,21 +252,6 @@ export class ProfilePickerScene extends MenuScene {
 
       y += row.ringBounds().h + SPACE.gap;
     }
-
-    const create = new MenuButton(
-      this,
-      this.uiStyle,
-      "pick.new",
-      SPACE.gutter,
-      y + SPACE.gap,
-      this.depth,
-      {
-        label: this.t.t("ui.pick.newPilot"),
-        minWidth: 320,
-        onPress: () => this.goTo(SCENE_KEYS.profileCreate),
-      },
-    );
-    controls.push(create);
 
     this.rows = controls;
     this.setControls(controls);

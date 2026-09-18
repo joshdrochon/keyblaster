@@ -92,8 +92,8 @@ function copy(key: string): string {
  * importing the whole module. The test below asserts they still match.
  */
 const UI_COMMON: Record<string, string> = {
-  "ui.common.hintKeys": "arrows to move · enter to choose · esc to go back",
-  "ui.common.hintAdjust": "left and right to change",
+  "ui.common.hintKeys": "Arrows to move · enter to choose · esc to go back",
+  "ui.common.hintAdjust": "Left and Right to Change",
 };
 
 describe("the hint copy this file reasons about is the copy that ships", () => {

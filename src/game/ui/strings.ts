@@ -27,37 +27,37 @@ import type { Lang } from "@engine/types";
 
 export const UI_EN = {
   // --- shared chrome -------------------------------------------------------
-  "ui.common.hintKeys": "arrows to move · enter to choose · esc to go back", // i18n-ignore
-  "ui.common.hintAdjust": "left and right to change", // i18n-ignore
-  "ui.common.cancel": "cancel", // i18n-ignore
-  "ui.common.on": "on", // i18n-ignore
-  "ui.common.off": "off", // i18n-ignore
+  "ui.common.hintKeys": "Arrows to move · enter to choose · esc to go back", // i18n-ignore
+  "ui.common.hintAdjust": "Left and Right to Change", // i18n-ignore
+  "ui.common.cancel": "Cancel", // i18n-ignore
+  "ui.common.on": "On", // i18n-ignore
+  "ui.common.off": "Off", // i18n-ignore
   "ui.common.percent": "{percent}%", // i18n-ignore
 
   // --- 1b profile picker ---------------------------------------------------
-  "ui.pick.newPilot": "new pilot", // i18n-ignore
-  "ui.pick.furthest": "furthest beacon: {stop}", // i18n-ignore
-  "ui.pick.noBeacons": "no beacons yet", // i18n-ignore
-  "ui.pick.none": "no pilots yet — make the first one", // i18n-ignore
-  "ui.pick.fly": "fly", // i18n-ignore
-  "ui.pick.remove": "remove pilot", // i18n-ignore
-  "ui.pick.removeAsk": "remove {name}? their beacons go too.", // i18n-ignore
-  "ui.pick.removeYes": "remove pilot", // i18n-ignore
-  "ui.pick.removeNo": "keep pilot", // i18n-ignore
+  "ui.pick.newPilot": "New Pilot", // i18n-ignore
+  "ui.pick.furthest": "Furthest Beacon: {stop}", // i18n-ignore
+  "ui.pick.noBeacons": "No Beacons Yet", // i18n-ignore
+  "ui.pick.none": "No pilots yet — make the first one", // i18n-ignore
+  "ui.pick.fly": "Fly", // i18n-ignore
+  "ui.pick.remove": "Remove Pilot", // i18n-ignore
+  "ui.pick.removeAsk": "Remove {name}? their beacons go too.", // i18n-ignore
+  "ui.pick.removeYes": "Remove Pilot", // i18n-ignore
+  "ui.pick.removeNo": "Keep Pilot", // i18n-ignore
 
   // --- 2 profile create ----------------------------------------------------
-  "ui.create.step": "step {n} of {total}", // i18n-ignore
-  "ui.create.chooseLook": "choose your look", // i18n-ignore
-  "ui.create.typeName": "type your name", // i18n-ignore
-  "ui.create.typeShipName": "type a name for your ship", // i18n-ignore
-  "ui.create.next": "next", // i18n-ignore
-  "ui.create.launch": "take off", // i18n-ignore
-  "ui.create.skins": "skins", // i18n-ignore
-  "ui.create.unlockBeacons": "unlocks after {n} beacons", // i18n-ignore
-  "ui.create.unlockStars": "unlocks at your first 3-star stop", // i18n-ignore
-  "ui.create.unlockChain25": "unlocks at a 25 chain", // i18n-ignore
-  "ui.create.unlockChain50": "unlocks at a 50 chain", // i18n-ignore
-  "ui.create.unlockRetention": "unlocks when you remember a whole word set", // i18n-ignore
+  "ui.create.step": "Step {n} of {total}", // i18n-ignore
+  "ui.create.chooseLook": "Choose Your Look", // i18n-ignore
+  "ui.create.typeName": "Type Your Name", // i18n-ignore
+  "ui.create.typeShipName": "Type a name for your ship", // i18n-ignore
+  "ui.create.next": "Next", // i18n-ignore
+  "ui.create.launch": "Take Off", // i18n-ignore
+  "ui.create.skins": "Skins", // i18n-ignore
+  "ui.create.unlockBeacons": "Unlocks After {n} Beacons", // i18n-ignore
+  "ui.create.unlockStars": "Unlocks at your first 3-star stop", // i18n-ignore
+  "ui.create.unlockChain25": "Unlocks at a 25 Chain", // i18n-ignore
+  "ui.create.unlockChain50": "Unlocks at a 50 Chain", // i18n-ignore
+  "ui.create.unlockRetention": "Unlocks when you remember a whole word set", // i18n-ignore
 
   // --- ships and skins (D79) ----------------------------------------------
   "ui.ship.ship-1": "sparrow", // i18n-ignore
@@ -78,97 +78,97 @@ export const UI_EN = {
   "ui.avatar.avatar-6": "wave", // i18n-ignore
 
   // --- stops ---------------------------------------------------------------
-  "ui.stop.earth": "earth", // i18n-ignore
-  "ui.stop.mars": "mars", // i18n-ignore
-  "ui.stop.jupiter": "jupiter", // i18n-ignore
-  "ui.stop.saturn": "saturn", // i18n-ignore
-  "ui.stop.uranus": "uranus", // i18n-ignore
-  "ui.stop.neptune": "neptune", // i18n-ignore
-  "ui.stop.pluto": "pluto", // i18n-ignore
+  "ui.stop.earth": "Earth", // i18n-ignore
+  "ui.stop.mars": "Mars", // i18n-ignore
+  "ui.stop.jupiter": "Jupiter", // i18n-ignore
+  "ui.stop.saturn": "Saturn", // i18n-ignore
+  "ui.stop.uranus": "Uranus", // i18n-ignore
+  "ui.stop.neptune": "Neptune", // i18n-ignore
+  "ui.stop.pluto": "Pluto", // i18n-ignore
 
   // --- 10 beacon log -------------------------------------------------------
-  "ui.log.heading": "beacon log", // i18n-ignore
-  "ui.log.beacons": "beacons", // i18n-ignore
-  "ui.log.trophies": "trophies", // i18n-ignore
+  "ui.log.heading": "Beacon Log", // i18n-ignore
+  "ui.log.beacons": "Beacons", // i18n-ignore
+  "ui.log.trophies": "Trophies", // i18n-ignore
   "ui.log.lit": "{n} of {total} lit", // i18n-ignore
-  "ui.log.notLit": "not lit yet", // i18n-ignore
+  "ui.log.notLit": "Not Lit Yet", // i18n-ignore
   "ui.log.coords": "λ {lam}°   β {beta}°   r {r} au", // i18n-ignore
-  "ui.log.emptyShadow": "only earth is lit. six more are waiting for us.", // i18n-ignore
-  "ui.log.earned": "earned", // i18n-ignore
-  "ui.log.notYet": "not yet", // i18n-ignore
+  "ui.log.emptyShadow": "Only earth is lit. six more are waiting for us.", // i18n-ignore
+  "ui.log.earned": "Earned", // i18n-ignore
+  "ui.log.notYet": "Not Yet", // i18n-ignore
   "ui.log.trophyCount": "{n} of {total} earned", // i18n-ignore
 
   // --- trophies (D80 / AC-6d.1c) ------------------------------------------
-  "ui.trophy.firstLight": "first light", // i18n-ignore
-  "ui.trophy.firstLight.how": "light earth's beacon", // i18n-ignore
-  "ui.trophy.pathfinder": "pathfinder", // i18n-ignore
-  "ui.trophy.pathfinder.how": "place your first beacon", // i18n-ignore
-  "ui.trophy.beltRunner": "belt runner", // i18n-ignore
-  "ui.trophy.beltRunner.how": "cross the main belt without a scratch", // i18n-ignore
-  "ui.trophy.ringWeaver": "ring weaver", // i18n-ignore
-  "ui.trophy.ringWeaver.how": "three stars at saturn", // i18n-ignore
-  "ui.trophy.chain25": "chain 25", // i18n-ignore
+  "ui.trophy.firstLight": "First Light", // i18n-ignore
+  "ui.trophy.firstLight.how": "Light Earth's Beacon", // i18n-ignore
+  "ui.trophy.pathfinder": "Pathfinder", // i18n-ignore
+  "ui.trophy.pathfinder.how": "Place Your First Beacon", // i18n-ignore
+  "ui.trophy.beltRunner": "Belt Runner", // i18n-ignore
+  "ui.trophy.beltRunner.how": "Cross the main belt without a scratch", // i18n-ignore
+  "ui.trophy.ringWeaver": "Ring Weaver", // i18n-ignore
+  "ui.trophy.ringWeaver.how": "Three Stars at Saturn", // i18n-ignore
+  "ui.trophy.chain25": "Chain 25", // i18n-ignore
   "ui.trophy.chain25.how": "25 words in a row", // i18n-ignore
-  "ui.trophy.chain50": "chain 50", // i18n-ignore
+  "ui.trophy.chain50": "Chain 50", // i18n-ignore
   "ui.trophy.chain50.how": "50 words in a row", // i18n-ignore
-  "ui.trophy.sharpEye": "sharp eye", // i18n-ignore
-  "ui.trophy.sharpEye.how": "clear a belt where two rocks start the same", // i18n-ignore
-  "ui.trophy.steadyHull": "steady hull", // i18n-ignore
-  "ui.trophy.steadyHull.how": "three clean stops in a row", // i18n-ignore
-  "ui.trophy.longMemory": "long memory", // i18n-ignore
-  "ui.trophy.longMemory.how": "remember every word that came back", // i18n-ignore
-  "ui.trophy.mapMaker": "map maker", // i18n-ignore
-  "ui.trophy.mapMaker.how": "light all seven beacons", // i18n-ignore
-  "ui.trophy.darkSide": "dark side", // i18n-ignore
-  "ui.trophy.darkSide.how": "three stars at uranus", // i18n-ignore
-  "ui.trophy.lastLight": "last light", // i18n-ignore
-  "ui.trophy.lastLight.how": "place the beacon at pluto", // i18n-ignore
+  "ui.trophy.sharpEye": "Sharp Eye", // i18n-ignore
+  "ui.trophy.sharpEye.how": "Clear a belt where two rocks start the same", // i18n-ignore
+  "ui.trophy.steadyHull": "Steady Hull", // i18n-ignore
+  "ui.trophy.steadyHull.how": "Three clean stops in a row", // i18n-ignore
+  "ui.trophy.longMemory": "Long Memory", // i18n-ignore
+  "ui.trophy.longMemory.how": "Remember every word that came back", // i18n-ignore
+  "ui.trophy.mapMaker": "Map Maker", // i18n-ignore
+  "ui.trophy.mapMaker.how": "Light All Seven Beacons", // i18n-ignore
+  "ui.trophy.darkSide": "Dark Side", // i18n-ignore
+  "ui.trophy.darkSide.how": "Three Stars at Uranus", // i18n-ignore
+  "ui.trophy.lastLight": "Last Light", // i18n-ignore
+  "ui.trophy.lastLight.how": "Place the Beacon at Pluto", // i18n-ignore
 
   // --- 11 settings ---------------------------------------------------------
-  "ui.settings.heading": "ship controls", // i18n-ignore
-  "ui.settings.hull": "your ship", // i18n-ignore
-  "ui.settings.hullFlying": "flying now", // i18n-ignore
-  "ui.settings.hullEquip": "press enter to fly this one", // i18n-ignore
-  "ui.settings.music": "music", // i18n-ignore
-  "ui.settings.sfx": "sound", // i18n-ignore
-  "ui.settings.keyboardLayout": "keyboard", // i18n-ignore
-  "ui.settings.letterCase": "letter case", // i18n-ignore
-  "ui.settings.letterCaseLower": "small letters", // i18n-ignore
-  "ui.settings.letterCaseUpper": "capital letters", // i18n-ignore
-  "ui.settings.letterSpacing": "wider letters", // i18n-ignore
-  "ui.settings.reducedMotion": "calm motion", // i18n-ignore
-  "ui.settings.colorblind": "colour-safe palette", // i18n-ignore
-  "ui.settings.resetProgress": "reset progress", // i18n-ignore
-  "ui.settings.resetAsk1": "this clears every beacon, trophy and star for {name}. the pilot stays.", // i18n-ignore
-  "ui.settings.resetAsk2": "one more time: clear it all and start the route again?", // i18n-ignore
-  "ui.settings.resetYes": "yes, clear it", // i18n-ignore
-  "ui.settings.resetNo": "keep my progress", // i18n-ignore
-  "ui.settings.resetDone": "progress cleared. earth is still yours to light.", // i18n-ignore
+  "ui.settings.heading": "Ship Controls", // i18n-ignore
+  "ui.settings.hull": "Your Ship", // i18n-ignore
+  "ui.settings.hullFlying": "Flying Now", // i18n-ignore
+  "ui.settings.hullEquip": "Press enter to fly this one", // i18n-ignore
+  "ui.settings.music": "Music", // i18n-ignore
+  "ui.settings.sfx": "Sound", // i18n-ignore
+  "ui.settings.keyboardLayout": "Keyboard", // i18n-ignore
+  "ui.settings.letterCase": "Letter Case", // i18n-ignore
+  "ui.settings.letterCaseLower": "Small Letters", // i18n-ignore
+  "ui.settings.letterCaseUpper": "Capital Letters", // i18n-ignore
+  "ui.settings.letterSpacing": "Wider Letters", // i18n-ignore
+  "ui.settings.reducedMotion": "Calm Motion", // i18n-ignore
+  "ui.settings.colorblind": "Colour-safe Palette", // i18n-ignore
+  "ui.settings.resetProgress": "Reset Progress", // i18n-ignore
+  "ui.settings.resetAsk1": "This clears every beacon, trophy and star for {name}. the pilot stays.", // i18n-ignore
+  "ui.settings.resetAsk2": "One more time: clear it all and start the route again?", // i18n-ignore
+  "ui.settings.resetYes": "Yes, Clear It", // i18n-ignore
+  "ui.settings.resetNo": "Keep My Progress", // i18n-ignore
+  "ui.settings.resetDone": "Progress cleared. earth is still yours to light.", // i18n-ignore
   "ui.settings.layout.qwerty": "qwerty", // i18n-ignore
   "ui.settings.layout.azerty": "azerty", // i18n-ignore
   "ui.settings.layout.qwertz": "qwertz", // i18n-ignore
   "ui.settings.layout.dvorak": "dvorak", // i18n-ignore
-  "ui.settings.lang.en": "english", // i18n-ignore
-  "ui.settings.lang.es": "español", // i18n-ignore
+  "ui.settings.lang.en": "English", // i18n-ignore
+  "ui.settings.lang.es": "Español", // i18n-ignore
   "ui.settings.lang.hi": "हिंदी", // i18n-ignore
-  "ui.settings.inputMethod.latin": "latin keyboard", // i18n-ignore
+  "ui.settings.inputMethod.latin": "Latin Keyboard", // i18n-ignore
 
   // --- 13 pause ------------------------------------------------------------
-  "ui.pause.heading": "paused", // i18n-ignore
-  "ui.pause.resume": "back to the belt", // i18n-ignore
-  "ui.pause.quit": "quit to map", // i18n-ignore
-  "ui.pause.quitAsk": "quit to the map? this belt starts over next time.", // i18n-ignore
-  "ui.pause.quitYes": "quit to map", // i18n-ignore
-  "ui.pause.quitNo": "keep flying", // i18n-ignore
+  "ui.pause.heading": "Paused", // i18n-ignore
+  "ui.pause.resume": "Back to the Belt", // i18n-ignore
+  "ui.pause.quit": "Quit to Map", // i18n-ignore
+  "ui.pause.quitAsk": "Quit to the map? this belt starts over next time.", // i18n-ignore
+  "ui.pause.quitYes": "Quit to Map", // i18n-ignore
+  "ui.pause.quitNo": "Keep Flying", // i18n-ignore
 
   // --- 13 toasts -----------------------------------------------------------
-  "ui.toast.trophy": "trophy earned — {name}", // i18n-ignore
-  "ui.toast.skin": "new skin — {name}", // i18n-ignore
+  "ui.toast.trophy": "Trophy Earned — {name}", // i18n-ignore
+  "ui.toast.skin": "New Skin — {name}", // i18n-ignore
 
   // --- 14 notices (AC-18.4) ------------------------------------------------
-  "ui.notice.fresh": "we could not read the old save, so this one starts fresh.", // i18n-ignore
-  "ui.notice.repaired": "we tidied up the save. your beacons are still here.", // i18n-ignore
-  "ui.notice.writeFailed": "we cannot save right now, but you can keep flying.", // i18n-ignore
+  "ui.notice.fresh": "We could not read the old save, so this one starts fresh.", // i18n-ignore
+  "ui.notice.repaired": "We tidied up the save. your beacons are still here.", // i18n-ignore
+  "ui.notice.writeFailed": "We cannot save right now, but you can keep flying.", // i18n-ignore
 } as const;
 
 /** Every key this lane adds on top of the engine table. */

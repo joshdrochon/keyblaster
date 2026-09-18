@@ -143,12 +143,14 @@ describe("UR-75: the focus ring appears on the new control, it does not travel",
 
   it("leaves the old control at once: one ring is drawn, never two", () => {
     // `clear()` empties `strokes`, so a ring that painted the old box and the
-    // new one in the same frame would leave four rects here rather than two
-    // (the class draws the ring plus its softer halo).
+    // new one in the same frame would leave two rects here rather than one.
+    //
+    // ONE, not two, since UR-82: the softer second stroke 3 px outside the
+    // first was the same gold at two alphas and read as a double highlight.
     const ring = new FocusRing(scene as never, 10);
     ring.moveTo(100, 100, 200, 60);
     ring.moveTo(600, 400, 320, 80);
-    expect(strokes).toHaveLength(2);
+    expect(strokes).toHaveLength(1);
   });
 
   it("fades up on arrival rather than snapping to full opacity", () => {
