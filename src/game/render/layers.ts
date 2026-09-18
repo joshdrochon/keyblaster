@@ -47,19 +47,37 @@ export interface LayerSpec {
   readonly depth: number;
   /** True if the layer drifts even when the world is not scrolling (rubric 2). */
   readonly idleDrift: boolean;
+  /**
+   * True when everything on this layer is SEEDED DECORATION: silhouettes, dust,
+   * motes, the stop's light. Their positions come from the palette's seed, not
+   * from a layout, so none of them has a left edge that anything is aligned to.
+   *
+   * DECLARED HERE, beside `speed` and `depth`, because the alignment census has
+   * to tell decoration from composition and this table is the only place that
+   * already knows. When it did not, the census counted a 59 px rock at 1794 and
+   * a 51 px rock at 1798 as a near-miss pair on the Ending, and did that eight
+   * times across nine screens - most of what it reported was weather.
+   *
+   * THE THREE FALSE ENTRIES ARE THE POINT. `debris` carries the rocks a child
+   * types at and their word plates; `shipFx` carries the Lantern; `hud` is
+   * where scenes park their own type - the Ending's headline lives there. A
+   * blanket "the parallax stack is decor" would have exempted all three, which
+   * is a guard exempting the game.
+   */
+  readonly decor: boolean;
   readonly note: string;
 }
 
 export const LAYERS: readonly LayerSpec[] = [
-  { id: "sky",        speed: 0.00, depth: 0, idleDrift: false, note: "vertical gradient, shifts across the stage (rubric 3)" },
-  { id: "celestial",  speed: 0.05, depth: 1, idleDrift: false, note: "the stop's planet, large and partially framed, soft radial glow" },
-  { id: "farField",   speed: 0.15, depth: 2, idleDrift: false, note: "distant silhouette band, one flat palette colour" },
-  { id: "midField",   speed: 0.35, depth: 3, idleDrift: true,  note: "second silhouette band plus drifting dust shapes" },
-  { id: "debris",     speed: 1.00, depth: 4, idleDrift: false, note: "the rocks and their word plates; fall speed per D19" },
-  { id: "nearField",  speed: 1.30, depth: 5, idleDrift: true,  note: "foreground motes and glints, blurred by size not filter" },
-  { id: "shipFx",     speed: 1.00, depth: 6, idleDrift: true,  note: "the Lantern, beam, blast and strike; camera micro-sway" },
-  { id: "foreVeil",   speed: 1.80, depth: 6.5, idleDrift: true, note: "the only world layer IN FRONT of the ship: the stop's own veil and its nearest silhouettes" },
-  { id: "hud",        speed: 0.00, depth: 7, idleDrift: false, note: "own contrast plate, never over debris" },
+  { id: "sky",        speed: 0.00, depth: 0, idleDrift: false, decor: true,  note: "vertical gradient, shifts across the stage (rubric 3)" },
+  { id: "celestial",  speed: 0.05, depth: 1, idleDrift: false, decor: true,  note: "the stop's planet, large and partially framed, soft radial glow" },
+  { id: "farField",   speed: 0.15, depth: 2, idleDrift: false, decor: true,  note: "distant silhouette band, one flat palette colour" },
+  { id: "midField",   speed: 0.35, depth: 3, idleDrift: true,  decor: true,  note: "second silhouette band plus drifting dust shapes" },
+  { id: "debris",     speed: 1.00, depth: 4, idleDrift: false, decor: false, note: "the rocks and their word plates; fall speed per D19" },
+  { id: "nearField",  speed: 1.30, depth: 5, idleDrift: true,  decor: true,  note: "foreground motes and glints, blurred by size not filter" },
+  { id: "shipFx",     speed: 1.00, depth: 6, idleDrift: true,  decor: false, note: "the Lantern, beam, blast and strike; camera micro-sway" },
+  { id: "foreVeil",   speed: 1.80, depth: 6.5, idleDrift: true, decor: true,  note: "the only world layer IN FRONT of the ship: the stop's own veil and its nearest silhouettes" },
+  { id: "hud",        speed: 0.00, depth: 7, idleDrift: false, decor: false, note: "own contrast plate, never over debris" },
 ];
 
 /** Layers that actually scroll, i.e. the ones AC-22.1 counts. */

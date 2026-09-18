@@ -2,7 +2,8 @@ import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { hexToNum, mixHex, paletteAt } from "@game/render/palette";
 import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
-import { INK, TYPE } from "@game/ui/theme";
+import { INK, SPACE, STEP, TYPE } from "@game/ui/theme";
+import { paintPlate } from "@game/ui/plate";
 import { HULL } from "@game/ui/panel";
 import type { Rect } from "@game/ui/layout";
 import {
@@ -418,14 +419,22 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
       // below AC-22.8's 4.5:1 - because the sky-borne contrast sweep only ever
       // looked at text drawn over the WORLD, and this sits on a plate the scene
       // drew itself. Same bar, whatever it is printed on.
-      build("eyebrow", text.text("briefing.heading"), TYPE.caption, INK.textDim, 14, "header"),
-      build("planet", this.bundle.planetName, TYPE.heading, INK.text, 12, "header"),
-      build("chapter", this.bundle.chapterTitle, TYPE.label, accent, 40, "header"),
+      // EVERY GAP ON THIS PAGE IS A `STEP` (UR-69). They were 14, 12, 40, 16
+      // and 0: two of them on the scale by luck and two not on it at all. The
+      // eyebrow and the planet name are one masthead, so they close up to
+      // `STEP.tight`; the chapter title ends the masthead, so `STEP.pad` opens
+      // the body under it; the paragraphs are separated by `STEP.tight`, which
+      // is the only direction this page may move - `briefingLayout` derives the
+      // page's height from these rows, and a LOOSER gap is how the briefing
+      // that fit at Mars collided at five other stops.
+      build("eyebrow", text.text("briefing.heading"), TYPE.caption, INK.textDim, STEP.tight, "header"),
+      build("planet", this.bundle.planetName, TYPE.heading, INK.text, STEP.tight, "header"),
+      build("chapter", this.bundle.chapterTitle, TYPE.label, accent, STEP.pad, "header"),
       // `text.fill`, not the raw sentence: Earth's opening line carries C07's
       // `{shipName}` token and `stageBundle` hands the prose over unbound, so
       // the first briefing in the game printed "{shipName}" at a child.
       ...this.bundle.briefing.map((sentence, i) =>
-        build(`sentence-${i}`, text.fill(sentence), 36, INK.text, 16),
+        build(`sentence-${i}`, text.fill(sentence), TYPE.prose, INK.text, STEP.tight),
       ),
       // THE FOOTER IS THE LAST BLOCK IN THE FLOW, not a pinned y. That single
       // change is what makes UR-20 impossible rather than fixed.
@@ -439,14 +448,38 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
       if (at !== undefined) block.obj.setPosition(at.x, at.y);
     }
 
+    // THE PAGE, ON THE SHARED PLATE (UR-69, standards rule 1).
+    //
+    // Three bespoke rounded rects until now; two of them were the last two
+    // entries on `platePainters.BLOCKED_ON_ANOTHER_LANE`, which is now empty.
+    // Every number that was written here is a token: the shadow's offset is
+    // `STEP.hair` across and `STEP.tight` down, the corner is `SPACE.radiusCard`
+    // - the same one the Title's primary button draws - and the spine is a pill
+    // rather than a rect with a hand-picked 4.
     const g = this.add.graphics().setDepth(17);
-    g.fillStyle(hexToNum(INK.bgDeep), 0.5);
-    g.fillRoundedRect(laid.page.x + 8, laid.page.y + 12, laid.page.w, laid.page.h, 26);
-    g.fillStyle(hexToNum(paper), 1);
-    g.fillRoundedRect(laid.page.x, laid.page.y, laid.page.w, laid.page.h, 26);
+    paintPlate(
+      g,
+      { x: laid.page.x + STEP.hair, y: laid.page.y + STEP.tight, w: laid.page.w, h: laid.page.h },
+      { fill: INK.bgDeep, alpha: 0.5, radius: SPACE.radiusCard, strokeWidth: 0 },
+    );
+    paintPlate(
+      g,
+      { x: laid.page.x, y: laid.page.y, w: laid.page.w, h: laid.page.h },
+      { fill: paper, radius: SPACE.radiusCard, strokeWidth: 0 },
+    );
     // A single ribbon of the stop's accent down the spine. No rules, no grid.
-    g.fillStyle(hexToNum(accent), 0.85);
-    g.fillRoundedRect(laid.page.x + 34, laid.page.y + 34, 8, laid.page.h - 68, 4);
+    // Inset one `STEP.inset` from the page's edge on all four sides, which is
+    // the 34 that used to be written twice and subtracted once as 68.
+    paintPlate(
+      g,
+      {
+        x: laid.page.x + STEP.inset,
+        y: laid.page.y + STEP.inset,
+        w: STEP.hair,
+        h: laid.page.h - STEP.inset * 2,
+      },
+      { fill: accent, alpha: 0.85, corner: "pill", strokeWidth: 0 },
+    );
 
     // NO CAPTION OVER THE GLASS (UR-50.3). There used to be a "through the
     // window" label here, on the hull above the window, and it was the only

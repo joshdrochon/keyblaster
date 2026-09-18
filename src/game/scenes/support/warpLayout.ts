@@ -134,9 +134,28 @@ const CARD_W = 1728;
  */
 const PANEL_Y = 236;
 
-/** The sentence's type size and the step between its wrapped lines. */
-export const SENTENCE_PX = 52;
-export const SENTENCE_STEP = SENTENCE_PX + 16;
+/**
+ * The sentence's type size and the step between its wrapped lines.
+ *
+ * `TYPE.sentence`, not the literal 52 it used to be. It is the same number -
+ * the scale was extended to name the sizes the world screens were already
+ * drawing at - and naming it is what puts the line a child TYPES on the same
+ * list as everything else, where `nearMissEdges.test.ts` checks it.
+ *
+ * THE LEADING IS STILL 16 AND IS STILL NOT ON `STEP`. Named, not fixed.
+ * The scale's neighbours are 12 and 20. Rounding DOWN is the wrong direction -
+ * at 52 px type Devanagari's measured line box is 81 px (`theme.LINE_HEIGHT`),
+ * so 68 is already tighter than a Hindi line wants and 64 is worse. Rounding UP
+ * to 72 is the safe direction and it moves the card's derived height, which
+ * three of `warpLayout.test.ts`'s UR-70 cases pin to the pixel - the hole
+ * between "destination: saturn" and the sentence is what those numbers exist to
+ * hold. Changing them to buy one number off the scale, in a lane whose subject
+ * is LEFT edges, is not a trade worth making tonight. It is in
+ * gauntlet/escalations.md.
+ */
+export const SENTENCE_PX = TYPE.sentence;
+export const SENTENCE_LEADING = 16;
+export const SENTENCE_STEP = SENTENCE_PX + SENTENCE_LEADING;
 
 /**
  * The most lines the card is built to hold.
@@ -148,7 +167,7 @@ export const SENTENCE_STEP = SENTENCE_PX + 16;
 export const SENTENCE_MAX_LINES = 2;
 
 /** The sentence block at its worst case: two lines, without trailing leading. */
-const SENTENCE_BLOCK = SENTENCE_MAX_LINES * SENTENCE_STEP - 16;
+const SENTENCE_BLOCK = SENTENCE_MAX_LINES * SENTENCE_STEP - SENTENCE_LEADING;
 
 /** The card's rows, in order, as the heights the rhythm lays out. */
 const PANEL_ROWS: readonly number[] = [

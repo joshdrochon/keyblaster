@@ -174,11 +174,35 @@ export function paintFocusRing(
   g: Phaser.GameObjects.Graphics,
   rect: Rect,
   accent: string,
-  options: { readonly radius?: number; readonly halo?: string } = {},
+  options: {
+    readonly radius?: number;
+    readonly halo?: string;
+    /**
+     * How far outside the control the ring sits. A PROP because the Title's
+     * column budget is measured against a 14 px reach (`titleStack.FOCUS_PAD`)
+     * while the menu kit's rows use `SPACE.focusRingOffset`; a component whose
+     * one hard-coded offset forces a screen to draw its own ring is the defect
+     * UR-69 is about.
+     */
+    readonly offset?: number;
+  } = {},
 ): void {
-  const o = SPACE.focusRingOffset;
-  const radius = (options.radius ?? SPACE.radius) + o;
+  const o = options.offset ?? SPACE.focusRingOffset;
+  /**
+   * The ring is CONCENTRIC with the control: the control's own radius plus how
+   * far the ring stands off it, clamped so it can never exceed half the shorter
+   * side and turn the corner inside out.
+   *
+   * Derived rather than passed as a finished number, which is what the Title
+   * used to do - `item.id === "primary" ? 34 : 14`, two radii picked by eye for
+   * two controls whose plates are 26 and 16. A ring that is not concentric with
+   * the thing it is around reads as a second, wrong-shaped border.
+   */
   const ring: Rect = { x: rect.x - o, y: rect.y - o, w: rect.w + o * 2, h: rect.h + o * 2 };
+  const radius = Math.min(
+    (options.radius ?? SPACE.radius) + o,
+    Math.min(ring.w, ring.h) / 2,
+  );
   g.lineStyle(SPACE.focusRingWidth, hexToNum(accent), 1);
   g.strokeRoundedRect(ring.x, ring.y, ring.w, ring.h, radius);
   // The soft second pass. Wider and barely there, so the ring reads as lit

@@ -1,10 +1,11 @@
 import type { WordRecord } from "../types.js";
 import type { Allowlist } from "../allowlist/index.js";
+import type { LengthBias } from "../controller/knobs.js";
 import { checkWord, normalizeWord } from "../allowlist/index.js";
 import { type WordBook, isEligible, recordFor } from "../words/index.js";
 import { weightedPick } from "./sample.js";
 import { sharedPrefixUnlocked } from "./tier.js";
-import { firstLetter, isGuaranteedCatch, weightOf } from "./weights.js";
+import { biasedWeightOf, firstLetter, isGuaranteedCatch } from "./weights.js";
 
 /**
  * The picker (D21, D22, D23, D25; PRD FR-9, AC-2.1, AC-2.2; architecture 4.2).
@@ -154,6 +155,16 @@ export interface PickContext {
   readonly lastSeenStage?: Readonly<Record<string, number>>;
   /** Injected randomness, [0, 1). The engine never calls Math.random. */
   readonly rng: () => number;
+  /**
+   * FR-10's secondary knob (UR-79). Omitted or 0 means the neutral mix, which
+   * is byte-identical to the behaviour before the knob was read at all, so a
+   * caller that does not pass it loses nothing it used to have.
+   *
+   * See `weights.lengthWeightFactor` for why this is a weight and not a
+   * filter: a filter could empty the final cascade rung, and the totality
+   * proof at the top of this file depends on it never being empty.
+   */
+  readonly lengthBias?: LengthBias;
 }
 
 export interface Picked {
@@ -315,7 +326,11 @@ export function pickNext(state: SelectionState, context: PickContext): PickOutco
 
   for (const attempt of cascade(forcedCatch, preferred, other)) {
     const candidates = candidatesFor(attempt, state, context, used, blocked, live);
-    const word = weightedPick(candidates, (w) => weightOf(context.book[w]), context.rng);
+    const word = weightedPick(
+      candidates,
+      (w) => biasedWeightOf(w, context.book[w], context.lengthBias ?? 0),
+      context.rng,
+    );
     if (word === undefined) continue;
     return commit(word, attempt, state, context, used, forcedCatch, preferred);
   }

@@ -1265,6 +1265,15 @@ export class FlightScene extends Phaser.Scene {
       live: this.rocks.map((r) => r.word),
       book: this.book,
       rng: this.rng,
+      // FR-10's SECOND KNOB, FINALLY READ BY SOMETHING (UR-79/AC-10.4).
+      // `lengthBias` was moved by the controller, persisted, and repaired by
+      // the schema - and nothing anywhere consumed it, so half of FR-10's
+      // authority had been inert since it was written. `@engine/selection`
+      // weights by it now; this is the line that hands it over. A neutral knob
+      // is byte-identical to the old behaviour (`lengthWeightFactor` returns
+      // exactly 1 at bias 0), so this can only matter where the controller
+      // has actually formed an opinion.
+      lengthBias: this.controller.knobs.lengthBias,
     });
     if (!outcome.ok) {
       // "no-legal-word" means "do not spawn on this tick", never "stuck": it

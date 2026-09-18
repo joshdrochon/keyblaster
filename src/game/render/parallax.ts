@@ -357,6 +357,17 @@ export interface ParallaxOptions {
   readonly crossDrift?: boolean;
 }
 
+/**
+ * The name every parallax layer container carries.
+ *
+ * ONE STRING, exported, because two readers depend on it: the alignment census
+ * in `scripts/contact-sheet.mjs`, which classifies what it walks, and
+ * `tests/unit/ui/nearMissEdges.test.ts`, which fails if a census arrives with
+ * no decor in it at all - a classifier that matches nothing would silently
+ * exempt the whole world rather than the decoration.
+ */
+export const DECOR_LAYER_PREFIX = "kb-decor:";
+
 export interface ParallaxLayer {
   readonly spec: LayerSpec;
   readonly container: Phaser.GameObjects.Container;
@@ -583,8 +594,29 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   const light = lightAngleOf(pal);
   const keepClear = options.keepClear;
 
+  /**
+   * EVERY PARALLAX LAYER IS NAMED, AND THE NAME SAYS "DECOR" (UR-69).
+   *
+   * These containers hold the seeded-random world: silhouettes, rocks, dust,
+   * the stop's light. Their positions come from `seed`, not from a layout, so
+   * a rock's left edge is not a line anything is aligned to and never can be.
+   *
+   * The alignment census used to count them anyway - it walks the real display
+   * list and takes any object over 40 px wide - and they were the majority of
+   * what it found. On the Ending, three of the four "near-miss pairs" were a
+   * 59 px rock at 1794, a 51 px rock at 1798 and a 45 px rock at 1803. Naming
+   * the layer is what lets a guard say "this is decor" from the scene graph
+   * itself, instead of from a list of exceptions somebody maintains by hand.
+   */
   const layers: ParallaxLayer[] = LAYERS.map((spec) => {
-    const container = scene.add.container(0, 0).setDepth(spec.depth);
+    const container = scene.add
+      .container(0, 0)
+      .setDepth(spec.depth)
+      // ONLY THE DECORATIVE PLANES take the name. `debris`, `shipFx` and `hud`
+      // carry composed content - the typeable rocks, the Lantern, and whatever
+      // type a scene parks on the HUD plane - and a guard that called those
+      // decoration would be exempting the game from its own alignment model.
+      .setName(spec.decor ? `${DECOR_LAYER_PREFIX}${spec.id}` : "");
     return { spec, container, offsetX: 0, offsetY: 0 };
   });
   const byId = new Map<LayerId, ParallaxLayer>(layers.map((l) => [l.spec.id, l]));
@@ -820,8 +852,13 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
     // against the AC-22.9 budget.
     const nearLightTravels = starsMayTravel("world.nearLight", scene.scene.key);
     let nearLight = n;
+    // The pinned copy takes the DECOR name too: it is the same weather as
+    // `nearField` at a depth of its own, and on the menu screens it is the
+    // largest body of seeded objects on the stage - 30 of them on the Ending -
+    // which is what the alignment census used to report as near misses.
     if (!nearLightTravels) {
       nearLight = scene.add.container(0, 0).setDepth(NEAR_LIGHT_DEPTH);
+      nearLight.setName(`${DECOR_LAYER_PREFIX}nearLight`);
       extras.push(nearLight);
     }
     const lightOps = (ops: readonly TileOp[]): readonly TileOp[] =>

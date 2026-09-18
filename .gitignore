@@ -48,3 +48,4 @@ docs/SUBMIT.md
 
 # Throwaway feel-test builds served on a side port; never committed.
 dist-feel/
+dist-check/

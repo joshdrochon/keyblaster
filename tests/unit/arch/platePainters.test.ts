@@ -128,10 +128,10 @@ const NOT_A_PLATE: Record<string, string> = {
   "PreflightScene.ts::fillRoundedRect(ROW.x + 128, y + 16, ROW.w - 180, 8, 4)":
     "an 8 px DONE BAR across a finished system row. A tick's replacement " +
     "(AC-22b.1 forbids the tick's partner), not a surface.",
-  "TitleScene.ts::fillRoundedRect(0, 152, 10, 8, 4)":
-    "the accent RULE under the wordmark: the beacon beam, laid flat.",
-  "BriefingScene.ts::fillRoundedRect(laid.page.x + 34, laid.page.y + 34, 8, laid.page.h - 68, 4)":
-    "the accent RIBBON down the page's spine. 8 px wide.",
+  // The Title's accent RULE and the briefing page's accent RIBBON used to be
+  // here - "a mark, not a surface". Both are now `plate.paintPlate` with
+  // `corner: "pill"`, which is what a rounded 8 px bar is, so neither needs an
+  // entry: a mark drawn by the shared component is not a bespoke painter.
 
   "typedWord.ts::fillRoundedRect(x, y, Math.max(8, target.width), 5, 3)":
     "the next letter's soft UNDERLINE CUE (art-direction s7). 5 px tall and " +
@@ -162,18 +162,23 @@ const NOT_A_PLATE: Record<string, string> = {
  * case below will not let a fixed one sit here.
  */
 const BLOCKED_ON_ANOTHER_LANE: Record<string, string> = {
-  "TitleScene.ts::fillRoundedRect(0, 0, width, height, 26)":
-    "the menu item's plate. UR-68 (Title lockup spacing) owns this file.",
-  "TitleScene.ts::fillRoundedRect(4, 4, width - 8, height * 0.42, 22)":
-    "the same plate's top-lit facet. UR-68 owns this file.",
-  "TitleScene.ts::strokeRoundedRect( item.root.x - pad, item.root.y - pad, item.width + pad * 2, item.height + pad * 2, item.id === \"primary\" ? 34 : 14, )":
-    "the focus ring, which is `plate.paintFocusRing`. UR-68 owns this file.",
-  "BriefingScene.ts::fillRoundedRect(laid.page.x + 8, laid.page.y + 12, laid.page.w, laid.page.h, 26)":
-    "the page's drop shadow. UR-19 owns `support/briefingLayout.ts` and this " +
-    "scene's header.",
-  "BriefingScene.ts::fillRoundedRect(laid.page.x, laid.page.y, laid.page.w, laid.page.h, 26)":
-    "the picture-book page itself: a card. UR-19 owns this scene's header.",
-};
+  // EMPTY, and that is the point of it existing.
+  //
+  // It held five entries: the Title's primary plate, that plate's lit facet,
+  // the Title's focus ring, and the briefing page's shadow and body. All five
+  // said "UR-68 / UR-19 owns this file" - a real blocker at the time and a
+  // promise that the list was a queue rather than a permission.
+  //
+  // The near-miss alignment lane owns both files now and all five are migrated:
+  // the plates are `plate.paintPlate`, the ring is `plate.paintFocusRing` with
+  // its new `offset` prop, and every radius that was picked by eye at a call
+  // site is `SPACE.radius` or `SPACE.radiusCard`.
+  //
+  // WATCHED FAIL: any one of them restored -
+  //   UR-69 ... > TitleScene.ts
+  //     src/game/scenes/TitleScene.ts: fillRoundedRect(0, 0, width, height, 26)
+  //     paints a plate: expected [ Array(1) ] to deeply equal []
+} as Record<string, string>;
 
 /** A file's code with comments blanked out, so a guard cannot read an excuse. */
 function code(src: string): string {
@@ -273,7 +278,9 @@ describe("UR-69: a scene does not paint its own plate", () => {
         "EarthActivationScene.ts",
         "HudScene.ts",
         "PreflightScene.ts",
-        "TitleScene.ts",
+        // TitleScene.ts IS NOT HERE ANY MORE. It drew four rounded rects - the
+        // primary plate, its facet, the focus ring and the accent rule - and
+        // now draws none: it is the first screen in the game to reach zero.
         "WarpScene.ts",
         // `lib/` is swept too: the shared kit and the flight word plate are
         // where a tenth implementation would be least visible, because they

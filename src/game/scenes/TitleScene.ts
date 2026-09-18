@@ -37,7 +37,8 @@ import { drawPlayerLantern, playerLivery } from "./lib/livery.js";
 import { LANGS, type Lang } from "../../engine/types.js";
 import { SHIPPED_LANGS } from "../../engine/i18n/index.js";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
-import { INK, TYPE, chromeCase } from "@game/ui/theme";
+import { INK, SPACE, STEP, TYPE, chromeCase } from "@game/ui/theme";
+import { paintFocusRing, paintPlate } from "@game/ui/plate";
 import { skyText, skyTextSamples, type SceneSnapshot } from "./lib/kit.js";
 import { WORDMARK_X, WORDMARK_Y, titleKeepClear } from "./support/titleLayout.js";
 import {
@@ -59,6 +60,60 @@ const FONT = '"Avenir Next","Nunito","Trebuchet MS",system-ui,sans-serif';
 
 /** Mark, accent rule and tagline, top to bottom. */
 const LOCKUP_H = 218;
+
+/**
+ * THE COLUMN'S ONE LEFT EDGE (UR-69 near-miss).
+ *
+ * Every block on this screen - the wordmark, the accent rule, the tagline, the
+ * primary button, its status line, the settings control and the language row -
+ * starts HERE, at local x 0 inside a container placed on `WORDMARK_X`.
+ *
+ * It was not that before. The wordmark started at 0, the tagline at 2, the
+ * settings control and the status line at 4, and the language row at 4 - so the
+ * screen drew type at 200, 202 and 204, three left edges inside five pixels of
+ * each other. The census called two of them near-miss pairs; nobody typed 2 and
+ * 4 as a design, they are what is left when a nudge is never taken out.
+ *
+ * ZERO IS A CONSTANT WITH A NAME rather than a literal in six call sites, so
+ * "what is this column's left edge" has one answer and moving it moves all of
+ * them. The tagline and the settings control carry a `skyText` glass plate that
+ * bleeds `SKY_PLATE.padX` further left than the type; that is the plate's own
+ * geometry, it is identical for both of them, and it is not an edge either one
+ * chose.
+ */
+const COLUMN_X = 0;
+
+/**
+ * The gap between "KEY" and "BLASTER", in the wordmark only.
+ *
+ * NOT ON `STEP`, on purpose, and it is the one number in this file that is not.
+ * This is letterform kerning inside a logo - the same argument `FONT` above
+ * makes about the face - and a logo's internal spacing is not the product's
+ * layout rhythm. It is named so a reader can see that it was chosen.
+ */
+const WORDMARK_KERN = 6;
+
+/**
+ * The accent rule under the mark: where it sits and how long it starts.
+ *
+ * `RULE_W` is the SEED width - the rule grows to the mark's measured width on
+ * `EASE.blast` - and its height is `STEP.hair`, which is what the rule was
+ * already drawn at before the number had a name.
+ */
+const RULE_Y = 152;
+const RULE_W = 10;
+
+/**
+ * The lit facet across the top of the primary button: how far in from each edge
+ * it starts, and how much of the button's height it covers.
+ *
+ * The inset was `4` written twice (once as `4`, once as `width - 8`) and the
+ * radius was `22`, which is `SPACE.radiusCard - 4` spelled as a third number.
+ * Named here so the three cannot drift apart, and so the facet stays concentric
+ * if the card radius ever moves.
+ */
+const FACET_INSET = 4;
+const FACET_FRACTION = 0.42;
 
 /**
  * THE MOON IN THE MIDDLE OF THE WORDMARK.
@@ -367,25 +422,31 @@ export class TitleScene extends Phaser.Scene {
     // THE ONE STRING ON THIS SCREEN THAT KEEPS ITS CAPITALS. D41 lowercases
     // chrome; a wordmark is a logo, not chrome, and it is drawn rather than
     // translated - it is the same six letters in every locale.
-    const style = { fontFamily: FONT, fontSize: "128px", fontStyle: "900" };
+    const style = { fontFamily: FONT, fontSize: `${TYPE.wordmark}px`, fontStyle: "900" };
     const key = this.add.text(0, 0, "KEY", { ...style, color: this.accent }).setLetterSpacing(2);
     const blaster = this.add
-      .text(key.width + 6, 0, "BLASTER", { ...style, color: cream })
+      .text(key.width + WORDMARK_KERN, 0, "BLASTER", { ...style, color: cream })
       .setLetterSpacing(2);
     key.setShadow(0, 6, "#00000066", 12, false, true);
     blaster.setShadow(0, 6, "#00000066", 12, false, true);
     c.add([key, blaster]);
 
-    const markW = key.width + blaster.width + 6;
+    const markW = key.width + blaster.width + WORDMARK_KERN;
 
-    // A drawn accent rule under the mark: the beacon beam, laid flat.
+    // A drawn accent rule under the mark: the beacon beam, laid flat. A PILL on
+    // the shared plate component rather than a rounded rect of its own, so its
+    // corner is the component's `pill` (half the shorter side) instead of the 4
+    // that used to be written here.
     const rule = this.add.graphics();
-    rule.fillStyle(hexToNum(this.accent), 1);
-    rule.fillRoundedRect(0, 152, 10, 8, 4);
+    paintPlate(
+      rule,
+      { x: COLUMN_X, y: RULE_Y, w: RULE_W, h: STEP.hair },
+      { fill: this.accent, corner: "pill", strokeWidth: 0 },
+    );
     c.add(rule);
     this.tweens.add({
       targets: rule,
-      scaleX: { from: 1, to: markW / 10 },
+      scaleX: { from: 1, to: markW / RULE_W },
       duration: 700,
       delay: 140,
       ease: EASE.blast,
@@ -394,7 +455,7 @@ export class TitleScene extends Phaser.Scene {
     // The tagline is chrome, so it is lowercase (D41) and on a plate: on a
     // bright stop's sky - Saturn's is near ivory - cream type on open sky is
     // unreadable, and the Title wears the palette of the furthest beacon.
-    const sub = skyText(this, 2, 178, chromeCase(tagline, typographyOf(this).uppercase), {
+    const sub = skyText(this, COLUMN_X, 178, chromeCase(tagline, typographyOf(this).uppercase), {
       screen: "title",
       id: "title.tagline",
       size: TYPE.body,
@@ -430,11 +491,35 @@ export class TitleScene extends Phaser.Scene {
     const height = PRIMARY_H;
     const root = this.add.container(x, y);
 
+    // THE PRIMARY'S SURFACE, ON THE SHARED PLATE (UR-69, standards rule 1).
+    //
+    // Two bespoke rounded rects until now, and both were on
+    // `platePainters.BLOCKED_ON_ANOTHER_LANE`. The body is one `paintPlate`
+    // with the card radius; the facet on top of it is a second, inset by
+    // `FACET_INSET` at each edge with a radius the component derives the same
+    // way it did by hand - the card radius minus that inset, so the two corners
+    // stay concentric whatever the card radius becomes.
     const plate = this.add.graphics();
-    plate.fillStyle(hexToNum(this.accent), 1);
-    plate.fillRoundedRect(0, 0, width, height, 26);
-    plate.fillStyle(hexToNum(mixHex(this.accent, "#FFFFFF", 0.35)), 0.5);
-    plate.fillRoundedRect(4, 4, width - 8, height * 0.42, 22);
+    paintPlate(
+      plate,
+      { x: COLUMN_X, y: 0, w: width, h: height },
+      { fill: this.accent, radius: SPACE.radiusCard, strokeWidth: 0 },
+    );
+    paintPlate(
+      plate,
+      {
+        x: COLUMN_X + FACET_INSET,
+        y: FACET_INSET,
+        w: width - FACET_INSET * 2,
+        h: height * FACET_FRACTION,
+      },
+      {
+        fill: mixHex(this.accent, "#FFFFFF", 0.35),
+        alpha: 0.5,
+        radius: SPACE.radiusCard - FACET_INSET,
+        strokeWidth: 0,
+      },
+    );
     root.add(plate);
 
     // The label is already ON a surface this screen drew, so it takes no plate
@@ -472,7 +557,7 @@ export class TitleScene extends Phaser.Scene {
       const plateTop = height + FOCUS_PAD + STATUS_GAP;
       // NOT lowercased: the subline names the planet the beacon is on, and a
       // planet name is a proper noun that keeps its capital (D41).
-      const sub = skyText(this, 4, plateTop + CHROME_PAD_Y, subline, {
+      const sub = skyText(this, COLUMN_X, plateTop + CHROME_PAD_Y, subline, {
         screen: "title",
         id: "title.primarySub",
         size: TYPE.label,
@@ -499,7 +584,7 @@ export class TitleScene extends Phaser.Scene {
 
   private buildQuiet(label: string, x: number, y: number): MenuItem {
     const root = this.add.container(x, y);
-    const item = skyText(this, 4, 0, chromeCase(label, typographyOf(this).uppercase), {
+    const item = skyText(this, COLUMN_X, 0, chromeCase(label, typographyOf(this).uppercase), {
       screen: "title",
       id: "title.settings",
       size: TYPE.body,
@@ -513,7 +598,7 @@ export class TitleScene extends Phaser.Scene {
     return {
       id: "settings",
       root,
-      width: item.text.width + 8,
+      width: item.text.width + STEP.hair,
       height: item.text.height,
       // The plate is the padding taller at each end and starts that far above
       // `root.y`, because `skyText` cuts it from the text's own bounds.
@@ -528,8 +613,8 @@ export class TitleScene extends Phaser.Scene {
     const root = this.add.container(x, y);
     const { t } = services(this);
     this.langIndex = Math.max(0, SHIPPED_LANGS.indexOf(t.lang));
-    const padY = 6;
-    let cursor = 4;
+    const padY = STEP.hair;
+    let cursor = COLUMN_X;
     let inkH = 0;
     SHIPPED_LANGS.forEach((lang, i) => {
       const on = i === this.langIndex;
@@ -545,7 +630,7 @@ export class TitleScene extends Phaser.Scene {
       item.text.setName(`lang-${lang}`);
       if (item.plate !== null) root.add(item.plate);
       root.add(item.text);
-      cursor += item.text.width + 26;
+      cursor += item.text.width + STEP.unit;
       // MEASURED, not the 34 that was here (UR-68). "हिं" is drawn in a
       // Devanagari face whose line box is 1.56 em against Latin's 1.3, so a
       // fixed row height is wrong by construction the moment the row is in the
@@ -657,14 +742,19 @@ export class TitleScene extends Phaser.Scene {
     const item = this.items[this.focusIndex];
     this.focusRing.clear();
     if (item === undefined) return;
-    const pad = FOCUS_PAD;
-    this.focusRing.lineStyle(4, hexToNum(this.accent), 1);
-    this.focusRing.strokeRoundedRect(
-      item.root.x - pad,
-      item.root.y - pad,
-      item.width + pad * 2,
-      item.height + pad * 2,
-      item.id === "primary" ? 34 : 14,
+    // THE SHARED RING (UR-69). This was the third bespoke rounded rect in this
+    // file and the third `platePainters.BLOCKED_ON_ANOTHER_LANE` entry. The
+    // radius is no longer picked per item - `paintFocusRing` derives it from
+    // the CONTROL's radius plus the ring's own stand-off, so the ring is
+    // concentric with the plate it is around by construction.
+    paintFocusRing(
+      this.focusRing,
+      { x: item.root.x, y: item.root.y, w: item.width, h: item.height },
+      this.accent,
+      {
+        offset: FOCUS_PAD,
+        radius: item.id === "primary" ? SPACE.radiusCard : SPACE.radius,
+      },
     );
   }
 

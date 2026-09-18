@@ -282,6 +282,8 @@ export class FocusRing {
   private readonly g: Phaser.GameObjects.Graphics;
   private readonly box = { x: 0, y: 0, w: 0, h: 0 };
   private visible = false;
+  /** The live fade, so a fast pointer sweep replaces it instead of stacking. */
+  private moveTween: Phaser.Tweens.Tween | null = null;
 
   constructor(private readonly scene: Phaser.Scene, depth: number) {
     this.g = scene.add.graphics().setDepth(depth);
@@ -294,6 +296,8 @@ export class FocusRing {
 
   hide(): void {
     this.visible = false;
+    this.moveTween?.remove();
+    this.moveTween = null;
     this.scene.tweens.add({
       targets: this.g,
       alpha: 0,
@@ -327,24 +331,43 @@ export class FocusRing {
       );
     };
 
+    const wasHidden = !this.visible || this.box.w === 0;
     this.visible = true;
-    if (instant || this.box.w === 0) {
-      Object.assign(this.box, target);
-      redraw();
+    // ================== THE RING DOES NOT TRAVEL (UR-75) ==================
+    // It used to tween `this.box` - x, y, w AND h - from the old control to
+    // the new one, redrawing every frame, so the ring visibly slid across the
+    // screen and stretched from one button's shape into the next. The project
+    // owner reported it while moving the mouse between the pilot card and
+    // "new pilot": focus is a STATE, not an object that walks, and animating
+    // the journey says the opposite - it draws the eye to the gap between two
+    // controls rather than to the one that is now focused.
+    //
+    // So the box SNAPS and only the alpha moves: the ring leaves the old
+    // control at once and fades up on the new one. `scenes/lib/kit.ts`'s ring
+    // already worked this way, which is why the two kits disagreed and the
+    // behaviour depended on which screen you were on.
+    //
+    // ONE TWEEN, REPLACED NOT STACKED. A pointer swept across three buttons
+    // fires this three times; without the handle the old alpha tweens keep
+    // running and fight the new one, which reads as a flicker.
+    Object.assign(this.box, target);
+    redraw();
+    this.moveTween?.remove();
+    if (instant || wasHidden) {
+      this.moveTween = null;
       this.g.setAlpha(1);
       return;
     }
-    this.scene.tweens.add({
-      targets: this.box,
-      x: target.x,
-      y: target.y,
-      w: target.w,
-      h: target.h,
+    this.g.setAlpha(0);
+    this.moveTween = this.scene.tweens.add({
+      targets: this.g,
+      alpha: 1,
       duration: DUR.focus,
-      ease: EASE.pop,
-      onUpdate: redraw,
+      ease: EASE.arrive,
+      onComplete: () => {
+        this.moveTween = null;
+      },
     });
-    this.g.setAlpha(1);
   }
 }
 

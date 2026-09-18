@@ -87,6 +87,32 @@ const HW = HARDWARE;
 // ---------------------------------------------------------------------------
 
 /** ‹ or › beside a control that cycles. */
+/**
+ * Centre a readout in its glass window, AND SAY SO ON THE OBJECT (UR-69).
+ *
+ * The four readouts on this console - the two knob percentages, the switch's
+ * word, the selector's choice - are centred in a lit window. They were centred
+ * by ARITHMETIC: `setX(glassX + (glassW - text.width) / 2)` on an object whose
+ * origin was still 0, so the text reported a left edge that is a function of
+ * how long the word happens to be. "70%" landed at 694 and "80%" at 692, and
+ * "english" at 762 next to "qwerty" at 767 - four left edges inside five
+ * pixels, every one of them a correctly centred readout and none of them a
+ * misalignment.
+ *
+ * A census cannot tell those apart from a drift, and neither can a reader. So
+ * the object now DECLARES its anchor: origin 0.5 on the glass's centre line.
+ * The pixels are identical to a rounding; what changes is that the element says
+ * what it is, and the near-miss guard can judge it on its centre.
+ */
+function centreInGlass(
+  text: Phaser.GameObjects.Text,
+  glassX: number,
+  glassW: number,
+): void {
+  text.setOrigin(0.5, text.originY);
+  text.setX(Math.round(glassX + glassW / 2));
+}
+
 function drawChevron(
   g: Phaser.GameObjects.Graphics,
   x: number,
@@ -465,7 +491,7 @@ export class KnobRow extends PanelControl {
   }
 
   private layout(): void {
-    this.readout.setX(Math.round(this.glassX + (this.glassW - this.readout.width) / 2));
+    centreInGlass(this.readout, this.glassX, this.glassW);
     this.readout.setY(Math.round((this.boxH - this.readout.height) / 2));
   }
 
@@ -593,7 +619,7 @@ export class SwitchRow extends PanelControl {
   }
 
   private layout(): void {
-    this.state.setX(Math.round(this.glassX + (this.glassW - this.state.width) / 2));
+    centreInGlass(this.state, this.glassX, this.glassW);
     this.state.setY(Math.round((this.boxH - this.state.height) / 2));
   }
 
@@ -758,7 +784,7 @@ export class SelectorRow<T extends string> extends PanelControl {
   }
 
   private layout(): void {
-    this.readout.setX(Math.round(this.glassX + (this.glassW - this.readout.width) / 2));
+    centreInGlass(this.readout, this.glassX, this.glassW);
     this.readout.setY(
       Math.round(this.glassY + (HW.glassH - this.readout.height) / 2),
     );
@@ -1125,7 +1151,7 @@ export class HullRow extends PanelControl {
   }
 
   private layout(): void {
-    this.readout.setX(Math.round(this.glassX + (this.glassW - this.readout.width) / 2));
+    centreInGlass(this.readout, this.glassX, this.glassW);
     this.readout.setY(Math.round(this.glassY + (HW.glassH - this.readout.height) / 2));
   }
 

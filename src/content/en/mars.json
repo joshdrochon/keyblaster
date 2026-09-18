@@ -36,7 +36,21 @@
     "first",
     "pilot",
     "place",
-    "beacon"
+    "beacon",
+    "ice",
+    "air",
+    "sun",
+    "dig",
+    "rim",
+    "far",
+    "low",
+    "rock",
+    "hill",
+    "wind",
+    "cave",
+    "dune",
+    "deep",
+    "thin"
   ],
   "properNouns": [
     "Mars"

@@ -134,14 +134,43 @@ describe("the rhythm is three steps and nothing between them", () => {
     expect(PLATE_RHYTHM.chip.padY).toBe(SKY_PLATE.padY);
   });
 
-  it("does not touch horizontal padding, which was not the complaint", () => {
-    // UR-70 is vertical. The x insets are the numbers the screens already drew
-    // at - the warp card's 40, the instrument's 32 - because the horizontal
-    // inset sets a wrapped sentence's LINE COUNT, and a card that wraps to two
-    // lines where it used to wrap to one is a new defect wearing this fix's
-    // clothes.
+  /**
+   * WHY THIS ASSERTION CHANGED (it used to pin the instrument at 32).
+   *
+   * UR-70 was a vertical complaint and this case used to say so: "the x insets
+   * are the numbers the screens already drew at - the warp card's 40, the
+   * instrument's 32". The near-miss census is the horizontal ticket, and it
+   * found what leaving them alone cost: the warp break stacks a card and an
+   * instrument in ONE column, both on `GUTTER`, and drew content at 136 and
+   * 128. Eight pixels apart is not two lines, it is one line drawn twice.
+   *
+   * WATCHED FAIL: `instrument: { padX: STEP.inset, ... }` restored -
+   *   two plates stacked in one column share one content line:
+   *     expected 32 to be 40
+   */
+  it("two plates stacked in one column share one content line", () => {
     expect(PLATE_RHYTHM.card.padX).toBe(40);
-    expect(PLATE_RHYTHM.instrument.padX).toBe(32);
+    expect(PLATE_RHYTHM.instrument.padX).toBe(PLATE_RHYTHM.card.padX);
+  });
+
+  /**
+   * The inner lines, as a set. THREE, down from four.
+   *
+   * `alignment.INNER_LINES` is derived from these, and it is the closed set an
+   * element's left edge is checked against - so every entry here is a distinct
+   * left edge the app is allowed to draw at, and the shortest honest list is
+   * the goal. `chip` (22) is `SKY_PLATE` and V-22.8's evidence geometry;
+   * `button` (28) is `SPACE.rowPadX` and is the one number in this file that is
+   * not on `STEP` at all. Both are in gauntlet/escalations.md.
+   *
+   * WATCHED FAIL: with the instrument back at 32 -
+   *   expected [ 22, 28, 32, 40 ] to deeply equal [ 22, 28, 40 ]
+   */
+  it("draws at three inner lines, and the list only ever shrinks", () => {
+    const lines = [...new Set(Object.values(PLATE_RHYTHM).map((r) => r.padX))].sort(
+      (a, b) => a - b,
+    );
+    expect(lines).toEqual([22, 28, 40]);
   });
 });
 

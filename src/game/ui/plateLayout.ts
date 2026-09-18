@@ -98,7 +98,26 @@ export interface PlateRhythm {
  */
 export const PLATE_RHYTHM = {
   card: { padX: STEP.pad, padY: PLATE_STEP.card, gap: PLATE_STEP.card },
-  instrument: { padX: STEP.inset, padY: PLATE_STEP.glass, gap: PLATE_STEP.tight },
+  /**
+   * `padX` IS THE CARD'S, and that is a change (UR-69 near-miss).
+   *
+   * It was `STEP.inset` (32) - "the numbers the screens already drew at", per
+   * the note above, which deliberately left horizontal padding alone because
+   * UR-70 was a vertical complaint. The consequence showed up in the census:
+   * the warp break stacks a CARD and an INSTRUMENT in one column, both plates
+   * on `GUTTER`, so the screen drew its destination line at 136 and the words
+   * "warp drive" at 128 - an 8 px near-miss between two things that are meant
+   * to read as one left edge, which is exactly the one-off being objected to.
+   *
+   * A rhythm's job is VERTICAL density; that is what its own docstring above
+   * says it is for, and `padY` 12 / `gap` 8 still say it. Two plates stacked in
+   * one column share a content line or the column has two edges.
+   *
+   * The risk the old note names - a wider inset rewrapping a sentence - runs
+   * the other way here: the instrument's content box gets 16 px NARROWER on a
+   * 1728 px card, holding "warp drive", a track and one charged line.
+   */
+  instrument: { padX: STEP.pad, padY: PLATE_STEP.glass, gap: PLATE_STEP.tight },
   chip: { padX: SKY_PLATE.padX, padY: SKY_PLATE.padY, gap: PLATE_STEP.tight },
   button: { padX: SPACE.rowPadX, padY: SPACE.rowPadY, gap: PLATE_STEP.tight },
 } as const satisfies Record<string, PlateRhythm>;

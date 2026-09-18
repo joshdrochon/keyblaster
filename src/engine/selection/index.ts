@@ -52,9 +52,14 @@ export {
 export {
   CATCH_MAX_EASE,
   CATCH_MAX_LENGTH,
+  LENGTH_BIAS_PIVOT,
+  LENGTH_BIAS_SPAN,
+  LENGTH_BIAS_STRENGTH,
   SELECTION_WEIGHT,
+  biasedWeightOf,
   codePointLength,
   firstLetter,
   isGuaranteedCatch,
+  lengthWeightFactor,
   weightOf,
 } from "./weights.js";

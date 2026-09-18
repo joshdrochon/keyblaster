@@ -56,14 +56,45 @@ export function rowHeight(fontPx: number, lang: Lang): number {
   return Math.round(fontPx * lineHeightEm(lang)) + SPACE.rowPadY * 2;
 }
 
-/** Type scale. Menus use four sizes; more than four reads as a form. */
+/**
+ * THE TYPE SCALE. Every font size in the product is one of these.
+ *
+ * The first five are the menu scale and were always here. The last three are
+ * the sizes the WORLD screens were already drawing at as raw numbers, promoted
+ * to names by the same rule `STEP` promoted the spacing numbers: a size that
+ * exists gets a name, and a size that is not on this list is a design decision
+ * somebody has to argue for rather than a number typed into a scene.
+ *
+ *   wordmark 128  the Title's logo. A logo is not chrome (`TitleScene.FONT`
+ *                 already makes that argument about the face) and it is the
+ *                 only element in the game at this size.
+ *   sentence  52  the line the child TYPES on the warp break. Load-bearing:
+ *                 `warpLayout.SENTENCE_STEP` and `SENTENCE_MAX_LINES` are
+ *                 derived from it, so it sets whether a stop's sentence wraps.
+ *   prose     36  the picture-book page on the briefing. A reading size, five
+ *                 paragraphs long, which is a different job from `body`.
+ *
+ * COLLAPSING `prose` INTO `body` IS THE OPEN QUESTION, not a tweak - it is the
+ * one entry here that could plausibly go, and it would take the app from eight
+ * sizes to seven. It is in gauntlet/escalations.md rather than done, because
+ * shrinking the briefing's reading type is a legibility decision (D41's whole
+ * subject) and not an alignment one.
+ */
 export const TYPE = {
+  wordmark: 128,
   display: 72,
+  sentence: 52,
   heading: 44,
+  prose: 36,
   body: 30,
   label: 24,
   caption: 20,
 } as const;
+
+/** Every size, descending. For a guard that asks "is this size on the scale". */
+export const TYPE_SIZES: readonly number[] = [...new Set(Object.values(TYPE))].sort(
+  (a, b) => b - a,
+);
 
 /**
  * THE SPACING SCALE (UR-69). Every pad, gap, inset and indent in the product is
@@ -122,6 +153,21 @@ export const SPACE = {
   rowPadX: 28,
   rowPadY: 14,
   radius: 16,
+  /**
+   * THE BIG CARD'S CORNER, promoted to a name (UR-69's rule, applied to radii).
+   *
+   * Two radii in the product and no third: `radius` (16) is a control, this is
+   * a CARD - the Title's primary button and the briefing's picture-book page,
+   * both of which drew `26` as a literal at their own call site. Naming it is
+   * what makes "should these two match" a question with an answer.
+   *
+   * Collapsing it into `radius` would be one radius app-wide, which is more
+   * uniform still and is a VISIBLE change to two screens' corners. That is in
+   * gauntlet/escalations.md with a lean, not done here: this lane is closing
+   * near-miss alignment, and a corner nobody asked to move is how a polish pass
+   * turns into a redesign.
+   */
+  radiusCard: 26,
   /** Focus ring sits OUTSIDE the control, so it never covers the label. */
   focusRingOffset: 6,
   focusRingWidth: 4,
