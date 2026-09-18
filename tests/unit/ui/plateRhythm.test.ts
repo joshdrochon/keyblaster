@@ -166,17 +166,21 @@ describe("the rhythm is three steps and nothing between them", () => {
    * element's left edge is checked against - so every entry here is a distinct
    * left edge the app is allowed to draw at, and the shortest honest list is
    * the goal. `chip` (22) is `SKY_PLATE` and V-22.8's evidence geometry;
-   * `button` (28) is `SPACE.rowPadX` and is the one number in this file that is
-   * not on `STEP` at all. Both are in gauntlet/escalations.md.
+   * `button` was 28 - `SPACE.rowPadX`, the one number here on no scale at
+   * all - and UR-89 moved it onto `SKY_PLATE.padX` (22), which is why this list
+   * is two entries rather than three.
    *
    * WATCHED FAIL: with the instrument back at 32 -
-   *   expected [ 22, 28, 32, 40 ] to deeply equal [ 22, 28, 40 ]
+   *   expected [ 22, 32, 40 ] to deeply equal [ 22, 40 ]
+   *
+   * TWO NOW, down from three: UR-89 moved `SPACE.rowPadX` from 28 to 22, so the
+   * button line and the chip line are one line. The list only ever shrinks.
    */
   it("draws at three inner lines, and the list only ever shrinks", () => {
     const lines = [...new Set(Object.values(PLATE_RHYTHM).map((r) => r.padX))].sort(
       (a, b) => a - b,
     );
-    expect(lines).toEqual([22, 28, 40]);
+    expect(lines).toEqual([22, 40]);
   });
 });
 

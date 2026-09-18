@@ -44,6 +44,7 @@ import {
 } from "./lib/kit";
 import { paintPlate } from "@game/ui/plate";
 import { typographyOf } from "./lib/typography";
+import { type HintLine, drawHint } from "@game/ui/hintLine";
 import { laneInit, publishBag, textStyles, type LaneInit } from "./support/laneInit";
 import {
   openingFocusId,
@@ -282,7 +283,7 @@ export class ResultsScene extends Phaser.Scene {
    * `skyText`, so it is a Text AND the plate cut for it, and splitting the two
    * across a rebuild leaves an orphan plate on screen for every rebuild.
    */
-  private hint: PlatedText | null = null;
+  private hint: HintLine | null = null;
   private rendered: string[] = [];
 
   constructor() {
@@ -1037,16 +1038,16 @@ export class ResultsScene extends Phaser.Scene {
       primary: true,
     });
     this.hint?.destroy();
-    this.hint = skyText(this, laid.hint.x, laid.hint.y, this.lane.copy.text("results.hint"), {
+    // THE SHARED RENDERER, and it takes no coordinates (`ui/hintLine.ts`).
+    // `resultsLayout` used to hand it an x and a y; the ink was already
+    // `INK.textDim` on a plate - was `INK.textFaint` on bare sky at 2.57:1,
+    // which no seven-year-old can read - and that treatment is now what every
+    // screen gets rather than what two screens happened to have.
+    this.hint = drawHint(this, this.lane.copy.text("results.hint"), {
       screen: "results",
       id: "results.hint",
-      size: TYPE.caption,
-      // Was `INK.textFaint` on bare sky: 2.57:1, which no seven-year-old can
-      // read. On the plate, in an ink that clears 4.5:1 either way.
-      color: INK.textDim,
-      lang: this.lane.lang,
       depth: layer("hud").depth + 2,
-      padY: 8,
+      style: { lang: this.lane.lang, ...typographyOf(this) },
     });
 
     hud.add(this.boardParts);

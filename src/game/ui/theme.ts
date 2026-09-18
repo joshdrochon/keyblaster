@@ -150,7 +150,14 @@ export const STEPS: readonly number[] = Object.values(STEP).sort((a, b) => a - b
 export const SPACE = {
   gutter: STEP.gutter,
   gap: STEP.unit,
-  rowPadX: 28,
+  /**
+   * 22, NOT 28 (UR-89). It was the one inset in this file on no scale at all,
+   * and it put every menu row's label six pixels from the hint line's ink once
+   * that line gained a plate. It is `SKY_PLATE.padX` now, which is the same
+   * inset the hint, the title's plated lines and every sky plate already use -
+   * so a row's label and the hint under it sit on ONE inner line.
+   */
+  rowPadX: 22,
   rowPadY: 14,
   radius: 16,
   /**

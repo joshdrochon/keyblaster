@@ -22,7 +22,6 @@ import {
   BOLT_GAP_PX,
   boltBesideLabel,
   destinationRow,
-  hintRow,
   sentenceRow,
   instrumentChargedRow,
   instrumentContains,
@@ -32,6 +31,7 @@ import {
   lanternPlumeBox,
   shipBandTop,
 } from "@game/scenes/support/warpLayout";
+import * as warpLayout from "@game/scenes/support/warpLayout";
 import {
   MARK,
   PLATE_RHYTHM,
@@ -39,6 +39,7 @@ import {
   lineBox,
   plateContent,
   plateFooter,
+  plateHeight,
 } from "@game/ui/plateLayout";
 import { TYPE } from "@game/ui/theme";
 
@@ -210,7 +211,7 @@ describe("the three cards still read as one column", () => {
     }
   });
 
-  it("fit two lines of sentence above the hint", () => {
+  it("fit two lines of sentence inside the card", () => {
     // A composed sentence (D09) can be longer than any shipped one, so the card
     // has to hold a second line without printing it through the hint. Read off
     // the rows now rather than off `PANEL.y + 78` and `PANEL.h - 44`, which
@@ -222,9 +223,17 @@ describe("the three cards still read as one column", () => {
     // content box is 1648 px, which at the scene's own 0.58-em estimate holds
     // about 54 - so the reserved line is a case the screen really can reach,
     // and the card is sized for it whatever the sentence on screen is.
+    //
+    // THE HINT IS NO LONGER THE THING IT MUST CLEAR. It moved to the product's
+    // hint line at the bottom left with the rest of the product's hints, so the
+    // card's own foot is what the second line must stay above. Watched failing
+    // with `SENTENCE_BLOCK` back on `2 * SENTENCE_STEP - SENTENCE_LEADING`:
+    // `expected 445 to be greater than or equal to 453`.
     const band = sentenceRow();
     const secondLineBottom = band.y + SENTENCE_STEP + Math.round(SENTENCE_PX * 1.3);
-    expect(hintRow(2).y).toBeGreaterThan(secondLineBottom);
+    expect(bottom(PANEL) - PLATE_RHYTHM.card.padY).toBeGreaterThanOrEqual(
+      secondLineBottom,
+    );
   });
 
   it("do not overlap each other", () => {
@@ -304,58 +313,55 @@ describe("UR-70: the column is condensed, and the gap is not a function of the s
 
   it("the card is no taller than the rows in it", () => {
     // Derived, not picked. 280 was 250 plus 30 added after the hint was found
-    // printing through; 268 was that derived on the `unit` step.
-    expect(PANEL.h).toBe(265);
-    expect(PANEL.h).toBeLessThan(268);
+    // printing through; 268 was that derived on the `unit` step; 265 was that
+    // with the caption row still in the card.
+    //
+    // 222 IS 265 LESS THE HINT'S ROW. The keyboard hint left this card for the
+    // product's hint line (`ui/hintLine.drawHint`), so the third row and the
+    // card gap above it went with it: 265 - 31 - 12 = 222. Read off the red run
+    // this change produced - `expected 222 to be 265`.
+    expect(PANEL.h).toBe(222);
+    expect(PANEL.h).toBeLessThan(265);
   });
 
   it("the three plates are one unit apart, and the column got shorter", () => {
     expect(INSTRUMENT.y - bottom(PANEL)).toBe(PLATE_STACK_GAP);
     expect(COACH.y - bottom(INSTRUMENT)).toBe(PLATE_STACK_GAP);
-    // 236..820 before UR-70, 236..808 after its first pass, 236..805 now, with
-    // the clearance over the Lantern's band up from 17.6 px to 32.6 px.
-    expect(bottom(COACH)).toBe(805);
+    // 236..820 before UR-70, 236..808 after its first pass, 236..805 with the
+    // hint still in the card, 236..762 now that it is not. Read off the red run
+    // this change produced - `expected 762 to be 805`. The column can only get
+    // SHORTER here, so the Lantern's clearance only grows: 32.6 px to 75.6 px.
+    expect(bottom(COACH)).toBe(762);
     expect(shipBandTop() - bottom(COACH)).toBeGreaterThan(32);
   });
 
-  it("puts the hint under the sentence rather than at the card's foot", () => {
-    // THE HOLE UR-70 IS ABOUT, ON THE OTHER SIDE OF THE SENTENCE. The card is
-    // sized for a two-line composed sentence and shows a one-line one, so the
-    // reserved line was left as a gap between the sentence and the line that
-    // tells the child what to do with it - 79.8 px of nothing, measured ink to
-    // ink in the served build at Jupiter.
+  it("no longer draws a keyboard hint inside the card at all", () => {
+    // ================== WHAT THESE TWO CASES USED TO SAY ==================
+    // `hintRow(lines)` put the hint one step under the sentence THAT WAS THERE
+    // and clamped at the card's foot, so a one-line stop pulled it up and a
+    // two-line stop got `plateFooter`. That closed UR-70's hole - 79.8 px of
+    // nothing between the sentence and the line telling the child what to do
+    // with it, measured ink to ink at Jupiter - and it is gone because the
+    // Warp break was the only screen declared `placement: "grid"` in
+    // `ui/hint.ts` with nothing on the grid line. See the note over
+    // `sentenceRow` in warpLayout.ts and the entry in gauntlet/escalations.md.
     //
-    // `flowFooter` puts the hint one step under the sentence THAT IS THERE and
-    // clamps at the foot, so a one-line stop gets it pulled up and a two-line
-    // stop gets it exactly where `plateFooter` always put it. The card does not
-    // resize either way, which is `relayoutSentence`'s contract.
-    const band = sentenceRow();
-    const oneLine = band.y + lineBox(SENTENCE_PX);
-    expect(hintRow(1).y).toBe(oneLine + PLATE_RHYTHM.card.gap);
-    expect(hintRow(2)).toEqual(plateFooter(PANEL, lineBox(TYPE.caption), "card"));
-    expect(hintRow(1).y).toBeLessThan(hintRow(2).y);
-    // The default is the WORST case, so a caller that has not laid the sentence
-    // out yet can never get a hint above a line that is about to be drawn.
-    expect(hintRow()).toEqual(hintRow(SENTENCE_MAX_LINES));
-  });
-
-  it("names what a one-line stop pays for it", () => {
-    // THE TRADE, ASSERTED SO IT CANNOT GROW QUIETLY. The card cannot resize -
-    // `relayoutSentence` swaps in a composed sentence live and its contract is
-    // "same geometry" - so a one-line stop's slack has to go somewhere. It is
-    // now BELOW the hint, at the card's foot, where a gap reads as a card's
-    // bottom padding; it used to be between the sentence and the hint, where it
-    // read as a hole in the middle of the reading order.
-    const oneLineBottom = sentenceRow().y + INK_LATIN(SENTENCE_PX);
-    expect(hintRow(1).y - oneLineBottom).toBe(25);
-    // What is left under the hint, and it is exactly the reserved second line:
-    // one `SENTENCE_STEP`. That is the number a decision about capping the
-    // composed sentence to one line would buy back, and it is in
-    // gauntlet/escalations.md rather than taken here.
-    const hint = hintRow(1);
-    expect(bottom(PANEL) - PLATE_RHYTHM.card.padY - (hint.y + hint.h)).toBe(68);
-    expect(bottom(PANEL) - PLATE_RHYTHM.card.padY - (hint.y + hint.h)).toBe(
-      SENTENCE_STEP,
+    // ================== WHAT REPLACES THEM ==================
+    // The card has TWO rows and neither is a caption, so there is no reserved
+    // line for a hint to be pulled up from and no foot for one to be pinned to.
+    // Asserted against the module's exports rather than against a number: a
+    // `hintRow` put back, or a caption row put back into `PANEL_ROWS`, fails
+    // here. Watched failing with both restored:
+    //   `expected 265 to be 222` and `expected [Function] to be undefined`.
+    const mod = warpLayout as unknown as Record<string, unknown>;
+    expect(mod["hintRow"]).toBeUndefined();
+    // Two rows: the destination line and the sentence block. The card's height
+    // is exactly what `plateHeight` makes of them, so a third row cannot be
+    // added without this number moving.
+    const sentenceBlock =
+      (SENTENCE_MAX_LINES - 1) * SENTENCE_STEP + lineBox(SENTENCE_PX);
+    expect(PANEL.h).toBe(
+      plateHeight([lineBox(TYPE.label), sentenceBlock], "card"),
     );
   });
 

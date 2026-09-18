@@ -3,14 +3,20 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
-import { GUTTER, HEADING_TOP, HINT_TOP, headerText } from "@game/ui/grid";
+import {
+  GUTTER,
+  HEADING_TOP,
+  HINT_CONTRACT,
+  HINT_TOP,
+  backCorner,
+  headerText,
+} from "@game/ui/grid";
 import type { Rect } from "@game/ui/layout";
 import { TYPE } from "@game/ui/theme";
 import {
   BACK_CHIP,
   BULKHEAD,
   HEADING,
-  HINT,
   LINE_PAD,
   LINE_PLATE,
   LINE_SHADOW,
@@ -39,6 +45,7 @@ import {
   planetRadius,
   planetRestX,
 } from "@game/scenes/support/preflightLayout";
+import * as preflightLayout from "@game/scenes/support/preflightLayout";
 import {
   SHELF as BRIEFING_SHELF,
   controlStrip as briefingStrip,
@@ -177,15 +184,37 @@ describe("UR-39: the screen has a header, one column and a way out", () => {
     expect(LINE_PLATE.x).not.toBe(356);
   });
 
-  it("puts the hint in the band every sibling uses", () => {
-    expect(HINT.x).toBe(GUTTER);
-    expect(HINT.y).toBe(HINT_TOP);
+  it("no longer owns a hint position at all", () => {
+    // ================== WHAT THIS USED TO ASSERT ==================
+    // `HINT.x === GUTTER` and `HINT.y === HINT_TOP`, against a constant this
+    // module exported and `PreflightScene` handed to `lib/kit.label`. Both
+    // numbers were right and the screen still did not match its siblings,
+    // because `label` draws no plate: the menus' line, the map's and this one
+    // were three different treatments of one line.
+    //
+    // ================== WHAT REPLACES IT ==================
+    // `ui/hintLine.drawHint` owns the position AND the style and takes no
+    // coordinates, so this module has nothing to export and the scene has
+    // nothing to pass. Watched failing with `HINT` put back:
+    //   `expected { x: 96, y: 1004 } to be undefined`.
+    const mod = preflightLayout as unknown as Record<string, unknown>;
+    expect(mod["HINT"]).toBeUndefined();
+    // The line the hint is on is still the floor this screen's plates respect,
+    // and it is read from the grid rather than from a local copy.
+    expect(HINT_CONTRACT.x).toBe(GUTTER);
+    expect(HINT_CONTRACT.top).toBe(HINT_TOP);
     // It floated at the window's centre, which is where the word is.
-    expect(HINT.x).not.toBe(PROMPT.x);
+    expect(HINT_CONTRACT.x).not.toBe(PROMPT.x);
   });
 
   it("gives the screen a way out that does not sit on anything", () => {
+    // IN THE PRODUCT'S BACK CORNER (C19), not in a corner this screen worked
+    // out for itself. The pixels are unchanged - `ARTBOARD_RIGHT` is 1824 and
+    // `WINDOW.x + WINDOW.w` is 1824, which is why this screen was the one the
+    // owner measured as correct - but the Briefing now reads the same function,
+    // which is what stops the two drifting apart again.
     const chip = backChip();
+    expect(chip).toEqual(backCorner(BACK_CHIP.w, BACK_CHIP.h));
     expect(chip.y).toBe(HEADING_TOP);
     expect(chip.x + chip.w).toBe(WINDOW.x + WINDOW.w);
     // Clear of the header block on the left, and of the glass below it.
@@ -224,7 +253,7 @@ describe("UR-39: the screen has a header, one column and a way out", () => {
     expect(rack.y).toBeLessThan(rows.y);
     expect(rack.y + rack.h).toBeGreaterThanOrEqual(rows.y + rows.h);
     expect(overlaps(line, { x: SHELF.x, y: SHELF.y, w: SHELF.w, h: SHELF.h })).toBe(false);
-    expect(line.y + line.h).toBeLessThan(HINT.y);
+    expect(line.y + line.h).toBeLessThan(HINT_CONTRACT.top);
     expect(SHELF.y + SHELF.h).toBeLessThan(1080);
   });
 });
@@ -280,7 +309,7 @@ describe("UR-77.2: the strip under the glass is the Briefing's, not a second one
   it("still leaves the dialogue plate and the hint alone at 124 px", () => {
     // The strip gained 48 px. It is 48 px of hull nobody was using, but that is
     // a claim about this screen's foot and not a general truth.
-    expect(SHELF.y + SHELF.h).toBeLessThan(HINT.y);
+    expect(SHELF.y + SHELF.h).toBeLessThan(HINT_CONTRACT.top);
     expect(SHELF.x).toBeGreaterThan(LINE_PLATE.x + LINE_PLATE.w);
   });
 });

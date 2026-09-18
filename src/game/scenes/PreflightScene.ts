@@ -157,7 +157,6 @@ export type RitualMode = "full" | "launch" | "none";
  */
 import {
   HEADING,
-  HINT,
   BULKHEAD,
   LINE_PAD,
   LINE_PLATE,
@@ -180,6 +179,8 @@ import {
 import { drawCockpitWindow } from "@game/ui/viewportWindow";
 import { VIEWPORT_WINDOW } from "@game/ui/viewportWindowLayout";
 import { drawControlSurface } from "@game/ui/controlSurface";
+import { type HintLine, drawHint } from "@game/ui/hintLine";
+import { typographyOf } from "./lib/typography";
 
 const STEP_LABEL_KEY: Readonly<Record<CalibrationStepId, SceneStringKey>> = {
   hull: "preflight.step.hull",
@@ -221,7 +222,7 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
   private rows: RowView[] = [];
   private planet!: Phaser.GameObjects.Container;
   private lineText!: Phaser.GameObjects.Text;
-  private hintText!: Phaser.GameObjects.Text;
+  private hintText!: HintLine;
   /** Off-display-list Graphics backing the window mask. */
   private maskSource: Phaser.GameObjects.Graphics | null = null;
   /** UR-39: the Escape/Backspace listener, so shutdown can remove it. */
@@ -363,12 +364,16 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     // IN THE BAND EVERY SIBLING USES (UR-39). It floated at the window's centre
     // - which is where the WORD is, not where a child looks for instructions -
     // while every other screen puts its hint bottom-left on the gutter.
-    this.hintText = label(this, HINT.x, HINT.y, text.text("preflight.hint"), {
-      size: TYPE.caption,
-      color: INK.textDim,
-      lang,
-    })
-      .setDepth(20);
+    // THE SHARED RENDERER (`ui/hintLine.ts`). It was `label` with the screen's
+    // own `HINT` constant and no plate, which is the third of the three
+    // treatments one line had; the constant is gone with it, because a screen
+    // that cannot name a position cannot pick the wrong one.
+    this.hintText = drawHint(this, text.text("preflight.hint"), {
+      screen: "preflight",
+      id: "preflight.hint",
+      depth: 20,
+      style: { lang, ...typographyOf(this) },
+    });
 
     this.readyText = label(this, ROW.x, ROW.y - 96, text.text("preflight.ready"), {
       size: TYPE.heading,

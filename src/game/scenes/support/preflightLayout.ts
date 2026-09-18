@@ -1,4 +1,4 @@
-import { GUTTER, HEADING_TOP, HINT_TOP, headerText } from "@game/ui/grid";
+import { GUTTER, HINT_CONTRACT, backCorner, headerText } from "@game/ui/grid";
 import { TYPE } from "@game/ui/theme";
 import type { Rect } from "@game/ui/layout";
 import { CONSOLE_STRIP, consoleStripBelow } from "@game/ui/controlSurfaceLayout";
@@ -180,19 +180,32 @@ export const LINE_SHADOW = { x: 206, y: 816, scale: 0.72 } as const;
 /** Text inset: past Shadow on the left, a normal pad everywhere else. */
 export const LINE_PAD = { x: 230, y: 56 } as const;
 
-/** The keyboard hint, on the line every other screen uses. */
-export const HINT = { x: GUTTER, y: HINT_TOP } as const;
+/**
+ * THE KEYBOARD HINT IS NO LONGER A NUMBER ON THIS SCREEN.
+ *
+ * It was `{ x: GUTTER, y: HINT_TOP }`, handed to `lib/kit.label`, which drew it
+ * unplated - one of the three treatments the product had for one line. The
+ * position AND the style now come from `ui/hintLine.drawHint`, which takes no
+ * coordinates, so there is nothing here to keep in step. `leftEdges` asks the
+ * grid's `HINT_CONTRACT` for the edge instead of this screen quoting one.
+ */
 
 /** The way out, in the Director map's chip treatment (as on the Briefing). */
 export const BACK_CHIP = { w: 262, h: 66 } as const;
 
+/**
+ * THE PRODUCT'S BACK CORNER, top-right (`ui/grid.backCorner`).
+ *
+ * This screen was already the one that was RIGHT - the chip measured at
+ * (1562, 84) on the served build - but it arrived there by its own arithmetic:
+ * `WINDOW.x + WINDOW.w - BACK_CHIP.w` over `HEADING_TOP`. That is the same
+ * corner the grid now names, reached by a sum only this file could check, so
+ * the Briefing's chip could sit bottom-left without contradicting anything.
+ * `ARTBOARD_RIGHT` is 1824 and `WINDOW.x + WINDOW.w` is 1824, so the pixels are
+ * unchanged; what changes is that the two screens now read one function.
+ */
 export function backChip(): Rect {
-  return {
-    x: WINDOW.x + WINDOW.w - BACK_CHIP.w,
-    y: HEADING_TOP,
-    w: BACK_CHIP.w,
-    h: BACK_CHIP.h,
-  };
+  return backCorner(BACK_CHIP.w, BACK_CHIP.h);
 }
 
 /**
@@ -397,7 +410,14 @@ export function lineShadowBox(
   return { x: at.x - 1.6 * r, y: at.y - 2.0 * r, w: 1.6 * r * 2, h: (2.0 + 1.7) * r };
 }
 
-/** Every PLATE edge on the left column. One value, or the test fails. */
+/**
+ * Every PLATE edge on the left column. One value, or the test fails.
+ *
+ * The hint's edge is `HINT_CONTRACT.x` rather than a constant of this screen's:
+ * the line is drawn by `ui/hintLine.drawHint` now and its plate lands on the
+ * grid's corner, so the honest question is whether this screen's own columns
+ * agree with the product's gutter - which is what the third entry asks.
+ */
 export function leftEdges(): number[] {
-  return [ROW.x, LINE_PLATE.x, HINT.x];
+  return [ROW.x, LINE_PLATE.x, HINT_CONTRACT.x];
 }

@@ -27,6 +27,8 @@ import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import { DUR, INK, SKY_PLATE, TYPE } from "@game/ui/theme";
 import type { Rect } from "@game/ui/layout";
 import { headerText } from "@game/ui/grid";
+import { type HintLine, drawHint } from "@game/ui/hintLine";
+import { typographyOf } from "./lib/typography";
 import { highlightSpans, prefixOf, quotedWords } from "./support/coachHighlight";
 import { hasStageBundle, stageBundle } from "./lib/content";
 import { goTo, type StoryInit } from "./lib/init";
@@ -195,7 +197,6 @@ import {
   badgeRow,
   boltBesideLabel,
   destinationRow,
-  hintRow,
   sentenceRow,
   pulsedPosition,
   wordPulseCentre,
@@ -262,15 +263,16 @@ export class WarpScene extends Phaser.Scene {
   private sentence!: WarpSentenceState;
   private letters: Phaser.GameObjects.Text[] = [];
   /**
-   * How many lines the sentence on screen actually laid out to (UR-70).
+   * How many lines the sentence on screen actually laid out to.
    *
-   * The card reserves two and the sentence is almost always one, and the hint
-   * is placed under the LAID-OUT bottom rather than under the reservation - so
-   * this is read every time the line is rebuilt. `layoutLetters` sets it;
-   * nothing else may.
+   * Kept as the screen's own evidence that a composed sentence (D09) wrapped
+   * where a shipped one did not - `snapshot()` publishes it. It no longer
+   * PLACES anything: UR-70 used it to put the hint under the laid-out bottom of
+   * the sentence, and the hint is outside the card now. `layoutLetters` sets
+   * it; nothing else may.
    */
   private sentenceLines = 1;
-  private hintLabel!: Phaser.GameObjects.Text;
+  private hintLine!: HintLine;
   private meterFill!: Phaser.GameObjects.Graphics;
   private percentLabel!: Phaser.GameObjects.Text;
   /** The plated wrapper, so the plate is re-cut when the number changes width. */
@@ -500,6 +502,19 @@ export class WarpScene extends Phaser.Scene {
     this.panelRoot.add(this.buildSentencePanel());
     this.panelRoot.add(this.buildMeter());
     this.panelRoot.add(this.buildCoachArea());
+
+    // THE PRODUCT'S HINT LINE, bottom-left (`ui/hintLine.drawHint`). This
+    // screen is declared `placement: "grid"` in `ui/hint.ts` and was the only
+    // one of the nine so declared with nothing on the line: its hint lived
+    // inside the sentence card, which is why the owner's sweep of the served
+    // build read "ABSENT" here. Outside `panelRoot` on purpose - the card
+    // slides in, the instructions do not.
+    this.hintLine = drawHint(this, this.lane.copy.text("warp.hint"), {
+      screen: "warp",
+      id: "warp.hint",
+      depth: layer("hud").depth + 2,
+      style: { lang: this.lane.lang, ...typographyOf(this) },
+    });
 
     this.ring = createFocusRing(this, layer("hud").depth + 1);
     this.ring.moveTo({
@@ -830,18 +845,6 @@ export class WarpScene extends Phaser.Scene {
       }
     }
 
-    // UR-70. ONE STEP UNDER THE SENTENCE THAT IS ON SCREEN, not pinned to the
-    // card's foot - `hintRow` takes the laid-out line count, which is the only
-    // thing that knows whether the reserved second line is in use. See
-    // `support/warpLayout.hintRow`.
-    const hint = hintRow(this.sentenceLines);
-    this.hintLabel = label(this, hint.x, hint.y, this.lane.copy.text("warp.hint"), {
-      size: TYPE.caption,
-      color: pal.plateText,
-      alpha: 0.55,
-      lang: this.lane.lang,
-    });
-    made.push(this.hintLabel);
     return made;
   }
 
@@ -1556,13 +1559,12 @@ export class WarpScene extends Phaser.Scene {
     });
     this.panelRoot.add(this.layoutLetters());
     this.paintLetters();
-    // UR-70. The hint sits under the sentence, so a composed sentence that
-    // wraps where the shipped one did not takes the hint down with it. The
-    // CARD does not move - `flowFooter` clamps at its foot - so the plate, the
-    // meter and the coach area are still byte-identical either way, which is
-    // the part of this method's contract that is load-bearing.
-    const hint = hintRow(this.sentenceLines);
-    this.hintLabel.setPosition(hint.x, hint.y);
+    // THE HINT NO LONGER MOVES WITH THE SENTENCE. It is on the product's hint
+    // line at the bottom left (`ui/hintLine.drawHint`), outside the card, so a
+    // composed sentence that wraps where the shipped one did not changes
+    // nothing about it - and the plate, the meter and the coach area stay
+    // byte-identical either way, which is the part of this method's contract
+    // that is load-bearing.
     // The meter is driven by `chargeFraction`, which is index/length; index is
     // 0 and the length changed, so the drawn fill has to be told the new zero
     // rather than left holding a fraction of the old string.

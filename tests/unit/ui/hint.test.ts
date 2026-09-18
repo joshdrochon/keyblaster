@@ -5,13 +5,13 @@ import { describe, expect, it } from "vitest";
 import {
   HINT_CONTRACT,
   SCREEN_HINTS,
-  hintOrigin,
   repeatedWords,
   significantWords,
   teachesSomethingNew,
   type ScreenHint,
 } from "@game/ui/hint";
 import { GUTTER } from "@game/ui/grid";
+import { hintInk } from "@game/ui/hintLine";
 import { SKY_PLATE } from "@game/ui/theme";
 import { LANE_COPY_EN } from "@game/scenes/support/copy";
 import { EN } from "@engine/i18n/strings";
@@ -203,7 +203,11 @@ describe("the hint line is one line, on every screen that has one", () => {
   });
 
   it("the shared origin puts the plate on the contract's corner", () => {
-    const at = hintOrigin();
+    // `hintInk()` from `ui/hintLine.ts`. It was `hintOrigin(padX, padY)` here,
+    // which took the padding as arguments - and that is exactly how the map
+    // came to draw at (118, 1012) while the menus drew at (96, 1004). The
+    // assertion is unchanged; what it is asked of no longer has a knob.
+    const at = hintInk();
     expect(at.x - SKY_PLATE.padX).toBe(GUTTER);
     expect(at.x - SKY_PLATE.padX).toBe(HINT_CONTRACT.x);
     expect(at.y - SKY_PLATE.padY).toBe(HINT_CONTRACT.top);

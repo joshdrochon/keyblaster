@@ -172,6 +172,14 @@ export class PauseScene extends MenuScene {
     add("pause.settings", this.t.t("title.settings"), () => this.openSettings());
     add("pause.quit", this.t.t("ui.pause.quit"), () => this.askQuit());
 
+    // THE HINT THIS SCREEN WAS ALREADY DECLARED TO HAVE. `ui/hint.ts` has
+    // carried a "grid" row for PauseScene since the contract landed and nothing
+    // ever drew it: the contract could say where a line went but not that it
+    // existed, so the one overlay a child reaches by pressing a key they may
+    // have pressed by accident said nothing about which keys get them out.
+    // `tests/unit/ui/hintLine.test.ts` is the guard that now asks every screen.
+    this.addHint();
+
     this.setControls(controls);
   }
 

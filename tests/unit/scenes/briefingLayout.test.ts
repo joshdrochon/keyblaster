@@ -13,6 +13,7 @@ import {
   PAGE_X,
   PAD_Y,
   LAUNCH,
+  PAGE_W,
   RIGHT_MARGIN,
   SHELF,
   WINDOW,
@@ -38,7 +39,7 @@ import {
   controlSurfaceLayout,
 } from "@game/ui/controlSurfaceLayout";
 import { DESIGN_WIDTH, GAME_HEIGHT } from "@game/sceneKeys";
-import { GUTTER, HEADING_TOP, HINT_TOP, contentRight } from "@game/ui/grid";
+import { GUTTER, HEADING_TOP, HINT_TOP, backCorner, contentRight } from "@game/ui/grid";
 import { setGameWidth } from "@game/sceneKeys";
 
 /**
@@ -566,13 +567,28 @@ describe("UR-60: launch is centred on the screen and the way out is small and le
     expect(btn.y + btn.h).toBeLessThanOrEqual(GAME_HEIGHT);
   });
 
-  it("puts the way out on the LEFT, smaller, and not beside launch", () => {
-    // The pairing UR-50.1 asked for and UR-60 revises: the two used to share a
-    // centre line 24 px apart. They are separated on purpose now.
+  it("puts the way out in the PRODUCT'S back corner, smaller, and not beside launch", () => {
+    // ================== WHAT CHANGED, AND WHAT DID NOT ==================
+    // The pairing UR-50.1 asked for and UR-60 revised: the two used to share a
+    // centre line 24 px apart, and UR-60 separated them - launch alone on the
+    // screen's centre line, the way out small and parked on the left gutter.
+    //
+    // C19 moves the CORNER and nothing else. The owner reported "back to the
+    // map" as top-right on Pre-flight and bottom-left here, and bottom-left is
+    // the keyboard hint's line on nine screens, so the way out takes the empty
+    // corner. `ui/grid.backCorner` is the one definition; Pre-flight's chip
+    // reads the same function, which is the property that makes this a product
+    // rule rather than two screens that happen to agree today.
+    //
+    // WATCHED FAILING with `{ x: BACK_CHIP_X, y: ACTION_BOTTOM - 48 }` restored:
+    //   expected 96 to be 1600
     const chip = backChip();
     const btn = launchButton();
-    expect(chip.x + chip.w).toBeLessThan(btn.x);
-    expect(chip.x).toBe(GUTTER);
+    expect(chip).toEqual(backCorner(BACK_CHIP.w, BACK_CHIP.h));
+    expect(chip.x).toBe(DESIGN_WIDTH - GUTTER - chip.w);
+    expect(chip.y).toBe(HEADING_TOP);
+    // UR-60'S SIZE ARGUMENT IS UNTOUCHED: still under half launch's area, and
+    // still nowhere near it.
     expect(chip.w * chip.h).toBeLessThan((btn.w * btn.h) / 2);
     expect(overlaps(chip, btn)).toBe(false);
   });
@@ -590,16 +606,14 @@ describe("UR-60: launch is centred on the screen and the way out is small and le
     // a shared LINE rather than as two numbers, so it survives either control
     // being resized later.
     //
-    // WATCHED FAILING, with `y: LAUNCH.y + (LAUNCH.h - 48) / 2` restored on
-    // BACK_CHIP and `h: 68` on LAUNCH:
+    // C19 TOOK THE CHIP OFF THIS LINE, so the line now governs launch alone and
+    // the shared-bottom claim is gone with the sharing. What UR-76 was actually
+    // about survives and is asserted below: launch's distance from the foot of
+    // the artboard is a property of a NAMED LINE, not an accident of a height.
     //
-    //   launch and back must share one bottom line: expected 1066 to be 1056
+    // WATCHED FAILING, with `h: 68` restored on LAUNCH:
+    //   expected 1066 to be 1056
     const btn = launchButton();
-    const chip = backChip();
-    expect(
-      btn.y + btn.h,
-      "launch and back must share one bottom line",
-    ).toBe(chip.y + chip.h);
     expect(btn.y + btn.h).toBe(ACTION_BOTTOM);
     // And the line is clear of the foot by more than a hairline. 24 px is what
     // the chip already had; the point is that launch now has it too.
@@ -626,14 +640,24 @@ describe("UR-60: launch is centred on the screen and the way out is small and le
         lowestPage = Math.max(lowestPage, page.y + page.h);
       }
     }
-    for (const [name, box] of [["launch", launchButton()], ["back", backChip()]] as const) {
-      const ring = focusRingBox(box);
-      expect(ring.y, `${name} ring over the page (lowest ${lowestPage})`).toBeGreaterThanOrEqual(
-        lowestPage - 1,
-      );
-      expect(ring.y + ring.h, `${name} ring off the frame`).toBeLessThanOrEqual(GAME_HEIGHT);
-      expect(ring.x, `${name} ring off the left`).toBeGreaterThanOrEqual(0);
-    }
+    // LAUNCH IS THE ONE IN THAT BAND NOW. The chip left it for the top-right
+    // corner (C19), so it is checked against the frame and against the PAGE it
+    // now shares a top line with instead.
+    const ring = focusRingBox(launchButton());
+    expect(ring.y, `launch ring over the page (lowest ${lowestPage})`).toBeGreaterThanOrEqual(
+      lowestPage - 1,
+    );
+    expect(ring.y + ring.h, "launch ring off the frame").toBeLessThanOrEqual(GAME_HEIGHT);
+    expect(ring.x, "launch ring off the left").toBeGreaterThanOrEqual(0);
+
+    // The chip's ring, in its new corner: inside the frame on all four sides,
+    // and clear of the page's right edge so it cannot sit on the prose.
+    const chipRing = focusRingBox(backChip());
+    expect(chipRing.y, "chip ring off the top").toBeGreaterThanOrEqual(0);
+    expect(chipRing.x + chipRing.w, "chip ring off the right").toBeLessThanOrEqual(
+      DESIGN_WIDTH,
+    );
+    expect(chipRing.x, "chip ring over the page column").toBeGreaterThan(PAGE_X + PAGE_W);
   });
 
   it("does not shrink the focus ring to buy the quiet control its quiet", () => {
@@ -752,10 +776,12 @@ describe("UR-19: the screen uses ONE anchoring model", () => {
     expect(new Set(positions).size, `chip x by world width: ${positions.join(", ")}`).toBe(
       1,
     );
-    // On the left gutter since UR-60, not pinned to the right margin and not
-    // centred on the glass. What this case is about is that it is anchored to
-    // the ARTBOARD wherever it sits.
-    expect(positions[0]).toBe(GUTTER);
+    // In the product's back corner since C19, and still an ARTBOARD number:
+    // `ui/grid.backCorner` measures from `DESIGN_WIDTH`, not from
+    // `contentRight()`, precisely so this case keeps passing. That distinction
+    // is the whole of this describe block and it is why the corner rule did not
+    // reintroduce the 641 px drift above.
+    expect(positions[0]).toBe(DESIGN_WIDTH - GUTTER - BACK_CHIP.w);
   });
 
   it("NEGATIVE CONTROL: a viewport-anchored chip DOES move, and by how much", () => {
@@ -774,9 +800,9 @@ describe("UR-19: the screen uses ONE anchoring model", () => {
     // None of them may quietly become viewport-relative on its own.
     expect(PAGE_X).toBe(GUTTER);
     expect(RIGHT_MARGIN).toBe(1920 - GUTTER);
-    // The way out sits on the same gutter the page does (UR-60), and launch on
-    // the artboard's centre line - both artboard numbers, neither viewport.
-    expect(backChip().x).toBe(PAGE_X);
+    // The way out sits on the artboard's right margin (C19) and launch on its
+    // centre line - both artboard numbers, neither viewport.
+    expect(backChip().x + backChip().w).toBe(RIGHT_MARGIN);
     expect(launchButton().x + launchButton().w / 2).toBe(DESIGN_WIDTH / 2);
     expect(WINDOW.x + WINDOW.w).toBe(RIGHT_MARGIN);
   });

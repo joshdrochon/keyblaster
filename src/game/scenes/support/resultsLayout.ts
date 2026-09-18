@@ -171,9 +171,15 @@ export const BUTTON_GAP_Y = 44;
  */
 export const BUTTON_Y_MIN = 740;
 /**
- * The keyboard hint's line. The same one the menu lane uses
- * (`MenuScene.addHint`: `GAME_HEIGHT - 76`), so a child finds the instructions
- * in one place whichever screen they are on.
+ * The keyboard hint's line, kept here only as the FLOOR this screen's panels
+ * and button row must stay above.
+ *
+ * THE LAYOUT NO LONGER RETURNS A HINT POSITION. It used to hand `ResultsScene`
+ * an `{x, y}` that the scene passed to `skyText`, which is one of the six
+ * different hint coordinates the owner measured across the product. The line is
+ * drawn by `ui/hintLine.drawHint`, which takes no coordinates at all, so there
+ * is nothing for this module to compute or for the scene to get wrong - only a
+ * band to keep clear.
  */
 export const HINT_Y = HINT_TOP;
 export const BUTTON_Y_MAX = 908;
@@ -395,15 +401,6 @@ export interface ResultsLayout {
   readonly boardContent: readonly PlacedBlock[];
   readonly replay: Rect;
   readonly proceed: Rect;
-  /**
-   * Top-left of the keyboard hint, in its own band UNDER the button row.
-   *
-   * It used to be `{ x: proceed.x + proceed.w + BUTTON_GAP_X, y: buttonY + 20 }`
-   * - inline with the buttons - and `skyText` draws it on a rounded plate, so a
-   * line that cannot be pressed sat in the row of things that can. It is now at
-   * the line every other screen puts its hint on (`MenuScene.addHint`).
-   */
-  readonly hint: { readonly x: number; readonly y: number };
   readonly shadow: Rect;
 }
 
@@ -474,7 +471,6 @@ export function resultsLayout(input: ResultsLayoutInput): ResultsLayout {
           ),
     replay,
     proceed,
-    hint: { x: REPORT_X, y: HINT_Y },
     shadow,
   };
 }

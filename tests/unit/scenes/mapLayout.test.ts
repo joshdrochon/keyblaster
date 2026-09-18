@@ -6,7 +6,7 @@ import { GAME_WIDTH } from "@game/sceneKeys";
 import { SKY_PLATE } from "@game/ui/theme";
 import { GUTTER, HINT_CONTRACT, contentRight, contentWidth, headerText } from "@game/ui/grid";
 import { rectsOverlap } from "@game/ui/layout";
-import { hintOrigin } from "@game/ui/hint";
+import { hintInk } from "@game/ui/hintLine";
 import { LANTERN_PLUME_LENGTH, lanternDesignBox } from "@game/render/lanternGeometry";
 import {
   LAMP_HALO_MAX,
@@ -248,7 +248,12 @@ describe("UR-54: the map is on the one grid", () => {
   });
 
   it("the hint is the shared bottom-left line, not a centred caption", () => {
-    const at = hintOrigin(SKY_PLATE.padX, MAP_HEADER_PAD_Y);
+    // `hintInk()`, NOT `hintOrigin(padX, MAP_HEADER_PAD_Y)`. This screen used to
+    // pass the map header's padding to `skyText` and so drew its ink at
+    // (118, 1012) while the menu screens drew theirs at (96, 1004) - the map
+    // was the closest to right and still nobody's neighbour. `ui/hintLine`
+    // owns both numbers for every screen now and takes no arguments at all.
+    const at = hintInk();
     expect(at.x - SKY_PLATE.padX).toBe(HINT_CONTRACT.x);
     expect(at.y - HINT_CONTRACT.top).toBeGreaterThanOrEqual(0);
     expect(at.y - HINT_CONTRACT.top).toBeLessThanOrEqual(HINT_CONTRACT.slack);

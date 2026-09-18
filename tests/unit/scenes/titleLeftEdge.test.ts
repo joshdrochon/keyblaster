@@ -104,15 +104,30 @@ describe("UR-80: every block on the title starts on one visible line", () => {
     ).toBe(true);
   });
 
-  it("lands a quiet row's ring on the column too", () => {
+  it("lands a quiet row's ring on the column, hugging its plate (UR-88)", () => {
     // A ring that only misaligns while its row holds focus is the same defect,
-    // visible less often.
+    // visible less often. The quiet row reports its PLATE's rectangle, so the
+    // ring needs no inset and no stand-off: the plate's own left edge already
+    // IS the column, and a ring struck on it is the button's outline.
     //
-    // WATCHED FAILING, with `ringBox` returning `item.root.x` flat:
-    //   expected false to be true
+    // The earlier version of this stood the ring off by `FOCUS_PAD` around a
+    // box that was the TEXT's, so the plate stuck out of its own highlight -
+    // reported on the settings row.
+    //
+    // WATCHED FAILING, with the ring struck around the text box again:
+    //   the quiet row's ring is not struck on its plate: expected false to be true
+    const s = source();
     expect(
-      /const inset = item\.id === "primary" \? 0 : FOCUS_PAD;/.test(source()),
-      "a quiet row's focus ring reaches left of the column when it is focused",
+      /width: item\.text\.width \+ SKY_PLATE\.padX \* 2,/.test(s),
+      "the quiet row reports its text box, so its ring is narrower than the " +
+        "button it is around",
     ).toBe(true);
+    expect(
+      /offset: item\.id === "primary" \? FOCUS_PAD : 0,/.test(s),
+      "the quiet row's ring is not struck on its plate",
+    ).toBe(true);
+    expect(/return \{ x: item\.root\.x, y: top, w: item\.width, h: item\.height \};/.test(s)).toBe(
+      true,
+    );
   });
 });

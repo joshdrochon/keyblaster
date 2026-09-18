@@ -57,9 +57,13 @@ export class ProfilePickerScene extends MenuScene {
     // action to a child in the copy they were least likely to be able to read.
     // The shortcut itself is untouched; what is gone is the line about it.
     //
-    // The hint takes the line it was using, so the screen ends where it used to
-    // rather than stopping 32 px short.
-    this.addHint().setY(this.scale.height - 44);
+    // IT SITS ON `HINT_TOP` LIKE EVERY OTHER SCREEN'S, and no longer on
+    // `scale.height - 44`. That override was this screen taking the removed
+    // line's y so the page "ended where it used to", and it is what the owner
+    // measured: the picker's hint at y 1036 against every sibling's 1004, the
+    // largest of the three positions one line was being drawn at. The screen
+    // ending 32 px higher is the correct outcome; a line is gone.
+    this.addHint();
   }
 
   /**

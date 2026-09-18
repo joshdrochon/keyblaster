@@ -1,5 +1,4 @@
-import { SKY_PLATE } from "./theme.js";
-import { GUTTER, HINT_CONTRACT, HINT_TOP } from "./grid.js";
+import { HINT_CONTRACT, HINT_TOP } from "./grid.js";
 
 /**
  * THE KEYBOARD HINT, as a contract rather than as nine separate decisions.
@@ -235,16 +234,16 @@ export function teachesSomethingNew(hint: string, labels: readonly string[]): bo
 }
 
 /**
- * Where a screen's hint ink goes, so that its PLATE lands on `HINT_CONTRACT`.
+ * `hintOrigin` USED TO LIVE HERE AND IS GONE. See `ui/hintLine.ts`.
  *
- * One call, so the "six different x positions and four different y values" the
- * blind critic measured cannot be recreated by a screen doing its own sum.
+ * It took a `padX` and a `padY`, which is how the Director map came to draw its
+ * ink at (118, 1012) while the menu screens drew theirs at (96, 1004): the
+ * helper was one call, and it still let every caller choose. `hintLine.hintInk`
+ * takes nothing, and `hintLine.drawHint` - the only thing that draws this line
+ * now - does not expose a position at all.
+ *
+ * This module stays Phaser-free and stays the CONTRACT: which screens have a
+ * hint, what it says, and why the ones without one do not.
  */
-export function hintOrigin(padX: number = SKY_PLATE.padX, padY: number = SKY_PLATE.padY): {
-  x: number;
-  y: number;
-} {
-  return { x: GUTTER + padX, y: HINT_TOP + padY };
-}
 
 export { HINT_CONTRACT, HINT_TOP };

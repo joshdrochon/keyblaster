@@ -5,7 +5,8 @@ import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
 import { ensureTextures, fillShape, starPoints } from "@game/render/textures";
 import { DUR, INK, SKY_PLATE, SPACE, TYPE } from "@game/ui/theme";
 import { headerText } from "@game/ui/grid";
-import { hintOrigin } from "@game/ui/hint";
+import { drawHint } from "@game/ui/hintLine";
+import { typographyOf } from "./lib/typography";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import { LANTERN_DESIGN_HEIGHT, type LanternLivery, type LanternRig } from "@game/render/lantern";
 import {
@@ -294,15 +295,17 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     // UR-54 / UR-19: the hint is a GRID LINE, bottom-left, like every other
     // screen's. It was centred on the world at `GAME_HEIGHT - 66`, which is one
     // of the six different hint positions the blind critic measured.
-    const hint = hintOrigin(SKY_PLATE.padX, MAP_HEADER_PAD_Y);
-    skyText(this, hint.x, hint.y, text.text("map.hint"), {
+    //
+    // IT NO LONGER PASSES ITS OWN COORDINATES OR ITS OWN PADDING. This screen
+    // was the closest to right and still 22 px right and 8 px low of the line
+    // the menus used, because it called `skyText` with the map header's `padY`
+    // while the menus called `uiText` with none. `drawHint` takes neither, so
+    // the map's plate and the picker's plate are now the same two numbers.
+    drawHint(this, text.text("map.hint"), {
       screen: "map",
       id: "map.hint",
-      size: TYPE.caption,
-      color: INK.textDim,
-      lang: this.story.lang,
       depth: 10,
-      padY: MAP_HEADER_PAD_Y,
+      style: { lang: this.story.lang, ...typographyOf(this) },
     });
 
     const shadowAnchor = shadowAt();

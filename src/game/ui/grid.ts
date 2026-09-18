@@ -1,4 +1,4 @@
-import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
+import { DESIGN_WIDTH, GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
 import { SKY_PLATE, SPACE, TYPE } from "./theme.js";
 
 /**
@@ -99,6 +99,51 @@ export const CONTENT_TOP = 236;
  * since the menu kit landed; the story screens now do too.
  */
 export const HINT_TOP = GAME_HEIGHT - 76;
+
+/**
+ * THE ONE CORNER A VISIBLE BACK CONTROL LIVES IN: TOP-RIGHT.
+ *
+ * ================== WHAT WAS REPORTED ==================
+ * The project owner: controls are in different places from page to page, and
+ * "back to the map" is top-right on Pre-flight and bottom-left on the Briefing.
+ * Measured on the served build: Pre-flight's chip at (1562, 84), the Briefing's
+ * at (96, 1008). Two screens with a visible way out, two different corners.
+ *
+ * ================== WHY TOP-RIGHT AND NOT BOTTOM-LEFT ==================
+ * The bottom-left corner is already spoken for: it is the keyboard hint's line
+ * (`HINT_TOP`, and `ui/hintLine.ts` draws every screen's there). One corner must
+ * not hold two different kinds of thing, or "bottom-left" stops meaning anything
+ * to a child walking the product. So the hint keeps the corner it has on nine
+ * screens and the way out takes the empty one.
+ *
+ * ================== WHAT THIS OVERRIDES ==================
+ * UR-60 parked the Briefing's chip on the left gutter so it would not compete
+ * with launch, which sits alone on the screen's centre line. Only the PLACEMENT
+ * half is overridden - the chip keeps UR-60's size (224x48) and its `INK.textDim`
+ * on `INK.panel`, so it is still the quiet control UR-60 made it, and a chip in
+ * the far top-right corner does not compete with a 420 px button on the bottom
+ * centre line either. Logged as collision C19 in `docs/decision-log.md`.
+ *
+ * ================== WHY THE ARTBOARD AND NOT `contentRight()` ==================
+ * `DESIGN_WIDTH`, not `GAME_WIDTH`. Both screens that have a chip are declared
+ * FIXED compositions by `tests/e2e/grid-conformance.spec.ts` - Pre-flight's
+ * cockpit glass ends at 1824 and the Briefing's does too - so a chip that
+ * tracked the viewport would fly off the composition it belongs to at a 2560
+ * window. That is the exact defect the conformance spec caught this chip doing
+ * once already (UR-19). At 16:9 and narrower the two numbers are identical.
+ */
+export const BACK_CORNER_TOP = HEADING_TOP;
+
+/** The artboard's right margin: what a FIXED composition measures against. */
+export const ARTBOARD_RIGHT = DESIGN_WIDTH - GUTTER;
+
+/**
+ * Where a back control of this size goes. The size and the ink stay the
+ * screen's; the CORNER is the product's.
+ */
+export function backCorner(w: number, h: number): Rect {
+  return { x: ARTBOARD_RIGHT - w, y: BACK_CORNER_TOP, w, h };
+}
 
 /** Vertical air between two stacked blocks. */
 export const BLOCK_GAP = 40;

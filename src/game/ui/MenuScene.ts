@@ -10,6 +10,7 @@ import { type Control, type ControlStyle } from "./controls.js";
 import { ConfirmDialog } from "./dialog.js";
 import { FocusList, handleFocusKey } from "./focus.js";
 import type { MenuKey, MenuTranslator } from "./i18n.js";
+import { type HintLine, drawHint } from "./hintLine.js";
 import { clearMirror, publishMirror } from "./mirror.js";
 import { INK, SPACE, TYPE } from "./theme.js";
 import { uiText } from "./text.js";
@@ -178,15 +179,21 @@ export abstract class MenuScene extends Phaser.Scene {
    * `INK.textFaint` measures ~3.4:1 on the panel and worse on the dark half of
    * the backdrop gradient: the one line telling a child which keys move them
    * around this screen was the least readable text on it (AC-22.8).
+   *
+   * A THIN CALL INTO `ui/hintLine.drawHint`, which is now the only thing in the
+   * product that draws this line. This method used to be one of THREE renderers
+   * for it - unplated `uiText` here, plated `skyText` on the map and results,
+   * unplated `label` on pre-flight - and it owned its own `GAME_HEIGHT - 76`,
+   * which is how the picker came to sit 32 px below the map's. It no longer
+   * passes a position, because `drawHint` does not take one.
    */
-  protected addHint(key: MenuKey = "ui.common.hintKeys"): Phaser.GameObjects.Text {
-    return uiText(this, SPACE.gutter, GAME_HEIGHT - 76, this.t.t(key), {
-      size: TYPE.caption,
-      color: INK.textDim,
-      lang: this.uiStyle.lang,
-      uppercase: this.uiStyle.uppercase,
-      increasedLetterSpacing: this.uiStyle.increasedLetterSpacing,
-    }).setDepth(this.depth);
+  protected addHint(key: MenuKey = "ui.common.hintKeys"): HintLine {
+    return drawHint(this, this.t.t(key), {
+      screen: this.scene.key,
+      id: key,
+      depth: this.depth,
+      style: this.uiStyle,
+    });
   }
 
   protected setControls(controls: readonly Control[], focusId?: string): void {

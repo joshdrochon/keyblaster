@@ -1,4 +1,4 @@
-import { GUTTER, HEADING_TOP } from "@game/ui/grid";
+import { GUTTER, HEADING_TOP, backCorner } from "@game/ui/grid";
 import { CONSOLE_STRIP, consoleStripBelow } from "@game/ui/controlSurfaceLayout";
 import type { Rect } from "@game/ui/layout";
 import { DESIGN_WIDTH, GAME_HEIGHT } from "@game/sceneKeys";
@@ -366,6 +366,13 @@ export function controlStrip(): Rect {
  *
  * THE CHIP DID NOT MOVE. The line IS where the chip already sat (1008 + 48),
  * because the chip was the one that looked right - launch is what comes to it.
+ *
+ * C19 THEN MOVED THE CHIP TO THE TOP-RIGHT CORNER, so this line now governs
+ * launch alone. The NUMBER is deliberately unchanged: it was derived from where
+ * the chip sat, launch's clearance from the page above it and from the foot of
+ * the artboard is what it actually holds, and re-deriving it from the one
+ * control left on it would move the only control the owner did not complain
+ * about. See `backChip` below.
  */
 export const ACTION_BOTTOM = 1056;
 
@@ -403,10 +410,6 @@ export const LAUNCH = { w: 420, h: ACTION_BOTTOM - 998, y: 998 } as const;
 export const BACK_CHIP = {
   w: 224,
   h: 48,
-  // On `ACTION_BOTTOM`, the same line launch reaches - so the two controls sit
-  // the same distance from the foot of the screen whatever either one's height
-  // becomes later.
-  y: ACTION_BOTTOM - 48,
 } as const;
 
 /**
@@ -429,16 +432,42 @@ export const BACK_CHIP = {
  */
 export const ACTION_CX = DESIGN_WIDTH / 2;
 
-/** The gutter the quiet control is parked on. */
-export const BACK_CHIP_X = GUTTER;
-
+/**
+ * THE CHIP MOVED TO THE PRODUCT'S BACK CORNER: TOP-RIGHT (collision C19).
+ *
+ * ================== WHAT WAS REPORTED ==================
+ * The project owner walked the app and named this as one of two examples of
+ * controls landing somewhere different on every page: "back to the map" is
+ * top-right on Pre-flight and bottom-left here. Measured on the served build,
+ * this chip at (96, 1008) against Pre-flight's at (1562, 84).
+ *
+ * ================== WHY THIS CORNER AND NOT THAT ONE ==================
+ * Bottom-left is the KEYBOARD HINT's line on nine screens (`ui/grid.HINT_TOP`,
+ * drawn by `ui/hintLine.drawHint`). One corner holding two different kinds of
+ * thing is what makes a corner stop meaning anything, so the hint keeps the one
+ * it has on nine screens and the way out takes the empty one. `ui/grid.backCorner`
+ * is the single definition and Pre-flight reads the same function.
+ *
+ * ================== WHAT SURVIVES OF UR-60 ==================
+ * Everything except the corner. UR-60 separated the two actions on purpose -
+ * launch alone on the screen's centre line, the way out small and quiet - and
+ * its reasoning was that two plates of similar weight stacked together read as
+ * a pair of choices. A 224x48 chip in `INK.textDim` on `INK.panel`, 924 px away
+ * and 924 px up, does not read as launch's pair either, so the argument holds
+ * at the new corner. The SIZE and the INK are untouched; `ACTION_BOTTOM` and
+ * UR-76's shared-bottom rule now govern launch alone, which is the only control
+ * still on that line.
+ *
+ * ================== WHAT IT COSTS, HONESTLY ==================
+ * The chip lands on the cockpit glass. `WINDOW` is (1012, 84, 812x636) and the
+ * chip is (1600, 84, 224x48), so 224x48 of the window's top-right corner is
+ * covered by an opaque plate. Pre-flight's chip clears its own glass because
+ * that window starts at y=170. Logged in `gauntlet/escalations.md` with the
+ * alternatives; the corner rule is what the owner asked for and a chip in the
+ * corner of a viewport is a familiar place for a way out.
+ */
 export function backChip(): Rect {
-  return {
-    x: BACK_CHIP_X,
-    y: BACK_CHIP.y,
-    w: BACK_CHIP.w,
-    h: BACK_CHIP.h,
-  };
+  return backCorner(BACK_CHIP.w, BACK_CHIP.h);
 }
 
 export function launchButton(): Rect {

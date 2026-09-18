@@ -23,6 +23,8 @@ import {
   type Block,
   type Rect,
 } from "@game/scenes/support/resultsLayout";
+import { hintInk } from "@game/ui/hintLine";
+import { SKY_PLATE } from "@game/ui/theme";
 
 /**
  * THE STAGE REPORT'S GEOMETRY (screen 9).
@@ -153,19 +155,31 @@ describe("resultsLayout: the panels do not collide with anything", () => {
    * it goes there: out of the row, at the height a child has already learned to
    * look for it.
    *
-   * Watch it fail: put `hint` back to
-   * `{ x: proceed.x + proceed.w + BUTTON_GAP_X, y: buttonY + 20 }`.
+   * THE LAYOUT NO LONGER RETURNS A HINT POSITION. It used to, and `ResultsScene`
+   * passed it to `skyText` - which is how one line came to be drawn at six
+   * different coordinates across the product. `ui/hintLine.drawHint` owns the
+   * position and the style for every screen and takes no arguments, so what is
+   * left for this module to get right is the BAND: the button row and the
+   * panels must stay above the line the hint is going to be drawn on.
+   *
+   * Watch it fail: put `hint: { x: proceed.x + proceed.w + BUTTON_GAP_X, y:
+   * buttonY + 20 }` back on the layout - the first case below fails with
+   * `expected [Function] to be undefined`, because the shape is checked rather
+   * than a number.
    */
   it("keeps the keyboard hint out of the button row", () => {
+    const shared = hintInk();
     for (const report of [THIN_REPORT, FULL_REPORT]) {
       const l = layoutFor(report, PROMPT_BOARD);
-      // Below the row, not beside it.
-      expect(l.hint.y).toBeGreaterThan(l.proceed.y + l.proceed.h);
+      expect((l as unknown as Record<string, unknown>)["hint"]).toBeUndefined();
+      // Below the row, not beside it - asked of the SHARED line, which is the
+      // only place the answer lives now.
+      expect(shared.y).toBeGreaterThan(l.proceed.y + l.proceed.h);
       // On the content's left edge, like every other screen's hint.
-      expect(l.hint.x).toBe(REPORT_X);
-      // And the plate `skyText` cuts around it still fits on the screen: one
-      // caption line is ~26 px of ink plus 8 px of padding either side.
-      expect(l.hint.y + 26 + 8).toBeLessThan(STAGE_H);
+      expect(shared.x - SKY_PLATE.padX).toBe(REPORT_X);
+      // And the plate cut around it still fits on the screen: one caption line
+      // is ~26 px of ink plus the plate's padding either side.
+      expect(shared.y + 26 + SKY_PLATE.padY).toBeLessThan(STAGE_H);
     }
   });
 
@@ -177,8 +191,8 @@ describe("resultsLayout: the panels do not collide with anything", () => {
         expect(withinStage(l.board as Rect), `${stop} board`).toBe(true);
         expect(withinStage(l.replay), `${stop} replay`).toBe(true);
         expect(withinStage(l.proceed), `${stop} continue`).toBe(true);
-        expect(l.hint.x).toBeLessThan(STAGE_W);
-        expect(l.hint.y).toBeLessThan(STAGE_H);
+        expect(hintInk().x).toBeLessThan(STAGE_W);
+        expect(hintInk().y).toBeLessThan(STAGE_H);
         expect(l.report.y).toBeGreaterThanOrEqual(PANEL_TOP_MIN);
       }
     }

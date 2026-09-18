@@ -7,7 +7,6 @@ import {
   PLATE_STACK_GAP,
   PLATE_STEP,
   badgeBox,
-  flowFooter,
   lineBox,
   plateHeight,
   stackRows,
@@ -198,11 +197,19 @@ export const SENTENCE_MAX_LINES = 2;
 const SENTENCE_BLOCK =
   (SENTENCE_MAX_LINES - 1) * SENTENCE_STEP + lineBox(SENTENCE_PX);
 
-/** The card's rows, in order, as the heights the rhythm lays out. */
+/**
+ * The card's rows, in order, as the heights the rhythm lays out.
+ *
+ * THE CAPTION ROW IS GONE, and with it the card's third row. It held the
+ * keyboard hint, which now sits on the product's hint line at the bottom left
+ * like the other eight screens' - see the note below `sentenceRow`. Removing the
+ * row shortens the card by that line plus one card gap, which moves the
+ * instrument and the coach card UP by the same amount and therefore only
+ * increases their clearance from the Lantern's band.
+ */
 const PANEL_ROWS: readonly number[] = [
   lineBox(TYPE.label),
   SENTENCE_BLOCK,
-  lineBox(TYPE.caption),
 ];
 
 export const PANEL: Rect = {
@@ -223,34 +230,30 @@ export function sentenceRow(): Rect {
 }
 
 /**
- * The keyboard hint, ONE STEP UNDER THE SENTENCE THAT IS ACTUALLY ON SCREEN
- * (UR-70).
+ * THE KEYBOARD HINT LEFT THIS CARD (the control-placement sweep).
  *
- * ================== THE HOLE THIS CLOSES ==================
- * It was pinned to the card's FOOT, and the card's foot is sized for the
- * two-line worst case while the sentence on screen is almost always one line -
- * the coach's own gate caps a composed sentence at 56 characters
- * (`engine/coach/sentence.ts`) and this card holds about 57. So the reserved
- * second line was a hole: measured at Jupiter, ink to ink, 79.8 px of nothing
- * between the sentence and the line that tells the child what to do with it.
+ * ================== WHAT IT WAS ==================
+ * `hintRow(lines)` put "type the sentence..." one step under the sentence that
+ * was actually on screen, inside the card, and `PANEL_ROWS` reserved a caption
+ * row at the card's foot for it. UR-70 argued that placement and the argument
+ * was a good one: the instruction sat beside the thing it instructed, and the
+ * hole the fixed foot left on a one-line stop (79.8 px at Jupiter, measured ink
+ * to ink) closed.
  *
- * `lines` is the LAID-OUT count, which only `WarpScene.layoutLetters` knows,
- * so it is a parameter rather than something guessed here. The default is the
- * worst case, so a caller that does not know yet gets the old foot.
+ * ================== WHY IT MOVED ANYWAY ==================
+ * The Warp break is declared `placement: "grid"` in `ui/hint.ts`, and it was
+ * the only screen of the nine so declared that had nothing on the grid line at
+ * all - the owner's sweep of the served build read the hint's position on seven
+ * screens and "ABSENT" here. A contract that nine screens are measured against
+ * cannot have one screen quietly meaning something else by it, which is the
+ * whole defect that sweep was opened for. So the line is drawn by
+ * `ui/hintLine.drawHint` at (96, 1004) like every other screen's, the card
+ * gives back the row it reserved, and UR-70's proximity argument is traded for
+ * the product-wide one. Logged with the numbers in `gauntlet/escalations.md`.
  *
- * THE CARD STILL DOES NOT RESIZE. `flowFooter` clamps at the foot, so a
- * two-line sentence puts the hint exactly where `plateFooter` always put it and
- * a one-line sentence pulls it up into the card. The slack moves from the
- * middle of the reading order to the card's bottom, which is the only place a
- * gap costs nothing - and it is the same trade the note above `PANEL` describes,
- * finished.
+ * What survives of UR-70 here is the part about the HOLE: there is no reserved
+ * empty row at the card's foot any more, on a one-line stop or a two-line one.
  */
-export function hintRow(lines: number = SENTENCE_MAX_LINES): Rect {
-  const band = sentenceRow();
-  const laid = Math.max(1, Math.round(lines));
-  const bottom = band.y + (laid - 1) * SENTENCE_STEP + lineBox(SENTENCE_PX);
-  return flowFooter(PANEL, bottom, lineBox(TYPE.caption), "card");
-}
 
 /**
  * The destination's badge: a square in the card's TOP RIGHT (UR-70).

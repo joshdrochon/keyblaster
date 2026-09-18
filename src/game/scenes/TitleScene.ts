@@ -345,9 +345,19 @@ export class TitleScene extends Phaser.Scene {
 
     const returning = furthest !== null;
     const primaryLabel = returning ? t.t("results.continue") : t.t("title.play");
-    const primarySub = returning
-      ? t.t("beacon.placed", { stop: paletteAt(furthest, false).name })
-      : null;
+    // THE STATUS LINE IS GONE (UR-88).
+    //
+    // It printed "Beacon placed at <stop>." under the primary button, which is
+    // the Beacon screen's own sentence repeated on the home screen - the one
+    // place a returning child does not need to be told where they already are.
+    // The label above it already changes to "Continue" for a returning pilot,
+    // which is the only thing the line was adding.
+    //
+    // `null` is the path a first-time pilot always took, so this removes a
+    // branch rather than adding one: the stack below it closes up by itself
+    // (`titleStack` drops `STATUS_GAP` when `statusH` is null), which is what
+    // lifts the settings row into the space it used to take.
+    const primarySub = null;
 
     // BUILT FIRST, PLACED SECOND (UR-68). Every block is built at y=0 so its
     // plate can be MEASURED, and only then does `titleStack` decide where the
@@ -631,10 +641,18 @@ export class TitleScene extends Phaser.Scene {
     return {
       id: "settings",
       root,
-      width: item.text.width + STEP.hair,
-      height: item.text.height,
-      // The plate is the padding taller at each end and starts that far above
-      // `root.y`, because `skyText` cuts it from the text's own bounds.
+      // THE PLATE'S RECTANGLE, NOT THE TEXT'S (UR-88).
+      //
+      // This used to report the TEXT's box, and the focus ring is struck around
+      // whatever a row reports - so the ring was drawn around the words while
+      // the button it was meant to be around is `SKY_PLATE.padX` wider at each
+      // end. The plate stuck out of its own highlight.
+      //
+      // `skyText` cuts the plate from the text's bounds, so the plate starts
+      // `padX` left of the text and `CHROME_PAD_Y` above it. `PLATED_X` is
+      // exactly `padX`, which is why the plate's left edge is `root.x`.
+      width: item.text.width + SKY_PLATE.padX * 2,
+      height: item.text.height + CHROME_PAD_Y * 2,
       plateH: item.text.height + CHROME_PAD_Y * 2,
       plateTop: CHROME_PAD_Y,
       activate: () => this.goto(SCENE_KEYS.settings),
@@ -746,8 +764,11 @@ export class TitleScene extends Phaser.Scene {
    * that row happens to hold focus.
    */
   private ringBox(item: MenuItem): { x: number; y: number; w: number; h: number } {
-    const inset = item.id === "primary" ? 0 : FOCUS_PAD;
-    return { x: item.root.x + inset, y: item.root.y, w: item.width, h: item.height };
+    // A quiet row now reports its PLATE, so its ring needs no inset: the plate's
+    // own left edge is already the column. The primary's root carries
+    // `PRIMARY_X` so that ITS ring lands there instead.
+    const top = item.id === "primary" ? item.root.y : item.root.y - item.plateTop;
+    return { x: item.root.x, y: top, w: item.width, h: item.height };
   }
 
   private bindPointers(): void {
@@ -801,7 +822,7 @@ export class TitleScene extends Phaser.Scene {
       this.ringBox(item),
       this.accent,
       {
-        offset: FOCUS_PAD,
+        offset: item.id === "primary" ? FOCUS_PAD : 0,
         radius: item.id === "primary" ? SPACE.radiusCard : SPACE.radius,
       },
     );
