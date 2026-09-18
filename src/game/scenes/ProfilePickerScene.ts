@@ -49,25 +49,17 @@ export class ProfilePickerScene extends MenuScene {
       this.buildList(profiles);
     }
 
-    this.addHint();
-    if (profiles.length > 0) {
-      uiText(
-        this,
-        SPACE.gutter,
-        this.scale.height - 44,
-        this.t.t("ui.pick.remove"),
-        {
-          size: TYPE.caption,
-          // 2.82:1 in `INK.textFaint` against the menu backdrop, which is the
-          // least readable line on the screen and the only one that says a
-          // pilot can be deleted. AC-22.8 is 4.5:1 on a plate or off one.
-          color: INK.textDim,
-          lang: this.uiStyle.lang,
-          uppercase: this.uiStyle.uppercase,
-          increasedLetterSpacing: this.uiStyle.increasedLetterSpacing,
-        },
-      ).setDepth(this.depth);
-    }
+    // THE HINT SITS ON THE BOTTOM LINE (UR-84).
+    //
+    // A second faint line used to hang under it naming the remove shortcut. It
+    // was the least readable thing on the screen - measured at 2.82:1 against
+    // the backdrop, under AC-22.8's 4.5:1 - and it explained a destructive
+    // action to a child in the copy they were least likely to be able to read.
+    // The shortcut itself is untouched; what is gone is the line about it.
+    //
+    // The hint takes the line it was using, so the screen ends where it used to
+    // rather than stopping 32 px short.
+    this.addHint().setY(this.scale.height - 44);
   }
 
   /**
