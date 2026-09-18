@@ -268,31 +268,29 @@ export class BeaconScene extends Phaser.Scene {
         padY: 14,
       }),
     );
-    push(
-      skyText(this, headerText(1, undefined, 10).x, headerText(1, undefined, 10).y, state, {
-        screen: "beacon",
-        id: "beacon.state",
-        size: TYPE.body,
-        color: INK.accent,
-        lang: this.lane.lang,
-        depth: 10,
-        padY: 10,
-      }),
-    );
+    // ONE STATUS LINE, NOT TWO (UR-83). The header used to carry a bare state
+    // word - "placed" - on its own plate, and then a full sentence under it
+    // that said the same thing with the stop's name in it. Two plates for one
+    // fact, and the shorter one is the one that says less.
+    //
+    // The sentence takes the state's GOLD, because the gold was never about
+    // that word: it is what this screen is announcing. `state` is still
+    // computed above and still reaches the DOM mirror, so a screen reader and
+    // the e2e both keep the machine-readable status they had.
     push(
       skyText(
         this,
-        headerText(2, undefined, 8).x,
-        headerText(2, undefined, 8).y,
+        headerText(1, undefined, 10).x,
+        headerText(1, undefined, 10).y,
         this.lane.copy.text("beacon.placed", { stop: this.lane.copy.stopName(this.stopId) }),
         {
           screen: "beacon",
           id: "beacon.placed",
-          size: TYPE.label,
-          color: INK.textDim,
+          size: TYPE.body,
+          color: INK.accent,
           lang: this.lane.lang,
           depth: 10,
-          padY: 8,
+          padY: 10,
         },
       ),
     );
