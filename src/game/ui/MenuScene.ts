@@ -30,8 +30,12 @@ import { showToast } from "./toast.js";
  *    screen reader and assertable by Playwright (mirror.ts).
  *  - THE CALM NOTICE LINE (AC-18.4), rendered once, one line, non-blocking.
  */
-/** The y every menu heading is drawn at. One line, every screen (UR-85). */
-export const HEADING_TOP = 84;
+/**
+ * Re-exported from `ui/layout.ts`, which is where they live: two of the four
+ * menu screens are laid out by a plan in that module rather than by the scene.
+ */
+export { CONTENT_TOP, HEADING_TOP } from "./layout.js";
+import { HEADING_TOP } from "./layout.js";
 
 /** An eyebrow above the heading - a step counter, a section name. */
 export const HEADING_EYEBROW_TOP = 44;

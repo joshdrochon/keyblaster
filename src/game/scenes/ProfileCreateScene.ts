@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { MAX_NAME_LENGTH } from "@engine/persistence";
-import { HEADING_EYEBROW_TOP, HEADING_TOP, MenuScene } from "@game/ui/MenuScene";
+import { CONTENT_TOP, HEADING_EYEBROW_TOP, HEADING_TOP, MenuScene } from "@game/ui/MenuScene";
 import {
   type Control,
   MenuButton,
@@ -143,7 +143,7 @@ export class ProfileCreateScene extends MenuScene {
       this.uiStyle,
       "create.name",
       SPACE.gutter,
-      250,
+      CONTENT_TOP,
       this.depth,
       {
         label: this.t.t("ui.create.typeName"),
@@ -221,7 +221,7 @@ export class ProfileCreateScene extends MenuScene {
         this.uiStyle,
         `create.ship.${ship.id}`,
         SPACE.gutter + i * (tileW + SPACE.gap),
-        250,
+        CONTENT_TOP,
         this.depth,
         {
           label: this.t.t(ship.nameKey),

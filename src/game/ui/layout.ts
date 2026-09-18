@@ -2,6 +2,29 @@ import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
 import { SPACE } from "./theme.js";
 
 /**
+ * THE TWO HORIZONTAL LINES EVERY MENU SCREEN IS BUILT ON (UR-85).
+ *
+ * `HEADING_TOP` is where the title is drawn. `CONTENT_TOP` is where the first
+ * control is. They are here, in the pure layout module, rather than in
+ * `MenuScene`, because two of the four screens get their geometry from a plan
+ * in this file and not from the scene at all - so a constant that lived on the
+ * scene could only bind half of them.
+ *
+ * MEASURED BEFORE THIS EXISTED, on the served build: the picker and the create
+ * screen started their controls at 250, the beacon log at 240 and settings at
+ * 216. Four screens a child moves between, three content lines.
+ *
+ * THE SHARED LINE IS THE TIGHTEST SCREEN'S, not the most common one. 250 was
+ * the majority and settings cannot reach it: moving its column down 34 px puts
+ * the Hindi layout's last row at 1002 and the reset key at 983, through the
+ * hint line, which `tests/unit/ui/layout.test.ts` catches in every UI language.
+ * The other three have hundreds of pixels of headroom and lose nothing by
+ * coming up to meet it. A shared line that only holds in English is not one.
+ */
+export const HEADING_TOP = 84;
+export const CONTENT_TOP = 216;
+
+/**
  * MENU LAYOUT MATHS. Pure: nothing here imports Phaser or touches the DOM.
  *
  * WHY IT IS ITS OWN MODULE. The Beacon Log laid its twelve trophy tiles out on
@@ -230,7 +253,7 @@ export const BEACON_LOG = {
   beacons: {
     x: SPACE.gutter,
     w: 620,
-    top: 240,
+    top: CONTENT_TOP,
     rowGap: 10,
     minRowGap: 4,
     glyph: 68,
@@ -244,7 +267,7 @@ export const BEACON_LOG = {
     left: SPACE.gutter + 620 + 40,
     tileW: 340,
     colGap: 24,
-    top: 240,
+    top: CONTENT_TOP,
     rowGap: 22,
     minRowGap: 10,
     glyph: 52,
@@ -325,11 +348,16 @@ export function needsOwnBackdrop(below: SceneBelow | null): boolean {
  */
 export const SETTINGS_CONSOLE = {
   /**
-   * Under the heading, with the bezel clear of it. `addHeading` draws at y=84
-   * at `TYPE.display`, whose ink box plus leading is ~98 px, so the face's top
-   * edge at `top - bezel` = 190 sits 8 px below the title.
+   * THE SHARED CONTENT LINE (UR-85), not a number of this screen's own.
+   *
+   * This used to be 216, argued from the bezel: the face's top edge at
+   * `top - bezel` = 190 sat 8 px below the title. That is a sound reason for
+   * where the PANEL's edge goes and not for where the first control goes, and
+   * it put settings' controls 34 px above every other menu's. The face now
+   * starts at `CONTENT_TOP - bezel` = 224, still clear of a title whose ink box
+   * ends near 182.
    */
-  top: 216,
+  top: CONTENT_TOP,
   rowGap: 18,
   minRowGap: 6,
   /** How far the console face extends past the stack on every side. */

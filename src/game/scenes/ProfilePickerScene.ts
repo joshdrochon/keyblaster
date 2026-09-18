@@ -1,7 +1,7 @@
 import { GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { isStopId } from "@engine/types";
 import type { Profile } from "@engine/types";
-import { MenuScene } from "@game/ui/MenuScene";
+import { CONTENT_TOP, MenuScene } from "@game/ui/MenuScene";
 import { type Control, ListRow, MenuButton } from "@game/ui/controls";
 import { drawAvatar, drawBeacon } from "@game/ui/chrome";
 import { SHADOW_HEIGHT, drawShadow } from "@game/render/shadow";
@@ -173,7 +173,7 @@ export class ProfilePickerScene extends MenuScene {
 
     const controls: Control[] = [];
     this.profileIds = [];
-    let y = 250;
+    let y = CONTENT_TOP;
 
     // NEW PILOT IS THE FIRST ROW, NOT THE LAST (UR-82).
     //

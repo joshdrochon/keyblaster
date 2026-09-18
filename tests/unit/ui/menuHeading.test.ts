@@ -9,19 +9,19 @@ import { describe, expect, it } from "vitest";
  * throws `window is not defined`. Parsing them keeps the claim tied to the real
  * numbers - if someone edits `HEADING_TOP`, this file sees the edit.
  */
-const MENU_SCENE = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../../src/game/ui/MenuScene.ts",
-);
-const constant = (name: string): number => {
+const UI = resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/ui");
+const constant = (name: string, file: string): number => {
   const m = new RegExp(`export const ${name} = (\\d+);`).exec(
-    readFileSync(MENU_SCENE, "utf8"),
+    readFileSync(join(UI, file), "utf8"),
   );
-  if (m === null) throw new Error(`${name} is gone from MenuScene.ts`);
+  if (m === null) throw new Error(`${name} is gone from ${file}`);
   return Number(m[1]);
 };
-const HEADING_TOP = constant("HEADING_TOP");
-const HEADING_EYEBROW_TOP = constant("HEADING_EYEBROW_TOP");
+// The two shared lines live in `layout.ts`, because two of the four menu
+// screens are laid out by a plan in that module rather than by the scene.
+const HEADING_TOP = constant("HEADING_TOP", "layout.ts");
+const CONTENT_TOP = constant("CONTENT_TOP", "layout.ts");
+const HEADING_EYEBROW_TOP = constant("HEADING_EYEBROW_TOP", "MenuScene.ts");
 
 /**
  * UR-85: EVERY MENU PUTS ITS TITLE ON ONE LINE.
@@ -85,6 +85,18 @@ describe("UR-85: one heading line across every menu screen", () => {
       "a menu screen draws its own display-size heading instead of calling " +
         "addHeading, so its title can sit on a different line from every other menu's",
     ).toEqual([]);
+  });
+
+  it("puts the content line below the heading, and only one of each exists", () => {
+    // ONE LINE PER ROLE. Four screens a child moves between started their
+    // controls at 250, 240 and 216 before this; the shared line is the TIGHTEST
+    // screen's, because settings cannot reach 250 in Hindi without printing
+    // through the hint.
+    expect(CONTENT_TOP).toBeGreaterThan(HEADING_TOP);
+    const layout = readFileSync(join(UI, "layout.ts"), "utf8");
+    // No menu block may carry its own content top any more.
+    expect(/top: 240,/.test(layout), "a layout block kept its own content top").toBe(false);
+    expect(/top: 216,/.test(layout), "a layout block kept its own content top").toBe(false);
   });
 
   it("keeps the eyebrow above the heading, with room for it", () => {
