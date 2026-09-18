@@ -176,7 +176,12 @@ describe("UR-14: one rule decides whether stars translate", () => {
     const m = STARFIELD.match(/export type StarSurface =([^;]+);/);
     expect(m, "StarSurface is gone; the enumeration was the coverage").not.toBeNull();
     const members = [...(m?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((x) => x[1]);
-    expect(members).toEqual(["world.starField", "world.atmosphere", "menu.backdrop"]);
+    expect(members).toEqual([
+      "world.starField",
+      "world.atmosphere",
+      "world.nearLight",
+      "menu.backdrop",
+    ]);
   });
 
   it("the atmosphere pass asks the seam instead of scrolling unconditionally", () => {
@@ -226,9 +231,16 @@ describe("UR-14: one rule decides whether stars translate", () => {
       const prose = (body ?? "").replace(/[^A-Za-z ]/g, "").trim();
       expect(prose.length, `exception ${key} has no justification`).toBeGreaterThan(40);
     }
-    // One exception, and it is Flight. Adding a second is a decision somebody
-    // makes on purpose, in front of this line.
-    expect(entries.map((e) => e[1])).toEqual(["world.atmosphere@Flight"]);
+    // EMPTY, by the owner's ruling in round five. Flight held the only two
+    // exceptions on the argument that the ship is genuinely moving there; the
+    // ruling is that stars are far enough away that no visible movement should
+    // exist, including in flight. Matter still parallaxes - see TILE_DRAWS -
+    // so what is frozen is the sky, not the world.
+    //
+    // Watched failing at ['world.atmosphere@Flight', 'world.nearLight@Flight'].
+    // An empty table is the only state where a NEW screen cannot inherit an
+    // exception by accident, so buying one back is a deliberate edit here.
+    expect(entries.map((e) => e[1])).toEqual([]);
   });
 
   it("NOTHING ELSE in the game scrolls a texture, gated or otherwise", () => {
@@ -304,5 +316,189 @@ describe("UR-14: one rule decides whether stars translate", () => {
       const covered = swept.includes(key) || excepted.includes(key);
       expect(covered, `${file} draws stars and is neither swept nor excepted`).toBe(true);
     }
+  });
+});
+
+/**
+ * UR-14 ROUND FOUR: EVERY DRAWING IS CLASSIFIED, AND LIGHT GOES THROUGH THE SEAM.
+ *
+ * ================== WHAT ROUND FOUR WAS ==================
+ * The rule the block above installed was correct about having ONE home and
+ * wrong about where it drew the line. It classified by MECHANISM - a full-frame
+ * overlay holds still, an object at a depth travels "because that is what
+ * parallax means" - and it named `moteTile`'s motes and glints as things that
+ * may travel. So 44 `mote` sprites and 14 `glint` sprites went on riding the
+ * near plane at 1.30 x world speed: 96.2 px/s on the Title, 384.8 px in four
+ * seconds, while all three guards stayed green.
+ *
+ * The line is now APPEARANCE - see `starField.ts` and `tiles.TILE_DRAWS`.
+ *
+ * ================== WHY THE SOURCE IS SWEPT AS WELL AS THE SCREEN ==========
+ * The e2e next door recognises a point of light from the display list, by what
+ * the node draws. That catches every mechanism it can classify and nothing it
+ * cannot: a generator nobody has written yet, drawing specks nobody has told it
+ * about, walks straight past. So the classification is a table in `tiles.ts`,
+ * and these assertions require that (a) every generator in that file is IN the
+ * table, so a new one is red until somebody decides what it draws, and (b)
+ * every generator classified as LIGHT reaches the scene through the seam rather
+ * than being added to a scrolling container directly.
+ *
+ * That is the pair round three was missing. Its guard asserted the one surface
+ * it knew about; this asserts that the enumeration is exhaustive over the file
+ * the drawings actually live in.
+ *
+ * Watch it fail: three ways, all recorded below with what they print.
+ */
+
+const TILES = readFileSync(resolve(SRC, "render/tiles.ts"), "utf8");
+
+/** Every `*Tile` generator exported from `tiles.ts`, read from the source. */
+function tileGenerators(): string[] {
+  return [...TILES.matchAll(/export function (\w+Tile)\s*\(/g)].map((m) => m[1] as string);
+}
+
+/** The classification table, parsed from the source rather than imported. */
+function tileDraws(): Record<string, string> {
+  const block = TILES.match(/export const TILE_DRAWS[^=]*= \{([\s\S]*?)\n\};/);
+  const out: Record<string, string> = {};
+  for (const [, k, v] of (block?.[1] ?? "").matchAll(/(\w+):\s*"(light|matter)"/g)) {
+    out[k as string] = v as string;
+  }
+  return out;
+}
+
+describe("UR-14: every drawing is classified, and light goes through the seam", () => {
+  it("finds the generators, so the sweep cannot go quietly empty", () => {
+    // Rule 5. If this collapses to one name the two assertions below are
+    // passing on almost nothing and would say so here first.
+    const gens = tileGenerators();
+    expect(gens.length, `generators found: ${gens.join(", ")}`).toBeGreaterThanOrEqual(5);
+    expect(gens).toContain("moteTile");
+    expect(gens).toContain("driftTile");
+  });
+
+  it("every generator in tiles.ts is classified as light or matter", () => {
+    /**
+     * Watched failing: `veilTile` removed from `TILE_DRAWS` and this reported
+     *
+     *   unclassified drawings in tiles.ts: veilTile
+     *   Expected: []
+     *   Received: ["veilTile"]
+     *
+     * which is what a NEW generator gets on the day it is written.
+     */
+    const table = tileDraws();
+    const unclassified = tileGenerators().filter((g) => !(g in table));
+    expect(
+      unclassified,
+      `unclassified drawings in tiles.ts: ${unclassified.join(", ")}`,
+    ).toEqual([]);
+    // ...and no stale entry for a generator that no longer exists, which would
+    // make the table look more exhaustive than it is.
+    const gone = Object.keys(table).filter((k) => !tileGenerators().includes(k));
+    expect(gone, `TILE_DRAWS names drawings that are gone: ${gone.join(", ")}`).toEqual([]);
+    // Both kinds are populated. A table that is all "matter" classifies nothing.
+    const kinds = Object.values(table);
+    expect(kinds.filter((k) => k === "light").length).toBeGreaterThanOrEqual(2);
+    expect(kinds.filter((k) => k === "matter").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("parallax.ts asks the seam for the near plane, exactly as it does for the weather", () => {
+    expect(PARALLAX).toMatch(/starsMayTravel\("world\.nearLight", scene\.scene\.key\)/);
+    // The pinned branch: its own container, at its own depth, never added to a
+    // layer and never repositioned. If the specks went back onto `n` they would
+    // scroll again and every word above this line would still be true.
+    expect(PARALLAX).toMatch(/if \(!nearLightTravels\) \{[\s\S]{0,160}?scene\.add\.container\(0, 0\)/);
+    expect(
+      /nearLight\.(x|y|setPosition)\s*[=(]/.test(PARALLAX),
+      "the pinned light container is being repositioned",
+    ).toBe(false);
+  });
+
+  it("every LIGHT drawing reaches the scene through the seam, and no MATTER one does", () => {
+    /**
+     * Watched failing: the `accentTile` call in `parallax.ts` reverted to the
+     * shipped `wrapY(accentTile(...), H)` on the `nearField` container, and
+     * this reported
+     *
+     *   light drawings added without asking the star rule: accentTile (1 calls, 0 gated)
+     *   Expected: []
+     *   Received: ["accentTile (1 calls, 0 gated)"]
+     *
+     * The COUNTS are reported, not just the name, because a second ungated call
+     * site is how this comes back: one gated call keeps every regex above this
+     * one green, and `2 calls, 1 gated` is the only thing that says otherwise.
+     *
+     * And the other direction, watched failing by routing `driftTile` through
+     * `lightOps` - freezing the world to fix the sky -
+     *
+     *   matter routed through the star rule; the world must keep moving:
+     *   driftTile (1 gated)
+     */
+    const table = tileDraws();
+    const ungated: string[] = [];
+    const overGated: string[] = [];
+    for (const [gen, kind] of Object.entries(table)) {
+      const calls = [...PARALLAX.matchAll(new RegExp(`\\b${gen}\\(`, "g"))].length;
+      const gated = [...PARALLAX.matchAll(new RegExp(`lightOps\\(${gen}\\(`, "g"))].length;
+      if (calls === 0) continue;
+      if (kind === "light" && gated !== calls)
+        ungated.push(`${gen} (${calls} calls, ${gated} gated)`);
+      if (kind === "matter" && gated !== 0) overGated.push(`${gen} (${gated} gated)`);
+    }
+    expect(
+      ungated,
+      `light drawings added without asking the star rule: ${ungated.join(", ")}`,
+    ).toEqual([]);
+    // The other direction, and it matters as much: freezing the rocks, the dust
+    // or the veil would trade UR-14 for UR-50.4. Only light holds still.
+    expect(
+      overGated,
+      `matter routed through the star rule; the world must keep moving: ${overGated.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("the menu backdrop's motes breathe where they stand, and they ask the seam", () => {
+    /**
+     * THE FIFTH MECHANISM, AS A REGEX.
+     *
+     * `Backdrop.spawnMotes` tweened 18 accent discs `60 + (i % 5) * 26` px up
+     * the frame and back on all five menu screens. It was the first
+     * tween-driven instance of this defect and therefore invisible to every
+     * probe that steps `scene.update` by hand - which was all of them until the
+     * real-frames pass in the e2e.
+     *
+     * Three halves, because two of them were true while it was broken: the menu
+     * backdrop was already IN the `StarSurface` enumeration, and its star
+     * Graphics was already asserted never to be repositioned. Neither said
+     * anything about eighteen tweened discs beside it.
+     *
+     * Watched failing: the `y` term put back on the mote tween unconditionally,
+     * and this reported
+     *
+     *   the backdrop motes have an unconditional travel term again: expected
+     *   true to be false
+     */
+    // 1. It asks, from the scene key, like the other three surfaces.
+    expect(CHROME).toMatch(/starsMayTravel\("menu\.backdrop", this\.scene\.scene\.key\)/);
+    // 2. The defect itself first, so a revert reports the defect rather than
+    // reporting that a helper variable is missing.
+    expect(
+      /targets: mote,\s*\n\s*y:/.test(CHROME),
+      "the backdrop motes have an unconditional travel term again",
+    ).toBe(false);
+    // ...and the travel term exists only inside the branch the seam grants.
+    expect(CHROME).toMatch(/const travel: Record<string, number> = mayTravel/);
+    // 3. And they still animate, because a frozen menu reads as a crashed game
+    // (rubric item 2). Alpha is the whole animation now.
+    expect(CHROME).toMatch(/\.\.\.travel,\n\s*alpha: 0\.06,/);
+  });
+
+  it("the pinned specks are not wrapped, because a pinned plane has no seam", () => {
+    // `wrapY` doubles a tile so a scrolling plane has something to bring in at
+    // the seam. A pinned one never reaches one, so the second copy would be 29
+    // Images parked above the top edge forever, against AC-22.9. Measured: the
+    // Title's display list went from 123 nodes to 95.
+    expect(PARALLAX).toMatch(/nearLightTravels \? wrapY\(ops, H\) : ops/);
   });
 });

@@ -6,6 +6,7 @@ import {
   type LivePlateTrack,
   type PlateTrack,
   ROCK_DRIFT_PX,
+  hasCleanColumn,
   spawnX,
 } from "@engine/spawn/index.js";
 import { fallTimeMs } from "@engine/fallTime/index.js";
@@ -395,7 +396,6 @@ function flyBoard(spec: BoardSpec): BoardResult {
         if (boardEmpty) nowMs += 200;
         continue;
       }
-      selection = outcome.state;
       const word = outcome.word;
       const record = book[word] ?? blankRecord();
       const letters = [...word].length;
@@ -432,18 +432,28 @@ function flyBoard(spec: BoardSpec): BoardResult {
       }));
       // `FlightScene.laneSpec`, verbatim: the keep-out is sized by the WIDER of
       // the rock and its plate.
-      const homeX = spawnX(
-        {
-          width: GAME_WIDTH,
-          marginPx: SPAWN_MARGIN_PX,
-          shipX: SHIP_X,
-          shipHalfWidthPx: SHIP_HALF_WIDTH_PX,
-          rockHalfWidthPx: Math.max(sizePx / 2, half),
-          ...(spec.separate ? { plate: track, livePlates } : {}),
-        },
-        rng,
-        outcome.practice,
-      );
+      const lane = {
+        width: GAME_WIDTH,
+        marginPx: SPAWN_MARGIN_PX,
+        shipX: SHIP_X,
+        shipHalfWidthPx: SHIP_HALF_WIDTH_PX,
+        rockHalfWidthPx: Math.max(sizePx / 2, half),
+        ...(spec.separate ? { plate: track, livePlates } : {}),
+      };
+      // THE BELT DECLINES RATHER THAN COVERS A WORD (AC-22.8).
+      // `FlightScene.trySpawn`, verbatim: a board where every column would put
+      // this word over another word does not get this word yet. Nothing is
+      // spent - not the selection, not a seeded draw - so it is offered again
+      // 200 ms later, by which time the plates it conflicted with have moved.
+      // Without this the column rule is asked for a guarantee the board cannot
+      // give: seven plates at D41 spacing need ~1516 px of a 1280 px span.
+      if (spec.separate && !hasCleanColumn(lane, outcome.practice)) {
+        nextSpawnAtMs = nowMs + 200;
+        if (boardEmpty) nowMs += 200;
+        continue;
+      }
+      selection = outcome.state;
+      const homeX = spawnX(lane, rng, outcome.practice);
       const rock: SimRock = {
         word,
         homeX,
@@ -656,16 +666,38 @@ describe("UR-23 / AC-22.8: a word plate never covers another word plate", () => 
    * vitest's node environment, so this is a source guard, the same binding
    * `tests/unit/render/wordPlateOpacity.test.ts` uses for the same reason.
    *
-   * WATCHED FAILING, with `spawnRock` reverted to `this.laneSpec(sizePx, word)`:
+   * ================== AND THAT IT TAKES NO FOR AN ANSWER ==================
+   * The rule now has a second half. No column rule can win on a board that is
+   * over-subscribed - seven plates at D41 spacing need ~1516 px of a 1280 px
+   * span - so `spawnRock` DECLINES rather than covering a word, and only
+   * `FlightScene.trySpawn` can act on that. A `spawnRock` whose answer is
+   * thrown away is a rule that holds in the engine and not on the screen, so
+   * the call site is guarded here beside the wiring it belongs to.
    *
-   *   spawnRock no longer hands the column rule the arriving plate, so
-   *   @engine/spawn cannot know what it is separating: expected false to be true
+   * WATCHED FAILING, each by reverting that one line in `FlightScene.ts`:
    *
-   * and with `updateRocks` put back to the literal `* 10`:
+   *   with `const spec = this.laneSpec(sizePx, word)` (the plate dropped):
+   *     spawnRock no longer hands the column rule the arriving plate, so
+   *     @engine/spawn cannot know what it is separating: expected false to be true
    *
-   *   updateRocks sways a rock by a literal rather than by ROCK_DRIFT_PX, so
-   *   the keep-out is sized for a drift the scene may not be using:
-   *   expected false to be true
+   *   with `spawnX(this.laneSpec(sizePx, word, track), ...)` rebuilt inline:
+   *     spawnRock chooses the column from a spec other than the one it tested
+   *     for room, so the two can disagree: expected false to be true
+   *
+   *   with `hasCleanColumn(spec, practice)` deleted:
+   *     spawnRock no longer asks whether this board has a readable column, so
+   *     AC-22.8 rests on a fallback that is known not to reach zero:
+   *     expected false to be true
+   *
+   *   with `this.spawnRock(outcome.word, now, outcome.practice);` restored bare:
+   *     trySpawn ignores spawnRock's refusal, so a declined rock is simply
+   *     never drawn and the belt goes quiet instead of waiting:
+   *     expected false to be true
+   *
+   *   and with `updateRocks` put back to the literal `* 10`:
+   *     updateRocks sways a rock by a literal rather than by ROCK_DRIFT_PX, so
+   *     the keep-out is sized for a drift the scene may not be using:
+   *     expected false to be true
    */
   it("FlightScene hands the column rule the plate and the board it is about", () => {
     const source = readFileSync(
@@ -675,9 +707,27 @@ describe("UR-23 / AC-22.8: a word plate never covers another word plate", () => 
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/\/\/[^\n]*/g, "");
     expect(
-      /spawnX\(\s*this\.laneSpec\(sizePx,\s*word,\s*track\)/.test(source),
+      /const spec = this\.laneSpec\(sizePx,\s*word,\s*track\)/.test(source),
       "spawnRock no longer hands the column rule the arriving plate, so " +
         "@engine/spawn cannot know what it is separating",
+    ).toBe(true);
+    // ONE SPEC, TESTED AND USED. Two `laneSpec` calls would be two boards -
+    // the one the decline was decided on and the one the column came from -
+    // and the gap between them is where this defect class lives.
+    expect(
+      /spawnX\(spec,\s*this\.rng,\s*practice\)/.test(source),
+      "spawnRock chooses the column from a spec other than the one it tested " +
+        "for room, so the two can disagree",
+    ).toBe(true);
+    expect(
+      /if \(!hasCleanColumn\(spec,\s*practice\)\) return false;/.test(source),
+      "spawnRock no longer asks whether this board has a readable column, so " +
+        "AC-22.8 rests on a fallback that is known not to reach zero",
+    ).toBe(true);
+    expect(
+      /if \(!this\.spawnRock\(outcome\.word,\s*now,\s*outcome\.practice\)\)/.test(source),
+      "trySpawn ignores spawnRock's refusal, so a declined rock is simply " +
+        "never drawn and the belt goes quiet instead of waiting",
     ).toBe(true);
     expect(
       /livePlates:\s*this\.livePlateTracks\(\)/.test(source),

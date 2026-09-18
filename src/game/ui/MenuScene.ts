@@ -167,8 +167,8 @@ export abstract class MenuScene extends Phaser.Scene {
     }).setDepth(this.depth);
   }
 
-  protected setControls(controls: readonly Control[]): void {
-    this.list.setItems(controls);
+  protected setControls(controls: readonly Control[], focusId?: string): void {
+    this.list.setItems(controls, focusId);
     this.moveRing();
     this.publish();
   }

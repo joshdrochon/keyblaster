@@ -4,6 +4,7 @@ import {
   type LivePlateTrack,
   type PlateTrack,
   ROCK_DRIFT_PX,
+  hasCleanColumn,
   leastCoveredColumn,
   plateCentreYAt,
   plateKeepOuts,
@@ -300,5 +301,142 @@ describe("spawnX with the plate keep-out", () => {
       livePlates: [live({ homeX: 960 })],
     });
     expect(spawnX(spec, () => 0.5, true)).toBe(320);
+  });
+});
+
+/**
+ * ================== THE BELT'S LICENCE TO SPAWN (AC-22.8) ==================
+ *
+ * `spawnX` is total: handed an over-subscribed board it still answers, with the
+ * least-covered column. That is right for a caller that must put a rock
+ * somewhere NOW, and it is not zero - AC-22.8 asks for zero, and no choice of x
+ * can deliver it, because seven plates at D41's letter spacing need about
+ * 1516 px of a 1280 px playable span.
+ *
+ * So the belt is given the question instead of the answer: `hasCleanColumn`
+ * says whether a readable column exists at all, and `FlightScene.trySpawn`
+ * holds the word for a tick when it does not. These are the claims that makes
+ * safe - above all that the two functions cannot disagree, and that waiting
+ * actually works.
+ */
+describe("hasCleanColumn: whether the board has room for one more word", () => {
+  it("is true on an empty board, and on one with no plate described", () => {
+    expect(hasCleanColumn(lane(), false)).toBe(true);
+    expect(hasCleanColumn(lane({ plate: track(), livePlates: [] }), false)).toBe(true);
+    // A caller that describes no plate is asking nothing about plates.
+    expect(hasCleanColumn(lane({ livePlates: [live()] }), false)).toBe(true);
+  });
+
+  it("is false exactly when spawnX has to fall back to the least covered column", () => {
+    // The six-blocker board from the fallback case above: every column banded.
+    const blockers = [320, 576, 832, 1088, 1344, 1600].map((homeX) =>
+      live({ homeX, halfWidthPx: 130 }),
+    );
+    const full = lane({ plate: track({ halfWidthPx: 130 }), livePlates: blockers });
+    expect(hasCleanColumn(full, false)).toBe(false);
+
+    // One blocker is plenty of board.
+    const roomy = lane({ plate: track(), livePlates: [live({ homeX: 960 })] });
+    expect(hasCleanColumn(roomy, false)).toBe(true);
+  });
+
+  it("agrees with spawnX on every board, which is the only claim that matters", () => {
+    // ONE FUNCTION, TWO CALLERS: if `hasCleanColumn` said yes where `spawnX`
+    // covers a word, the belt would clear a board the column rule then failed
+    // to place - the defect class this project keeps being bitten by, a check
+    // that exercises something ADJACENT to the shipped thing. Swept rather than
+    // sampled: every blocker count from none to seven, three plate widths and
+    // four columns each, both practice settings.
+    //
+    // TWO CLAIMS, NOT ONE BICONDITIONAL, and the difference is a real edge
+    // rather than a hedge. `subtractSpans` drops zero-width leftovers, so a
+    // board whose only uncovered column is a single POINT - the plates exactly
+    // abutting - reads as no room. That is the right answer for a uniform pick
+    // that would never land on it, but it means "held" does not imply "the
+    // fallback overlaps": the fallback can sit exactly on a band edge, at zero
+    // overlap and zero slack. So safety is asserted strictly and tightness is
+    // asserted as "no column had slack to spare", which is what was true.
+    let clean = 0;
+    let held = 0;
+    for (let count = 0; count <= 7; count += 1) {
+      for (const halfWidthPx of [60, 100, 140]) {
+        for (const spread of [120, 200, 260, 340]) {
+          for (const practice of [false, true]) {
+            const livePlates = Array.from({ length: count }, (_, i) =>
+              live({ homeX: 960 + (i - (count - 1) / 2) * spread, halfWidthPx }),
+            );
+            const spec = lane({ plate: track({ halfWidthPx }), livePlates });
+            const bands = plateKeepOuts(spec.plate as PlateTrack, livePlates);
+            const slack = (x: number): number =>
+              bands.length === 0
+                ? Number.POSITIVE_INFINITY
+                : Math.min(
+                    ...bands.map(
+                      (b) => Math.abs(x - (b.from + b.to) / 2) - (b.to - b.from) / 2,
+                    ),
+                  );
+            const where = `count ${count}, halfWidth ${halfWidthPx}, spread ${spread}, practice ${practice}`;
+            const picks = columns(spec, practice);
+            if (hasCleanColumn(spec, practice)) {
+              clean += 1;
+              // SAFETY. The belt was told there is room, so nothing `spawnX`
+              // can answer may put this word over another word.
+              for (const x of picks) {
+                expect(slack(x) >= 0, `column ${x} is inside a keep-out (${where})`).toBe(true);
+              }
+            } else {
+              held += 1;
+              // TIGHTNESS. The belt was told to wait, so the board really had
+              // nothing to spare: every column `spawnX` can answer is touching
+              // a band or inside one.
+              for (const x of picks) {
+                expect(slack(x) <= 0, `column ${x} had room to spare (${where})`).toBe(true);
+              }
+            }
+          }
+        }
+      }
+    }
+    // Both answers are actually reached, so the sweep is not vacuously true on
+    // one side of the branch.
+    expect(clean).toBeGreaterThan(0);
+    expect(held).toBeGreaterThan(0);
+  });
+
+  it("is true when the ship lane has already taken the whole board", () => {
+    // THE DEADLOCK THIS PREVENTS. With no off-lane column at all, `spawnX`
+    // answers from the ship alone and never consults the plate keep-out, so
+    // there is no plate question to ask. Answering false here would make the
+    // belt wait for room that the SHIP is occupying and that no plate retiring
+    // can ever return - the board would simply stop feeding.
+    const spec = lane({
+      rockHalfWidthPx: 5000,
+      plate: track(),
+      livePlates: [live({ homeX: 960 })],
+    });
+    expect(hasCleanColumn(spec, true)).toBe(true);
+    expect(spawnX(spec, () => 0.5, true)).toBe(320);
+  });
+
+  it("stops being false once the board is waited out, which is why waiting works", () => {
+    // THE RETRY TERMINATES, and it terminates for a reason rather than by luck.
+    // Which live plates a rock must avoid depends on which it comes LEVEL with,
+    // and that depends on when it launches. Here the same rock on the same
+    // full board goes from held to placeable purely by arriving later, after
+    // the blockers have fallen past it. `FlightScene.trySpawn` retries every
+    // 200 ms, so this is the property that makes the hold a wait and not a
+    // stall.
+    const blockers = [320, 576, 832, 1088, 1344, 1600].map((homeX) =>
+      live({ homeX, halfWidthPx: 130, spawnedAtMs: 0, fallMs: 4000 }),
+    );
+    const at = (spawnedAtMs: number): LaneSpec =>
+      lane({
+        plate: track({ halfWidthPx: 130, spawnedAtMs, fallMs: 4000 }),
+        livePlates: blockers,
+      });
+    expect(hasCleanColumn(at(0), false)).toBe(false);
+    // Launched after every blocker has reached the breach line, nothing it can
+    // meet is still falling.
+    expect(hasCleanColumn(at(4200), false)).toBe(true);
   });
 });

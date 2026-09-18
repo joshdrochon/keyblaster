@@ -2,7 +2,8 @@ import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { hexToNum, paletteAt } from "@game/render/palette";
 import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
-import { INK, TYPE } from "@game/ui/theme";
+import { INK, SKY_PLATE, TYPE } from "@game/ui/theme";
+import { HEADING_TOP, SUBHEADING_TOP } from "@game/ui/grid";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import {
   createFocusRing,
@@ -56,6 +57,15 @@ const BUTTON_W = 420;
 const BUTTON_H = 88;
 const BUTTON_Y = GAME_HEIGHT * 0.87;
 
+/**
+ * The header plate's padding. `SKY_PLATE`'s, because that is the padding
+ * `ui/grid.headingText()` assumes when it says where a plated title's INK goes,
+ * and a header that uses a different one lands its ink somewhere the grid did
+ * not predict.
+ */
+const HEADER_PAD_X = SKY_PLATE.padX;
+const HEADER_PAD_Y = SKY_PLATE.padY;
+
 export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
   private story!: ResolvedInit;
   private parallax!: Parallax;
@@ -65,7 +75,18 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
   private lampG!: Phaser.GameObjects.Graphics;
   private beamG!: Phaser.GameObjects.Graphics;
   private ringsG!: Phaser.GameObjects.Graphics;
+  /** The screen's title, on the grid's heading line (UR-19). */
+  private headingText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
+  /**
+   * The plate behind the status line, kept because the line's COPY changes.
+   *
+   * `skyText`-style plates are cut from the text's own bounds, so a plate drawn
+   * once for "offline" is the wrong width for the lit copy - a longer string
+   * would hang off its own contrast plate, which is AC-22.8's failure with an
+   * extra step. `setStatus` re-cuts it.
+   */
+  private statusPlate: Phaser.GameObjects.Graphics | null = null;
   private litText!: Phaser.GameObjects.Text;
   /**
    * The "type launch to wake the beacon" instruction. no-user-quotes-ok: that
@@ -97,6 +118,7 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
     this.litAtMs = 0;
     this.prompt = null;
     this.menu = null;
+    this.statusPlate = null;
   }
 
   create(): void {
@@ -128,18 +150,45 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
     this.lampG = this.add.graphics().setDepth(7);
     this.paintLamp(pal.accent, 0);
 
-    // --- status chip ------------------------------------------------------
-    const chipW = 520;
-    plate(this, GAME_WIDTH / 2 - chipW / 2, 76, chipW, 76).setDepth(9);
-    this.statusText = label(
-      this,
-      GAME_WIDTH / 2,
-      114,
-      `${text.text("earth.heading")}  ·  ${text.text("earth.status.dark")}`,
-      { size: TYPE.label, color: INK.textDim, align: "center", lang: this.story.lang },
-    )
-      .setOrigin(0.5)
-      .setDepth(10);
+    // --- header block, on the product's grid lines (UR-19) ----------------
+    //
+    // WHAT WAS HERE. One 24 px chip reading "earth beacon · offline", its plate
+    // at y=76 and its ink at (837, 100) on a 1920 world. Measured against the
+    // five screens that agree - a 44 px title whose plate corner is on
+    // (GUTTER, HEADING_TOP) and a subline on SUBHEADING_TOP - it was the wrong
+    // SIZE, on the wrong LINE, and carried two different things on one row. The
+    // critic's reading of it was that this screen has no title at all, and that
+    // was correct.
+    //
+    // It is now the same two-line header the Beacon screen uses, which is the
+    // screen this one is explicitly a smaller version of: the place on line 0,
+    // its state on line 1. Both on the grid's lines, at the grid's sizes.
+    //
+    // CENTRED, NOT ON THE GUTTER, and that is declared rather than overlooked.
+    // `grid-conformance.spec.ts` declares this screen's anchoring "centred" and
+    // measures it: every object here - the mast, the lamp, its rings, the
+    // column of light, Shadow's line, the prompt and the button - is placed
+    // from `GAME_WIDTH / 2` so the composition survives a 32:9 window. A header
+    // pinned to the left gutter on a screen that must reflow from the centre is
+    // the exact defect that file caught in Shadow's line, one object up. So the
+    // header joins the grid on the axis a centred screen HAS - the line - and
+    // the spec asserts the centring in place of the x.
+    const headerCentre = GAME_WIDTH / 2;
+    this.headingText = this.headerLine(
+      text.text("earth.heading"),
+      HEADING_TOP,
+      TYPE.heading,
+      INK.text,
+      headerCentre,
+    );
+    this.statusText = this.headerLine(
+      text.text("earth.status.dark"),
+      SUBHEADING_TOP,
+      TYPE.body,
+      INK.textDim,
+      headerCentre,
+    );
+    this.statusPlate = this.lastHeaderPlate;
 
     // --- Shadow and his line ---------------------------------------------
     this.shadow = drawShadow(this, 300, GAME_HEIGHT * 0.63, "pointing", {
@@ -243,6 +292,60 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.teardown());
   }
 
+  /**
+   * One line of the header block: a centred label on a plate cut to its own
+   * bounds, with the PLATE's top on the grid line (UR-19).
+   *
+   * The plate, not the ink, because that is what `ui/grid.ts` says the contract
+   * is and what every other screen's `skyText` header does - putting the INK on
+   * the line puts the plate one padding above it, which is the same half-pixel
+   * class of error that made the stage report look like it was hugging the
+   * corner. Sized from the measured text so a longer string or a taller
+   * Devanagari line box grows the plate instead of overflowing it.
+   */
+  private headerLine(
+    content: string,
+    gridTop: number,
+    size: number,
+    color: string,
+    centre: number,
+  ): Phaser.GameObjects.Text {
+    const text = label(this, centre, gridTop + HEADER_PAD_Y, content, {
+      size,
+      color,
+      align: "center",
+      lang: this.story.lang,
+    })
+      .setOrigin(0.5, 0)
+      .setDepth(10);
+    this.lastHeaderPlate = plate(
+      this,
+      centre - text.width / 2 - HEADER_PAD_X,
+      gridTop,
+      text.width + HEADER_PAD_X * 2,
+      text.height + HEADER_PAD_Y * 2,
+    ).setDepth(9);
+    return text;
+  }
+
+  /** Where `headerLine` left the plate it just drew. */
+  private lastHeaderPlate!: Phaser.GameObjects.Graphics;
+
+  /** Change the state line without touching the screen's name above it. */
+  private setStatus(content: string, color: string): void {
+    this.statusText.setText(content);
+    this.statusText.setColor(color);
+    this.statusText.setX(GAME_WIDTH / 2);
+    this.statusPlate?.destroy();
+    this.statusPlate = plate(
+      this,
+      GAME_WIDTH / 2 - this.statusText.width / 2 - HEADER_PAD_X,
+      SUBHEADING_TOP,
+      this.statusText.width + HEADER_PAD_X * 2,
+      this.statusText.height + HEADER_PAD_Y * 2,
+    ).setDepth(9);
+  }
+
   /** The launchpad mast. Drawn once; lighting the beacon never re-tints it. */
   private drawMast(accent: string): void {
     const g = this.add.graphics().setDepth(6);
@@ -297,10 +400,9 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
     this.litAtMs = this.time.now;
     const { text } = this.story;
 
-    this.statusText.setText(
-      `${text.text("earth.heading")}  ·  ${text.text("earth.status.lit")}`,
-    );
-    this.statusText.setColor(INK.accentSoft);
+    // The STATE changes; the screen's name does not. It used to reset the whole
+    // chip, which is how the title and the status came to be one string.
+    this.setStatus(text.text("earth.status.lit"), INK.accentSoft);
     this.shadow.setPose("cheering");
 
     // Expo.Out - the blast curve: the light ARRIVES, it does not ramp up.

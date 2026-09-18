@@ -90,6 +90,7 @@ import {
   type LayerSpec,
   cameraSwayPx,
   idleDriftPx,
+  layer,
 } from "./layers.js";
 import {
   type AtmosphereKind,
@@ -176,6 +177,16 @@ const PINNED: ReadonlySet<LayerId> = new Set<LayerId>(["sky", "hud"]);
  * near-sky and near-black leaves a gap the eye reads as a missing layer.
  */
 const DEPTH_PLANES = 4;
+
+/**
+ * Depth of the near plane's PINNED points of light (UR-14, fourth report).
+ *
+ * A hair behind `nearField` so the stacking order is byte-for-byte what it was
+ * when the specks lived inside that container: motes and accents under the near
+ * silhouettes, over the debris plane at 4. Derived from `layers.ts` rather than
+ * typed, because a depth split across two files is a depth with two values.
+ */
+const NEAR_LIGHT_DEPTH = layer("nearField").depth - 0.01;
 
 /** Depth of the pinned floor vignette: in front of the near field, behind the ship. */
 const VIGNETTE_DEPTH = 5.6;
@@ -784,10 +795,43 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
     // `worldAccent`, not `accent`: in colourblind mode these two are different
     // colours on purpose. See the long note in palette.ts - the world wants the
     // value separated from the sky, the plate wants the one a child can read.
-    n.add(drawOps(scene, wrapY(moteTile(W, H, nearFill, pal.worldAccent, rand), H)));
-    // WORLD-BAR item 7. Three of them. Tiny, high contrast, enormous effect.
-    n.add(
-      drawOps(scene, wrapY(accentTile(W, H, mixHex(pal.worldAccent, "#FFFFFF", 0.2), rand), H)),
+    //
+    // ---------------------------------------------------------------------
+    // UR-14, FOURTH REPORT: THE SPECKS ON THIS PLANE ARE POINTS OF LIGHT.
+    //
+    // 44 `mote` sprites, 14 `glint` sprites and 6 accent diamonds were replayed
+    // straight into the `nearField` container, which scrolls at 1.30 x world
+    // speed. On the shipped Title that is 96.2 px/s and the whole field crosses
+    // the frame every eleven seconds - fifty-eight lit specks sliding down a
+    // menu sky. The three previous fixes each pinned the mechanism that
+    // round's report had found - container drift, then the sideways plane
+    // march, then the atmosphere pass's texture scroll - and each left this one
+    // because the rule at the time said an object placed at a depth may travel.
+    //
+    // It does not any more. `starsMayTravel` decides by what the thing LOOKS
+    // like and which screen it is on; `starField.ts` carries the reasoning and
+    // the Flight exception. Here the only consequence is WHERE these ops are
+    // added: to a pinned container of their own on a screen with no flight, or
+    // to the scrolling plane on the one screen that has bought an exception.
+    //
+    // The pinned copy is NOT wrapped. `wrapY` exists so a scrolling plane has a
+    // second tile to bring in at the seam; a pinned one never reaches a seam,
+    // so the wrap copy would be 29 Images parked permanently above the top edge
+    // against the AC-22.9 budget.
+    const nearLightTravels = starsMayTravel("world.nearLight", scene.scene.key);
+    let nearLight = n;
+    if (!nearLightTravels) {
+      nearLight = scene.add.container(0, 0).setDepth(NEAR_LIGHT_DEPTH);
+      extras.push(nearLight);
+    }
+    const lightOps = (ops: readonly TileOp[]): readonly TileOp[] =>
+      nearLightTravels ? wrapY(ops, H) : ops;
+    nearLight.add(drawOps(scene, lightOps(moteTile(W, H, nearFill, pal.worldAccent, rand))));
+    // WORLD-BAR item 7. Three of them. Tiny, high contrast, enormous effect -
+    // and 4-9 px of opaque saturated colour is the most speck-like thing in the
+    // frame, so they hold still with the motes rather than sliding alone.
+    nearLight.add(
+      drawOps(scene, lightOps(accentTile(W, H, mixHex(pal.worldAccent, "#FFFFFF", 0.2), rand))),
     );
     addDrift(
       "nearField",

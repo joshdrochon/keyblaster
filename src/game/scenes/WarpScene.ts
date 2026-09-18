@@ -40,6 +40,7 @@ import {
   type PlatedText,
   type SceneSnapshot,
 } from "./lib/kit";
+import { paintPlate } from "@game/ui/plate";
 import {
   laneInit,
   latchOnRender,
@@ -157,7 +158,9 @@ import {
   WORD_PULSE_MS,
   WORD_PULSE_SCALE,
   completedWordRange,
-  sentenceTop,
+  destinationRow,
+  hintRow,
+  sentenceRow,
   pulsedPosition,
   wordPulseCentre,
   type PulseBox,
@@ -623,18 +626,37 @@ export class WarpScene extends Phaser.Scene {
     const pal = this.lane.palette;
     const made: Phaser.GameObjects.GameObject[] = [];
 
+    // UR-70's CHROME, AND IT IS FOUR PROPS RATHER THAN A DRAWING (UR-69).
+    //
+    // UR-70 named angled corner brackets on the sentence element and a gold
+    // rim around the whole of it. Both are properties of the shared
+    // plate now, so they are two words here and they are available to the other
+    // eight screens the moment anyone wants them - which is the whole reason
+    // UR-70 was blocked on UR-69 rather than applied to this screen alone.
+    //
+    // THE RIM IS THE STOP'S ACCENT, NOT GOLD. The comp is Saturn's and Saturn's
+    // accent is ice blue; "gold" is what the owner saw at the stop they were
+    // on. Hard-coding the colour would be exactly the standards rule 1 defect -
+    // a themed value reaching the chrome - in reverse.
     made.push(
       plate(this, PANEL.x, PANEL.y, PANEL.w, PANEL.h, {
         fill: INK.panel,
         stroke: pal.accent,
+        corner: "bracket",
+        rim: pal.accent,
+        rimAlpha: 0.45,
       }),
     );
     // The instruction is on the header line now ("warp.beltCleared"), where it
     // sits next to what just happened. This slot carries the OTHER half the
     // player was missing - where the drive is taking them - so the screen names
     // the destination before the jump rather than only after it.
+    // UR-70. The row is the shared rhythm's, not `PANEL.y + 24` - see
+    // `support/warpLayout.ts`, which now derives the card's height from its
+    // rows rather than the other way round.
+    const destination = destinationRow();
     made.push(
-      label(this, PANEL.x + 40, PANEL.y + 24, this.destinationCopy(), {
+      label(this, destination.x, destination.y, this.destinationCopy(), {
         size: TYPE.label,
         color: pal.plateText,
         alpha: 0.72,
@@ -649,8 +671,8 @@ export class WarpScene extends Phaser.Scene {
     // sentence that passed every gate.
     this.composedMark = label(
       this,
-      PANEL.x + PANEL.w - 40,
-      PANEL.y + 24,
+      destination.x + destination.w,
+      destination.y,
       "",
       {
         size: TYPE.caption,
@@ -687,8 +709,9 @@ export class WarpScene extends Phaser.Scene {
       }
     }
 
+    const hint = hintRow();
     made.push(
-      label(this, PANEL.x + 40, PANEL.y + PANEL.h - 44, this.lane.copy.text("warp.hint"), {
+      label(this, hint.x, hint.y, this.lane.copy.text("warp.hint"), {
         size: TYPE.caption,
         color: pal.plateText,
         alpha: 0.55,
@@ -743,17 +766,18 @@ export class WarpScene extends Phaser.Scene {
    * cue). Wrapped on word boundaries so a word never breaks across lines.
    */
   private layoutLetters(): Phaser.GameObjects.Text[] {
-    const left = PANEL.x + 40;
-    const maxWidth = PANEL.w - 80;
+    const band = sentenceRow();
+    const left = band.x;
+    const maxWidth = band.w;
     const size = SENTENCE_PX;
     const pal = this.lane.palette;
 
-    // COUNT THE LINES FIRST, so the block can be centred in the card rather
-    // than pinned to its top. A one-line sentence in a two-line card left a
-    // 140 px hole under it, which is the "large dead space below their content"
-    // a player reported on the stage report; the card keeps its shape and the
-    // content is distributed inside it (`support/warpLayout.sentenceTop`).
-    const top = sentenceTop(this.countSentenceLines(left, maxWidth, size));
+    // UR-70. TOP OF THE BAND, not centred in it. The block used to be centred,
+    // which put half a one-line sentence's slack ABOVE it - 70 px between
+    // "destination: saturn" and the sentence a child is there to type. The card
+    // keeps its shape (`relayoutSentence` must not move it) and the slack now
+    // falls between the sentence and the hint at the card's foot.
+    const top = band.y;
 
     let x = left;
     let y = top;
@@ -782,31 +806,6 @@ export class WarpScene extends Phaser.Scene {
       i = end + 1;
     }
     return this.letters;
-  }
-
-  /**
-   * How many lines the sentence wraps to, by the SAME rule `layoutLetters`
-   * wraps with - a word-width estimate of 0.58 em - so the count and the layout
-   * cannot disagree about where the breaks are.
-   */
-  private countSentenceLines(left: number, maxWidth: number, size: number): number {
-    const all = cells(this.sentence);
-    let x = left;
-    let lines = 1;
-    let i = 0;
-    while (i < all.length) {
-      let end = i;
-      while (end < all.length && all[end]?.char !== " ") end += 1;
-      const word = all.slice(i, end);
-      const estimate = word.length * size * 0.58;
-      if (x > left && x + estimate > left + maxWidth) {
-        x = left;
-        lines += 1;
-      }
-      x += estimate + size * 0.3;
-      i = end + 1;
-    }
-    return lines;
   }
 
   /**
@@ -931,11 +930,18 @@ export class WarpScene extends Phaser.Scene {
     this.percentLabel = percent.text;
     made.push(...percent.objects);
 
+    // THE SHARED PLATE, on the `pill` corner (UR-69). `METER.h / 2` written
+    // out by hand is what "as round as it can be" looked like before the
+    // corner was a prop.
     const track = this.add.graphics();
-    track.fillStyle(hexToNum(INK.panelSunken), 0.95);
-    track.fillRoundedRect(METER.x, METER.y, METER.w, METER.h, METER.h / 2);
-    track.lineStyle(2, hexToNum(pal.accent), 0.3);
-    track.strokeRoundedRect(METER.x, METER.y, METER.w, METER.h, METER.h / 2);
+    paintPlate(track, METER, {
+      fill: INK.panelSunken,
+      alpha: 0.95,
+      stroke: pal.accent,
+      strokeAlpha: 0.3,
+      corner: "pill",
+      rhythm: "instrument",
+    });
     made.push(track);
 
     this.meterFill = this.add.graphics();
@@ -1053,13 +1059,21 @@ export class WarpScene extends Phaser.Scene {
     this.meterFill.clear();
     if (f <= 0) return;
     const w = (METER.w - inset * 2) * f;
-    this.meterFill.fillStyle(hexToNum(this.lane.palette.accent), 0.95);
-    this.meterFill.fillRoundedRect(
-      METER.x + inset,
-      METER.y + inset,
-      Math.max(METER.h - inset * 2, w),
-      METER.h - inset * 2,
-      (METER.h - inset * 2) / 2,
+    paintPlate(
+      this.meterFill,
+      {
+        x: METER.x + inset,
+        y: METER.y + inset,
+        w: Math.max(METER.h - inset * 2, w),
+        h: METER.h - inset * 2,
+      },
+      {
+        fill: this.lane.palette.accent,
+        alpha: 0.95,
+        corner: "pill",
+        strokeWidth: 0,
+        rhythm: "instrument",
+      },
     );
     // A soft leading glow, so charging reads as satisfying rather than as a
     // progress bar.

@@ -1,0 +1,305 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+import {
+  BRACKET,
+  PLATE_RHYTHM,
+  PLATE_STACK_GAP,
+  PLATE_STEP,
+  badgeBox,
+  bracketArm,
+  bracketSegments,
+  lineBox,
+  plateContent,
+  plateFooter,
+  plateHeight,
+  rhythmOf,
+  rimRect,
+  stackRows,
+} from "@game/ui/plateLayout";
+import { LINE_HEIGHT, SKY_PLATE, SPACE, TYPE } from "@game/ui/theme";
+
+/**
+ * THE PLATE'S RHYTHM (UR-69, UR-70).
+ *
+ * ================== WHAT IS BEING DEFENDED ==================
+ * UR-70's most transferable sentence is about PADDING: "how its nice and
+ * condensed space without excessive padding". Padding is now a property of one
+ * shared component, so this file is where the numbers are held still.
+ *
+ * Three claims, and they fail for different reasons:
+ *
+ *   1. THERE ARE THREE STEPS AND THEY ARE THESE. A fourth spacing value is a
+ *      design decision; it may not arrive as a literal in a scene.
+ *   2. A ROW STACK IS TOP-ALIGNED AND EVENLY SPACED. The warp sentence was
+ *      CENTRED in a fixed band, which is what put a 70 px hole between
+ *      "destination: saturn" and the sentence on a one-line stop.
+ *   3. HEIGHT IS DERIVED FROM CONTENT. `plateHeight` is the exact inverse of
+ *      `stackRows`, so a card cannot be 60 px taller than the thing in it.
+ *
+ * ================== WATCH IT FAIL (rule 4) ==================
+ * Every value below was read off a real red run.
+ *
+ *   `PLATE_RHYTHM.card.gap` 20 -> 24 (a fourth step, which is what nine scenes
+ *   drifting looks like) - three cases red:
+ *
+ *     every rhythm's gap and pad is one of the three steps
+ *       card.gap 24 is not one of 8, 12, 20
+ *       button.padY 14 is not one of 8, 12, 20: expected [ ...(2) ] to deeply
+ *       equal [ Array(1) ]
+ *     puts the same air under the label whether the body is one line or two
+ *       expected 24 to be 20
+ *     gives the warp card the height its own rows ask for
+ *       expected 276 to be 268
+ *
+ *   `stackRows` rewritten to CENTRE its block in the content box - i.e. what
+ *   `support/warpLayout.sentenceTop` used to do:
+ *
+ *     the first row starts one pad below the plate's top edge
+ *       expected 290 to be 256
+ *
+ *   THE FIRST CUT OF THIS FILE DID NOT CATCH THAT, and the miss is the reason
+ *   the rows in that describe are what they are. It used the card's own
+ *   worst-case rows, a two-line sentence, and a stack that exactly fills its
+ *   box centres to the same place it top-aligns to - so the sabotage came back
+ *   `22 passed`. Knowing the trap does not stop you falling in; only reverting
+ *   the code and watching red does (standards rule 4). The rows are now a
+ *   ONE-LINE sentence in the card sized for two, which is Saturn, which is the
+ *   stop UR-70 was reported on.
+ *
+ *   `plateHeight` with `r.gap * heights.length` instead of `length - 1` - two
+ *   cases red:
+ *
+ *     plateHeight is the exact inverse of stackRows
+ *       expected 484 to be 504
+ *     gives the warp card the height its own rows ask for
+ *       expected 288 to be 268
+ *
+ *   `BRACKET.fraction` 0.14 -> 0.44, i.e. arms that reach for the next corner:
+ *
+ *     two arms of one edge never meet
+ *       expected 56 to be 38
+ *
+ *   `lineBox` measured on `LINE_HEIGHT.latin` instead of `devanagari` - two
+ *   cases red, and this is the rule-5 one: an English-only reading of this card
+ *   is 11 px short and nothing in an English capture shows it:
+ *
+ *     gives the warp card the height its own rows ask for
+ *       expected 257 to be 268
+ *     uses the Devanagari line box whatever is loaded
+ *       expected 31 to be 37
+ *
+ *   npx vitest run tests/unit/ui/plateRhythm.test.ts --coverage.enabled=false
+ */
+
+const STEPS = Object.values(PLATE_STEP);
+
+/** The warp break's sentence card, which is the screen UR-70 was reported on. */
+const CARD = { x: 96, y: 236, w: 1728, h: 268 };
+
+describe("the rhythm is three steps and nothing between them", () => {
+  it("names exactly three, and they are the ones already in the tokens", () => {
+    expect(STEPS).toEqual([8, 12, 20]);
+    // Not invented: two of the three are tokens this project already measures
+    // evidence against, and the third is the step UR-62 built the warp
+    // instrument on.
+    expect(PLATE_STEP.glass).toBe(SKY_PLATE.padY);
+    expect(PLATE_STEP.card).toBe(SPACE.gap);
+  });
+
+  it("every rhythm's gap and pad is one of the three steps", () => {
+    const stray: string[] = [];
+    for (const [name, r] of Object.entries(PLATE_RHYTHM)) {
+      if (!STEPS.includes(r.padY as (typeof STEPS)[number])) {
+        stray.push(`${name}.padY ${r.padY} is not one of ${STEPS.join(", ")}`);
+      }
+      if (!STEPS.includes(r.gap as (typeof STEPS)[number])) {
+        stray.push(`${name}.gap ${r.gap} is not one of ${STEPS.join(", ")}`);
+      }
+    }
+    // `button` is the menu kit's row padding and predates this rhythm; it is
+    // named here rather than exempted silently.
+    expect(stray, stray.join("\n")).toEqual([`button.padY ${SPACE.rowPadY} is not one of 8, 12, 20`]);
+  });
+
+  it("stacks two plates on the same step it stacks two rows on", () => {
+    expect(PLATE_STACK_GAP).toBe(PLATE_STEP.card);
+  });
+
+  it("keeps the chip identical to SKY_PLATE, so V-22.8's geometry is untouched", () => {
+    // `skyText` draws its plate at these two numbers and registers the colour
+    // pair the contrast evidence reads. A rhythm that quietly re-cut that plate
+    // would move an AC-22.8 measurement without anyone editing the measurement.
+    expect(PLATE_RHYTHM.chip.padX).toBe(SKY_PLATE.padX);
+    expect(PLATE_RHYTHM.chip.padY).toBe(SKY_PLATE.padY);
+  });
+
+  it("does not touch horizontal padding, which was not the complaint", () => {
+    // UR-70 is vertical. The x insets are the numbers the screens already drew
+    // at - the warp card's 40, the instrument's 32 - because the horizontal
+    // inset sets a wrapped sentence's LINE COUNT, and a card that wraps to two
+    // lines where it used to wrap to one is a new defect wearing this fix's
+    // clothes.
+    expect(PLATE_RHYTHM.card.padX).toBe(40);
+    expect(PLATE_RHYTHM.instrument.padX).toBe(32);
+  });
+});
+
+describe("a stack of rows is top-aligned", () => {
+  /**
+   * A SHORT BODY IN A FIXED CARD, which is the only shape that can tell
+   * top-aligned from centred.
+   *
+   * The first cut of this file used the card's own worst-case rows - a
+   * two-line sentence - and `stackRows` rewritten to centre its block PASSED
+   * every case in this describe, because a stack that exactly fills its box
+   * centres to the same place it top-aligns to. That is the warp card on a
+   * two-line stop; the defect only exists on a ONE-LINE stop, which is Saturn,
+   * which is the stop UR-70 was reported on. So the rows here are a one-line
+   * sentence, 52 px, in the 268 px card sized for two.
+   */
+  const rows = [lineBox(TYPE.label), 52, lineBox(TYPE.caption)];
+
+  it("the first row starts one pad below the plate's top edge", () => {
+    const laid = stackRows(CARD, rows);
+    expect(laid[0]?.y).toBe(CARD.y + PLATE_RHYTHM.card.padY);
+    expect(laid[0]?.y).toBe(256);
+  });
+
+  it("rows are exactly one gap apart, whatever is in them", () => {
+    const laid = stackRows(CARD, rows);
+    for (let i = 1; i < laid.length; i += 1) {
+      const prev = laid[i - 1] as { y: number; h: number };
+      const next = laid[i] as { y: number };
+      expect(next.y - (prev.y + prev.h), `row ${i}`).toBe(PLATE_RHYTHM.card.gap);
+    }
+  });
+
+  it("puts the same air under the label whether the body is one line or two", () => {
+    // THE DEFECT, AS A NUMBER. The warp card's band was fixed and its sentence
+    // was centred in it, so the distance between the destination line and the
+    // sentence depended on how long the sentence was: 70 px at one line, 36 at
+    // two. A label's distance from the thing it labels is not a function of the
+    // thing's length.
+    const one = stackRows(CARD, [lineBox(TYPE.label), 52]);
+    const two = stackRows(CARD, [lineBox(TYPE.label), 120]);
+    const gapOf = (laid: { y: number; h: number }[]): number =>
+      (laid[1] as { y: number }).y - ((laid[0] as { y: number; h: number }).y + (laid[0] as { h: number }).h);
+    expect(gapOf(one)).toBe(gapOf(two));
+    expect(gapOf(one)).toBe(20);
+  });
+
+  it("shares the content box's left edge and width", () => {
+    const box = plateContent(CARD);
+    for (const row of stackRows(CARD, rows)) {
+      expect(row.x).toBe(box.x);
+      expect(row.w).toBe(box.w);
+    }
+  });
+
+  it("pins a footer to the foot, so a short body's slack lands below it", () => {
+    const foot = plateFooter(CARD, lineBox(TYPE.caption));
+    const box = plateContent(CARD);
+    expect(foot.y + foot.h).toBe(box.y + box.h);
+    expect(foot.y + foot.h).toBe(CARD.y + CARD.h - PLATE_RHYTHM.card.padY);
+  });
+});
+
+describe("height is derived from content", () => {
+  it("plateHeight is the exact inverse of stackRows", () => {
+    const rows = [lineBox(TYPE.label), 120, lineBox(TYPE.caption)];
+    const h = plateHeight(rows);
+    const laid = stackRows({ ...CARD, h }, rows);
+    const last = laid[laid.length - 1] as { y: number; h: number };
+    expect(last.y + last.h).toBe(CARD.y + h - PLATE_RHYTHM.card.padY);
+  });
+
+  it("an empty plate is two pads tall and nothing else", () => {
+    expect(plateHeight([])).toBe(PLATE_RHYTHM.card.padY * 2);
+  });
+
+  it("gives the warp card the height its own rows ask for", () => {
+    // The number the screen now draws, derived rather than picked. It was 280,
+    // which was 250 plus 30 added after the hint was found printing through.
+    const rows = [lineBox(TYPE.label), 2 * (52 + 16) - 16, lineBox(TYPE.caption)];
+    expect(plateHeight(rows)).toBe(268);
+  });
+});
+
+describe("a row is measured in the worst language, not in English", () => {
+  it("uses the Devanagari line box whatever is loaded", () => {
+    // Rule 5: three languages. A card laid out on Latin metrics fits in English
+    // and collides in Hindi, and the collision is invisible to anyone reading
+    // the screen in English - the same shape as the briefing page that fit at
+    // Mars and collided at five of the other six stops.
+    expect(lineBox(TYPE.label)).toBe(Math.round(TYPE.label * LINE_HEIGHT.devanagari));
+    expect(lineBox(TYPE.label)).toBeGreaterThan(Math.round(TYPE.label * LINE_HEIGHT.latin));
+    expect(lineBox(TYPE.body, 2)).toBe(lineBox(TYPE.body) * 2);
+  });
+});
+
+describe("the corner bracket is four corners, not a border", () => {
+  const radius = SPACE.radius;
+
+  it("draws eight arms, two per corner", () => {
+    expect(bracketSegments(CARD, radius).length).toBe(8);
+  });
+
+  it("keeps every arm on the plate's own edge", () => {
+    for (const s of bracketSegments(CARD, radius)) {
+      const onVertical = s.x1 === s.x2 && (s.x1 === CARD.x || s.x1 === CARD.x + CARD.w);
+      const onHorizontal = s.y1 === s.y2 && (s.y1 === CARD.y || s.y1 === CARD.y + CARD.h);
+      expect(onVertical || onHorizontal, `${s.x1},${s.y1} -> ${s.x2},${s.y2}`).toBe(true);
+    }
+  });
+
+  it("two arms of one edge never meet", () => {
+    // An arm that reaches the next corner is not a bracket, it is the border
+    // again. Bounded rather than tuned per screen, because one component draws
+    // a 96 px chip and a 1728 px card.
+    const arm = bracketArm(CARD);
+    expect(arm * 2).toBeLessThan(CARD.w - radius * 2);
+    expect(arm * 2).toBeLessThan(CARD.h - radius * 2);
+    expect(arm).toBe(38);
+  });
+
+  it("does not shrink to a speck or grow to half an edge", () => {
+    expect(bracketArm({ x: 0, y: 0, w: 96, h: 40 })).toBe(BRACKET.min);
+    expect(bracketArm({ x: 0, y: 0, w: 4000, h: 4000 })).toBe(BRACKET.max);
+  });
+});
+
+describe("the rim is outside the plate and the badge is inside it", () => {
+  it("clears the plate's edge on all four sides", () => {
+    const outer = rimRect(CARD);
+    expect(outer.x).toBeLessThan(CARD.x);
+    expect(outer.y).toBeLessThan(CARD.y);
+    expect(outer.x + outer.w).toBeGreaterThan(CARD.x + CARD.w);
+    expect(outer.y + outer.h).toBeGreaterThan(CARD.y + CARD.h);
+  });
+
+  it("tucks the badge inside the plate's own padding", () => {
+    const badge = badgeBox(CARD, 44);
+    const box = plateContent(CARD);
+    expect(badge.x + badge.w).toBe(box.x + box.w);
+    expect(badge.y).toBe(box.y);
+    expect(badge.x).toBeGreaterThan(CARD.x);
+    expect(badge.y + badge.h).toBeLessThan(CARD.y + CARD.h);
+  });
+});
+
+describe("no ink can dodge the contrast test", () => {
+  it("holds no colour literal", () => {
+    // The same guard `controlSurface.ts` is held to: a hex literal is the only
+    // way an unmeasured ink reaches the screen, and AC-22.8 measures pairs.
+    const code = (name: string): string =>
+      readFileSync(fileURLToPath(new URL(`../../../src/game/ui/${name}`, import.meta.url)), "utf8")
+        .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
+    expect(code("plateLayout.ts")).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(code("plate.ts")).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
+
+  it("defaults the rhythm to the card, so an unnamed plate is not a chip", () => {
+    expect(rhythmOf()).toBe(PLATE_RHYTHM.card);
+  });
+});

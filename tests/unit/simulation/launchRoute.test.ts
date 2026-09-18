@@ -860,6 +860,100 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
     expect(end.worstMargin).toBeLessThan(floor.worstMargin);
   });
 
+  it("UR-51: the RECOGNITION ratchet moved the fast pilot materially, not cosmetically", () => {
+    /**
+     * THE ASSERTION THE OWNER'S FOURTH REPORT IS ABOUT.
+     *
+     * The previous pass shipped a belt where the board went from 1.00 rocks to
+     * 3.43 and the fast pilot's margin ended at 0.468 - i.e. they finished each
+     * word with 47% of its fall budget unused, on a board 3.4x fuller. That was
+     * reported as a win. It was not one, and a margin that merely moves is not
+     * one either, so this asserts a SIZE of movement rather than a direction.
+     *
+     * WATCHED FAILING, with the real number: pin `recognitionBaseMs` at
+     * `RECOGNITION_BASE_MS` - the belt shipped before this change - and this
+     * reads
+     *
+     *     fast ends the route at margin 0.468, against the 0.42 this asserts
+     *     and the 0.468 on record before the recognition ratchet:
+     *     expected 0.468 to be less than 0.42
+     */
+    const end = last(rows.fast!);
+    const BEFORE = 0.468;
+    expect(
+      end.marginP25,
+      `fast ends the route at margin ${end.marginP25}, against the 0.42 this asserts and the ${BEFORE} on record before the recognition ratchet`,
+    ).toBeLessThan(0.42);
+    // The tail, not just the quartile: the single closest rock over 40 seeds.
+    expect(end.worstMargin, "fast worst rock").toBeLessThan(0.25);
+
+    // AND THE CONTROLLER STILL SEPARATES THE PILOTS. A cut that pressed
+    // everyone equally would be a global constant by another name, which is
+    // exactly what the hard constraint forbids.
+    // The knob no longer has to REACH the cap for the change to have worked -
+    // with the calibration floor fixed the belt is tight enough that the margin
+    // throttle stops the climb early, which is the servo doing its job. What
+    // must hold is the SEPARATION: a fast pilot ends several steps above a
+    // grade-2 one. WATCHED FAILING: assert `toBe(MAX_LIVE_MAX)` instead and it
+    // reads "fast knob: expected 6.3 to be 7".
+    //
+    // ================== UR-72 MOVED THE GRADE-2 END OF THIS =================
+    // This used to read `toBe(MAX_LIVE_MIN)`: the throttle pinned the grade-2
+    // pilot at the cold start for the whole route, because their margin never
+    // rose enough to earn a step. UR-72 gives that pilot the reading time their
+    // measured hands need, their margin rises with it (marginP25 0.139 -> 0.196
+    // at Pluto), and the servo lets them off the floor - to a mean of 2.30 by
+    // Pluto, i.e. under a third of one knob step, with ZERO stalls against the 3
+    // on record. Run against the current code the old assertion reads
+    //
+    //     grade2 knob: expected 2.3 to be 2
+    //
+    // A knob that moves for a child whose margin earned it is the controller
+    // working, not the safety floor slipping - the safety claim is stalls and
+    // hit rate, and both are asserted below and improved. What this test needs
+    // is that the pilot stays near the cold start, so that is what it says.
+    const grade2End = last(rows.grade2!).maxLive;
+    expect(grade2End, "grade2 knob").toBeLessThan(MAX_LIVE_MIN + 1);
+    expect(grade2End, "grade2 knob").toBeGreaterThanOrEqual(MAX_LIVE_MIN);
+    expect(end.maxLive - grade2End, "knob separation").toBeGreaterThanOrEqual(2);
+  });
+
+  it("UR-51: nobody gained a stall, stated over the WHOLE route rather than per stop", () => {
+    // The per-stop version above compares against the floor belt stop by stop.
+    // This is the same claim as one number per pilot, because a per-stop
+    // comparison can hide a stall moving from one stop to another.
+    //
+    // WATCHED FAILING, AND THE SEARCH FOR A CONTROL IS ITSELF THE RESULT.
+    //
+    // No setting of the fall-time lever fires this test. Dropping the `earned`
+    // factor, and dropping the earned base to 300, both leave it green - the
+    // MARGIN THROTTLE holds every pilot off the knob settings where a belt
+    // stalls, so the adaptive route never reaches them. (Both controls do fire
+    // "the deeper board costs no pilot a belt anywhere on the route", which
+    // forces the ceiling instead of letting the controller find it: slow gains
+    // 5 stalls on the first, median gains 61 on the second.)
+    //
+    // The control that fires THIS test is removing the throttle - delete the
+    // `margin === null` / `margin <= TIGHTEN_MARGIN_ABOVE` arms from
+    // `decideStage`, keeping the shipped fall time - and it reads:
+    //
+    //     slow stalled 1 times over the route, against 0 on the floor belt:
+    //     expected 1 to be less than or equal to 0
+    //
+    // So what this asserts is not a property of the fall budget on its own. It
+    // is the two halves together: the budget may be compressed this far only
+    // BECAUSE the throttle refuses to hand the knob to a pilot whose margin has
+    // not earned it. That is the claim worth having a test for.
+    for (const [name, steps] of Object.entries(rows)) {
+      const total = steps.reduce((a, b) => a + b.stalls, 0);
+      const floorTotal = atFloor[name]!.reduce((a, b) => a + b.stalls, 0);
+      expect(
+        total,
+        `${name} stalled ${total} times over the route, against ${floorTotal} on the floor belt`,
+      ).toBeLessThanOrEqual(floorTotal);
+    }
+  });
+
   it("UR-51 / AC-10.3: no pilot gains a stall against the belt they fly at the floor", () => {
     // The hard constraint, as a DELTA rather than an absolute zero. The grade-2
     // pilot's three Jupiter stalls are a pre-existing property of that belt and
@@ -876,13 +970,83 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
     }
   });
 
-  it("UR-51: a grade-2 pilot's whole route is the belt already on record", () => {
-    // The other half of the hard constraint, and the one a simulation CAN
-    // settle: the margin throttle keeps this pilot at the cold start, and
-    // `keystrokeHeadroom` is FR-8's literal 1.5 at their measured speed
-    // whatever the knob says - so every number on their route is the floor
-    // belt's number, not close to it.
-    expect(rows.grade2).toEqual(atFloor.grade2);
+  it("UR-72: a grade-2 pilot's whole route is SAFER than the belt on record", () => {
+    /**
+     * ================== THIS CLAIM CHANGED, AND IT HAD TO ==================
+     *
+     * It used to read `expect(rows.grade2).toEqual(atFloor.grade2)` - every
+     * number on this pilot's adaptive route identical to the belt they fly with
+     * the knob pinned at the cold start, because the throttle never let them
+     * move and because both ratchets exempted them. That was the safety claim
+     * UR-51 could make, and it was a claim about the belt STAYING PUT.
+     *
+     * The belt this pilot flies is the one UR-72 is about: its reading budget is
+     * 480 ms short of the cold-read time this repo's own grade-2 model needs, on
+     * every first exposure, and that deficit is why the pools cannot grow. So
+     * the belt MOVED, deliberately, and "identical" is no longer the right
+     * claim. Run against the current code the old assertion reads
+     *
+     *     expected [ ...(6) ] to deeply equal [ ...(6) ]
+     *
+     * with the adaptive route at maxLive 2.00/2.15/2.15/2.23/2.30/2.30 against
+     * a pinned 2 - the servo letting a child off the floor once their margin has
+     * earned it.
+     *
+     * SO THE CLAIM IS NOW WHAT SAFETY ACTUALLY MEANS HERE, and it is stronger
+     * than the old one rather than looser: not one stall anywhere on the route,
+     * against the THREE on record at Jupiter, with the hit rate up at every
+     * single stop and the board still essentially one-deep.
+     *
+     * WATCHED FAILING, with the real numbers: set `RECOGNITION_SLOW_BASE_MS`
+     * back to `RECOGNITION_BASE_MS` - revert UR-72 - and this reads
+     *
+     *     grade2 stalled 3 times at jupiter: expected 3 to be +0
+     *
+     * i.e. the three belts on record come straight back.
+     */
+    const steps = rows.grade2!;
+    // 1. THE SAFETY FLOOR, AS AN ABSOLUTE ZERO. The 3 Jupiter stalls on record
+    //    were a pre-existing property of that belt that UR-51 could only
+    //    promise not to make worse. UR-72 removes them, so this asserts the
+    //    number rather than a delta.
+    for (const step of steps) {
+      expect(step.stalls, `grade2 stalled ${step.stalls} times at ${step.stop}`).toBe(0);
+    }
+    for (const step of atFloor.grade2!) {
+      expect(step.stalls, `grade2 at the pinned floor, ${step.stop}`).toBe(0);
+    }
+    // 2. AND IT IS NOT BOUGHT WITH A BUSIER BOARD. The knob moves, but under a
+    //    third of one step, and the board stays one-deep.
+    for (const step of steps) {
+      expect(step.maxLive, `grade2 knob at ${step.stop}`).toBeLessThan(MAX_LIVE_MIN + 1);
+      expect(step.meanLive, `grade2 board at ${step.stop}`).toBeLessThan(1.3);
+    }
+    // 3. EVERY STOP CLEARS THE RATE ITS OWN HULL DEMANDS. Stated per stop and
+    //    not as an average, because an average can hide one stop under the bar
+    //    while another carries it - which is what the 3 Jupiter stalls were.
+    for (const step of steps) {
+      expect(step.hitRate, `grade2 hit rate at ${step.stop}`).toBeGreaterThanOrEqual(
+        survivableHitRate(WORDS),
+      );
+    }
+    // 4. AND THE ROUTE AS A WHOLE IS BETTER THAN THE ONE ON RECORD.
+    //    0.9384 is this pilot's mean hit rate over the same 240 belts before
+    //    UR-72, measured with `RECOGNITION_SLOW_BASE_MS` set to
+    //    `RECOGNITION_BASE_MS`; 0.9689 is what they fly now.
+    //
+    //    NOT stated per stop against `atFloor`, and the reason is a real one
+    //    rather than a convenience: the adaptive route now opens Saturn at
+    //    maxLive 2.15 where the pinned floor opens it at 2, so a per-stop
+    //    comparison of the two reads "expected 0.9815 to be greater than or
+    //    equal to 0.9823" - eight ten-thousandths, and it is the KNOB costing
+    //    them, not the reading budget. Comparing a route the controller moved
+    //    against one it was forbidden to move is not a measurement of UR-72.
+    const BEFORE_UR72 = 0.9384;
+    const meanHit = steps.reduce((a, b) => a + b.hitRate, 0) / steps.length;
+    expect(
+      meanHit,
+      `grade2 ends the route at mean hit rate ${meanHit.toFixed(4)}, against ${BEFORE_UR72} before UR-72`,
+    ).toBeGreaterThan(BEFORE_UR72);
   });
 
   it("records the ramp", () => {

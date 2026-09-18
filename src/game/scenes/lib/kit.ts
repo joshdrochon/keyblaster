@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { DUR, EASE, FONT_STACK, INK, SKY_PLATE, SPACE, TYPE, chromeCase, letterSpacingPx, lineHeightEm } from "@game/ui/theme";
 import { hexToNum as rgb } from "@game/render/palette";
+import { drawPlate, paintFocusRing, paintPlate, type PlateProps } from "@game/ui/plate";
 import { recordSkyText as record } from "./skyTextRegistry";
 import type { Lang } from "@engine/types";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
@@ -91,12 +92,18 @@ export function chrome(
   });
 }
 
-export interface PlateOptions {
-  readonly fill?: string;
-  readonly stroke?: string;
-  readonly radius?: number;
-  readonly alpha?: number;
-}
+/**
+ * A plate's props.
+ *
+ * THIS IS `ui/plate.PlateProps`, not a copy of four of its fields (UR-69). It
+ * used to be four optional strings and a number, which is why a scene that
+ * wanted a corner treatment or a rim had no way to ask for one and drew its own
+ * rounded rect instead. `corner`, `rim` and `rhythm` arrive here for free
+ * because the type is the component's, so adding a prop to the component adds
+ * it to all eight callers of this function at once - which is the whole of what
+ * UR-69 asked for.
+ */
+export type PlateOptions = PlateProps;
 
 /**
  * A contrast plate. Word labels and prose both sit on one (rubric 8).
@@ -129,12 +136,7 @@ export function plate(
   h: number,
   options: PlateOptions = {},
 ): Phaser.GameObjects.Graphics {
-  const g = scene.add.graphics();
-  g.fillStyle(rgb(options.fill ?? INK.panel), options.alpha ?? 1);
-  g.fillRoundedRect(x, y, w, h, options.radius ?? SPACE.radius);
-  g.lineStyle(2, rgb(options.stroke ?? INK.line), 0.9);
-  g.strokeRoundedRect(x, y, w, h, options.radius ?? SPACE.radius);
-  return g;
+  return drawPlate(scene, { x, y, w, h }, options);
 }
 
 // ---------------------------------------------------------------------------
@@ -240,21 +242,27 @@ export function skyText(
     g.clear();
     if (text.text.length === 0) return;
     const b = text.getBounds();
-    g.fillStyle(rgb(SKY_PLATE.fill), SKY_PLATE.alpha);
-    g.fillRoundedRect(
-      b.x - padX,
-      b.y - padY,
-      b.width + padX * 2,
-      b.height + padY * 2,
-      SKY_PLATE.radius,
-    );
-    g.lineStyle(2, rgb(SKY_PLATE.stroke), 0.55);
-    g.strokeRoundedRect(
-      b.x - padX,
-      b.y - padY,
-      b.width + padX * 2,
-      b.height + padY * 2,
-      SKY_PLATE.radius,
+    // THE SAME COMPONENT the cards are drawn with, on the `chip` rhythm
+    // (UR-69). The padding is still a parameter here rather than read from
+    // `PLATE_RHYTHM.chip` directly, because callers override `padY` - the
+    // header lines pass 10 - and `PLATE_RHYTHM.chip` is pinned to `SKY_PLATE`'s
+    // 22/12 so the two cannot drift.
+    paintPlate(
+      g,
+      {
+        x: b.x - padX,
+        y: b.y - padY,
+        w: b.width + padX * 2,
+        h: b.height + padY * 2,
+      },
+      {
+        fill: SKY_PLATE.fill,
+        alpha: SKY_PLATE.alpha,
+        stroke: SKY_PLATE.stroke,
+        strokeAlpha: 0.55,
+        radius: SKY_PLATE.radius,
+        rhythm: "chip",
+      },
     );
   };
   layout();
@@ -328,22 +336,10 @@ export function createFocusRing(scene: Phaser.Scene, depth = 40): FocusRing {
   const draw = (t: FocusTarget): void => {
     const o = SPACE.focusRingOffset;
     g.clear();
-    g.lineStyle(SPACE.focusRingWidth, rgb(INK.accent), 1);
-    g.strokeRoundedRect(
-      t.x - o,
-      t.y - o,
-      t.w + o * 2,
-      t.h + o * 2,
-      SPACE.radius + o,
-    );
-    g.lineStyle(SPACE.focusRingWidth + 6, rgb(INK.accentSoft), 0.18);
-    g.strokeRoundedRect(
-      t.x - o,
-      t.y - o,
-      t.w + o * 2,
-      t.h + o * 2,
-      SPACE.radius + o,
-    );
+    // The ring is the plate's own geometry with one offset, so it is the
+    // component's (UR-69, `ui/plate.paintFocusRing`). Two passes: the ring
+    // itself, and a soft halo one step wider.
+    paintFocusRing(g, t, INK.accent, { halo: INK.accentSoft });
   };
 
   return {

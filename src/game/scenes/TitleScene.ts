@@ -39,12 +39,15 @@ import { SHIPPED_LANGS } from "../../engine/i18n/index.js";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
 import { INK, TYPE, chromeCase } from "@game/ui/theme";
 import { skyText, skyTextSamples, type SceneSnapshot } from "./lib/kit.js";
+import { WORDMARK_X, WORDMARK_Y, titleKeepClear } from "./support/titleLayout.js";
 import {
-  LANG_Y_MAX,
-  WORDMARK_X,
-  WORDMARK_Y,
-  titleKeepClear,
-} from "./support/titleLayout.js";
+  CHROME_PAD_Y,
+  FOCUS_PAD,
+  PRIMARY_H,
+  PRIMARY_W,
+  STATUS_GAP,
+  titleStack,
+} from "./support/titleStack.js";
 import { typographyOf } from "./lib/typography.js";
 
 /**
@@ -86,18 +89,20 @@ const SUN_GAP = 18;
 const BUTTON_INK = INK.panelSunken;
 
 /**
- * The lowest the primary action is allowed to be pushed by that dodge.
+ * THE MENU COLUMN'S SPACING LIVES IN `support/titleStack.ts` (UR-68).
  *
- * A guard, not a working number: the furthest the lockup ever moves is Mars'
- * sun at y=419, which puts the button at 729. It exists so that a future change
- * to either the sun or the lockup cannot walk the menu off the bottom of the
- * frame without anyone noticing.
+ * It used to be four constants here - `PRIMARY_Y_MAX` 740, `PRIMARY_GAP` 92,
+ * `SETTINGS_GAP` 166, `LANG_GAP` 174 - every one of them measured from the
+ * wordmark, plus a status line placed at a fixed local offset inside the
+ * primary button with no gap of its own. A block that does not claim space
+ * takes somebody else's: the status line landed 10 px under the primary's plate
+ * and 0 px above the settings plate, and inside the focus rings this screen
+ * draws it OVERLAPPED both by 4 and 6 px.
+ *
+ * `titleStack()` places each block from the one above it and carries the
+ * numbers, so the gaps are a budget a test can hold rather than four literals
+ * that happen to sum correctly in the one profile state anybody captures.
  */
-const PRIMARY_Y_MAX = 740;
-/** Gaps down the menu column, preserved from the layout this screen shipped. */
-const PRIMARY_GAP = 92;
-const SETTINGS_GAP = 166;
-const LANG_GAP = 174;
 
 /**
  * Endonyms for the language switch (D45). These are language TAGS, not UI copy:
@@ -114,6 +119,18 @@ interface MenuItem {
   readonly root: Phaser.GameObjects.Container;
   readonly width: number;
   readonly height: number;
+  /**
+   * The item's PLATE box, which is what the eye measures a gap against and is
+   * not the same rectangle as `height` (UR-68).
+   *
+   * `height` is the focusable ink the ring is drawn around; a quiet control's
+   * plate is `CHROME_PAD_Y` taller at both ends and starts that far ABOVE
+   * `root.y`. Placing the column from `root.y` is what let the status line's
+   * plate and the settings plate touch while both items' rings looked clear.
+   */
+  readonly plateH: number;
+  /** How far the plate's top sits above `root.y`. */
+  readonly plateTop: number;
   readonly activate: () => void;
 }
 
@@ -123,6 +140,19 @@ export class TitleScene extends Phaser.Scene {
   /** Where the Lantern was drawn this build, for `snapshot()` (UR-48). */
   private lanternAt = { x: 0, y: 0, height: 0 };
   private items: MenuItem[] = [];
+  /**
+   * The beacon status line's measured plate height, or null when there is none
+   * (UR-68).
+   *
+   * NULL IS THE STATE EVERY CAPTURE OF THIS SCREEN HAS BEEN IN. The line is
+   * only drawn once a beacon has been placed (D13), so a fresh profile has no
+   * such block and the column it crowds does not exist to be photographed. Held
+   * on the scene because `buildPrimary` is what measures it and `titleStack`
+   * is what needs it, one step later.
+   */
+  private statusPlateH: number | null = null;
+  /** How far the column runs past the floor. 0 unless a stop's sun pushes it. */
+  private stackOverflow = 0;
   private focusIndex = 0;
   private focusRing!: Phaser.GameObjects.Graphics;
   /**
@@ -235,22 +265,36 @@ export class TitleScene extends Phaser.Scene {
       ? t.t("beacon.placed", { stop: paletteAt(furthest, false).name })
       : null;
 
-    // The column follows the lockup down when the sun has pushed it, so the
-    // relationship between the mark and the first action is the same picture
-    // wherever the light happens to be for this pilot's furthest beacon.
-    const primaryY = Math.min(mark.bottom + PRIMARY_GAP, PRIMARY_Y_MAX);
-    const settingsY = primaryY + SETTINGS_GAP;
-    const primary = this.buildPrimary(primaryLabel, primarySub, WORDMARK_X, primaryY);
-    const settings = this.buildQuiet(t.t("title.settings"), WORDMARK_X, settingsY);
+    // BUILT FIRST, PLACED SECOND (UR-68). Every block is built at y=0 so its
+    // plate can be MEASURED, and only then does `titleStack` decide where the
+    // column sits. The heights are not knowable in advance - a control's plate
+    // is its own type's line box plus padding, and Devanagari's line box is
+    // 1.56 em against Latin's 1.3 (`ui/theme.LINE_HEIGHT`, measured) - so a
+    // column placed from constants is a column that has guessed them.
+    const primary = this.buildPrimary(primaryLabel, primarySub, WORDMARK_X, 0);
+    const settings = this.buildQuiet(t.t("title.settings"), WORDMARK_X, 0);
     // D95: the language row only exists when there is a choice to make. With a
     // single shipped language it is a one-option selector, which is noise on
     // the first screen a child sees - and it was still offering ES and हिं
     // after the content cut, which is worse than noise: it offers a language
     // the game will not switch to.
-    const lang =
-      SHIPPED_LANGS.length > 1
-        ? this.buildLangRow(WORDMARK_X, Math.min(settingsY + LANG_GAP, LANG_Y_MAX))
-        : null;
+    const lang = SHIPPED_LANGS.length > 1 ? this.buildLangRow(WORDMARK_X, 0) : null;
+
+    // The column follows the lockup down when the sun has pushed it, so the
+    // relationship between the mark and the first action is the same picture
+    // wherever the light happens to be for this pilot's furthest beacon.
+    const stack = titleStack({
+      markBottom: mark.bottom,
+      primaryH: PRIMARY_H,
+      statusH: this.statusPlateH,
+      settingsH: settings.plateH,
+      langH: lang?.plateH ?? null,
+    });
+    primary.root.setY(stack.primaryY + primary.plateTop);
+    settings.root.setY(stack.settingsY + settings.plateTop);
+    if (lang !== null && stack.langY !== null) lang.root.setY(stack.langY + lang.plateTop);
+    this.stackOverflow = stack.overflow;
+
     hud.add([primary.root, settings.root, ...(lang ? [lang.root] : [])]);
     this.items = lang ? [primary, settings, lang] : [primary, settings];
 
@@ -382,8 +426,8 @@ export class TitleScene extends Phaser.Scene {
     x: number,
     y: number,
   ): MenuItem {
-    const width = 460;
-    const height = 104;
+    const width = PRIMARY_W;
+    const height = PRIMARY_H;
     const root = this.add.container(x, y);
 
     const plate = this.add.graphics();
@@ -412,23 +456,45 @@ export class TitleScene extends Phaser.Scene {
       }).text,
     );
 
+    this.statusPlateH = null;
     if (subline !== null) {
+      /**
+       * THE STATUS LINE'S OWN GAP (UR-68).
+       *
+       * It used to hang at `height + 18`, which put its plate 10 px under the
+       * button's and INSIDE the primary's focus ring - the ring reaches 14 px
+       * below the plate, so the two were drawn through each other. It now
+       * starts one ring plus `STATUS_GAP` below the button, which is the same
+       * arithmetic `titleStack` uses to decide where the settings control goes.
+       * The offset is a constant because it has to be: the line is built here
+       * and measured after, so it cannot be positioned from its own height.
+       */
+      const plateTop = height + FOCUS_PAD + STATUS_GAP;
       // NOT lowercased: the subline names the planet the beacon is on, and a
       // planet name is a proper noun that keeps its capital (D41).
-      const sub = skyText(this, 4, height + 18, subline, {
+      const sub = skyText(this, 4, plateTop + CHROME_PAD_Y, subline, {
         screen: "title",
         id: "title.primarySub",
         size: TYPE.label,
         color: INK.textDim,
         lang: this.langOf(),
         depth: 1,
-        padY: 8,
+        padY: CHROME_PAD_Y,
       });
       if (sub.plate !== null) root.add(sub.plate);
       root.add(sub.text);
+      this.statusPlateH = sub.text.height + CHROME_PAD_Y * 2;
     }
 
-    return { id: "primary", root, width, height, activate: () => this.startGame() };
+    return {
+      id: "primary",
+      root,
+      width,
+      height,
+      plateH: height,
+      plateTop: 0,
+      activate: () => this.startGame(),
+    };
   }
 
   private buildQuiet(label: string, x: number, y: number): MenuItem {
@@ -440,7 +506,7 @@ export class TitleScene extends Phaser.Scene {
       color: INK.text,
       lang: this.langOf(),
       depth: 1,
-      padY: 8,
+      padY: CHROME_PAD_Y,
     });
     if (item.plate !== null) root.add(item.plate);
     root.add(item.text);
@@ -449,6 +515,10 @@ export class TitleScene extends Phaser.Scene {
       root,
       width: item.text.width + 8,
       height: item.text.height,
+      // The plate is the padding taller at each end and starts that far above
+      // `root.y`, because `skyText` cuts it from the text's own bounds.
+      plateH: item.text.height + CHROME_PAD_Y * 2,
+      plateTop: CHROME_PAD_Y,
       activate: () => this.goto(SCENE_KEYS.settings),
     };
   }
@@ -458,7 +528,9 @@ export class TitleScene extends Phaser.Scene {
     const root = this.add.container(x, y);
     const { t } = services(this);
     this.langIndex = Math.max(0, SHIPPED_LANGS.indexOf(t.lang));
+    const padY = 6;
     let cursor = 4;
+    let inkH = 0;
     SHIPPED_LANGS.forEach((lang, i) => {
       const on = i === this.langIndex;
       const item = skyText(this, cursor, 0, LANG_LABEL[lang], {
@@ -468,18 +540,25 @@ export class TitleScene extends Phaser.Scene {
         color: on ? this.accent : INK.textDim,
         lang: t.lang,
         depth: 1,
-        padY: 6,
+        padY,
       });
       item.text.setName(`lang-${lang}`);
       if (item.plate !== null) root.add(item.plate);
       root.add(item.text);
       cursor += item.text.width + 26;
+      // MEASURED, not the 34 that was here (UR-68). "हिं" is drawn in a
+      // Devanagari face whose line box is 1.56 em against Latin's 1.3, so a
+      // fixed row height is wrong by construction the moment the row is in the
+      // language it exists to offer.
+      inkH = Math.max(inkH, item.text.height);
     });
     return {
       id: "lang",
       root,
       width: cursor,
-      height: 34,
+      height: inkH,
+      plateH: inkH + padY * 2,
+      plateTop: padY,
       activate: () => this.cycleLang(1),
     };
   }
@@ -539,7 +618,7 @@ export class TitleScene extends Phaser.Scene {
    * tween starts 26 px to the left of it and arrives back at it.
    */
   private bindPointers(): void {
-    const pad = 14;
+    const pad = FOCUS_PAD;
     for (const [i, item] of this.items.entries()) {
       this.add
         .zone(item.root.x - pad, item.root.y - pad, item.width + pad * 2, item.height + pad * 2)
@@ -578,7 +657,7 @@ export class TitleScene extends Phaser.Scene {
     const item = this.items[this.focusIndex];
     this.focusRing.clear();
     if (item === undefined) return;
-    const pad = 14;
+    const pad = FOCUS_PAD;
     this.focusRing.lineStyle(4, hexToNum(this.accent), 1);
     this.focusRing.strokeRoundedRect(
       item.root.x - pad,
@@ -680,6 +759,17 @@ export class TitleScene extends Phaser.Scene {
       furthestBeacon: furthest,
       lang: t.lang,
       reducedMotion: context.reducedMotion,
+      /**
+       * UR-68. How far the menu column runs past the floor, in px.
+       *
+       * Published rather than inferred because the column's height depends on
+       * where this stop's light pushed the lockup, and a spec that re-derived
+       * that would be agreeing with itself. Any value above 0 means the budget
+       * ran out and something is drawn below where the product's hint line
+       * starts - which is a layout failure the screen can state plainly
+       * instead of a reader having to notice it in a capture.
+       */
+      stackOverflow: this.stackOverflow,
       parallaxOffsets: () => this.parallax.debugOffsets(),
       motion: () => this.parallax.debugMotion(),
     };

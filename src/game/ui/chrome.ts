@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { idleDriftPx, layer } from "@game/render/layers";
 import { menuDebris, menuStars, type StarMote } from "./starfield.js";
-import { twinkleAlpha } from "@game/render/starField";
+import { starsMayTravel, twinkleAlpha } from "@game/render/starField";
 import { particleSpec } from "@game/render/particles";
 import { DUR, EASE, INK, SPACE } from "./theme.js";
 import type { TrophyGlyphId } from "./catalog.js";
@@ -46,7 +46,13 @@ export function strokePlate(
 
 /**
  * The menu backdrop: a vertical gradient from the stop palette, a sparse star
- * field, a drifting debris field, and motes.
+ * field, a drifting debris field, and a near plane of motes.
+ *
+ * NOTHING THAT READS AS A POINT OF LIGHT TRANSLATES HERE (UR-14). The stars are
+ * redrawn at the places they were put and only their alpha varies; the motes
+ * hold their places and breathe the same way. The debris is the one thing that
+ * still drifts, because a rock is matter rather than light - see `spawnMotes`
+ * and `render/tiles.TILE_DRAWS` for where that line is drawn and why.
  *
  * Rubric item 2 ("nothing is ever still") applies to menus too - a frozen
  * screen reads as a crashed game. Under reduced motion the drift slows and the
@@ -188,9 +194,44 @@ export class Backdrop {
     }
   }
 
+  /**
+   * THE MENU'S NEAR-PLANE SPECKS: PINNED, AND BREATHING (UR-14).
+   *
+   * ================== WHAT THESE WERE DOING ==================
+   * Eighteen discs of radius 2-4 in the stop's accent, at the near-field depth,
+   * each tweened `60 + (i % 5) * 26` px up the frame and back on an endless
+   * yoyo. Measured over one 2.5 s window of the game's clock, on all five menu
+   * screens: 15 to 17 of them moving, up to 69.5 px.
+   *
+   * By the rule in `render/starField.ts` that is a point of light translating
+   * on a screen with no flight, which is the thing UR-14 has now reported four
+   * times. It is the FIFTH mechanism to produce that appearance - after
+   * container drift, the sideways plane march, texture scroll and object
+   * parallax - and the first one driven by a TWEEN, which is why no previous
+   * guard could see it: all three stepped `scene.update` by hand, and Phaser
+   * advances tweens from its own loop.
+   *
+   * ================== WHAT THEY DO NOW ==================
+   * They hold their places and breathe. Only the alpha is animated, between
+   * 0.28 and 0.06, and the durations and delays were already staggered, so the
+   * field shimmers out of step exactly as the stars above it do. That keeps
+   * what the drift was for - rubric item 2, nothing on a menu is ever
+   * completely still - without anything crossing the frame.
+   *
+   * ================== AND IT ASKS, RATHER THAN DECIDING ==================
+   * `starsMayTravel` is the one place this is settled, and it answers from the
+   * scene key. There is no `menu.backdrop` entry in `TRAVELLING_LIGHT` and a
+   * menu is by definition a screen the ship is not flying through, so the
+   * answer is no on all five. The branch is kept rather than deleted because
+   * this surface was the one that did not ask: its guard asserted that the star
+   * Graphics is never repositioned, which was true, and said nothing about
+   * eighteen tweened discs beside it. A surface that asks cannot drift away
+   * from the rule in silence.
+   */
   private spawnMotes(): void {
     const spec = particleSpec("dustMotes");
     const count = this.reducedMotion ? 10 : 18;
+    const mayTravel = starsMayTravel("menu.backdrop", this.scene.scene.key);
     for (let i = 0; i < count; i += 1) {
       const x = ((i * 137) % 100) / 100;
       const y = ((i * 71) % 100) / 100;
@@ -204,9 +245,12 @@ export class Backdrop {
         )
         .setDepth(layer("nearField").depth);
       this.motes.push(mote);
+      const travel: Record<string, number> = mayTravel
+        ? { y: mote.y - (60 + (i % 5) * 26) }
+        : {};
       this.scene.tweens.add({
         targets: mote,
-        y: mote.y - (60 + (i % 5) * 26),
+        ...travel,
         alpha: 0.06,
         duration: spec.lifespanMs[0] + (i % 6) * 420,
         ease: EASE.drift,

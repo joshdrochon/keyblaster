@@ -71,6 +71,10 @@ import { hexToNum } from "./palette.js";
  *                      stop this is 140 additive dots ("glitter"), 24 long
  *                      leaning lines ("streaks") or 40 short ones ("dust").
  *                      Points of light on a black sky, whatever it is called.
+ *   world.nearLight    `moteTile` and `accentTile` in `tiles.ts`, replayed onto
+ *                      the near plane by `parallax.ts`: 44 `mote` sprites, 14
+ *                      `glint` sprites and 6 accent diamonds per world screen.
+ *                      Round four. See the boundary note below.
  *   menu.backdrop      `Backdrop` in `ui/chrome.ts`, placed by `ui/starfield.ts`
  *
  * A new surface that draws specks adds a member here, which is a compile error
@@ -92,23 +96,48 @@ import { hexToNum } from "./palette.js";
  * the kind and give those stops more stars) and it is raised rather than
  * settled quietly.
  *
- * ================== WHERE THE LINE IS, SO ROUND FOUR IS NOT AN ARGUMENT ======
- * A STAR is a point of light on the SKY - a full-frame field, at a distance the
- * ship's motion cannot change. Those are the surfaces above, and they hold
- * still: the header below has the physics.
+ * ================== WHERE THE LINE IS, AND WHY IT MOVED (ROUND FOUR) ========
+ * Round three drew the line at MECHANISM: a full-frame overlay holds still, and
+ * anything placed at a depth travels at its plane's speed "because that is what
+ * parallax means". It named `moteTile`'s motes and glints as things that MAY
+ * travel. That sentence is why UR-14 came back a fourth time.
  *
- * An OBJECT ON A DEPTH PLANE is not a star however small or bright it is, and
- * it travels because travelling at its plane's speed is the entire content of
- * the word parallax. That covers `moteTile`'s glints and `accentTile`'s accents
- * on the near field, the dust ellipses on the mid field, and every decorative
- * rock. UR-50.4 asked for exactly that motion in the Briefing window, so
- * stopping it would trade one report for another.
+ * Measured on the shipped Title at commit 1f10068, 4.0 s of world: texture
+ * scroll zero everywhere (round three's fix holds), and 58 sprites travelling
+ * 384.8 px - 44 `kb/tex/mote` and 14 `kb/tex/glint`, riding the near plane at
+ * 1.30 x the Title's 74 px/s world speed. Fifty-eight lit specks crossing a
+ * menu sky. Nothing about the drawing changed between round three and round
+ * four; only the sentence that excused it.
  *
- * The test is not size or brightness, it is whether the thing was placed at a
- * depth. If it was, it moves with its depth; if it is a full-frame overlay, it
- * does not move at all.
+ * THE LINE IS NOW APPEARANCE, NOT PLACEMENT, and it has two halves:
+ *
+ *   WHAT it is. A POINT OF LIGHT is a small, bright, self-luminous speck with
+ *   no internal structure: the `mote` and `glint` sprites, the accent diamonds
+ *   (4-9 px, opaque, fully saturated - the most speck-like thing in the frame),
+ *   the pinned field, the atmosphere pass, the menu backdrop's stars. Lit
+ *   MATTER is not: a decorative rock has a silhouette, a facet and a rim; the
+ *   mid-field dust is a 240-660 px soft low-alpha ellipse, which is haze; the
+ *   foreground veil is a sheet. Those are objects seen by a light, and they
+ *   keep their parallax. No report in UR-14's history has named a drifting rock;
+ *   all four have named the lights.
+ *
+ *   WHERE it is. A point of light holds position on a screen the ship is not
+ *   flying through. On a MENU nothing is moving, so a plane's speed conveys
+ *   nothing and a drifting speck is just a drifting speck. On Flight the ship
+ *   IS moving and the whole stack scrolls, so the same speck field carries
+ *   depth - which is why Flight is the exception below rather than an accident
+ *   of which file draws it.
+ *
+ * WHAT DID NOT CHANGE. UR-50.4 asked for debris drifting down the Briefing
+ * window and it still does: the rocks, the dust and the veil are untouched on
+ * every screen. Freezing the near-plane specks costs the near plane a depth
+ * cue on screens where there is no depth to cue.
  */
-export type StarSurface = "world.starField" | "world.atmosphere" | "menu.backdrop";
+export type StarSurface =
+  | "world.starField"
+  | "world.atmosphere"
+  | "world.nearLight"
+  | "menu.backdrop";
 
 /**
  * THE ANSWER IS NO. Stars hold position; flicker is the only animation they get.
@@ -125,13 +154,23 @@ export type StarSurface = "world.starField" | "world.atmosphere" | "menu.backdro
  * sentence attached.
  */
 const TRAVELLING_LIGHT: Readonly<Record<string, string>> = {
-  "world.atmosphere@Flight":
-    "the ship is actually flying here and every other plane is scrolling with " +
-    "it; the atmosphere pass is the one thing that crosses all of them " +
-    "(WORLD-BAR item 8), and a pass held still against a moving stack stops " +
-    "reading as weather and starts reading as marks on the glass. This is the " +
-    "ONLY ambient field in the game that translates, and it translates only " +
-    "while the world under it does.",
+  // EMPTY, AND THAT IS THE DECISION (UR-14, round five).
+  //
+  // Rounds one to four each removed one mechanism and granted Flight an
+  // exception on the argument that the ship is genuinely moving there, so a
+  // frozen speck field over scrolling planes would read as dirt on the canopy.
+  // The owner has ruled against it, and the reason is simple physics a child
+  // already knows: stars are extremely far away, so no visible movement should
+  // exist, including while flying.
+  //
+  // MATTER STILL MOVES. Rocks, dust, the veil and the debris planes all keep
+  // their parallax on every screen - see `TILE_DRAWS` in `render/tiles.ts` for
+  // the line between a point of LIGHT and a thing a light falls on. What is
+  // frozen is the sky, not the world.
+  //
+  // Buying an exception back costs an entry here with a sentence attached, and
+  // an empty table is the only state where a new screen cannot inherit one by
+  // accident.
 };
 
 /**

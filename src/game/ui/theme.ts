@@ -65,9 +65,60 @@ export const TYPE = {
   caption: 20,
 } as const;
 
-export const SPACE = {
+/**
+ * THE SPACING SCALE (UR-69). Every pad, gap, inset and indent in the product is
+ * one of these six numbers.
+ *
+ * ================== WHY IT EXISTS ==================
+ * A census of the served build at 1920x1080, walking the real display list of
+ * all nine screens, found 164 DISTINCT LEFT EDGES app-wide - 34 on the Director
+ * map, 27 on the stage report and on the Ending, 16 on the Pre-flight, where
+ * `GUTTER` is 96 and exactly two elements sat on it while the rest landed at 0,
+ * 118, 224, 326, 400, 464, 650, 781, 826 and 993.
+ *
+ * None of those is a decision. They are the arithmetic of nine screens each
+ * adding its own number to its own anchor, which is the same defect UR-69
+ * reported about the PLATE and `ui/grid.ts` fixed for the heading line. The
+ * type scale, by contrast, came out of the same census CLEAN: two font families
+ * (the second is Devanagari support) and nine sizes app-wide, three to five per
+ * screen. Spacing is the axis that is actually wrong.
+ *
+ * ================== THE SIX, AND WHERE EACH CAME FROM ==================
+ * Every one is a number the product already drew at, promoted to a name. This
+ * is a scale being DECLARED, not a redesign: a seventh entry here is a design
+ * decision and has to be argued, which is the whole point.
+ *
+ *   hair    8   inside one control
+ *   tight  12   `SKY_PLATE.padY`: a glass plate's inset, and the step between
+ *               the rows of one instrument
+ *   unit   20   `SPACE.gap`: THE vertical unit. Between two rows, two plates,
+ *               two blocks. If one number in this file moves the whole product,
+ *               it is this one
+ *   inset  32   an instrument's horizontal inset (the warp drive's track)
+ *   pad    40   a card's horizontal inset (the warp sentence, the stage report)
+ *   gutter 96   the page margin, fixed by `ui/grid.ts` against the widest
+ *               screen in the game
+ *
+ * Multiples of 4 throughout, which is what makes "is this on the scale" a
+ * question with an answer rather than a matter of taste.
+ */
+export const STEP = {
+  hair: 8,
+  tight: 12,
+  unit: 20,
+  inset: 32,
+  pad: 40,
   gutter: 96,
-  gap: 20,
+} as const;
+
+export type SpaceStep = (typeof STEP)[keyof typeof STEP];
+
+/** Every step, ascending. For a guard that asks "is this distance on the scale". */
+export const STEPS: readonly number[] = Object.values(STEP).sort((a, b) => a - b);
+
+export const SPACE = {
+  gutter: STEP.gutter,
+  gap: STEP.unit,
   rowPadX: 28,
   rowPadY: 14,
   radius: 16,

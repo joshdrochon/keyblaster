@@ -40,6 +40,17 @@ const SCENES = resolve(
 
 const KIT = readFileSync(resolve(SCENES, "lib/kit.ts"), "utf8");
 
+/**
+ * THE SHARED PLATE ITSELF, since UR-69 moved the drawing out of `lib/kit.ts`
+ * and into one component. `kit.plate` is now a forward to `drawPlate`, so the
+ * default this file is about lives here; the call-site half below is unchanged
+ * and still reads the scenes.
+ */
+const PLATE = readFileSync(
+  resolve(SCENES, "../ui/plate.ts"),
+  "utf8",
+);
+
 /** Every scene file, with comments stripped so a guard cannot read an excuse. */
 function sceneSources(): { file: string; code: string }[] {
   return readdirSync(SCENES)
@@ -54,8 +65,16 @@ function sceneSources(): { file: string; code: string }[] {
 
 describe("the shared plate is opaque", () => {
   it("defaults to alpha 1", () => {
-    expect(KIT).toContain("options.alpha ?? 1");
-    expect(KIT, "the shipped 0.94 default is back").not.toContain("options.alpha ?? 0.94");
+    // WATCHED FAILING: `props.alpha ?? 1` -> `props.alpha ?? 0.94` in
+    // `ui/plate.paintPlate` reports
+    //   the shared plate is opaque > defaults to alpha 1
+    //     expected 'import type Phaser from "phaser"...' to contain
+    //     'props.alpha ?? 1'
+    expect(PLATE).toContain("props.alpha ?? 1");
+    expect(PLATE, "the shipped 0.94 default is back").not.toContain("props.alpha ?? 0.94");
+    // And the kit still reaches it rather than having grown a second default.
+    expect(KIT).toContain("drawPlate(scene, { x, y, w, h }, options)");
+    expect(KIT, "lib/kit.plate grew its own fill again").not.toMatch(/options\.alpha \?\?/);
   });
 
   it("is never asked for a translucent fill by a scene", () => {

@@ -127,9 +127,18 @@ export class FocusList {
   private index = 0;
   private listener: FocusListener = () => {};
 
-  setItems(items: readonly Focusable[]): void {
+  setItems(items: readonly Focusable[], focusId?: string): void {
     this.items = [...items];
-    this.index = 0;
+    // START WHERE THE CALLER SAYS, NOT AT ZERO.
+    //
+    // A screen that restarts itself to redraw under a changed setting used to
+    // land here at index 0, paint (which moves the focus ring), and only then
+    // restore the row the child was on. That is one frame of the ring sitting
+    // on the FIRST control - the music row - before it jumps back, on every
+    // single setting change. Restoring afterwards fixed the focus and could
+    // never fix the flash, because the wrong frame had already been drawn.
+    const wanted = focusId === undefined ? -1 : this.items.findIndex((i) => i.id === focusId);
+    this.index = wanted < 0 ? 0 : wanted;
     // Every item in the list becomes clickable here, in ONE place. A screen
     // builds controls and hands them over; it never decides, per control,
     // whether the mouse works on it.

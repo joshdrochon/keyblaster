@@ -43,7 +43,7 @@
  * and cannot be asked of a player who clears rocks in parallel.
  */
 
-import { fallTimeMs } from "@engine/fallTime/index.js";
+import { fallTimeIkiMs, fallTimeMs } from "@engine/fallTime/index.js";
 import {
   createSelectionState,
   pickNext,
@@ -89,10 +89,7 @@ import {
  * does not fly - which is the whole reason this file was rewritten.
  */
 function fallCalibration(calibration: Calibration): Calibration {
-  return {
-    ...calibration,
-    ikiMs: Math.max(calibration.ikiMs, DEFAULT_CALIBRATION.ikiMs),
-  };
+  return { ...calibration, ikiMs: fallTimeIkiMs(calibration.ikiMs) };
 }
 
 /** Deterministic PRNG. Never Math.random, in the module or the test. */

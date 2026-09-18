@@ -55,6 +55,11 @@ export abstract class Control implements Focusable {
   readonly id: string;
   locked = false;
   adjustable = false;
+  /**
+   * True for a control with exactly two states, where a click anywhere flips
+   * it rather than meaning "less" on the left and "more" on the right.
+   */
+  twoState = false;
   /** True when printable keys should reach this control instead of navigation. */
   capturesTyping = false;
 
@@ -160,6 +165,21 @@ export abstract class Control implements Focusable {
       // instead would make clicking a volume slider do nothing at all, which
       // is the exact dead-click this change exists to remove.
       if (this.adjustable) {
+        // A TWO-STATE CONTROL TOGGLES WHEREVER YOU CLICK IT.
+        //
+        // The left/right split below is right for a slider or an option row,
+        // where -1 and +1 mean different things. On an on/off switch it is a
+        // dead click: the right half sends +1, the switch is already on, and
+        // clicking the same spot again does nothing. A child has to work out
+        // that the OTHER half of the same control is the off button, which is
+        // not how a switch behaves anywhere else they have met one.
+        if (this.twoState) {
+          // `press` (activate) TOGGLES; `adjust` does not. SwitchRow.adjust is
+          // `set(delta > 0)`, so sending +1 here would pin the switch ON for
+          // ever - which is exactly what a first attempt at this shipped.
+          handlers.press();
+          return;
+        }
         handlers.adjust(pointer.worldX >= box.x + box.w / 2 ? 1 : -1);
         return;
       }

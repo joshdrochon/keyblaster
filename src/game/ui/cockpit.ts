@@ -553,6 +553,7 @@ export class SwitchRow extends PanelControl {
       options.label,
       options.width,
     );
+    this.twoState = true;
     this.value = options.value;
     this.onChange = options.onChange;
     this.onLabel = options.onLabel;

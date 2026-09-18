@@ -7,6 +7,7 @@ import { type FlightCopy, createFlightCopy } from "@game/flight/copy.js";
 import type { Lang, StopId } from "@engine/types.js";
 import { HIT_ZONE_PREFIX } from "@game/ui/focus.js";
 import { chrome, label } from "./lib/kit.js";
+import { paintFocusRing, paintPlate } from "@game/ui/plate.js";
 
 export interface StallSceneData {
   readonly stopId: StopId;
@@ -95,11 +96,25 @@ export class StallScene extends Phaser.Scene {
     const cardY = height / 2 - cardH / 2;
 
     const card = this.add.container(0, 0);
+    // THE SHARED PLATE (UR-69), dressed from the stop's palette. The radius is
+    // still 20 rather than the component's 16 because this card is the one
+    // thing on a dimmed frame and its corner carries the "calm" read; it is a
+    // PROP now, so it is a decision this screen states rather than a number
+    // nobody else can see.
     const plate = this.add.graphics();
-    plate.fillStyle(hexToInt(this.palette.plate), 0.96);
-    plate.fillRoundedRect(cardX, cardY, cardW, cardH, 20);
-    plate.lineStyle(1, hexToInt(accent), 0.32);
-    plate.strokeRoundedRect(cardX, cardY, cardW, cardH, 20);
+    paintPlate(
+      plate,
+      { x: cardX, y: cardY, w: cardW, h: cardH },
+      {
+        fill: this.palette.plate,
+        alpha: 1,
+        stroke: accent,
+        strokeAlpha: 0.32,
+        strokeWidth: 1,
+        radius: 20,
+        rhythm: "card",
+      },
+    );
     card.add(plate);
 
     /**
@@ -146,8 +161,17 @@ export class StallScene extends Phaser.Scene {
     const buttonY = cardY + cardH - 104;
 
     const button = this.add.graphics();
-    button.fillStyle(hexToInt(accent), 0.92);
-    button.fillRoundedRect(buttonX, buttonY, buttonW, buttonH, 14);
+    paintPlate(
+      button,
+      { x: buttonX, y: buttonY, w: buttonW, h: buttonH },
+      {
+        fill: accent,
+        alpha: 1,
+        radius: 14,
+        strokeWidth: 0,
+        rhythm: "button",
+      },
+    );
     card.add(button);
 
     const restart = chrome(
@@ -162,13 +186,11 @@ export class StallScene extends Phaser.Scene {
 
     // AC-18.1: the only control is focused on arrival and says so visibly.
     this.focusRing = this.add.graphics();
-    this.focusRing.lineStyle(3, hexToInt(this.palette.plateText), 0.95);
-    this.focusRing.strokeRoundedRect(
-      buttonX - 6,
-      buttonY - 6,
-      buttonW + 12,
-      buttonH + 12,
-      18,
+    paintFocusRing(
+      this.focusRing,
+      { x: buttonX, y: buttonY, w: buttonW, h: buttonH },
+      this.palette.plateText,
+      { radius: 14 },
     );
     card.add(this.focusRing);
     if (!this.params.reducedMotion) {

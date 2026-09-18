@@ -13,8 +13,13 @@ import {
   SHIP_ABOVE,
   SHIP_BELOW,
   SHIP_DESIGN_HALF_W,
+  SENTENCE_PX,
+  SENTENCE_STEP,
   SHIP_HALF_W,
   WARP_CARDS,
+  destinationRow,
+  hintRow,
+  sentenceRow,
   instrumentChargedRow,
   instrumentContains,
   instrumentLabelRow,
@@ -23,6 +28,8 @@ import {
   lanternPlumeBox,
   shipBandTop,
 } from "@game/scenes/support/warpLayout";
+import { PLATE_RHYTHM, PLATE_STACK_GAP, lineBox } from "@game/ui/plateLayout";
+import { TYPE } from "@game/ui/theme";
 
 /**
  * THE LANTERN IS NOT BEHIND THE WARP CARD.
@@ -193,13 +200,13 @@ describe("the three cards still read as one column", () => {
   });
 
   it("fit two lines of sentence above the hint", () => {
-    // `WarpScene.layoutLetters` starts at `PANEL.y + 78` and steps 52 + 16 per
-    // line; `buildSentencePanel` puts the hint at `PANEL.h - 44`. A composed
-    // sentence (D09) can be longer than any shipped one, so the card has to
-    // hold a second line without printing it through the hint.
-    const SIZE = 52;
-    const secondLineBottom = 78 + (SIZE + 16) + Math.round(SIZE * 1.3);
-    expect(PANEL.h - 44).toBeGreaterThan(secondLineBottom);
+    // A composed sentence (D09) can be longer than any shipped one, so the card
+    // has to hold a second line without printing it through the hint. Read off
+    // the rows now rather than off `PANEL.y + 78` and `PANEL.h - 44`, which
+    // were the two literals the card was laid out with before UR-70.
+    const band = sentenceRow();
+    const secondLineBottom = band.y + SENTENCE_STEP + Math.round(SENTENCE_PX * 1.3);
+    expect(hintRow().y).toBeGreaterThan(secondLineBottom);
   });
 
   it("do not overlap each other", () => {
@@ -217,6 +224,79 @@ describe("the three cards still read as one column", () => {
         `${describeRect(card)} reaches the ship's band (top ${Math.round(shipBandTop())})`,
       ).toBe(true);
     }
+  });
+});
+
+describe("UR-70: the column is condensed, and the gap is not a function of the sentence", () => {
+  /**
+   * THE DEFECT, AS A NUMBER.
+   *
+   * UR-70 reported "condensed space without excessive padding" against a screen
+   * whose destination line was followed by a hole. The card was a fixed 280
+   * sized for two lines and the sentence was CENTRED in the band under the
+   * destination line, so half a one-line sentence's slack went above it:
+   *
+   *                    before        after
+   *   one-line stop    70 px         26 px
+   *   two-line stop    36 px         26 px
+   *
+   * Ink to ink, in Latin. The rows are sized on the DEVANAGARI line box (rule
+   * 5: three languages), so the Latin gap reads 6 px wider than the 20 px unit
+   * the rhythm lays out.
+   *
+   * WATCHED FAILING - `sentenceRow()` put back to the shipped centring,
+   * `PANEL.y + 78 + round((146 - block) / 2)` with a one-line block - three
+   * cases red, and the third is the one that says the slack merely moved:
+   *
+   *   the three cards still read as one column > fit two lines of sentence
+   *   above the hint
+   *     expected 453 to be greater than 497
+   *   puts one unit under the destination line, at any sentence length
+   *     expected 68 to be 20
+   *   names what a one-line stop pays for it
+   *     expected 24 to be 72
+   */
+  const INK_LATIN = (px: number): number => Math.round(px * 1.3);
+
+  it("puts one unit under the destination line, at any sentence length", () => {
+    const d = destinationRow();
+    expect(sentenceRow().y - (d.y + d.h)).toBe(PLATE_RHYTHM.card.gap);
+    // Ink to ink, which is the distance a person sees.
+    expect(sentenceRow().y - (d.y + INK_LATIN(TYPE.label))).toBe(26);
+  });
+
+  it("the card is no taller than the rows in it", () => {
+    // Derived, not picked. 280 was 250 plus 30 added after the hint was found
+    // printing through.
+    expect(PANEL.h).toBe(268);
+    expect(PANEL.h).toBeLessThan(280);
+  });
+
+  it("the three plates are one unit apart, and the column got shorter", () => {
+    expect(INSTRUMENT.y - bottom(PANEL)).toBe(PLATE_STACK_GAP);
+    expect(COACH.y - bottom(INSTRUMENT)).toBe(PLATE_STACK_GAP);
+    // 236..820 before; the whole column is 12 px shorter and its clearance over
+    // the Lantern's band went from 17.6 px to 29.6 px.
+    expect(bottom(COACH)).toBe(808);
+    expect(shipBandTop() - bottom(COACH)).toBeGreaterThan(29);
+  });
+
+  it("names what a one-line stop pays for it", () => {
+    // THE TRADE, ASSERTED SO IT CANNOT GROW QUIETLY. The card cannot resize -
+    // `relayoutSentence` swaps in a composed sentence live and its contract is
+    // "same geometry" - so a one-line stop's slack has to go somewhere. It goes
+    // between the sentence and the FOOTER rather than between the destination
+    // line and the sentence, because the second separates a label from the
+    // thing it labels.
+    const oneLineBottom = sentenceRow().y + INK_LATIN(SENTENCE_PX);
+    expect(hintRow().y - oneLineBottom).toBe(72);
+  });
+
+  it("measures its rows in Devanagari, so Hindi does not collide", () => {
+    // Rule 5. A card sized on Latin metrics fits in English and collides in
+    // Hindi, and no English capture shows it.
+    expect(destinationRow().h).toBe(lineBox(TYPE.label));
+    expect(destinationRow().h).toBeGreaterThan(INK_LATIN(TYPE.label));
   });
 });
 

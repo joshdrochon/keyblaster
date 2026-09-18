@@ -322,7 +322,14 @@ export class BeaconScene extends Phaser.Scene {
       READOUT.x + 48,
       READOUT.y + 44,
       ok ? this.readout.coordsLine : this.lane.copy.text("beacon.calibrating"),
-      { size: 42, color: INK.text, lang: this.lane.lang, wrapWidth: READOUT.w - 96 },
+      // TYPE.heading, NOT 42. A census of the served build found nine font
+      // sizes app-wide - 20, 24, 30, 36, 42, 44, 52, 72, 128 - and 42 was
+      // reached by exactly ONE call site, this one, two pixels from the
+      // heading token every other screen uses. Two sizes two pixels apart are
+      // not a type scale with a fine distinction in it; they are a literal that
+      // missed the token. The row below it starts 72 px down and a 44 px line
+      // in Devanagari is 69, so the collapse costs nothing.
+      { size: TYPE.heading, color: INK.text, lang: this.lane.lang, wrapWidth: READOUT.w - 96 },
     );
     made.push(this.coordsLabel);
 

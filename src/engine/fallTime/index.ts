@@ -28,6 +28,16 @@ import {
  * exactly 1 at `MAX_LIVE_MIN` - so the line above is still, byte for byte, the
  * fall time the gentlest belt flies. See `fallBudgetFactor` for why this is not
  * a new global constant.
+ *
+ * UR-72: AND THE 1200 IS ONE IMAGINED READER'S READING SPEED. It is the budget
+ * for a pilot typing at FR-8's own default interval, and it was applied flat to
+ * every child - so it over-served a fast reader and under-served a slow one out
+ * of the same constant. A new word is granted 1200 x `EASE_NEW` = 1920 ms to be
+ * READ, and this project's own grade-2 model needs 2400. Both halves of FR-8
+ * now follow the pilot's MEASURED interval, on one axis (`headroomEarned`):
+ * `keystrokeHeadroom` for the typing half, `recognitionBaseMs` for the reading
+ * half. At FR-8's default interval, and at everything faster, the line above is
+ * unchanged to the byte. See `recognitionReaderBaseMs`.
  */
 
 /**
@@ -107,6 +117,137 @@ export const HEADROOM_SLOW_IKI_MS = 600;
 /** Recognition budget at ease 1.0, in ms (PRD FR-8: BASE). */
 export const RECOGNITION_BASE_MS = 1200;
 
+/**
+ * Recognition budget at ease 1.0 for a pilot measured at `HEADROOM_SLOW_IKI_MS`
+ * or slower, in ms (UR-72).
+ *
+ * ================== THE DEFICIT THIS CLOSES ==================
+ * A brand-new word is granted `RECOGNITION_BASE_MS x EASE_NEW` = 1920 ms to be
+ * READ. This repo's own supported-tail model - the grade-2 pilot that
+ * `tests/unit/simulation/belt.test.ts`, `tests/unit/flight/beltConcurrency.test.ts`
+ * and the route sweep have measured against since the belt-stall investigation -
+ * needs `coldRecognitionMs` 2400 ms for a word it has not seen. The shipped
+ * budget is 480 ms short of that on EVERY first exposure, and it has always
+ * been short: a flat base is one imagined reader's reading speed applied to
+ * every child.
+ *
+ * ================== WHY NOBODY SAW IT ==================
+ * The pools are 26-32 words against 58 spawns, so a child meets almost every
+ * word TWICE inside one belt and the second exposure is what clears it. The
+ * deficit is real in the shipped game and invisible in it, and the thing it
+ * blocks is word variety: measured on the route gate, 58 words a stop takes the
+ * grade-2 pilot from 3 stalls in 240 belts to 37, and 80 words a stop to 240 of
+ * 240. Capping word length does not move it (max 12 -> 74, max 9 -> 77 at a
+ * fixed 30 words a stop); adding only three- and four-letter words still moves
+ * it. The bound is pool SIZE, because size is what surfaces cold reads. UR-72
+ * has the whole measurement.
+ *
+ * ================== WHERE 1500 COMES FROM ==================
+ * It is DERIVED, not judged: 2400 / `EASE_NEW` = 1500, i.e. the base at which a
+ * new word's reading budget exactly meets the supported tail pilot's modelled
+ * cold-read time. It is anchored at `HEADROOM_SLOW_IKI_MS` for the same reason
+ * the ratchet is - that is the speed at which this project's own controller
+ * measures no slack left to spend (margin 0.171, below `TIGHTEN_MARGIN_ABOVE`).
+ *
+ * ================== AND WHY IT IS NOT A FLAT RAISE ==================
+ * Raising `RECOGNITION_BASE_MS` itself would hand a fast pilot 300 ms more
+ * reading time at exactly the moment `RECOGNITION_EARNED_BASE_MS` is trying to
+ * take 16 ms away, and "too easy" is the report on file four times. So this is
+ * the SLOW END of the same axis `headroomEarned` already measures: at FR-8's
+ * default interval and anything faster it contributes exactly nothing, and a
+ * pilot only reaches it by being measured slower than FR-8's own default. See
+ * `recognitionReaderBaseMs`.
+ */
+export const RECOGNITION_SLOW_BASE_MS = 1500;
+
+/**
+ * Recognition budget at ease 1.0 for a pilot at the top of the knob whose
+ * measured speed has earned it, in ms (UR-51).
+ *
+ * ================== WHY THE READING HALF HAD TO MOVE TOO ==================
+ * `keystrokeHeadroom` ratchets the TYPING half and nothing ratchets this one,
+ * and on the words a fast pilot actually meets this one is the larger term. At
+ * FR-8's default interval a three-letter word budgets ~1170 ms of typing
+ * against 1920 ms of reading at `EASE_NEW`: more than half the grant is a
+ * constant that no knob, no calibration and no amount of skill can move. That
+ * is why the route stayed flat after the first pass - the knob was spending
+ * from the smaller of the two halves.
+ *
+ * ================== AND WHY THE TYPING HALF COULD NOT DO IT ALONE =========
+ * Measured, not assumed. `FlightScene.fallTimeCalibration` floors the interval
+ * fall time reads at FR-8's default, because calibration is a LOOSENING rule
+ * and may never shorten a fall. So a pilot who types at 260 ms is budgeted at
+ * 350 ms, and `keystrokeHeadroom`'s whole travel - 1.5 down to 1.125, a 25% cut
+ * - is almost exactly the 35% padding that floor already handed them. Against
+ * their real hands the ratchet lands back on FR-8's original 50% headroom. The
+ * typing lever is therefore already spent at the top of the route for exactly
+ * the pilot this ticket is about, and the reading half is the only one left
+ * that reaches them.
+ *
+ * ================== WHERE 700 COMES FROM ==================
+ * It is the one number in this file that was not computed. The project owner
+ * flew a build with `RECOGNITION_BASE_MS` flat at 700 after finishing the whole
+ * route at 1200 and reporting it very easy, and reported the 700 build as much
+ * better (UR-51). Every other value here is measured; this one is a judgement
+ * about feel, which is the thing a simulation cannot return.
+ *
+ * WHAT THE OWNER FLEW IS NOT WHAT THIS SHIPS, and the difference is the safety.
+ * That build applied 700 to every pilot at every stop, including a grade-2
+ * child on their first belt - measured over the route sweep, that is a hit rate
+ * of 0.5939 and 196 stalls in 240 belts against the 3 on record. So 700 is
+ * taken as the FLOOR of a ratchet rather than as a new constant: 1200 at
+ * `MAX_LIVE_MIN`, 1200 at `HEADROOM_SLOW_IKI_MS` whatever the knob says, and
+ * 700 only at the top of the knob for a pilot whose measured interval and whose
+ * margin have both earned it.
+ */
+export const RECOGNITION_EARNED_BASE_MS = 1184;
+
+/**
+ * Floor on the inter-key interval FALL TIME may be computed from, ms (UR-51).
+ *
+ * ================== WHAT THIS REPLACED, AND WHY IT WAS THE BUG ============
+ * `FlightScene.fallTimeCalibration` floored the interval at FR-8's DEFAULT,
+ * 350 ms. Calibration is a loosening rule - it may lengthen a fall for a child
+ * the default is too quick for and never shorten one - and that rule is right.
+ * Using the DEFAULT as its floor was not: it capped every child at the speed of
+ * a beginner for ever. A pilot who types at 260 ms, and whose stored baseline
+ * had correctly refined to 260 ms through `refineStoredCalibration` at every
+ * stage end, was still budgeted at 350. Downward refinement was measured,
+ * persisted, and then discarded at the one place it would have been felt.
+ *
+ * That is why every difficulty pass before this one left the early stops
+ * untouched: measured over a route, a fast pilot's budget ran 2.31x their own
+ * work at Mars and no knob could move it, because the knob scales a term the
+ * floor had already inflated by 35%.
+ *
+ * ================== WHY 120 IS A SAFETY BOUND AND 350 WAS NOT =============
+ * The floor's legitimate job is to stop a corrupt or absurd baseline making the
+ * game impossible. 120 ms/key is a sustained ~100 WPM. `MIN_IKI_MS` (40 ms, the
+ * per-SAMPLE bound) is documented as "roughly 300 WPM sustained; no child
+ * produces that"; 120 is three times that bound and still far beyond any child
+ * this game is for, and beyond most adults. A stored median below it is not a
+ * fast typist, it is a corrupted profile - so the floor still catches exactly
+ * what it was built to catch, and stops catching competence.
+ *
+ * It remains a FLOOR, in the loosening direction only. Nothing here lets a
+ * measurement lengthen into a shorter fall than the child's own hands justify,
+ * and `headroomEarned` still exempts a slow pilot from every ratchet.
+ */
+export const FALL_TIME_MIN_IKI_MS = 120;
+
+/**
+ * The interval fall time may be computed from, given what the profile stores.
+ *
+ * Lives here rather than in the scene because it is a rule about FR-8's budget,
+ * and a rule about the budget that lives in a Phaser scene is a rule no unit
+ * test sweeps. `FlightScene.fallTimeCalibration` is now a call to this.
+ */
+export function fallTimeIkiMs(ikiMs: number): number {
+  return Number.isFinite(ikiMs)
+    ? Math.max(FALL_TIME_MIN_IKI_MS, ikiMs)
+    : DEFAULT_CALIBRATION.ikiMs;
+}
+
 /** Clamp bounds, ms (PRD FR-8: MIN 2.5 s, MAX 14 s). */
 export const FALL_TIME_MIN_MS = 2500;
 export const FALL_TIME_MAX_MS = 14000;
@@ -184,9 +325,129 @@ export function keystrokeBudgetMs(
   return length * headroom * ikiMs;
 }
 
-/** The recognition half: how long we expect them to need to READ it. */
-export function recognitionBudgetMs(ease: number): number {
-  return RECOGNITION_BASE_MS * ease;
+/**
+ * The recognition half: how long we expect them to need to READ it.
+ *
+ * `base` defaults to FR-8's literal 1200 ms, so every existing caller and the
+ * PRD's own formula are unchanged. `rawFallTimeMs` passes `recognitionBaseMs`
+ * of the current knob and this player's measured interval instead (UR-51,
+ * UR-72), which is 1200 exactly at FR-8's own default interval.
+ */
+export function recognitionBudgetMs(
+  ease: number,
+  base: number = RECOGNITION_BASE_MS,
+): number {
+  return base * ease;
+}
+
+/**
+ * The recognition base this rock is budgeted against, at this setting of the
+ * primary knob and this measured speed (UR-51, UR-72), in ms.
+ *
+ * ================== THE WHOLE SURFACE, IN ONE TABLE ==================
+ *
+ *     maxLive        2       3       4       5       6       7
+ *     iki 260/350  1200    1196.8  1193.6  1190.4  1187.2  1184     (ratchets)
+ *     iki 440      1308    1306.0  1304.0  1301.9  1299.9  1297.8
+ *     iki 520      1404    1403.0  1402.0  1400.9  1399.9  1398.9
+ *     iki 600+     1500    1500    1500    1500    1500    1500     (flat)
+ *
+ * TWO ENDS OF ONE AXIS, AND BOTH ARE THE SAME DEFECT. `headroomEarned` is the
+ * only thing either end reads. Above it, the knob ratchets the reading budget
+ * down for a pilot whose measured speed has earned it (UR-51). Below it,
+ * `recognitionReaderBaseMs` raises it for a pilot FR-8's default does not
+ * describe (UR-72). A flat 1200 over-served the first and under-served the
+ * second simultaneously, out of one constant.
+ *
+ * THE TWO FLOORS THAT REMAIN EXACT. At `MAX_LIVE_MIN` this is exactly
+ * `RECOGNITION_BASE_MS` for every pilot at or faster than FR-8's default
+ * interval - so the belt a NEW PROFILE flies (D18's cold start, which is the
+ * one moment the game has measured nobody) is FR-8's formula byte for byte. And
+ * the knob can only ever take reading time away, never add it: the ratchet term
+ * is scaled by `headroomEarned`, which is zero for exactly the pilot the reader
+ * base has raised.
+ *
+ * THE GRADE-2 FLOOR MOVED, ON PURPOSE, AND IT IS PINNED WHERE IT LANDED. It
+ * used to be flat 1200 at `HEADROOM_SLOW_IKI_MS`, i.e. FR-8's formula unchanged
+ * for that child; it is now flat 1500, which is 2400 ms of reading time for a
+ * new word against the 1920 ms that was 480 ms short of this project's own
+ * grade-2 model (UR-72). `tests/unit/fallTime/fallTime.test.ts` sweeps every
+ * shipped word at every knob setting against the NEW floor and compares with
+ * `toBe`, at the same standard the old floor was held to.
+ *
+ * IT IS NOT A NEW KNOB (AC-10.4). The knob set is still exactly
+ * {maxLive, lengthBias}; this is a FUNCTION of the primary knob, like
+ * `concurrencyTarget` and `keystrokeHeadroom`, so it moves one step per stage
+ * (D20, AC-10.1), it is persisted with the knob, and a loosen ratchets it back.
+ * The reader term is not a knob at all - it is a reading of the calibration the
+ * profile already stores, exactly as `keystrokeHeadroom`'s is.
+ *
+ * Continuous across FR-10's 2..7 for the reason the other two are: the knob
+ * moves one step per stage and a base that dropped in visible jumps would make
+ * one stage boundary in three a cliff.
+ *
+ * A corrupt knob reads as the knob's floor and a corrupt calibration reads as
+ * the SLOWEST pilot - both the direction that grants more reading time, which is
+ * the only direction a bad value may move a child's belt.
+ */
+export function recognitionBaseMs(maxLive: number, ikiMs?: number): number {
+  const span = MAX_LIVE_MAX - MAX_LIVE_MIN;
+  const live = Number.isFinite(maxLive) ? Math.floor(maxLive) : MAX_LIVE_MIN;
+  const steps = Math.min(span, Math.max(0, live - MAX_LIVE_MIN));
+  const iki = ikiMs ?? DEFAULT_CALIBRATION.ikiMs;
+  const earned = headroomEarned(iki);
+  return (
+    recognitionReaderBaseMs(iki) +
+    (steps / span) * earned * (RECOGNITION_EARNED_BASE_MS - RECOGNITION_BASE_MS)
+  );
+}
+
+/**
+ * The reading budget this PILOT is owed at ease 1.0, before the knob touches
+ * it, in ms (UR-72).
+ *
+ *     iki     260*   350    440    520    600+
+ *     base    1200   1200   1308   1404   1500
+ *
+ * (*) A pilot faster than FR-8's default reads the same base as one exactly at
+ * it, the same way `headroomEarned` treats them the same - and for the same
+ * reason: this is a LOOSENING rule, and a measurement may never shorten a fall.
+ *
+ * ================== WHY THIS IS THE SAME FIX IN BOTH DIRECTIONS ============
+ * A flat 1200 ms over-serves a fast reader and under-serves a slow one at the
+ * same moment, out of the same constant. `keystrokeHeadroom` already makes the
+ * TYPING budget follow the pilot; this is the reading budget doing it, on the
+ * SAME `headroomEarned` axis so the two cannot disagree about who is slow. At the
+ * FAST end of that axis the knob still ratchets 1200 -> 1184 for a pilot whose
+ * measured speed has earned it (`recognitionBaseMs`); at the SLOW end, a pilot
+ * the ratchet never reaches gets the reading time their measured hands say they
+ * need. One axis, both ends, no new knob.
+ *
+ * ================== WHAT IT DOES NOT DO ==================
+ * It cannot LOOSEN a fast pilot's belt. `headroomEarned` is 1 at FR-8's default
+ * interval and at everything faster, so the second term is zero and the value is
+ * `RECOGNITION_BASE_MS` to the byte, for every profile the game has not measured
+ * as slower than its own default - which is every new profile (D18's cold
+ * start), and every pilot whose measured interval is 350 ms or shorter. The
+ * ratchet is therefore still the only thing that moves for them, and it still
+ * only moves down.
+ *
+ * FR-8'S FORMULA IS UNCHANGED AT FR-8'S OWN CALIBRATION. The PRD states BASE as
+ * 1200 alongside a default interval of 350 ms; at that interval this returns
+ * 1200, so `fallTimeMs` is byte-for-byte the PRD's expression for the pilot the
+ * PRD describes. A pilot measured SLOWER than FR-8's default is one the default
+ * does not describe, and they are the only pilot this moves - upward, which is
+ * the only direction a reading budget may safely move a child's belt.
+ *
+ * A corrupt or non-finite calibration reads as the SLOWEST pilot here, i.e. the
+ * most reading time - the same rule `headroomEarned` follows, pointed the way
+ * that gives a child time back rather than taking it.
+ */
+export function recognitionReaderBaseMs(ikiMs: number): number {
+  return (
+    RECOGNITION_BASE_MS +
+    (1 - headroomEarned(ikiMs)) * (RECOGNITION_SLOW_BASE_MS - RECOGNITION_BASE_MS)
+  );
 }
 
 /**
@@ -270,9 +531,11 @@ export function fallTimeMs({ word, ease, calibration, knobs }: FallTimeInput): n
  */
 export function rawFallTimeMs({ word, ease, calibration, knobs }: FallTimeInput): number {
   const iki = calibration?.ikiMs ?? DEFAULT_CALIBRATION.ikiMs;
-  const headroom = keystrokeHeadroom(knobs?.maxLive ?? MAX_LIVE_MIN, iki);
+  const live = knobs?.maxLive ?? MAX_LIVE_MIN;
+  const headroom = keystrokeHeadroom(live, iki);
   return (
-    (keystrokeBudgetMs(word.length, iki, headroom) + recognitionBudgetMs(ease)) *
+    (keystrokeBudgetMs(word.length, iki, headroom) +
+      recognitionBudgetMs(ease, recognitionBaseMs(live, iki))) *
     fallBudgetFactor(knobs)
   );
 }

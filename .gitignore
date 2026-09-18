@@ -45,3 +45,6 @@ tests/e2e/scratch/
 
 # A private handoff note, not a project document. Kept on disk, never pushed.
 docs/SUBMIT.md
+
+# Throwaway feel-test builds served on a side port; never committed.
+dist-feel/

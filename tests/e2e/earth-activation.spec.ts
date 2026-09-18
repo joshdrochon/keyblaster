@@ -140,6 +140,25 @@ test.describe("Earth activation (row 2b, D57)", () => {
 
 test.describe("UR-17: the instruction leaves when it stops being true", () => {
   /**
+   * THE SAME 120 s THE BLOCK ABOVE TAKES, AND FOR THE SAME REASON.
+   *
+   * This block was on Playwright's 30 s default while its sibling - which drives
+   * the same screen through the same typed word - had `test.setTimeout(120_000)`
+   * with a comment explaining that headless Chromium renders this scene in
+   * software at about a quarter of real time. Alone this test takes 12.8 s. In a
+   * 26-test run on one worker it took 34 s and reported:
+   *
+   *   Test timeout of 30000ms exceeded.
+   *
+   * which reads exactly like the collision assertion failing and is not
+   * (coding-standards rule 9: an error message is not a measurement - the two
+   * controls here were the same test alone at 12.8 s and under load at 34 s).
+   * Nothing about the screen changed; one of two blocks driving it simply never
+   * got the head-room the other one documented.
+   */
+  test.setTimeout(120_000);
+
+  /**
    * UR-17, caught in play and attached as a screenshot: "the beacon is lit."
    * drawn ON TOP of "type launch to wake the beacon", both at GAME_HEIGHT * 0.76. no-user-quotes-ok: both strings are shipped game copy (`earth.lit` / `earth.typePrompt` in src/content/en/ui.json), quoted here because the defect IS which two strings collide
    *

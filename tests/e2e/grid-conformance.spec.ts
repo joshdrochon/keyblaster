@@ -7,7 +7,9 @@ import {
   HINT_CONTRACT,
   headingText,
   hintText,
+  subheadingText,
 } from "../../src/game/ui/grid";
+import { WORDMARK_X, WORDMARK_Y } from "../../src/game/scenes/support/titleLayout";
 
 /**
  * UR-19 - EVERY PAGE FOLLOWS SUIT, AS THREE MEASUREMENTS.
@@ -32,13 +34,43 @@ import {
  * green suite.
  *
  * ================== HOW A KNOWN GAP IS HANDLED ==================
- * Five screens do not conform today. They are NAMED below with what they do
- * instead and who owns the fix, the list may only shrink, and a stale entry
- * fails. That is the same shape as `arch/profileWriters.test.ts`'s orphan list,
- * and it is the opposite of deleting the assertion: the check runs over all
- * nine screens on every run, and closing one is one line here.
+ * A screen off the header origin is NAMED below, the lists may only shrink, and
+ * a stale entry fails. That is the same shape as `arch/profileWriters.test.ts`'s
+ * orphan list, and it is the opposite of deleting the assertion: the check runs
+ * over all nine screens on every run, and closing one is one line here.
  *
- *   npx playwright test tests/e2e/grid-conformance.spec.ts
+ * ================== WHAT CHANGED FOR UR-19'S REOPENING ==================
+ * The list held FOUR - Title, Earth activation, Briefing, Ending - over a
+ * comment reading "every entry is a defect, not a design", and the only
+ * positive assertion under it was `headerOk.length >= 4`. Measured one screen
+ * at a time against the running game, that comment was not true of all four,
+ * and a list containing entries nobody can close is a list nobody works
+ * through. It is now two lists:
+ *
+ *   HEADER_GAPS        defects. Briefing and Ending. Both closable, both
+ *                      blocked on a file outside the lane that reopened this,
+ *                      each naming the exact change.
+ *   HEADER_BY_DESIGN   designs. Title and Earth activation. Each one carries a
+ *                      POSITIVE assertion of what it does instead, run in the
+ *                      same pass on the same frame, so the entry is a contract
+ *                      rather than a hole with a sentence next to it.
+ *
+ * and `headerOk.length` is raised from 4 to 5, which is what is met.
+ *
+ * ================== WATCHED FAILING (coding-standards rule 4) ==================
+ * Each new assertion was broken in the source and the run watched go red:
+ *
+ *   Earth's title line moved to HEADING_TOP + 8
+ *     Error: the title left HEADING_TOP / Expected: 96 / Received: 104
+ *   titleLayout.WORDMARK_X 200 -> 212
+ *     FIRST ATTEMPT STAYED GREEN. The assertion was `box.x === WORDMARK_X`,
+ *     which imports the constant it is checking - `f(x) === f(x)`, the exact
+ *     defect rule 4 exists for, written by someone who had just read rule 4.
+ *     With the declared literal added:
+ *     Error: the Title's declared lockup position moved / Expected: 200 /
+ *     Received: 212
+ *
+ *   PW_PORT=5259 npx playwright test tests/e2e/grid-conformance.spec.ts
  */
 
 test.use({ trace: "off" });
@@ -121,22 +153,77 @@ const SCREENS = [
 ] as const;
 
 /**
- * Screens that do not meet a contract TODAY, with what they do instead.
+ * Screens whose header is a DEFECT. This list may only shrink, to zero.
  *
- * Every entry is a defect, not a design. The list may only shrink; the stale
- * check fails if a screen starts conforming and is left here.
+ * IT USED TO HOLD FOUR AND THE COMMENT ABOVE IT SAID "every entry is a defect,
+ * not a design". Measured against the running game one screen at a time, that
+ * sentence was not true of all four, and saying it anyway is what let the list
+ * sit at four: a list where some entries cannot be closed stops being a list
+ * anybody works through. It is two lists now. This one is the work; the one
+ * below it is the answer, and the answer has to be ASSERTED rather than
+ * asserted-about, or an exemption is just a hole with a sentence next to it.
  *
  * PRE-FLIGHT WAS IN BOTH LISTS AND IS OUT OF BOTH (UR-39). It had no header at
  * all - the only story screen with nothing above y=320 - and its hint floated
  * at the window's centre. It now carries a title and stop name on the header
  * lines and its hint sits on the gutter in the band, which is what taking two
  * entries out of these lists is supposed to mean.
+ *
+ * EARTH ACTIVATION LEFT THIS LIST (UR-19). Its 24 px chip at (837, 100) is a
+ * 44 px title on HEADING_TOP with its state on SUBHEADING_TOP, which is the
+ * Beacon screen's header - the screen the design brief says this one is a
+ * smaller version of. It is in the declared list below, for its x only.
  */
 const HEADER_GAPS: Readonly<Record<string, string>> = {
-  Title: "a 128 px centred wordmark. A logo is not a screen title; arguably the one legitimate entry here",
-  EarthActivation: "a 24 px chip centred at (837, 100), not a title at the origin",
-  Briefing: "a 20 px eyebrow over a 44 px title at (168, 153), inside the page plate",
-  Ending: "a 72 px headline centred at (677, 86) on the card",
+  Briefing:
+    "a 20 px eyebrow ABOVE a 44 px title, so the biggest type on the screen " +
+    "lands at (168, 153) against the (118, 96) five screens share. Measured: " +
+    "x +50, y +57. The page plate's own corner is on (96, 84) exactly - what " +
+    "is off the grid is the type inside it, which is inset by the page's " +
+    "PAD_X 72 / PAD_Y 32 and is the SECOND row of its header run. Closing it " +
+    "means the 44 px stop name becomes the first row, and the row ORDER is " +
+    "built in src/game/scenes/BriefingScene.ts, which this lane does not own. " +
+    "support/briefingLayout.ts can move the run but cannot reorder it. " +
+    "BLOCKED on that file; escalated.",
+  Ending:
+    "a 72 px headline whose plate top is at y=72 against the grid's 84. The " +
+    "CENTRING is a design and is asserted below as one - EndingScene's own " +
+    "header records that the headline, the route band, the closing panel and " +
+    "the button share one centre line, which is itself an alignment fix. What " +
+    "is left is 12 px of LINE: HEADLINE_TOP in support/endingLayout.ts is 72 " +
+    "and should read HEADING_TOP. That file is outside this lane. BLOCKED; " +
+    "escalated.",
+};
+
+/**
+ * Screens whose header is a DESIGN, with the measurement behind the claim and
+ * the assertion that replaces the origin check.
+ *
+ * AN ENTRY HERE IS NOT AN EXEMPTION. A screen in this list is measured against
+ * something ELSE, below, and fails if it drifts from that. The difference
+ * between this and deleting the check is the difference between "the Title's
+ * wordmark is a lockup" and "the Title's wordmark is a lockup at (200, 250+)
+ * and here is the assertion".
+ */
+const HEADER_BY_DESIGN: Readonly<Record<string, string>> = {
+  Title:
+    "a 128 px wordmark lockup, not a screen title. It is a LOGO - the one " +
+    "string in the game that keeps its capitals and its own type face - and " +
+    "it is placed by dodging the stop's light source, so its y is a function " +
+    "of which beacon the pilot lit last (250 at Neptune, 319 at Mars) rather " +
+    "than a grid line at all. Measured: nothing on this screen is above " +
+    "y=240, so there is no header text for the origin check to find. Asserted " +
+    "instead: the lockup sits on titleLayout's declared constants.",
+  EarthActivation:
+    "a CENTRED header. Both lines are now on the grid - a 44 px title whose " +
+    "plate top is HEADING_TOP and a 30 px state line on SUBHEADING_TOP - but " +
+    "centred on the world rather than on the gutter, because this screen's " +
+    "anchoring is declared 'centred' and the anchor half of this same test " +
+    "measures it: the mast, the lamp, its rings, its column of light, " +
+    "Shadow's line, the prompt and the button all reflow from GAME_WIDTH/2. A " +
+    "gutter-pinned header here is the defect this file already caught in " +
+    "Shadow's line. Asserted instead: both lines on the grid's lines, and " +
+    "centred to the pixel.",
 };
 
 /**
@@ -316,6 +403,61 @@ test("UR-19: every page follows suit - header, hint and anchoring", async ({ pag
     if (headerConforms) headerOk.push(screen.key);
     else headerFails.push(screen.key);
 
+    // --- 1b. what a DECLARED DESIGN is measured against instead -----------
+    //
+    // Run inside the same pass, on the same frame. A screen in
+    // `HEADER_BY_DESIGN` has said what it does; this is where it has to keep
+    // doing it. Without these the two lists are one list with nicer prose.
+    if (screen.key === "Title") {
+      // The lockup, and the fact that it is NOT header text. Both halves: if
+      // something ever appears above y=240 on this screen it is a header, and
+      // the reason for this entry has gone.
+      expect(header, "the Title grew a header; close its design entry").toBeUndefined();
+      const wordmark = narrow.sort((a, b) => b.size - a.size)[0];
+      expect(wordmark?.size, "the wordmark is no longer the biggest type").toBe(128);
+      /**
+       * TWO ASSERTIONS, NOT ONE, AND THE SECOND IS THE POINT.
+       *
+       * `box.x === WORDMARK_X` alone is `f(x) === f(x)` (coding-standards rule
+       * 4): the constant was edited 200 -> 212 to watch this fail and the run
+       * stayed GREEN, because the test imports the same constant the scene
+       * draws from. It catches a SCENE that moves and is blind to a CONSTANT
+       * that moves - which, for a screen whose exemption is "it is at its
+       * declared position", is exactly the half that matters. The literal is
+       * the declared position, stated where a reviewer can disagree with it.
+       * Same pattern as `expect(GUTTER).toBe(96)` at the foot of this file.
+       */
+      expect(WORDMARK_X, "the Title's declared lockup position moved").toBe(200);
+      expect(WORDMARK_Y).toBe(250);
+      expect(wordmark?.box.x, "the lockup left WORDMARK_X").toBe(WORDMARK_X);
+      expect(
+        wordmark?.box.y,
+        "the lockup is above WORDMARK_Y, so the sun dodge is not what moved it",
+      ).toBeGreaterThanOrEqual(WORDMARK_Y);
+    }
+    if (screen.key === "EarthActivation") {
+      const lines = narrow
+        .filter((t) => t.box.y < 240)
+        .sort((a, b) => a.box.y - b.box.y);
+      expect(lines.length, "the Earth header lost a line").toBe(2);
+      const plated = subheadingText();
+      // ON THE GRID'S LINES. The y is the half of the contract a centred
+      // screen can meet in full, so it is held exactly, not in a band.
+      expect(lines[0]?.box.y, "the title left HEADING_TOP").toBe(headingText().y);
+      expect(lines[1]?.box.y, "the state line left SUBHEADING_TOP").toBe(plated.y);
+      expect(lines[0]?.size, "the title is not the grid's heading size").toBe(44);
+      // AND CENTRED, which is what replaces the x. Measured against the world's
+      // own centre rather than a remembered 960: the world widens with the
+      // window (D99) and this screen is declared to widen with it.
+      const world = await page.evaluate(
+        () => (window as unknown as { __kb: { game: Phaser.Game } }).__kb.game.scale.width,
+      );
+      for (const line of lines) {
+        const centre = line.box.x + line.box.w / 2;
+        expect(Math.abs(centre - world / 2), `${line.text} is not centred`).toBeLessThanOrEqual(1);
+      }
+    }
+
     // --- 2. the hint band -------------------------------------------------
     //
     // TWO ACCEPTABLE ORIGINS, exactly as the header check above has. The menu
@@ -383,13 +525,40 @@ test("UR-19: every page follows suit - header, hint and anchoring", async ({ pag
     ).toEqual([]);
   }
 
-  // --- the two gap lists, each only allowed to shrink ---------------------
-  expect(headerFails.filter((k) => HEADER_GAPS[k] === undefined)).toEqual([]);
+  // --- the gap lists, each only allowed to shrink -------------------------
+  //
+  // A screen off the header origin has to be in ONE of the two lists, and a
+  // screen in either that starts conforming has to leave it.
+  const declared = { ...HEADER_GAPS, ...HEADER_BY_DESIGN };
   expect(
-    Object.keys(HEADER_GAPS).filter((k) => !headerFails.includes(k)),
-    "a screen started conforming and its gap entry was left behind",
+    headerFails.filter((k) => declared[k] === undefined),
+    "a screen left the header grid without saying so",
   ).toEqual([]);
-  expect(headerOk.length, "nothing conforms, so this measures nothing").toBeGreaterThanOrEqual(4);
+  expect(
+    Object.keys(declared).filter((k) => !headerFails.includes(k)),
+    "a screen started conforming and its entry was left behind",
+  ).toEqual([]);
+  // The two lists do not overlap: a screen is a defect or a design, never both.
+  expect(
+    Object.keys(HEADER_GAPS).filter((k) => HEADER_BY_DESIGN[k] !== undefined),
+  ).toEqual([]);
+
+  /**
+   * THE BAR, RAISED TO WHAT IS ACTUALLY MET (coding-standards rule 8).
+   *
+   * It was `>= 4`, written when four screens agreed, with the comment "nothing
+   * conforms, so this measures nothing" - a floor against the check being
+   * vacuous, not a target. Five conform today: the Director map, Pre-flight,
+   * the warp break, Beacon placement and the stage report, all at (118, 96).
+   * Raising it is the only direction this number is ever allowed to move, and
+   * it is what stops a screen quietly falling OFF the grid while its name gets
+   * added to a list.
+   */
+  expect(headerOk.length, JSON.stringify({ headerOk, headerFails })).toBeGreaterThanOrEqual(5);
+  expect(
+    Object.keys(HEADER_GAPS).length,
+    `header defects still open: ${JSON.stringify(HEADER_GAPS)}`,
+  ).toBeLessThanOrEqual(2);
 
   expect(hintFails.filter((k) => HINT_GAPS[k] === undefined)).toEqual([]);
   expect(Object.keys(HINT_GAPS).filter((k) => !hintFails.includes(k))).toEqual([]);

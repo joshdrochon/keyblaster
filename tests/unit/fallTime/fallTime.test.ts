@@ -15,6 +15,10 @@ import {
   rawFallTimeMs,
   fallBudgetFactor,
   recognitionBudgetMs,
+  RECOGNITION_EARNED_BASE_MS,
+  RECOGNITION_SLOW_BASE_MS,
+  recognitionBaseMs,
+  recognitionReaderBaseMs,
 } from "@engine/fallTime/index.js";
 import {
   CONCURRENCY_TARGET_MAX,
@@ -22,7 +26,7 @@ import {
   MAX_LIVE_MIN,
   concurrencyTarget,
 } from "@engine/controller/knobs.js";
-import { expectedClearMs } from "@engine/pacing/index.js";
+import { expectedClearMs, spawnGapMs } from "@engine/pacing/index.js";
 import { STOP_IDS } from "@engine/types.js";
 import { stagePoolFor } from "@game/flight/stage.js";
 import { DEFAULT_CALIBRATION, EASE_MAX, EASE_MIN, EASE_NEW } from "@engine/types.js";
@@ -49,14 +53,46 @@ describe("constants match PRD FR-8 exactly", () => {
 });
 
 describe("AC-8.1: formula implemented exactly", () => {
-  it("is len * 1.5 * iki + 1200 * ease", () => {
-    // 6 letters, iki 400, ease 1.0 -> 6*1.5*400 + 1200 = 3600 + 1200 = 4800
-    const ms = fallTimeMs({
-      word: "planet",
-      ease: 1.0,
-      calibration: { ikiMs: 400, fkLatencyMs: 500 },
-    });
-    expect(ms).toBe(4800);
+  it("is len * 1.5 * iki + 1200 * ease, at FR-8's own calibration", () => {
+    // 6 letters, FR-8's default iki 350, ease 1.0
+    //   -> 6*1.5*350 + 1200*1.0 = 3150 + 1200 = 4350
+    const ms = fallTimeMs({ word: "planet", ease: 1.0, calibration: DEFAULT_CALIBRATION });
+    expect(ms).toBe(4350);
+    // And at anything FASTER, which is the same base: `headroomEarned` is 1 at
+    // and below FR-8's default, so `recognitionReaderBaseMs` contributes zero.
+    //   6*1.5*260 + 1200 = 2340 + 1200 = 3540
+    expect(fallTimeMs({ word: "planet", ease: 1.0, calibration: { ikiMs: 260, fkLatencyMs: 380 } }))
+      .toBe(3540);
+  });
+
+  it("UR-72: above FR-8's default interval the READING base rises with the pilot", () => {
+    /**
+     * THIS TEST'S CLAIM CHANGED, AND THE CHANGE IS UR-72's WHOLE POINT.
+     *
+     * It used to read `fallTimeMs({ word: "planet", ease: 1, ikiMs: 400 })` and
+     * assert 4800 - FR-8's formula with BASE pinned at 1200 for every pilot
+     * alive. A flat base is one imagined reader's reading speed applied to every
+     * child: 1920 ms for a new word, against the 2400 ms this repo's own grade-2
+     * model needs. Run against the current code the old assertion reads
+     *
+     *     expected 4860 to be 4800
+     *
+     * i.e. the 60 ms this pilot's measured 400 ms interval now buys them of
+     * reading time (`recognitionReaderBaseMs(400)` = 1260, x ease 1.0).
+     *
+     * THE FORMULA IS UNCHANGED WHERE FR-8 STATES IT. The PRD gives BASE 1200
+     * alongside a default interval of 350 ms; at that interval, and at every
+     * speed faster, this is still 1200 to the byte - the assertion above. Only a
+     * pilot MEASURED slower than FR-8's own default moves, and only upward.
+     */
+    // 6 letters, iki 400 -> earned 0.8, base 1200 + 0.2*300 = 1260
+    //   -> 6*1.5*400 + 1260*1.0 = 3600 + 1260 = 4860
+    expect(fallTimeMs({ word: "planet", ease: 1.0, calibration: { ikiMs: 400, fkLatencyMs: 500 } }))
+      .toBe(4860);
+    // And at the anchor, where the whole 1500 is earned:
+    //   6*1.5*600 + 1500*1.0 = 5400 + 1500 = 6900
+    expect(fallTimeMs({ word: "planet", ease: 1.0, calibration: { ikiMs: 600, fkLatencyMs: 700 } }))
+      .toBe(6900);
   });
 
   it("defaults the inter-key interval to 350 ms when uncalibrated", () => {
@@ -71,7 +107,24 @@ describe("AC-8.1: formula implemented exactly", () => {
   });
 
   it("agrees with its own parts for any input", () => {
+    /**
+     * THE PARTS MOVED, SO THE SUM IS STATED OVER THE PARTS THE FUNCTION USES.
+     *
+     * It used to compare against `recognitionBudgetMs(ease)` - the default base,
+     * 1200, for every interval in the sweep. `recognitionReaderBaseMs` makes the
+     * base a function of the measured interval (UR-72), so with the sweep
+     * running intervals from 120 to 820 ms the old form reads
+     *
+     *     expected 8152.147301999903 to be close to 7882.238861764781,
+     *     received difference is 269.9084402351218, but expected 5e-10
+     *
+     * The property worth having is unchanged and is what is asserted: the whole
+     * is exactly its two halves, with no third term and no rounding of its own.
+     * The two ANCHORS - that the reader base is 1200 at and below FR-8's default
+     * and that nothing else is added - are pinned separately, above and below.
+     */
     const rand = mulberry32(20260916);
+    let sweptSlow = 0;
     for (let i = 0; i < 2000; i++) {
       const len = 1 + Math.floor(rand() * 13);
       const ease = EASE_MIN + rand() * (EASE_MAX - EASE_MIN);
@@ -79,11 +132,24 @@ describe("AC-8.1: formula implemented exactly", () => {
       const word = "a".repeat(len);
       const input = { word, ease, calibration: { ikiMs, fkLatencyMs: 500 } };
       expect(rawFallTimeMs(input)).toBeCloseTo(
-        keystrokeBudgetMs(len, ikiMs) + recognitionBudgetMs(ease),
+        keystrokeBudgetMs(len, ikiMs) +
+          recognitionBudgetMs(ease, recognitionReaderBaseMs(ikiMs)),
         9,
       );
       expect(fallTimeMs(input)).toBe(clampFallTime(rawFallTimeMs(input)));
+      // And below FR-8's default the two forms are the SAME expression, so the
+      // old assertion still holds there rather than being quietly dropped.
+      if (ikiMs <= DEFAULT_CALIBRATION.ikiMs) {
+        expect(rawFallTimeMs(input)).toBeCloseTo(
+          keystrokeBudgetMs(len, ikiMs) + recognitionBudgetMs(ease),
+          9,
+        );
+      } else {
+        sweptSlow += 1;
+      }
     }
+    // coding-standards 5: the sweep has to have swept BOTH sides of the anchor.
+    expect(sweptSlow).toBeGreaterThan(1000);
   });
 });
 
@@ -236,41 +302,156 @@ describe("UR-51 / FR-8: the fall budget scales with the depth the controller ask
     expect(fallBudgetFactor({ maxLive: MAX_LIVE_MIN })).toBe(1);
   });
 
-  it("UR-51: at the knob's CEILING a rock can wait three words and still be typed", () => {
-    // The claim UR-42 measured as impossible, restated as the arithmetic that
-    // makes it possible: the number of ANSWERABLE rocks is
-    // floor(fall / service), and at the top of the knob that has to reach the
-    // depth the pacing module builds.
+  it("UR-51: the answerable-depth invariant, and the ONE place it is now traded", () => {
+    /**
+     * ================== READ THIS BEFORE CHANGING THE NUMBERS ==============
+     * THIS TEST'S CLAIM CHANGED, AND UNLIKE THE OTHERS IT CHANGED FOR THE WORSE.
+     * It is logged in `gauntlet/escalations.md` as UR-51-B and the project owner
+     * has the decision. It is written this way so the trade is PINNED rather
+     * than relaxed: every number below is the measured value, and any further
+     * erosion goes red.
+     *
+     * THE INVARIANT. The number of ANSWERABLE rocks is floor(fall / service),
+     * and the depth `@engine/pacing` builds is `concurrencyTarget(maxLive)`. A
+     * belt that stands a queue deeper than its budget can serve drops the back
+     * of it on the hull - that is the P0a stall defect. Dividing out the shared
+     * `fallBudgetFactor`, the invariant reduces to one line:
+     *
+     *     FR-8's ONE-DEEP budget must be at least `expectedClearMs`.
+     *
+     * WHAT IT WAS. Measured over every shipped pool at every knob setting,
+     * BEFORE the recognition ratchet, the ratio of the two cleared the target
+     * at every setting for every pilot - with almost nothing to spare at the
+     * top, because `keystrokeHeadroom` had already spent it:
+     *
+     *     pilot            ml2    ml3    ml4    ml5    ml6    ml7   (target)
+     *     fast   (260)     1.09   1.72   2.33   2.92   3.49   4.04
+     *     median (350)     1.16   1.82   2.45   3.06   3.65   4.21
+     *     slow   (440)     1.22   1.92   2.61   3.28   3.93   4.55
+     *     grade2 (600)     1.32   2.11   2.90   3.69   4.49   5.28
+     *     target           1.0    1.6    2.2    2.8    3.4    4.0
+     *
+     * WHAT IT IS NOW. The recognition ratchet spends from the same budget, so
+     * the two fastest pilots fall BELOW their own service estimate at the top
+     * of the knob:
+     *
+     *     fast   (260)     1.09   1.61   2.13   2.55   2.87   3.17   <- below
+     *     median (350)     1.16   1.72   2.18   2.66   2.96   3.30   <- below
+     *     slow   (440)     1.22   1.86   2.44   2.95   3.40   3.78   <- below
+     *     grade2 (600)     1.32   2.11   2.90   3.69   4.49   5.28   <- intact
+     *
+     * WHY IT WAS ALLOWED TO MOVE AT ALL, and the honest version of the reason:
+     * the invariant's denominator is `expectedClearMs`, which is a DELIBERATELY
+     * CONSERVATIVE pacing estimate, not a measurement of the player - it prices
+     * recognition at FR-8's 1200 x ease when a fast pilot's real cold
+     * recognition is ~1100 ms and falls to ~220 ms with exposure. Over the
+     * route sweep the fast pilot's actual work is 2008 ms per rock against a
+     * budget of 12 691 ms, and neither the fast nor the median pilot breaches
+     * on a belt they stalled on. That is evidence the trade is survivable. It
+     * is NOT evidence the invariant is unnecessary, and this comment does not
+     * pretend it is: "hard to reach" is not "cannot happen", and this repo has
+     * rejected that argument before (`HEADROOM_SLOW_IKI_MS`).
+     *
+     * THE ARITHMETIC THAT MADE IT A CHOICE RATHER THAN A SLIP. Holding the
+     * invariant caps `RECOGNITION_EARNED_BASE_MS` at 1184 ms (stated at iki
+     * 260) or 1114 ms (at the calibration the engine actually receives, since
+     * the scene floors it at FR-8's default). Both are cuts of under 8%. The
+     * value the owner flew and approved is 700. There is no number that
+     * satisfies both, which is why this is an escalation and not a tuning pass.
+     */
+    // THE SAFETY END IS NOT TRADED, AND THIS IS THE ASSERTION THAT SAYS SO.
+    // A pilot at `HEADROOM_SLOW_IKI_MS` earns none of either ratchet, so their
+    // budget still serves the full depth at EVERY knob setting - including the
+    // settings a restored or shared profile could drop them onto. This is the
+    // arm of the invariant that must never move.
     //
-    // WATCHED FAILING, with the real numbers: drop the clamp's scaling and the
-    // fast pilot's worst word reads 3 against the 4 required, because a 14 s
-    // ceiling cuts the budget off before the queue is paid for. Drop `knobs`
-    // from the call entirely and every pilot reads 1 - the figure in
-    // belt-concurrency.json today.
-    for (const [pilot, calibration] of [
-      ["fast", { ikiMs: 260, fkLatencyMs: 380 }],
-      ["median", DEFAULT_CALIBRATION],
-      ["grade2", { ikiMs: 600, fkLatencyMs: 700 }],
-    ] as const) {
+    // WATCHED FAILING, with the real number - AND WITH THE CONTROL THAT DOES
+    // NOT FIRE IT, because the two together are the only honest way to say what
+    // this arm covers (coding-standards 9).
+    //
+    //   Delete the `earned` factor alone - the ratchet reaches a grade-2 child
+    //   at the shipped 700 - and THIS ARM STAYS GREEN, at 4.14 against a target
+    //   of 4.0. Their own service time is long enough to absorb it. What
+    //   catches that change is the bit-identical sweep above
+    //   ("maxLive 3: expected 1100 to be 1200"), not this.
+    //
+    //   Delete the `earned` factor AND drop the earned base to 400 and this
+    //   arm reads:
+    //
+    //     grade2 @ maxLive 6: expected 3.2504964539007095 to be greater than
+    //     or equal to 3.4000000000000004
+    //
+    // So this arm is the guard on the DEPTH the slowest child's budget can
+    // serve, and the sweep above is the guard on their belt being unchanged.
+    // Neither subsumes the other.
+    const grade2 = { ikiMs: 600, fkLatencyMs: 700 };
+    for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
       let worst = Number.POSITIVE_INFINITY;
       for (const stop of STOP_IDS) {
         for (const word of stagePoolFor(stop)) {
           const fall = fallTimeMs({
             word,
             ease: EASE_NEW,
-            calibration,
-            knobs: { maxLive: MAX_LIVE_MAX },
+            calibration: grade2,
+            knobs: { maxLive: live },
           });
           const service = expectedClearMs({
             length: [...word].length,
             ease: EASE_NEW,
-            calibration,
+            calibration: grade2,
           });
           worst = Math.min(worst, fall / service);
         }
       }
-      expect(Math.floor(worst), pilot).toBeGreaterThanOrEqual(CONCURRENCY_TARGET_MAX);
+      expect(worst, `grade2 @ maxLive ${live}`).toBeGreaterThanOrEqual(
+        concurrencyTarget(live),
+      );
     }
+    // ================== OPTION A: THE INVARIANT IS HELD ==================
+    // UR-51-B was decided in favour of holding it. `RECOGNITION_EARNED_BASE_MS`
+    // is capped at the largest value that keeps FR-8's one-deep budget at or
+    // above `expectedClearMs` for EVERY pilot at EVERY knob setting, so this is
+    // a real bound again rather than a pinned record of a broken state.
+    //
+    // WATCHED FAILING, with the real number: set the earned base to the 700 the
+    // owner flew and this reads
+    //
+    //     fast @ maxLive 4: expected 2.13014598540146 to be greater than or
+    //     equal to 2.2
+    //
+    // i.e. the trade this project declined to take, and it bites at the THIRD
+    // knob step rather than only at the ceiling - which is why this sweeps the
+    // whole knob range instead of just its top.
+    for (const [pilot, calibration] of [
+      ["fast", { ikiMs: 260, fkLatencyMs: 380 }],
+      ["median", DEFAULT_CALIBRATION],
+      ["slow", { ikiMs: 440, fkLatencyMs: 650 }],
+      ["grade2", { ikiMs: 600, fkLatencyMs: 700 }],
+    ] as const) {
+      for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+        let worst = Number.POSITIVE_INFINITY;
+        for (const stop of STOP_IDS) {
+          for (const word of stagePoolFor(stop)) {
+            const fall = fallTimeMs({
+              word,
+              ease: EASE_NEW,
+              calibration,
+              knobs: { maxLive: live },
+            });
+            const service = expectedClearMs({
+              length: [...word].length,
+              ease: EASE_NEW,
+              calibration,
+            });
+            worst = Math.min(worst, fall / service);
+          }
+        }
+        expect(worst, `${pilot} @ maxLive ${live}`).toBeGreaterThanOrEqual(
+          concurrencyTarget(live),
+        );
+      }
+    }
+    expect(CONCURRENCY_TARGET_MAX).toBe(4);
   });
 
   it("UR-51: the CLAMP scales with the budget, or the mechanism fails for the slowest child", () => {
@@ -332,17 +513,37 @@ describe("UR-51 / FR-8: the fall budget scales with the depth the controller ask
           //    knob does can be read off the screen as a judgement about the
           //    child, only off the word's length, which is drawn anyway.
           const headroom = keystrokeHeadroom(live, CAL.ikiMs);
+          const base = recognitionBaseMs(live, CAL.ikiMs);
           expect(raw, where).toBeCloseTo(
             (keystrokeBudgetMs([...word].length, CAL.ikiMs, headroom) +
-              recognitionBudgetMs(ease)) *
+              recognitionBudgetMs(ease, base)) *
               factor,
             6,
           );
 
-          // 2. THE RESHAPE ONLY EVER SHORTENS, AND ONLY THROUGH LENGTH. The
-          //    pure multiple is the ceiling; the ratchet spends from it. At the
-          //    floor the two are the same number, which is the bit-identical
-          //    constraint restated at this level.
+          // AND THE HALF IS STILL A PURE MULTIPLE OF EASE. This is the part
+          // AC-8.3 actually needs: the knob may shorten the reading budget, but
+          // it shortens EVERY word's by the same factor, so the ratio between
+          // two words' recognition halves is still their ratio of ease and
+          // nothing about this child's private history with a word can be read
+          // off the screen. A ratchet that varied with ease would fail here.
+          expect(
+            recognitionBudgetMs(ease, base) / ease,
+            `${where}: recognition per unit ease`,
+          ).toBeCloseTo(base, 9);
+
+          // 2. THE RESHAPE ONLY EVER SHORTENS. The pure multiple is the
+          //    ceiling; the two ratchets spend from it. At the floor the two
+          //    are the same number, which is the bit-identical constraint
+          //    restated at this level.
+          //
+          //    IT USED TO SAY "AND ONLY THROUGH LENGTH", and that clause is
+          //    gone on purpose (UR-51). The typing ratchet alone could not
+          //    reach a pilot faster than FR-8's default, because the scene
+          //    floors the interval fall time reads at that default: the whole
+          //    1.5 -> 1.125 travel is cancelled by the padding the floor hands
+          //    a 260 ms pilot. The reading half is the one that reaches them,
+          //    so it ratchets too - see `recognitionBaseMs`.
           const pureMultiple = rawFallTimeMs({ word, ease, calibration: CAL }) * factor;
           expect(raw, where).toBeLessThanOrEqual(pureMultiple + 1e-9);
           if (live === MAX_LIVE_MIN) expect(raw, where).toBeCloseTo(pureMultiple, 9);
@@ -377,45 +578,346 @@ describe("UR-51 / FR-8: the fall budget scales with the depth the controller ask
     }
   });
 
-  it("UR-51: a grade-2 pilot's belt is FR-8's belt at EVERY knob setting, not just the floor", () => {
-    // THE HARD CONSTRAINT, and the reason the ratchet reads a calibration at
-    // all. A knob-only ratchet is safe while the margin gate keeps a slow pilot
-    // near the floor, and "hard to reach" is not "cannot happen": a knob is
-    // persisted, and a profile restored from an older save or shared with a
-    // faster sibling can open a belt anywhere in FR-10's range.
-    //
-    // WATCHED FAILING, with the real numbers: make `keystrokeHeadroom` ignore
-    // its `ikiMs` argument and this reads "maxLive 3: expected 1.425 to be
-    // 1.5" on the first step of the knob - and the route sweep turns the same
-    // change into 23 stalls in 240 belts for the grade-2 pilot at the knob's
-    // ceiling, against the 3 on record ("expected 23 to be less than or equal
-    // to 3", tests/unit/simulation/launchRoute.test.ts).
+  it("UR-72: a grade-2 pilot's belt is the NEW floor at EVERY knob setting, to the byte", () => {
+    /**
+     * ================== THIS FLOOR MOVED, AND THAT IS THE TICKET =============
+     *
+     * IT USED TO SAY "FR-8'S BELT". A grade-2 pilot earned none of UR-51's two
+     * ratchets, so their fall time was FR-8's literal expression at every knob,
+     * and this sweep compared against the PRD's own formula with `toBe`.
+     *
+     * UR-72 is the report that FR-8's literal expression is 480 ms short for
+     * that child on every FIRST exposure: a new word is granted
+     * `RECOGNITION_BASE_MS x EASE_NEW` = 1920 ms of reading, and this repo's own
+     * grade-2 model needs 2400. It is survivable today only because the pools
+     * are 26-32 words against 58 spawns, so almost every rock is a SECOND
+     * exposure - and that is exactly why the pools cannot be expanded.
+     *
+     * So the floor is now `RECOGNITION_SLOW_BASE_MS` (1500 = 2400 / EASE_NEW),
+     * and it is pinned HERE AT THE SAME STANDARD the old floor was held to:
+     * every shipped word, every knob setting, three eases, `toBe` and not
+     * `toBeCloseTo`. A budget that landed 0.4 ms off would pass at six decimal
+     * places and would still be a belt nobody measured.
+     *
+     * WATCHED FAILING, with the real numbers, both ways round:
+     *
+     *   Set `RECOGNITION_SLOW_BASE_MS` back to `RECOGNITION_BASE_MS` - i.e.
+     *   revert UR-72 - and this reads
+     *
+     *       earth/"launch" @ ease 0.25: expected 5700 to be greater than 5700
+     *
+     *   (the `toBe` above it passes, because reverting the constant moves the
+     *   reference and the measurement together - which is exactly why the
+     *   "strictly more than FR-8" assertion is here and not left implied). The
+     *   route sweep turns the same revert into 3 stalls in 240 belts for this
+     *   pilot at 0.9384 hit rate, against 0 at 0.9689.
+     *
+     *   Let the ratchet reach this pilot - delete the `earned` factor from
+     *   `recognitionBaseMs` - and it reads "maxLive 3: expected 1496.8 to be
+     *   1500" on the FIRST step of the knob.
+     *
+     * THE TYPING HALF DID NOT MOVE. `keystrokeHeadroom` is still FR-8's literal
+     * 1.5 for this pilot at every knob, which is the assertion below it: UR-72
+     * is a change to the READING budget only, and D19's split is what says those
+     * are different claims.
+     */
     const grade2 = { ikiMs: 600, fkLatencyMs: 700 };
     let compared = 0;
     for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
       expect(keystrokeHeadroom(live, grade2.ikiMs), `maxLive ${live}`).toBe(
         KEYSTROKE_BUDGET_FACTOR,
       );
+      // UR-51's ratchet still never reaches this pilot; UR-72's reader base is
+      // the only thing that moved, and it is flat across the whole knob range.
+      expect(recognitionBaseMs(live, grade2.ikiMs), `maxLive ${live}`).toBe(
+        RECOGNITION_SLOW_BASE_MS,
+      );
       for (const stop of STOP_IDS) {
         for (const word of stagePoolFor(stop)) {
-          const knobs = { maxLive: live };
-          // FR-8's own formula, with only the queue scaling UR-51's first pass
-          // already shipped. Written out rather than called, so this is a
-          // comparison against the PRD rather than against the implementation.
-          const fr8 =
-            ([...word].length * KEYSTROKE_BUDGET_FACTOR * grade2.ikiMs +
-              RECOGNITION_BASE_MS * EASE_NEW) *
-            concurrencyTarget(live);
-          expect(
-            rawFallTimeMs({ word, ease: EASE_NEW, calibration: grade2, knobs }),
-            `${stop}/"${word}" @ maxLive ${live}`,
-          ).toBeCloseTo(fr8, 6);
-          compared += 1;
+          for (const ease of [EASE_MIN, EASE_NEW, EASE_MAX]) {
+            const knobs = { maxLive: live };
+            // FR-8's formula with UR-72's reader base and UR-51's queue scale.
+            // Written out rather than called, so this is a comparison against
+            // the decision rather than against the implementation.
+            const floor =
+              ([...word].length * KEYSTROKE_BUDGET_FACTOR * grade2.ikiMs +
+                RECOGNITION_SLOW_BASE_MS * ease) *
+              concurrencyTarget(live);
+            // `toBe`, not `toBeCloseTo`. "Bit-identical" is the constraint and
+            // a tolerance is not that claim: a budget that left a grade-2
+            // child's fall 0.4 ms short would pass at six decimal places and
+            // would still be a change to the belt nobody measured.
+            expect(
+              rawFallTimeMs({ word, ease, calibration: grade2, knobs }),
+              `${stop}/"${word}" @ ease ${ease} @ maxLive ${live}`,
+            ).toBe(floor);
+            // AND IT IS STRICTLY MORE TIME THAN FR-8'S OWN EXPRESSION, never
+            // less: the reading budget may only ever move up for this pilot.
+            const fr8 =
+              ([...word].length * KEYSTROKE_BUDGET_FACTOR * grade2.ikiMs +
+                RECOGNITION_BASE_MS * ease) *
+              concurrencyTarget(live);
+            expect(floor, `${stop}/"${word}" @ ease ${ease}`).toBeGreaterThan(fr8);
+            compared += 1;
+          }
         }
       }
     }
-    // coding-standards 5: the sweep has to have swept.
-    expect(compared).toBeGreaterThan(600);
+    // THE DEFICIT IS CLOSED, STATED AS THE ONE NUMBER UR-72 IS ABOUT.
+    // A brand-new word's reading grant against the supported tail pilot's
+    // modelled cold-read time, at the knob's floor and at its ceiling.
+    const COLD_READ_NEED_MS = 2400;
+    for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+      expect(
+        recognitionBudgetMs(EASE_NEW, recognitionBaseMs(live, grade2.ikiMs)),
+        `cold-read grant @ maxLive ${live}`,
+      ).toBe(COLD_READ_NEED_MS);
+    }
+    // And what it was: 1920, i.e. 480 ms short, which is the defect.
+    expect(recognitionBudgetMs(EASE_NEW, RECOGNITION_BASE_MS)).toBe(1920);
+    expect(COLD_READ_NEED_MS - 1920).toBe(480);
+    // coding-standards 5: the sweep has to have swept - and the count is
+    // DERIVED from the pools rather than pinned, because the content lanes add
+    // words and a pinned literal would go red for a reason that has nothing to
+    // do with a grade-2 child's belt. The guard the rule actually wants is
+    // "every shipped word, at every knob, at every ease", which is this product,
+    // plus a floor so an empty pool cannot make the sweep vacuous.
+    const poolWords = STOP_IDS.reduce((n, stop) => n + stagePoolFor(stop).length, 0);
+    expect(compared).toBe(poolWords * (MAX_LIVE_MAX - MAX_LIVE_MIN + 1) * 3);
+    expect(compared).toBeGreaterThan(3000);
+  });
+
+  it("UR-72: and every SPAWN GAP a grade-2 pilot is fed matches the NEW floor", () => {
+    /**
+     * THE OTHER HALF OF THE FLOOR, AND IT IS NOT IMPLIED BY THE FIRST.
+     *
+     * `@engine/pacing` reads `fallMs` - the lead is a fraction of the SLACK
+     * between the fall budget and what the rock is expected to cost - so a
+     * change to fall time reaches the belt's spawn gaps as well as its fall
+     * speeds. Proving the fall times unchanged and stopping there would leave
+     * the arrival rate unproven, and the arrival rate is what stalled the belt
+     * in the P0a defect.
+     *
+     * So the same sweep is run through `spawnGapMs`, over a grid of board
+     * states rather than a single one: the gap is a function of how deep the
+     * board is, how long the player has been on the rock in hand, whether any
+     * observed evidence exists yet, and the rolling hit rate, and a fixed board
+     * would prove the claim for one of them.
+     *
+     * WATCHED FAILING, with the real number: delete the `earned` factor from
+     * `recognitionBaseMs` - i.e. let the ratchet reach a grade-2 child, which
+     * is exactly what the owner's feel-test build did - and this reads
+     *
+     *     mars/"red" @ maxLive 3, depth 1, served 0, bias 300, rate 0.5:
+     *     expected 1875 to be 1873
+     *
+     * a rock arriving early, on the FIRST step of the knob, on a child who is
+     * already the tail of the distribution. The gap moves at maxLive 3 while the
+     * belt is still nearly the gentlest it can be, which is the whole reason
+     * this sweep runs the knob range rather than only its ceiling. (Before
+     * UR-72 the same control read "mars/\"mars\" @ maxLive 3, depth 1, served 0,
+     * bias 0, rate 0.5: expected 2077 to be 2021" - a smaller base, a bigger
+     * gap error; the control still fires, on a different cell.)
+     *
+     * ================== UR-72 MOVED THIS FLOOR TOO, AND BY HOW MUCH =========
+     * The reference budget is now the reader-scaled one, because that is the
+     * belt this pilot flies. It matters that this is stated rather than left to
+     * the fall-time sweep above: the lead is a fraction of the SLACK between the
+     * budget and what the rock costs, so 480 ms more reading budget also means
+     * the NEXT rock arrives sooner. Compared against the OLD reference, i.e.
+     * with `RECOGNITION_BASE_MS` left below, this sweep reads
+     *
+     *     earth/"launch" @ maxLive 2, depth 1, served 0, bias 0, rate null:
+     *     expected 4833 to be 4905
+     *
+     * - 72 ms sooner at the knob's floor, which is `LEAD_FRACTION_MIN` (0.15) of
+     * the 480 ms. The rock lives 480 ms longer and its successor arrives 72 ms
+     * earlier, so the net is +408 ms of room, and the route sweep is where that
+     * net is settled rather than reasoned about: 3 stalls in 240 belts to 0.
+     */
+    const grade2 = { ikiMs: 600, fkLatencyMs: 700 };
+    let compared = 0;
+    let gapsSeen = 0;
+    for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+      for (const stop of STOP_IDS) {
+        for (const word of stagePoolFor(stop)) {
+          const knobs = { maxLive: live };
+          const floorBudget =
+            ([...word].length * KEYSTROKE_BUDGET_FACTOR * grade2.ikiMs +
+              RECOGNITION_SLOW_BASE_MS * EASE_NEW) *
+            concurrencyTarget(live);
+          const fallMs = fallTimeMs({ word, ease: EASE_NEW, calibration: grade2, knobs });
+          const clear = expectedClearMs({
+            length: [...word].length,
+            ease: EASE_NEW,
+            calibration: grade2,
+          });
+          for (const depth of [1, 2, 3, 4]) {
+            const liveClearMs = Array.from({ length: depth }, () => clear);
+            for (const servedMs of [0, 500]) {
+              for (const biasMs of [null, 0, 300]) {
+                for (const rate of [null, 0.5, 0.95]) {
+                  const input = { liveClearMs, servedMs, biasMs, knobs, hitRate: rate };
+                  const actual = spawnGapMs({ ...input, fallMs });
+                  // The gap the floor budget would have produced. Same board,
+                  // same player, same knob - the ONLY difference is which fall
+                  // budget the lead is taken a fraction of.
+                  const expected = spawnGapMs({
+                    ...input,
+                    fallMs: Math.min(
+                      FALL_TIME_MAX_MS * concurrencyTarget(live),
+                      Math.max(FALL_TIME_MIN_MS * concurrencyTarget(live), floorBudget),
+                    ),
+                  });
+                  expect(
+                    actual,
+                    `${stop}/"${word}" @ maxLive ${live}, depth ${depth}, served ${servedMs}, bias ${biasMs}, rate ${rate}`,
+                  ).toBe(expected);
+                  gapsSeen += actual;
+                  compared += 1;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    // coding-standards 5: derived, not pinned - see the fall-time sweep above
+    // for why a literal here goes red on content churn rather than on a defect.
+    const poolWords = STOP_IDS.reduce((n, stop) => n + stagePoolFor(stop).length, 0);
+    expect(compared).toBe(poolWords * (MAX_LIVE_MAX - MAX_LIVE_MIN + 1) * 72);
+    expect(compared).toBeGreaterThan(70000);
+    // And it has to have been measuring a gap, not a pile of zeroes - an
+    // all-zero sweep would compare equal and prove nothing (rule 4's shape).
+    expect(gapsSeen).toBeGreaterThan(0);
+  });
+
+  it("UR-51: the RECOGNITION ratchet is the lever that reaches a fast pilot", () => {
+    /**
+     * THE LEVER THIS CHANGE MOVED, AS ONE TABLE.
+     *
+     * The reading half of FR-8's budget was a constant: 1200 ms x ease, at
+     * every knob setting, for every pilot, for ever. On the short words a fast
+     * pilot meets it is the LARGER of the two halves - at the default interval
+     * a three-letter word is ~1170 ms of typing against 1920 ms of reading at
+     * `EASE_NEW` - so a knob that only spent from the typing half was spending
+     * from the smaller term and the route stayed flat (UR-51).
+     *
+     * WATCHED FAILING, with the real number: pin `recognitionBaseMs` at
+     * `RECOGNITION_BASE_MS` - the belt shipped before this change - and the
+     * ramp assertion reads
+     *
+     *     maxLive 3: expected 1200 to be close to 1100, received difference is
+     *     100, but expected 5e-10
+     *
+     * and the route sweep's fast pilot finishes at a margin of 0.468 instead of
+     * 0.345 (tests/unit/simulation/launchRoute.test.ts).
+     */
+    expect(recognitionBaseMs(MAX_LIVE_MIN, CAL.ikiMs)).toBe(RECOGNITION_BASE_MS);
+    expect(recognitionBaseMs(MAX_LIVE_MAX, CAL.ikiMs)).toBeCloseTo(
+      RECOGNITION_EARNED_BASE_MS,
+      10,
+    );
+
+    // The documented ramp, one step per stage, monotone, and no step larger
+    // than a fifth of the travel - AC-10.1's "one knob per stage" is worth
+    // nothing if the knob's effect on the budget arrives in a cliff.
+    const table = [1200, 1196.8, 1193.6, 1190.4, 1187.2, 1184];
+    let previous = RECOGNITION_BASE_MS;
+    for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+      const base = recognitionBaseMs(live, CAL.ikiMs);
+      expect(base, `maxLive ${live}`).toBeCloseTo(table[live - MAX_LIVE_MIN]!, 9);
+      if (live > MAX_LIVE_MIN) {
+        expect(base, `maxLive ${live}`).toBeLessThan(previous);
+        expect(previous - base, `step into maxLive ${live}`).toBeLessThanOrEqual(
+          (RECOGNITION_BASE_MS - RECOGNITION_EARNED_BASE_MS) / 5 + 1e-9,
+        );
+      }
+      previous = base;
+    }
+
+    // A pilot faster than FR-8's default earns the same full ratchet as one
+    // exactly at it - the scene floors the interval fall time reads, so the
+    // engine never sees a smaller value on the real path.
+    expect(recognitionBaseMs(MAX_LIVE_MAX, 260)).toBeCloseTo(
+      RECOGNITION_EARNED_BASE_MS,
+      10,
+    );
+  });
+
+  it("UR-72: recognitionBaseMs is total, and a corrupt value gives the time back", () => {
+    // Same rule as `keystrokeHeadroom` and `clampKnobs`: a restored profile must
+    // never be able to stop a child's game, and the only safe direction for a
+    // corrupt value is the one that grants MORE reading time.
+    //
+    // WHICH VALUE THAT IS HAS CHANGED, AND IT IS STILL THE SAME RULE. It used to
+    // be FR-8's 1200, because 1200 was the most any pilot could be granted; the
+    // most is now `RECOGNITION_SLOW_BASE_MS`, so that is what a corrupt
+    // CALIBRATION reads as. Against the old expectation this reads
+    //
+    //     expected 1500 to be 1200
+    //
+    // i.e. a profile with a corrupt interval is now handed the slowest reader's
+    // budget instead of the median reader's - strictly more time, which is the
+    // direction the rule has always been about. The other control fires here
+    // too: delete the `earned` factor from `recognitionBaseMs` and a corrupt
+    // calibration stops exempting the pilot from the ratchet -
+    // "expected 1484 to be 1500".
+    //
+    // A corrupt KNOB is unchanged: it reads as the knob's floor, and at a
+    // healthy calibration that is still exactly 1200.
+    expect(recognitionBaseMs(Number.NaN, CAL.ikiMs)).toBe(RECOGNITION_BASE_MS);
+    expect(recognitionBaseMs(MAX_LIVE_MAX, Number.NaN)).toBe(RECOGNITION_SLOW_BASE_MS);
+    expect(recognitionBaseMs(MAX_LIVE_MAX, Number.POSITIVE_INFINITY)).toBe(
+      RECOGNITION_SLOW_BASE_MS,
+    );
+    expect(recognitionBaseMs(MAX_LIVE_MAX, HEADROOM_SLOW_IKI_MS)).toBe(
+      RECOGNITION_SLOW_BASE_MS,
+    );
+    // And it is strictly MORE than FR-8's own base, never less.
+    expect(RECOGNITION_SLOW_BASE_MS).toBeGreaterThan(RECOGNITION_BASE_MS);
+    // Out of range in both directions clamps to the ends of the ramp.
+    expect(recognitionBaseMs(MAX_LIVE_MIN - 5, CAL.ikiMs)).toBe(RECOGNITION_BASE_MS);
+    expect(recognitionBaseMs(MAX_LIVE_MAX + 5, CAL.ikiMs)).toBeCloseTo(
+      RECOGNITION_EARNED_BASE_MS,
+      10,
+    );
+    // No calibration at all is FR-8's default, i.e. the full ratchet - the same
+    // fallback `rawFallTimeMs` takes for `ikiMs` itself.
+    expect(recognitionBaseMs(MAX_LIVE_MAX)).toBeCloseTo(RECOGNITION_EARNED_BASE_MS, 10);
+  });
+
+  it("UR-51: FR-8's clamp floor is untouched, and the ratchet cannot walk under it", () => {
+    // FR-8's MIN is a child-safety bound, not a tuning value (PRD FR-8). The
+    // recognition ratchet shortens the RAW budget, so the thing worth asserting
+    // is that no word at any knob setting for any pilot can be granted less
+    // than the bound - the clamp is what guarantees it and this is the check
+    // that the ratchet did not reach around it.
+    let checked = 0;
+    for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+      const floor = FALL_TIME_MIN_MS * concurrencyTarget(live);
+      for (const iki of [260, 350, 440, 600]) {
+        for (const stop of STOP_IDS) {
+          for (const word of stagePoolFor(stop)) {
+            const ms = fallTimeMs({
+              word,
+              ease: EASE_MIN,
+              calibration: { ikiMs: iki, fkLatencyMs: 500 },
+              knobs: { maxLive: live },
+            });
+            expect(ms, `"${word}" @ maxLive ${live} @ iki ${iki}`).toBeGreaterThanOrEqual(
+              floor,
+            );
+            checked += 1;
+          }
+        }
+      }
+    }
+    const poolWords = STOP_IDS.reduce((n, stop) => n + stagePoolFor(stop).length, 0);
+    expect(checked).toBe(poolWords * (MAX_LIVE_MAX - MAX_LIVE_MIN + 1) * 4);
+    expect(checked).toBeGreaterThan(4000);
+    // And FR-8's literal bound is still the bound at the knob's floor.
+    expect(clampFallTime(0)).toBe(FALL_TIME_MIN_MS);
   });
 
   it("UR-51: headroomEarned is total, and a corrupt calibration earns nothing", () => {
@@ -497,5 +999,229 @@ describe("UR-51 / FR-8: the fall budget scales with the depth the controller ask
     expect(
       rawFallTimeMs({ word: "jupiter", ease: EASE_NEW, calibration: grade2, knobs: { maxLive: MAX_LIVE_MAX } }),
     ).toBeGreaterThan(FALL_TIME_MAX_MS);
+  });
+});
+
+/**
+ * UR-72: THE READING BUDGET FOLLOWS THE READER.
+ *
+ * The defect, in one line: a brand-new word is granted
+ * `RECOGNITION_BASE_MS x EASE_NEW` = 1920 ms to be READ, and this project's own
+ * supported-tail model needs 2400 ms. That 480 ms is short in the shipped game
+ * today; it is invisible because the pools are 26-32 words against 58 spawns,
+ * so almost every rock is a SECOND exposure. It is also the reason the pools
+ * cannot be expanded - measured on the route gate, 58 real words a stop takes
+ * the grade-2 pilot from 3 stalls in 240 belts to 37, and 80 to 240 of 240.
+ *
+ * The fix is the shape `keystrokeHeadroom` already had: a budget that reads the
+ * calibration the profile stores instead of one imagined reader. It runs in
+ * BOTH directions off one axis - `headroomEarned` - so a fast pilot's reading
+ * budget still only ever falls with the knob, and a slow one's rises to meet
+ * what their measured hands say they need.
+ */
+describe("UR-72 / FR-8: the reading budget follows the reader", () => {
+  const CAL = DEFAULT_CALIBRATION;
+
+  it("UR-72: the documented ramp, and it is FR-8's own base at FR-8's own speed", () => {
+    // WATCHED FAILING, with the real number: set `RECOGNITION_SLOW_BASE_MS` to
+    // `RECOGNITION_BASE_MS` - i.e. revert UR-72 - and the 600 ms row reads
+    // "iki 600: expected 1200 to be close to 1500, received difference is 300".
+    const table: ReadonlyArray<readonly [number, number]> = [
+      [120, 1200],
+      [260, 1200],
+      [350, 1200],
+      [440, 1308],
+      [520, 1404],
+      [600, 1500],
+      [900, 1500],
+    ];
+    for (const [iki, base] of table) {
+      expect(recognitionReaderBaseMs(iki), `iki ${iki}`).toBeCloseTo(base, 9);
+    }
+    // The two ends are EXACT, not close: they are the values FR-8 and the
+    // grade-2 model are written with, and a tolerance is not that claim.
+    expect(recognitionReaderBaseMs(DEFAULT_CALIBRATION.ikiMs)).toBe(RECOGNITION_BASE_MS);
+    expect(recognitionReaderBaseMs(HEADROOM_SLOW_IKI_MS)).toBe(RECOGNITION_SLOW_BASE_MS);
+  });
+
+  it("UR-72: it is monotone, continuous, and never steps by more than a fifth", () => {
+    // The knob moves one step per stage (D20, AC-10.1) and so does the measured
+    // interval, through `refineCalibration`'s blend. A reading budget that
+    // jumped would make one stage boundary in three a cliff - the same property
+    // `keystrokeHeadroom` and `concurrencyTarget` are built to hold.
+    let previous = recognitionReaderBaseMs(HEADROOM_SLOW_IKI_MS);
+    const step = (RECOGNITION_SLOW_BASE_MS - RECOGNITION_BASE_MS) / 5;
+    for (let iki = HEADROOM_SLOW_IKI_MS - 50; iki >= 100; iki -= 50) {
+      const base = recognitionReaderBaseMs(iki);
+      expect(base, `iki ${iki}`).toBeLessThanOrEqual(previous);
+      expect(previous - base, `step at iki ${iki}`).toBeLessThanOrEqual(step + 1e-9);
+      previous = base;
+    }
+  });
+
+  it("UR-72: a FAST pilot's reading budget did not rise, and still falls with the knob", () => {
+    /**
+     * THE CONSTRAINT THIS CHANGE IS MOST LIKELY TO HAVE BROKEN.
+     *
+     * The cheap version of UR-72 is to raise `RECOGNITION_BASE_MS` itself, and
+     * it would have handed a fast pilot 300 ms more reading time at exactly the
+     * moment `RECOGNITION_EARNED_BASE_MS` is trying to take 16 ms away - with
+     * "too easy" the report on file four times.
+     *
+     * WATCHED FAILING, with the real number: make `recognitionReaderBaseMs`
+     * ignore `headroomEarned` and return `RECOGNITION_SLOW_BASE_MS` flat - the
+     * flat-raise this rejected - and the first assertion reads
+     *
+     *     fast @ maxLive 2: expected 1500 to be 1200
+     *
+     * i.e. every fast pilot handed a quarter more reading time on their first
+     * belt.
+     */
+    for (const iki of [120, 200, 260, 300, 350]) {
+      // At the knob's floor, FR-8's base to the byte.
+      expect(recognitionBaseMs(MAX_LIVE_MIN, iki), `fast @ maxLive ${MAX_LIVE_MIN}`).toBe(
+        RECOGNITION_BASE_MS,
+      );
+      // And the ratchet still runs its whole travel, unchanged by UR-72.
+      expect(recognitionBaseMs(MAX_LIVE_MAX, iki), `fast @ maxLive ${MAX_LIVE_MAX}`).toBeCloseTo(
+        RECOGNITION_EARNED_BASE_MS,
+        10,
+      );
+      // Monotone DOWN across the whole knob for this pilot: at no setting does
+      // UR-72 give a fast reader back a millisecond the knob has taken.
+      let previous = Number.POSITIVE_INFINITY;
+      for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+        const base = recognitionBaseMs(live, iki);
+        expect(base, `iki ${iki} @ maxLive ${live}`).toBeLessThan(previous);
+        expect(base, `iki ${iki} @ maxLive ${live}`).toBeLessThanOrEqual(RECOGNITION_BASE_MS);
+        previous = base;
+      }
+    }
+    // And the same claim on the whole belt rather than on the constant: every
+    // shipped word, every ease, every knob, for the fast pilot the flight scene
+    // actually hands the engine - identical to the pre-UR-72 value, to the byte.
+    const fast = { ikiMs: 260, fkLatencyMs: 380 };
+    let compared = 0;
+    for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+      for (const stop of STOP_IDS) {
+        for (const word of stagePoolFor(stop)) {
+          for (const ease of [EASE_MIN, EASE_NEW, EASE_MAX]) {
+            const knobs = { maxLive: live };
+            // UR-51's belt, written out: the reader term is zero here, so the
+            // expression contains no UR-72 quantity at all.
+            const beforeUr72 =
+              ([...word].length * keystrokeHeadroom(live, fast.ikiMs) * fast.ikiMs +
+                (RECOGNITION_BASE_MS +
+                  ((Math.min(MAX_LIVE_MAX, live) - MAX_LIVE_MIN) / (MAX_LIVE_MAX - MAX_LIVE_MIN)) *
+                    (RECOGNITION_EARNED_BASE_MS - RECOGNITION_BASE_MS)) *
+                  ease) *
+              concurrencyTarget(live);
+            expect(
+              rawFallTimeMs({ word, ease, calibration: fast, knobs }),
+              `${stop}/"${word}" @ ease ${ease} @ maxLive ${live}`,
+            ).toBeCloseTo(beforeUr72, 9);
+            compared += 1;
+          }
+        }
+      }
+    }
+    // coding-standards 5: the sweep has to have swept.
+    const poolWords = STOP_IDS.reduce((n, stop) => n + stagePoolFor(stop).length, 0);
+    expect(compared).toBe(poolWords * (MAX_LIVE_MAX - MAX_LIVE_MIN + 1) * 3);
+    expect(compared).toBeGreaterThan(3000);
+  });
+
+  it("UR-72: the cold-read budget covers every pilot's modelled need", () => {
+    // The deficit, per pilot, as the one table UR-72 is about. `needMs` is each
+    // simulated pilot's `coldRecognitionMs` in
+    // `tests/unit/simulation/launchRoute.test.ts`; the budget is what a
+    // brand-new word is granted at the knob's floor, which is the belt every
+    // profile opens on (D18's cold start).
+    //
+    // WATCHED FAILING, with the real number: revert `RECOGNITION_SLOW_BASE_MS`
+    // to `RECOGNITION_BASE_MS` and the grade-2 row reads
+    // "grade2: expected 1920 to be greater than or equal to 2400".
+    const pilots: ReadonlyArray<readonly [string, number, number]> = [
+      ["fast", 260, 1100],
+      ["median", 350, 1500],
+      ["slow", 440, 1900],
+      ["grade2", 600, 2400],
+    ];
+    for (const [name, iki, needMs] of pilots) {
+      const budget = recognitionBudgetMs(EASE_NEW, recognitionBaseMs(MAX_LIVE_MIN, iki));
+      expect(budget, name).toBeGreaterThanOrEqual(needMs);
+    }
+    // The tail pilot is the binding one and it binds EXACTLY - 1500 is derived
+    // as 2400 / EASE_NEW, not chosen. If `EASE_NEW` ever moves, this goes red
+    // rather than quietly leaving the deficit open again.
+    expect(RECOGNITION_SLOW_BASE_MS * EASE_NEW).toBe(2400);
+  });
+
+  it("UR-72: the one-deep invariant still holds, and the reader base only helps it", () => {
+    // FR-8's one-deep invariant: the budget must serve `expectedClearMs` at the
+    // depth the controller is asking for. `expectedClearMs` prices recognition
+    // at FR-8's flat 1200 x ease, so raising the fall budget for a slow reader
+    // can only ever raise this ratio - but "can only" is an argument and this
+    // is the measurement.
+    for (const [pilot, calibration] of [
+      ["fast", { ikiMs: 260, fkLatencyMs: 380 }],
+      ["median", CAL],
+      ["slow", { ikiMs: 440, fkLatencyMs: 650 }],
+      ["grade2", { ikiMs: 600, fkLatencyMs: 700 }],
+    ] as const) {
+      for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+        let worst = Number.POSITIVE_INFINITY;
+        for (const stop of STOP_IDS) {
+          for (const word of stagePoolFor(stop)) {
+            const fall = fallTimeMs({
+              word,
+              ease: EASE_NEW,
+              calibration,
+              knobs: { maxLive: live },
+            });
+            const service = expectedClearMs({
+              length: [...word].length,
+              ease: EASE_NEW,
+              calibration,
+            });
+            worst = Math.min(worst, fall / service);
+          }
+        }
+        expect(worst, `${pilot} @ maxLive ${live}`).toBeGreaterThanOrEqual(
+          concurrencyTarget(live),
+        );
+      }
+    }
+  });
+
+  it("UR-72: FR-8's clamp bounds are untouched", () => {
+    // The reading base is the one term that could walk a fall past the 14 s
+    // ceiling, and the ceiling is a child-safety bound, not a tuning value.
+    expect(FALL_TIME_MIN_MS).toBe(2500);
+    expect(FALL_TIME_MAX_MS).toBe(14000);
+    expect(clampFallTime(0)).toBe(FALL_TIME_MIN_MS);
+    expect(clampFallTime(1e9)).toBe(FALL_TIME_MAX_MS);
+    // And no shipped word, at the slowest pilot and the worst ease, reaches the
+    // ceiling at the knob's floor - so the pools have room to grow a longer word
+    // before the clamp, not less.
+    const grade2 = { ikiMs: HEADROOM_SLOW_IKI_MS, fkLatencyMs: 700 };
+    for (const stop of STOP_IDS) {
+      for (const word of stagePoolFor(stop)) {
+        expect(
+          isClamped({ word, ease: EASE_MAX, calibration: grade2 }),
+          `${stop}/"${word}"`,
+        ).toBe(false);
+      }
+    }
+    // The clamp first binds at 13 letters, which is where `MAX_WORD_LENGTH`
+    // already sits - the same place it bound before UR-72, because the length
+    // term is what reaches it first.
+    //   12 letters: 12*900 + 1500*1.6 = 10800 + 2400 = 13200, under.
+    //   13 letters: 13*900 + 2400 = 14100, over.
+    expect(rawFallTimeMs({ word: "a".repeat(12), ease: EASE_NEW, calibration: grade2 })).toBe(13200);
+    expect(rawFallTimeMs({ word: "a".repeat(13), ease: EASE_NEW, calibration: grade2 })).toBe(14100);
+    expect(fallTimeMs({ word: "a".repeat(13), ease: EASE_NEW, calibration: grade2 })).toBe(
+      FALL_TIME_MAX_MS,
+    );
   });
 });

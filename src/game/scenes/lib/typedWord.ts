@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { paintPlate } from "@game/ui/plate";
 import {
   type BlastEmit,
   type KeyInput,
@@ -104,11 +105,22 @@ export function createWordPrompt(
   const plateW = textWidth + padX * 2;
   const plateH = size * 1.36 + padY;
 
+  // THE SHARED PLATE (UR-69). The word plate is the one surface in the game
+  // that was already at bar - 17.4:1, the only plated thing the rubric ever
+  // looked at - so nothing about its inks or its 0.96 changes here. What
+  // changes is that it is now the SAME drawing the cards are, so a corner
+  // treatment or a rim applied to the component reaches the word plate too.
   const plateG = scene.add.graphics();
-  plateG.fillStyle(rgb(options.plateFill ?? INK.panel), 0.96);
-  plateG.fillRoundedRect(-plateW / 2, -plateH / 2, plateW, plateH, SPACE.radius);
-  plateG.lineStyle(2, rgb(options.accent), 0.45);
-  plateG.strokeRoundedRect(-plateW / 2, -plateH / 2, plateW, plateH, SPACE.radius);
+  paintPlate(
+    plateG,
+    { x: -plateW / 2, y: -plateH / 2, w: plateW, h: plateH },
+    {
+      fill: options.plateFill ?? INK.panel,
+      alpha: 0.96,
+      stroke: options.accent,
+      strokeAlpha: 0.45,
+    },
+  );
 
   const cue = scene.add.graphics();
 

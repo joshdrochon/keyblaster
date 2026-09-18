@@ -12,6 +12,7 @@ import {
   type HudRect,
 } from "@game/flight/hudLayout.js";
 import { chromeCase, letterSpacingPx } from "@game/ui/theme.js";
+import { drawPlate } from "@game/ui/plate.js";
 import { typographyOf } from "@game/scenes/lib/typography.js";
 import type { Lang } from "@engine/types.js";
 import { HULL_MARK_COUNT, hullMarkAlpha } from "@engine/hull/index.js";
@@ -196,7 +197,9 @@ export class HudScene extends Phaser.Scene {
     fill: string,
     accent: string,
   ): Phaser.GameObjects.Graphics {
-    const g = this.add.graphics();
+    // THE SHARED PLATE (UR-69), on the `instrument` rhythm - the HUD is a
+    // readout cluster, not a card, and the same rhythm dresses the warp drive.
+    //
     // OPAQUE. L7's rule is "own contrast plate", and at 0.86 the plate was not
     // one: the surface under a label depended on whatever sky happened to be in
     // that corner of the frame, so the same colour pair measured 3.94:1 on the
@@ -204,12 +207,20 @@ export class HudScene extends Phaser.Scene {
     // AC-22.8's 4.5:1, and neither number was a property of the design. Filled
     // flat, the stop accent on the plate is 6.71:1 at its worst (Mars) and the
     // numerals go from ~12:1 to ~18:1. `tests/unit/ui/smallLabels.test.ts`
-    // reads this alpha back out of this file and measures every stop.
-    g.fillStyle(hexToInt(fill), 1);
-    g.fillRoundedRect(x, y, w, h, HUD_RADIUS);
-    g.lineStyle(1, hexToInt(accent), 0.3);
-    g.strokeRoundedRect(x, y, w, h, HUD_RADIUS);
-    return g;
+    // reads `alpha: 1` back out of this file and measures every stop.
+    return drawPlate(
+      this,
+      { x, y, w, h },
+      {
+        fill,
+        alpha: 1,
+        stroke: accent,
+        strokeAlpha: 0.3,
+        strokeWidth: 1,
+        radius: HUD_RADIUS,
+        rhythm: "instrument",
+      },
+    );
   }
 
   /**

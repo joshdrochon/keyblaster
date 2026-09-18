@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { MAX_WORD_LENGTH } from "@engine/allowlist/index.js";
 import {
   INITIAL_COMBO_STATE,
+  LENGTH_BONUS_FLOOR,
+  LENGTH_BONUS_PER_LETTER,
   MAX_MULTIPLIER,
   POINTS_PER_LETTER,
   comboReducer,
@@ -8,8 +11,10 @@ import {
   hudMultiplierFor,
   multiplierFor,
   scoreWordWithCombo,
+  wordBaseScore,
   wordScore,
 } from "@engine/scoring/index.js";
+import { CATCH_MAX_LENGTH } from "@engine/selection/index.js";
 import { mulberry32 } from "./fixtures.js";
 
 describe("multiplierFor", () => {
@@ -134,11 +139,156 @@ describe("comboReducer (AC-6c.1)", () => {
   });
 });
 
+describe("wordBaseScore (`UR-72`: the length curve, with the combo out of the way)", () => {
+  it("`UR-72`: the shipped table, written out by hand from the formula", () => {
+    // Independent oracle. Computed with a calculator from
+    // `len x 20 + 10 x max(0, len - 4)^2`, NOT by calling the function, so a
+    // sign flip or a floor/ceil slip in the implementation shows up here.
+    // WATCHED FAILING, negative control 1 - `LENGTH_BONUS_PER_LETTER` forced to
+    // 0, i.e. the linear curve that shipped:
+    //   AssertionError: expected [ Array(12) ] to deeply equal [ Array(12) ]
+    //   - 110  + 100   (and 120, 140, 180, 200, 220, 240, 260 for the rest)
+    // Negative control 2 - `LENGTH_BONUS_FLOOR` moved 4 -> 5 - fails the same
+    // row at len 5 and 6 instead: - 110 - 160 received 100 and 140.
+    const table = [40, 60, 80, 110, 160, 230, 320, 430, 560, 710, 880, 1070];
+    const actual: number[] = [];
+    for (let len = 2; len <= MAX_WORD_LENGTH; len++) actual.push(wordBaseScore(len));
+    expect(actual).toEqual(table);
+  });
+
+  it("`UR-72`: nothing at or below the guaranteed-catch length moved at all", () => {
+    // The half of this change that is about D31: a pilot who can only reach
+    // short rocks scores exactly what they scored before. Only reach was
+    // rewarded; nothing was taken away.
+    for (let len = 1; len <= LENGTH_BONUS_FLOOR; len++) {
+      expect(wordBaseScore(len), `len ${len}`).toBe(len * POINTS_PER_LETTER);
+    }
+    // And the very next letter is the first one that earns a bonus.
+    // WATCHED FAILING, negative control 1:
+    //   AssertionError: expected 100 to be 110 // Object.is equality
+    expect(wordBaseScore(LENGTH_BONUS_FLOOR + 1)).toBe(
+      (LENGTH_BONUS_FLOOR + 1) * POINTS_PER_LETTER + LENGTH_BONUS_PER_LETTER,
+    );
+  });
+
+  it("`UR-72`: the floor is AC-9.2's guaranteed-catch length, not a loose number", () => {
+    // combo.ts duplicates this rather than importing selection/. The tie is
+    // asserted HERE so that the selection lane moving its number turns this
+    // red instead of silently shifting where the score curve bends.
+    // WATCHED FAILING, negative control 2 (`LENGTH_BONUS_FLOOR` set to 5):
+    //   AssertionError: expected 5 to be 4 // Object.is equality
+    expect(LENGTH_BONUS_FLOOR).toBe(CATCH_MAX_LENGTH);
+  });
+
+  it("`UR-72`: the curve is strictly increasing and accelerating", () => {
+    // The property the linear curve did NOT have. `deltas` must themselves
+    // grow, which is what "a long word is worth reaching for" means.
+    const deltas: number[] = [];
+    for (let len = 2; len <= MAX_WORD_LENGTH; len++) {
+      deltas.push(wordBaseScore(len) - wordBaseScore(len - 1));
+    }
+    for (let i = 1; i < deltas.length; i++) {
+      expect(deltas[i], `delta at len ${i + 2}`).toBeGreaterThanOrEqual(
+        deltas[i - 1] as number,
+      );
+    }
+    // Strictly accelerating past the floor, flat below it.
+    // WATCHED FAILING, negative control 1:
+    //   AssertionError: expected 20 to be greater than 80
+    expect(deltas[0]).toBe(POINTS_PER_LETTER);
+    expect(deltas[deltas.length - 1]).toBeGreaterThan(POINTS_PER_LETTER * 4);
+  });
+
+  it("junk length is worth nothing and a fraction never rounds up into a band", () => {
+    // WATCHED FAILING with the `Number.isFinite(...) || <= 0` guard deleted:
+    //   AssertionError: expected -60 to be +0 // Object.is equality
+    // A negative length does not just score nothing without the guard, it MINTS
+    // a negative score, which is the one shape D31 rules out entirely.
+    expect(wordBaseScore(0)).toBe(0);
+    expect(wordBaseScore(-3)).toBe(0);
+    expect(wordBaseScore(Number.NaN)).toBe(0);
+    expect(wordBaseScore(Number.POSITIVE_INFINITY)).toBe(0);
+    // 4.9 is a 4-letter word's worth, not a 5-letter word's.
+    expect(wordBaseScore(4.9)).toBe(wordBaseScore(4));
+  });
+});
+
+describe("`UR-72`: a long word beats the short words it costs", () => {
+  /**
+   * The bar the constant was chosen against, asserted rather than asserted-in-
+   * a-comment. A nine-letter word has to beat TWO four-letter words at every
+   * combo, including x10 where the short pair is capped too - otherwise the
+   * cheapest way to score is still to ignore the long rocks, which is the
+   * behaviour `UR-72` is about: the long rock is the one to leave alone.
+   */
+  const twoShortWords = (startCombo: number): number => {
+    let s = comboState(startCombo);
+    let total = 0;
+    for (let i = 0; i < 2; i++) {
+      const r = scoreWordWithCombo(s, 4);
+      s = r.combo;
+      total += r.points;
+    }
+    return total;
+  };
+
+  it("`UR-72`: one 9-letter word outscores two 4-letter words at every combo", () => {
+    // WATCHED FAILING, negative control 1 (the shipped linear curve), at the
+    // very first combo:
+    //   AssertionError: combo 0: expected 180 to be greater than 240
+    // The long word LOST by 60 points while costing an extra keystroke. That
+    // is the defect `UR-72` reports, measured.
+    for (let start = 0; start <= 15; start++) {
+      const long = scoreWordWithCombo(comboState(start), 9).points;
+      expect(long, `combo ${start}`).toBeGreaterThan(twoShortWords(start));
+    }
+  });
+
+  it("`UR-72`: the exact numbers at the two ends of the multiplier", () => {
+    // Fresh chain: 430 against 80 + 160.
+    // WATCHED FAILING, negative control 1: expected 180 to be 430.
+    // WATCHED FAILING, negative control 2: expected 340 to be 430.
+    expect(scoreWordWithCombo(INITIAL_COMBO_STATE, 9).points).toBe(430);
+    expect(twoShortWords(0)).toBe(240);
+    // Capped chain: both sides at x10.
+    expect(scoreWordWithCombo(comboState(10), 9).points).toBe(4300);
+    expect(twoShortWords(10)).toBe(1600);
+  });
+
+  it("`UR-72`: a 4-letter word and a 9-letter word, side by side", () => {
+    // The two numbers the report asks for, at a fixed multiplier so the
+    // comparison is about length and nothing else.
+    // WATCHED FAILING, negative control 1: expected 180 to be 430.
+    expect(wordScore(4, 1)).toBe(80);
+    expect(wordScore(9, 1)).toBe(430);
+    expect(wordScore(4, 10)).toBe(800);
+    expect(wordScore(9, 10)).toBe(4300);
+  });
+
+  it("`UR-72`: per-keystroke reward now rises with length instead of being flat", () => {
+    // The root cause in one assertion. Under `len x 20` this was 20 for every
+    // length, so length was never an incentive - the combo advancing per WORD
+    // made it an active disincentive.
+    // WATCHED FAILING, negative control 1:
+    //   expected 20 to be close to 47.78, received difference is 27.78
+    // WATCHED FAILING, negative control 2:
+    //   expected 37.77777777777778 to be close to 47.78
+    const perKey = (len: number): number => wordBaseScore(len) / len;
+    expect(perKey(4)).toBe(20);
+    expect(perKey(9)).toBeCloseTo(47.78, 2);
+    for (let len = LENGTH_BONUS_FLOOR + 1; len <= MAX_WORD_LENGTH; len++) {
+      expect(perKey(len), `len ${len}`).toBeGreaterThan(perKey(len - 1));
+    }
+  });
+});
+
 describe("wordScore", () => {
-  it("uses the decision-log formula: length x 20 x combo", () => {
+  it("`UR-72`: base curve times the capped multiplier", () => {
+    // WATCHED FAILING, negative control 1: expected 300 to be 330.
     expect(POINTS_PER_LETTER).toBe(20);
-    expect(wordScore(5, 3)).toBe(5 * 20 * 3);
-    expect(wordScore(9, 1)).toBe(180);
+    expect(wordScore(5, 3)).toBe(wordBaseScore(5) * 3);
+    expect(wordScore(5, 3)).toBe(330);
+    expect(wordScore(9, 1)).toBe(430);
   });
 
   it("AC-6c.1: the multiplier used for score is capped at x10", () => {
@@ -177,7 +327,8 @@ describe("scoreWordWithCombo", () => {
   it("AC-6c.1: after a typo the next word is back to x1", () => {
     let s = comboState(6);
     s = comboReducer(s, "typo");
-    expect(scoreWordWithCombo(s, 5).points).toBe(100);
+    expect(scoreWordWithCombo(s, 5).points).toBe(wordBaseScore(5));
+    expect(scoreWordWithCombo(s, 5).points).toBe(110);
   });
 });
 
@@ -229,6 +380,6 @@ describe("hudMultiplierFor (AC-6c.1 display)", () => {
   it("the display floor never reaches the scored value", () => {
     // wordScore is computed from multiplierFor, never from hudMultiplierFor.
     expect(wordScore(5, multiplierFor(0))).toBe(0);
-    expect(scoreWordWithCombo(INITIAL_COMBO_STATE, 5).points).toBe(100);
+    expect(scoreWordWithCombo(INITIAL_COMBO_STATE, 5).points).toBe(110);
   });
 });

@@ -22,6 +22,8 @@ export { CHARS_PER_WORD, accuracy, wpm } from "./rates.js";
 
 export {
   INITIAL_COMBO_STATE,
+  LENGTH_BONUS_FLOOR,
+  LENGTH_BONUS_PER_LETTER,
   MAX_MULTIPLIER,
   POINTS_PER_LETTER,
   comboReducer,
@@ -29,6 +31,7 @@ export {
   hudMultiplierFor,
   multiplierFor,
   scoreWordWithCombo,
+  wordBaseScore,
   wordScore,
 } from "./combo.js";
 export type { ComboEvent, ComboState, ScoredHit } from "./combo.js";

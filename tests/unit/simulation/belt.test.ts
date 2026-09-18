@@ -381,10 +381,28 @@ describe("D17 / D27 / AC-4.3: the grade-2 child, before and after", () => {
     const after = stallRate({});
     const withCanisters = stallRate({ canisters: true });
 
-    // The baseline has to reproduce the number already on record, or the
-    // "after" figure is being compared against a different simulation.
-    expect(before.stalls).toBeGreaterThan(50);
-    expect(before.stalls).toBeLessThanOrEqual(60);
+    // THE BASELINE HAS TO REPRODUCE THE NUMBER ON RECORD, or the "after" figure
+    // is being compared against a different simulation.
+    //
+    // ================== UR-72 MOVED BOTH ARMS, AND BY HOW MUCH ==============
+    // This read `> 50` and `<= 60` - the 55-in-100 the hull escalation recorded.
+    // UR-72 raised the READING half of FR-8's budget for a pilot measured slower
+    // than FR-8's own default, which is this pilot, by 480 ms on a new word. Run
+    // against the current code the old assertion reads
+    //
+    //     expected 10 to be greater than 50
+    //
+    // The `before` arm is the SHIPPED HULL OF 3 against a 58-word stage, and
+    // that configuration is still badly broken - 10 belts in 100 end under a
+    // child - but it is no longer catastrophically broken, because the reading
+    // deficit was part of what made it catastrophic. Re-pinning the control is
+    // not re-baselining the claim: the claim is `after.stalls === 0`, it is
+    // untouched below, and it is still met.
+    //
+    // MEASURED, 100 seeds: before 10 (was 55), passByOnly 7, hullOnly 0,
+    // after 0, withCanisters 0.
+    expect(before.stalls).toBeGreaterThan(5);
+    expect(before.stalls).toBeLessThanOrEqual(15);
 
     // THE CLAIM. Not "fewer"; none. D31 says the child who stalls is not the
     // problem, and a stage that ends under one child in a hundred is a stage
@@ -392,7 +410,11 @@ describe("D17 / D27 / AC-4.3: the grade-2 child, before and after", () => {
     expect(after.stalls).toBe(0);
     // And it is the HULL doing it, not the trajectory change riding along.
     expect(hullOnly.stalls).toBe(0);
-    expect(passByOnly.stalls).toBeGreaterThan(30);
+    // The pass-by ALONE still does not fix it - 7 belts in 100 against the 0 the
+    // hull change reaches. It was `> 30` when `before` was 55; the ratio it is
+    // really asserting (the pass-by closes well under half the gap) is unchanged.
+    expect(passByOnly.stalls).toBeGreaterThan(3);
+    expect(passByOnly.stalls).toBeLessThan(before.stalls);
     expect(withCanisters.stalls).toBe(0);
 
     mkdirSync("gauntlet/evidence", { recursive: true });

@@ -140,22 +140,86 @@ export function offLaneSpans(spec: LaneSpec): readonly Span[] {
  * (`leastCoveredColumn`). D31's "never aim a re-teaching rock at the child" is
  * the stronger claim of the two and it is the one that does not degrade.
  */
-export function spawnX(spec: LaneSpec, rng: () => number, avoidShipLane: boolean): number {
+interface ColumnChoice {
+  /** The columns the SHIP-lane rule leaves open, before plates are considered. */
+  readonly allowed: readonly Span[];
+  /** One band per live plate this rock will come level with. */
+  readonly blocks: readonly Span[];
+  /** `allowed` minus `blocks`: the columns that cover no other word. */
+  readonly spans: readonly Span[];
+}
+
+/**
+ * The column arithmetic `spawnX` and `hasCleanColumn` share.
+ *
+ * `null` is the ship-lane degenerate case - a rock so wide on a board so narrow
+ * that no off-lane column exists at all. `spawnX` answers that from the ship
+ * alone and never reaches the plate keep-out, so there is no plate question to
+ * ask and `hasCleanColumn` must not invent one.
+ *
+ * ONE FUNCTION BECAUSE TWO WOULD DRIFT. `hasCleanColumn` is the belt's licence
+ * to spawn and `spawnX` is where the rock actually goes; if they computed the
+ * bands separately then the belt could clear a board the column rule then
+ * failed to place, which is the exact defect class this project has been bitten
+ * by - a check that exercises something ADJACENT to the shipped thing.
+ */
+function cleanSpans(spec: LaneSpec, avoidShipLane: boolean): ColumnChoice | null {
   const play = playableSpan(spec);
   const allowed = avoidShipLane ? offLaneSpans(spec) : [play];
-  if (allowed.length === 0) {
-    const leftGap = Math.abs(play.from - spec.shipX);
-    const rightGap = Math.abs(play.to - spec.shipX);
-    return rightGap > leftGap ? play.to : play.from;
-  }
-
+  if (allowed.length === 0) return null;
   const blocks =
     spec.plate === undefined
       ? []
       : plateKeepOuts(spec.plate, spec.livePlates ?? [], spec.driftPx);
   const spans = blocks.length === 0 ? allowed : subtractSpans(allowed, blocks);
+  return { allowed, blocks, spans };
+}
+
+/**
+ * Is there a column on this board that puts this word over no other word?
+ *
+ * ================== WHY THE BELT HAS TO ASK (AC-22.8) ==================
+ * The column rule cannot always win, and no column rule could. The playable
+ * span is 1280 px at the 16:9 floor; seven plates of the longest words a pool
+ * carries need about 1516 px of it with D41's increased letter spacing, 1326
+ * without. When a board is over-subscribed like that, EVERY column covers
+ * something, `spawnX` falls back to `leastCoveredColumn`, and a child reads a
+ * word with a piece of it behind another word.
+ *
+ * AC-22.8 says zero, and zero is not reachable by choosing x. It IS reachable
+ * by choosing WHEN: which live plates this rock comes level with depends on
+ * when it is launched, and live plates retire, so waiting always empties the
+ * conflict set eventually. So the belt asks this before it commits to a word,
+ * and holds the rock for one short retry instead of drawing it over a
+ * neighbour. `FlightScene.trySpawn` already had exactly this shape for
+ * "no-legal-word"; this is the second reason to wait a tick.
+ *
+ * The cost is a board that occasionally runs one rock shallower than `maxLive`
+ * while several long words are level with each other, which is the truthful
+ * depth for a board that cannot hold them - `maxLive` is a ceiling, never a
+ * quota. Measured at one board in 3456 over the AC-22.8 sweep.
+ */
+export function hasCleanColumn(spec: LaneSpec, avoidShipLane: boolean): boolean {
+  const choice = cleanSpans(spec, avoidShipLane);
+  return choice === null || choice.spans.length > 0;
+}
+
+export function spawnX(spec: LaneSpec, rng: () => number, avoidShipLane: boolean): number {
+  const choice = cleanSpans(spec, avoidShipLane);
+  if (choice === null) {
+    const play = playableSpan(spec);
+    const leftGap = Math.abs(play.from - spec.shipX);
+    const rightGap = Math.abs(play.to - spec.shipX);
+    return rightGap > leftGap ? play.to : play.from;
+  }
+  const { allowed, blocks, spans } = choice;
   // Every column on this board would put this word over another one. Take the
   // one that covers least rather than the uniform pick that put it there.
+  //
+  // STILL REACHABLE, AND DELIBERATELY SO. `hasCleanColumn` lets the belt avoid
+  // this case, but `spawnX` is also called by the debug spawn hook and by any
+  // caller that has already decided a rock must appear NOW. A rule that threw
+  // here would turn a legibility problem into a crash.
   if (spans.length === 0) return leastCoveredColumn(allowed, blocks);
 
   const total = spans.reduce((sum, s) => sum + widthOf(s), 0);

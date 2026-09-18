@@ -29,7 +29,7 @@ import {
   plateSize,
 } from "@game/render/wordPlate.js";
 import { createAllowlist } from "@engine/allowlist/index.js";
-import { fallTimeMs } from "@engine/fallTime/index.js";
+import { fallTimeIkiMs, fallTimeMs } from "@engine/fallTime/index.js";
 import {
   type LockEmit,
   type LockEvent,
@@ -127,6 +127,7 @@ import {
   type LivePlateTrack,
   type PlateTrack,
   ROCK_DRIFT_PX,
+  hasCleanColumn,
   isOnShipLane,
   spawnX,
 } from "@engine/spawn/index.js";
@@ -1271,12 +1272,23 @@ export class FlightScene extends Phaser.Scene {
       this.nextSpawnAtMs = now + 200;
       return;
     }
-    this.selection = outcome.state;
-    if (outcome.source === "retention") this.retentionWords.add(outcome.word);
     // D21/D23: `practice` means the ENGINE chose to show this word again. The
     // scene does not re-derive that from the book; `@engine/selection` is the
     // only thing that knows why a word is on the belt.
-    this.spawnRock(outcome.word, now, outcome.practice);
+    //
+    // THE SELECTION IS COMMITTED ONLY IF THE ROCK ACTUALLY FLIES. `spawnRock`
+    // declines when every column on this board would draw this word over
+    // another word (AC-22.8, `hasCleanColumn`), and a declined word must not be
+    // spent: leaving `this.selection` alone puts it back in the bag, so the
+    // child still gets it, one tick later, somewhere readable. The retry is the
+    // same 200 ms the "no-legal-word" branch above waits, and it is bounded for
+    // the same reason - live plates retire, so the conflict set always empties.
+    if (!this.spawnRock(outcome.word, now, outcome.practice)) {
+      this.nextSpawnAtMs = now + 200;
+      return;
+    }
+    this.selection = outcome.state;
+    if (outcome.source === "retention") this.retentionWords.add(outcome.word);
     this.lastSpawnGapMs = this.spawnGapAfter(now);
     this.nextSpawnAtMs = now + this.lastSpawnGapMs;
   }
@@ -1405,10 +1417,65 @@ export class FlightScene extends Phaser.Scene {
    * (D21). See `lanePlacement` for what that changes and, just as importantly,
    * for what it does not.
    */
-  private spawnRock(word: string, now: number, practice = false): void {
+  /**
+   * Put one rock on the belt, or decline (AC-22.8).
+   *
+   * FALSE MEANS "NOT ON THIS BOARD, NOT YET" - every live column would put this
+   * word over another word, so it is held rather than drawn over a neighbour.
+   * The decline happens before ANY allocation and before `this.rng` is touched,
+   * so a declined tick leaves the scene and the seeded stream exactly as it
+   * found them and the same word can be offered again a tick later.
+   */
+  private spawnRock(word: string, now: number, practice = false): boolean {
     const width = this.scale.width;
     const letters = [...word].length;
     const sizePx = asteroidSizePx(letters);
+
+    // ===================== THE PURE PROLOGUE, HOISTED =====================
+    // Everything the column rule needs is computed here, above the first
+    // graphics object and above the first `this.rng()` draw, so that the
+    // "is there room" question can be answered before anything is built.
+    // Nothing below this block consumes rng, so the seeded stream is
+    // byte-identical to the order this replaced.
+    const offsetY = plateOffsetY(sizePx, this.plateStyle);
+    const record = recordFor(this.book, word);
+    // FALL TIME IS COMPUTED BEFORE THE COLUMN IS CHOSEN, and the order is the
+    // whole of UR-23's second fix. `@engine/spawn` decides which live plates
+    // this one can ever come level with, and it cannot answer that without
+    // knowing how fast this rock falls.
+    const fallMs = fallTimeMs({
+      word,
+      ease: record.ease,
+      calibration: this.fallTimeCalibration(),
+      // UR-51: FR-8's budget pays for reading and typing a rock, never for
+      // WAITING behind one, and every rock on a board deeper than one is
+      // waiting. `@engine/pacing` builds the queue this knob asks for; this is
+      // the half that makes the rocks in it answerable. Leave it out and the
+      // belt drops the back of its own queue - measured at 40 stalls in 40 for
+      // a MEDIAN pilot, hit rate 0.214.
+      knobs: this.controller.knobs,
+    });
+    const clearEstimateMs = expectedClearMs({
+      length: letters,
+      ease: record.ease,
+      calibration: this.calibration,
+    });
+    // `plateSize`, not the WordPlate that does not exist yet - the same pure
+    // function the plate lays itself out with and the same one `laneSpec`
+    // sizes the margin keep-out with, so the three cannot disagree.
+    const plateSizePx = plateSize(word, this.plateStyle);
+    const track: PlateTrack = {
+      halfWidthPx: plateSizePx.width / 2,
+      halfHeightPx: plateSizePx.height / 2,
+      fromY: -sizePx + offsetY,
+      toY: this.breachY + offsetY,
+      spawnedAtMs: now,
+      fallMs,
+    };
+    const spec = this.laneSpec(sizePx, word, track);
+    // No column on this board leaves this word readable. Hold it.
+    if (!hasCleanColumn(spec, practice)) return false;
+
     const types = wordDebrisTypesFor(this.cfg.stopId);
     const debris = types[this.nextRockIndex % Math.max(1, types.length)] as DebrisType;
     const isCanister =
@@ -1439,45 +1506,12 @@ export class FlightScene extends Phaser.Scene {
       });
     }
 
-    const offsetY = plateOffsetY(sizePx, this.plateStyle);
     const plate = new WordPlate(this, 0, 0, word, this.plateStyle);
     // NOT a child of the rock. See PLATE_DEPTH: every plate draws above every
     // rock, and `updateRocks` carries it to the rock's column each frame.
     this.plateLayer.add(plate);
 
-    const record = recordFor(this.book, word);
-    // FALL TIME IS COMPUTED BEFORE THE COLUMN IS CHOSEN, and the order is the
-    // whole of UR-23's second fix. `@engine/spawn` decides which live plates
-    // this one can ever come level with, and it cannot answer that without
-    // knowing how fast this rock falls. Nothing here consumes `this.rng`, so
-    // the seeded stream is byte-identical to the order this replaced.
-    const fallMs = fallTimeMs({
-      word,
-      ease: record.ease,
-      calibration: this.fallTimeCalibration(),
-      // UR-51: FR-8's budget pays for reading and typing a rock, never for
-      // WAITING behind one, and every rock on a board deeper than one is
-      // waiting. `@engine/pacing` builds the queue this knob asks for; this is
-      // the half that makes the rocks in it answerable. Leave it out and the
-      // belt drops the back of its own queue - measured at 40 stalls in 40 for
-      // a MEDIAN pilot, hit rate 0.214.
-      knobs: this.controller.knobs,
-    });
-    const clearEstimateMs = expectedClearMs({
-      length: letters,
-      ease: record.ease,
-      calibration: this.calibration,
-    });
-
-    const track: PlateTrack = {
-      halfWidthPx: plate.plateSizePx.width / 2,
-      halfHeightPx: plate.plateSizePx.height / 2,
-      fromY: -sizePx + offsetY,
-      toY: this.breachY + offsetY,
-      spawnedAtMs: now,
-      fallMs,
-    };
-    const homeX = spawnX(this.laneSpec(sizePx, word, track), this.rng, practice);
+    const homeX = spawnX(spec, this.rng, practice);
     const container = this.add.container(homeX, -sizePx, [body]);
     this.debrisLayer.add(container);
     plate.setPosition(homeX, -sizePx + offsetY);
@@ -1523,6 +1557,7 @@ export class FlightScene extends Phaser.Scene {
       type: "spawn",
       asteroid: { id, word, spawnedAtMs: now },
     });
+    return true;
   }
 
   /**
@@ -1610,10 +1645,12 @@ export class FlightScene extends Phaser.Scene {
    * THEM. Those want the truth; only the deadline is floored.
    */
   private fallTimeCalibration(): Calibration {
-    return {
-      ...this.calibration,
-      ikiMs: Math.max(this.calibration.ikiMs, DEFAULT_CALIBRATION.ikiMs),
-    };
+    // UR-51: the floor is a SAFETY bound against a corrupt baseline, not a cap
+    // on being good. It used to be FR-8's default, which capped every child at
+    // a beginner's speed for ever and threw away the downward refinement
+    // `refineStoredCalibration` measures at every stage end. See
+    // `FALL_TIME_MIN_IKI_MS` for why 120 ms is the safe number and 350 was not.
+    return { ...this.calibration, ikiMs: fallTimeIkiMs(this.calibration.ikiMs) };
   }
 
   private learnFromPlay(): void {

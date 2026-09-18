@@ -354,8 +354,9 @@ export class SettingsScene extends MenuScene {
     this.consoleFace(rightX, rightBottom, colW);
 
     this.addHint("ui.common.hintAdjust");
-    this.setControls([...left, ...right, resetKey]);
-    if (this.restoreFocus) this.list.focus(this.restoreFocus);
+    // The id goes IN, so the list never paints at index 0 first. Restoring
+    // afterwards left one frame of the ring on the music row (UR-73).
+    this.setControls([...left, ...right, resetKey], this.restoreFocus ?? undefined);
   }
 
   /**

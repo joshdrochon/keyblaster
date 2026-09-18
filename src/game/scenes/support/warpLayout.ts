@@ -1,6 +1,15 @@
 import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
 import { GUTTER, contentRight } from "@game/ui/grid";
 import type { Rect } from "@game/ui/layout";
+import {
+  PLATE_RHYTHM,
+  PLATE_STACK_GAP,
+  lineBox,
+  plateFooter,
+  plateHeight,
+  stackRows,
+} from "@game/ui/plateLayout";
+import { TYPE } from "@game/ui/theme";
 
 /**
  * THE WARP BREAK'S GEOMETRY (screen 8), as numbers rather than as literals
@@ -68,7 +77,117 @@ import type { Rect } from "@game/ui/layout";
  * screen's.
  */
 const CARD_W = 1728;
-export const PANEL: Rect = { x: GUTTER, y: 236, w: CARD_W, h: 280 };
+
+/**
+ * ================== UR-70 CONDENSED THE COLUMN ==================
+ * UR-70 asks for condensed vertical space with no excessive padding, against
+ * a screen whose destination line was followed by a 70 px hole.
+ *
+ * That hole was not padding. `PANEL.h` was a fixed 280 sized for a TWO-LINE
+ * sentence, and a one-line sentence was CENTRED in the band left under the
+ * destination line - so half the slack went above the sentence. Measured at
+ * Saturn, whose shipped sentence is one line: the destination line's ink ended
+ * at y 291 and the sentence began at y 361. On a two-line stop the same gap was
+ * 36. A label's distance from the thing it labels is not supposed to be a
+ * function of how long the thing is.
+ *
+ * ================== WHAT IT IS NOW ==================
+ * Three rows on the shared plate's `card` rhythm (`ui/plateLayout.ts`), TOP
+ * ALIGNED, one 20 px unit apart, with the hint pinned to the card's foot:
+ *
+ *   destination   one line of TYPE.label
+ *   the sentence  the worst case, which is two lines
+ *   the hint      one line of TYPE.caption, at the foot
+ *
+ * `PANEL.h` is now DERIVED from those rows - 268, where it was 280 picked by
+ * trying 250 and finding the hint printed through. The gap under the
+ * destination line is one unit by construction and is the same at one line and
+ * at two.
+ *
+ * MEASURED, ink to ink, in Latin (the rows are sized on the Devanagari line box
+ * so Hindi does not collide, so the Latin gap reads a few px wider than the
+ * unit):
+ *
+ *                     before          after
+ *   one-line stop     291 -> 361      287 -> 313      70 px   ->  26 px
+ *   two-line stop     291 -> 327      287 -> 313      36 px   ->  26 px
+ *
+ * And the column as a whole: 236..820 -> 236..808, with the instrument's rows
+ * pulled 8 px tighter each and its clearance over the Lantern's band up from
+ * 17.6 px to 29.6 px.
+ *
+ * ================== WHY THE CARD STILL DOES NOT RESIZE ==================
+ * It is sized for the WORST CASE rather than for the sentence it holds, and
+ * that is load-bearing rather than conservative: `relayoutSentence` swaps the
+ * shipped string for a composed one (D09/E-AI-1) while the screen is on
+ * screen, and its own contract is "same plate, same meter, same coach area,
+ * same geometry". A card that sized to its content would jump the moment the
+ * coach landed, which is the thing AC-33 exists to forbid one card over.
+ *
+ * THE COST, STATED. On a one-line stop the slack that used to sit above the
+ * sentence now sits below it: 72 px between the sentence's baseline box and the
+ * hint at the card's foot. That is the trade - a gap between a body and a
+ * FOOTER, against a gap between a heading and its BODY - and the second is the
+ * one that breaks the reading order, because it separates a label from the
+ * thing it labels. `warpLayout.test.ts` asserts the number so it cannot grow
+ * quietly.
+ */
+const PANEL_Y = 236;
+
+/** The sentence's type size and the step between its wrapped lines. */
+export const SENTENCE_PX = 52;
+export const SENTENCE_STEP = SENTENCE_PX + 16;
+
+/**
+ * The most lines the card is built to hold.
+ *
+ * TWO, and it is the number the card's height is derived from. A composed
+ * sentence (D09) can be longer than any shipped one, so this is the case the
+ * card must survive rather than the case it usually draws.
+ */
+export const SENTENCE_MAX_LINES = 2;
+
+/** The sentence block at its worst case: two lines, without trailing leading. */
+const SENTENCE_BLOCK = SENTENCE_MAX_LINES * SENTENCE_STEP - 16;
+
+/** The card's rows, in order, as the heights the rhythm lays out. */
+const PANEL_ROWS: readonly number[] = [
+  lineBox(TYPE.label),
+  SENTENCE_BLOCK,
+  lineBox(TYPE.caption),
+];
+
+export const PANEL: Rect = {
+  x: GUTTER,
+  y: PANEL_Y,
+  w: CARD_W,
+  h: plateHeight(PANEL_ROWS, "card"),
+};
+
+/** The destination line's row: "destination: saturn", at the card's top. */
+export function destinationRow(): Rect {
+  return stackRows(PANEL, PANEL_ROWS, "card")[0] as Rect;
+}
+
+/** The band the sentence is laid out in, one unit under the destination line. */
+export function sentenceRow(): Rect {
+  return stackRows(PANEL, PANEL_ROWS, "card")[1] as Rect;
+}
+
+/** The keyboard hint, pinned to the card's foot. */
+export function hintRow(): Rect {
+  return plateFooter(PANEL, lineBox(TYPE.caption), "card");
+}
+
+/**
+ * Where the first line of the sentence starts.
+ *
+ * NO LONGER A FUNCTION OF THE LINE COUNT, which is the fix. It used to centre
+ * the block in a fixed band; see the note above `PANEL`.
+ */
+export function sentenceTop(): number {
+  return sentenceRow().y;
+}
 
 /**
  * UR-62 - THE WARP DRIVE IS ONE INSTRUMENT, NOT THREE PIECES.
@@ -93,18 +212,42 @@ export const PANEL: Rect = { x: GUTTER, y: 236, w: CARD_W, h: 280 };
  * and nothing about what drives it. `meterEaseFrames` still counts frames the
  * fill was redrawn mid-move, and still reads 0 for a bar that steps.
  */
-export const INSTRUMENT: Rect = { x: GUTTER, y: 536, w: CARD_W, h: 124 };
+/**
+ * The instrument's three rows, on the shared plate's `instrument` rhythm - a
+ * dense readout cluster, 12 px inset and 8 px between rows, which is TIGHTER
+ * than a card by design. Air between the rows of one instrument is exactly what
+ * made the warp drive read as three pieces (UR-62).
+ *
+ * The height is derived from them: 124, which is the number this instrument was
+ * already drawn at. What UR-70 moved is the two leftover insets it was built
+ * with - a 20 px top pad over a 6 px bottom one - onto the scale's 12.
+ */
+const INSTRUMENT_ROWS: readonly number[] = [
+  /** "warp drive" and the percentage, one baseline. */
+  32,
+  /** The charge track. */
+  26,
+  /** "warp drive charged - next stop Jupiter". */
+  26,
+];
 
-/** The charge track, INSET INSIDE the instrument. Not a card of its own. */
-export const INSTRUMENT_INSET = 32;
-export const METER: Rect = {
-  x: INSTRUMENT.x + INSTRUMENT_INSET,
-  y: INSTRUMENT.y + 60,
-  w: INSTRUMENT.w - INSTRUMENT_INSET * 2,
-  h: 26,
+export const INSTRUMENT: Rect = {
+  x: GUTTER,
+  y: PANEL.y + PANEL.h + PLATE_STACK_GAP,
+  w: CARD_W,
+  h: plateHeight(INSTRUMENT_ROWS, "instrument"),
 };
 
-export const COACH: Rect = { x: GUTTER, y: 680, w: CARD_W, h: 140 };
+/** The charge track, INSET INSIDE the instrument. Not a card of its own. */
+export const INSTRUMENT_INSET = PLATE_RHYTHM.instrument.padX;
+export const METER: Rect = stackRows(INSTRUMENT, INSTRUMENT_ROWS, "instrument")[1] as Rect;
+
+export const COACH: Rect = {
+  x: GUTTER,
+  y: INSTRUMENT.y + INSTRUMENT.h + PLATE_STACK_GAP,
+  w: CARD_W,
+  h: 140,
+};
 
 // ---------------------------------------------------------------------------
 // The Lantern
@@ -264,31 +407,16 @@ export const WARP_CARDS: readonly Rect[] = [PANEL, INSTRUMENT, COACH];
  * separate pills at separate baselines, anchored from opposite sides, and read
  * as three pieces because that is what they were.
  */
-export const INSTRUMENT_LABEL_TOP = 20;
-export const INSTRUMENT_LABEL_H = 32;
-
 export function instrumentLabelRow(): Rect {
-  return {
-    x: METER.x,
-    y: INSTRUMENT.y + INSTRUMENT_LABEL_TOP,
-    w: METER.w,
-    h: INSTRUMENT_LABEL_H,
-  };
+  return stackRows(INSTRUMENT, INSTRUMENT_ROWS, "instrument")[0] as Rect;
 }
 
 /**
  * The line that appears under the track when the drive is full, inside the
  * instrument. It used to hang below the track on a pill of its own.
  */
-export const INSTRUMENT_CHARGED_TOP = 92;
-
 export function instrumentChargedRow(): Rect {
-  return {
-    x: METER.x,
-    y: INSTRUMENT.y + INSTRUMENT_CHARGED_TOP,
-    w: METER.w,
-    h: 26,
-  };
+  return stackRows(INSTRUMENT, INSTRUMENT_ROWS, "instrument")[2] as Rect;
 }
 
 /** True when `inner` is wholly inside the instrument's plate. */
@@ -488,31 +616,3 @@ export function pulsedBox(
   return { x: at.x, y: at.y, w: box.w * scale, h: box.h * scale };
 }
 
-// ---------------------------------------------------------------------------
-// Inside the sentence card
-// ---------------------------------------------------------------------------
-
-/** The sentence's type size and the step between its wrapped lines. */
-export const SENTENCE_PX = 52;
-export const SENTENCE_STEP = SENTENCE_PX + 16;
-
-/** The band the sentence may occupy: under the destination line, above the hint. */
-export const SENTENCE_BAND_TOP = 78;
-export const SENTENCE_BAND_BOTTOM = 56;
-
-/**
- * Where the first line of the sentence starts, CENTRED in its band.
- *
- * The card is a fixed 288 so that it does not change shape between stops - a
- * frame that resizes under the same heading reads as the screen reloading - but
- * a one-line sentence pinned to the top of a two-line card leaves 140 px of
- * hole under it, which is the "large dead space below their content" the player
- * reported on the stage report. So the card keeps its shape and the content is
- * distributed inside it, the same way `resultsLayout.fitPanel` centres a short
- * report in a floored panel.
- */
-export function sentenceTop(lineCount: number): number {
-  const band = PANEL.h - SENTENCE_BAND_TOP - SENTENCE_BAND_BOTTOM;
-  const block = Math.max(1, lineCount) * SENTENCE_STEP - 16;
-  return PANEL.y + SENTENCE_BAND_TOP + Math.max(0, Math.round((band - block) / 2));
-}

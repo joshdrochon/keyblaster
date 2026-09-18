@@ -193,6 +193,43 @@ function towardLight(points: readonly Vec[], light: number, px: number): Vec[] {
  * and the third is the user's. Read them before drawing.
  */
 
+/**
+ * WHAT EACH GENERATOR IN THIS FILE DRAWS, as the star rule sees it (UR-14).
+ *
+ * ================== WHY A TABLE AND NOT A COMMENT ==================
+ * UR-14 has now been reported four times and every round was the same shape: a
+ * surface drew points of light, nobody had classified it, and the guard written
+ * that round only knew about the mechanism that round had found. Round four's
+ * was this file's `moteTile` - 44 motes and 14 glints replayed onto a plane
+ * that scrolls at 1.30 x world speed, travelling 96.2 px/s on the Title.
+ *
+ * So the classification is data rather than prose. `starsMayTravel` in
+ * `starField.ts` decides whether light may translate on a given screen; this
+ * says which of the drawings below ARE light, and `tests/unit/arch` asserts
+ * that the two agree - that every generator here is classified, and that every
+ * LIGHT one reaches the scene through the seam rather than straight onto a
+ * scrolling container. A new generator is unclassified, and unclassified is
+ * red, on the day it is written rather than the day somebody plays it.
+ *
+ * ================== WHERE THE LINE IS ==================
+ * LIGHT is a small, bright, self-luminous speck with no internal structure:
+ * the `mote` dots and `glint` sparkles, and the accent diamonds, which at 4-9
+ * px of opaque saturated colour are the most speck-like marks in the frame.
+ *
+ * MATTER is a thing a light falls on. A decorative rock has a silhouette, a
+ * facet and a rim; the mid-field dust is a 240-660 px soft ellipse at alpha
+ * 0.035-0.09, which reads as haze; the foreground veil is a sheet. These keep
+ * their parallax everywhere, because a plane moving past the camera is what
+ * UR-50.4 asked for and no report has ever objected to it.
+ */
+export const TILE_DRAWS: Readonly<Record<string, "light" | "matter">> = {
+  moteTile: "light",
+  accentTile: "light",
+  dustTile: "matter",
+  driftTile: "matter",
+  veilTile: "matter",
+};
+
 /** Mid-field dust: bigger, softer, lower-contrast than the near field. */
 export function dustTile(w: number, h: number, fill: string, rand: () => number): TileOp[] {
   const out: TileOp[] = [];

@@ -45,11 +45,24 @@ const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game"
 
 const source = (file: string): string => readFileSync(resolve(SRC, file), "utf8");
 
-/** The alpha `HudScene.plate` fills its readout plate at, read from the scene. */
+/**
+ * The alpha `HudScene.plate` fills its readout plate at, read from the scene.
+ *
+ * READ OFF THE `drawPlate` CALL since UR-69 moved the drawing into the shared
+ * component (`ui/plate.ts`). The regex used to match `g.fillStyle(hexToInt(
+ * fill), N)`, which is the spelling the scene painted with when it had its own
+ * rounded rect. It is still the SCENE that is read, not the component, and for
+ * the reason this file exists: the alpha that matters is the one this screen
+ * asks for, and a default in the component would be a number no stop was ever
+ * measured at.
+ */
 function hudPlateAlpha(): number {
-  const m = source("scenes/HudScene.ts").match(
-    /g\.fillStyle\(hexToInt\(fill\), ([\d.]+)\);/,
-  );
+  // WATCHED FAILING after the move: with `alpha: 1` in `HudScene.plate` put
+  // back to the shipped `alpha: 0.86`, this file reports
+  //   the HUD's labels clear 4.5:1 at every stop > draws its readout plate
+  //   opaque, so the ratio is not a function of the sky
+  //     expected 0.86 to be 1
+  const m = source("scenes/HudScene.ts").match(/drawPlate\(\s*this,[\s\S]*?alpha:\s*([\d.]+)/);
   if (m?.[1] === undefined) throw new Error("HudScene no longer fills its plate");
   return Number(m[1]);
 }

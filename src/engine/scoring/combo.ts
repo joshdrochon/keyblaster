@@ -11,10 +11,56 @@
  * number is not a play outcome at all, so it is treated as unusable and yields
  * the no-reward value. NaN and Infinity therefore both give multiplier 0 and
  * score 0 - junk never earns points.
+ *
+ * `UR-72`: LENGTH NOW PAYS, AND UNDER THE OLD CURVE IT WAS WORSE THAN FLAT.
+ * `UR-72` asks for longer words on the rocks and for a long word to be worth
+ * more than a short one. `length x 20 x combo` is linear in length, so the
+ * reward PER KEYSTROKE
+ * was a constant 20 x combo whatever the word was - while the combo advances
+ * once per WORD, not once per letter. Two four-letter words therefore beat one
+ * nine-letter word outright (160 + 80 of multiplier growth against 180 at the
+ * same starting combo) and cost one keystroke less. The curve that was supposed
+ * to be neutral on length was quietly paying the player to avoid long words,
+ * which is the opposite of what the content change beside this one is for.
+ *
+ * The fix is a superlinear term, not a bigger flat weight: the per-letter rate
+ * stays where the decision log put it and a quadratic bonus is added on top of
+ * it for every letter past the guaranteed-catch band (`LENGTH_BONUS_FLOOR`).
+ * Below that floor nothing changes at all, so a struggling pilot's three- and
+ * four-letter rocks score exactly what they scored before - this adds a reward
+ * for reach, it does not take one away from anybody (D31).
  */
 
 /** Type Storm's per-letter score weight, mirrored per the decision log. */
 export const POINTS_PER_LETTER = 20;
+
+/**
+ * Length at which the bonus starts counting, and the reason it is this number.
+ *
+ * It is AC-9.2's guaranteed-catch length (`selection/weights.CATCH_MAX_LENGTH`,
+ * 4): the longest word the engine is willing to promise a player can catch.
+ * Everything at or below it is the floor the game already treats as "within
+ * reach", so that is exactly where "reach" should start being paid for.
+ *
+ * It is DUPLICATED rather than imported so that scoring does not depend on
+ * selection - two engine modules that have no other reason to know about each
+ * other. The tie is asserted in tests/unit/scoring/combo.test.ts instead, so if
+ * the selection lane ever moves its number this fails rather than drifting.
+ */
+export const LENGTH_BONUS_FLOOR = 4;
+
+/**
+ * Points added per squared letter past `LENGTH_BONUS_FLOOR`.
+ *
+ * Half `POINTS_PER_LETTER`, chosen against one measurable bar: a nine-letter
+ * word must beat two four-letter words at EVERY combo, including x10 where both
+ * short words are also capped. At 10 that is 430 against 240 at x1 and 4300
+ * against 1600 at x10 - a premium of 1.8x to 2.7x, which is meant to be felt.
+ * The premium is paying for real risk as well as effort: one slip anywhere in a
+ * long word resets the combo (`comboReducer`), and the longer the word the more
+ * of the chain is staked on it.
+ */
+export const LENGTH_BONUS_PER_LETTER = 10;
 
 /** AC-6c.1 / D81: the multiplier stops climbing at x10. */
 export const MAX_MULTIPLIER = 10;
@@ -82,7 +128,27 @@ export function comboReducer(state: ComboState, event: ComboEvent): ComboState {
 }
 
 /**
- * Score for one completed word: `length x 20 x multiplier`.
+ * Base value of one word before the combo, in points. Exported so the length
+ * curve can be read and tested on its own, without a multiplier in the way.
+ *
+ *     base(len) = len x 20 + 10 x max(0, len - 4)^2
+ *
+ *     len   3    4    5    6    7    8    9   10   11   12   13
+ *     base 60   80  110  160  230  320  430  560  710  880 1070
+ *
+ * Non-finite or non-positive length is not a word, so it is worth nothing
+ * (module header, non-finite input policy). Length is floored, never rounded:
+ * a fractional length is junk input and must not round UP into a bonus band.
+ */
+export function wordBaseScore(wordLength: number): number {
+  if (!Number.isFinite(wordLength) || wordLength <= 0) return 0;
+  const len = Math.floor(wordLength);
+  const over = Math.max(0, len - LENGTH_BONUS_FLOOR);
+  return len * POINTS_PER_LETTER + LENGTH_BONUS_PER_LETTER * over * over;
+}
+
+/**
+ * Score for one completed word: `base(length) x multiplier`.
  *
  * OWNERSHIP CONTRACT. `multiplier` must be the multiplier AFTER the hit has
  * been applied to the combo, so the first word of a chain scores at x1 rather
@@ -100,12 +166,9 @@ export function comboReducer(state: ComboState, event: ComboEvent): ComboState {
  * case, and it is why option 1 says "newState".
  */
 export function wordScore(wordLength: number, multiplier: number): number {
-  if (!Number.isFinite(wordLength) || wordLength <= 0) return 0;
   if (!Number.isFinite(multiplier) || multiplier <= 0) return 0;
   return (
-    Math.floor(wordLength) *
-    POINTS_PER_LETTER *
-    Math.min(Math.floor(multiplier), MAX_MULTIPLIER)
+    wordBaseScore(wordLength) * Math.min(Math.floor(multiplier), MAX_MULTIPLIER)
   );
 }
 

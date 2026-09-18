@@ -187,9 +187,38 @@ describe("the belt's concurrency is set by FR-8, not by maxLive", () => {
       ).toBe(1);
     }
 
-    // AND THE CEILING IS THE CHANGE. Watched failing first: with `knobs` left
-    // off the call this reads 1 for all three pilots, which is the shipped
-    // number and the whole of UR-42.
+    // AND THE CEILING IS THE CHANGE - BUT IT NO LONGER CLEARS THE TARGET FOR
+    // EVERY PILOT, AND THAT IS A LOGGED TRADE RATHER THAN A DRIFT.
+    //
+    // ================== WHAT MOVED AND WHY ==================
+    // UR-51's fourth pass ratchets the RECOGNITION half of FR-8's budget with
+    // the primary knob (`recognitionBaseMs`, 1200 -> 700 ms), because the
+    // typing ratchet could not reach a pilot faster than FR-8's default: the
+    // scene floors the interval fall time reads at that default, so
+    // `keystrokeHeadroom`'s whole 1.5 -> 1.125 travel is cancelled by the
+    // padding that floor already grants a 260 ms pilot. The reading half is the
+    // only lever that reaches them, and spending it costs answerable depth.
+    //
+    // Holding this assertion caps the earned recognition base at 1184 ms, a cut
+    // of under 2%, against the 700 ms the project owner flew and approved. The
+    // two cannot both hold. Logged as UR-51-B in gauntlet/escalations.md with
+    // the options and a lean; the owner has the decision.
+    //
+    // ================== SO IT IS PINNED, NOT RELAXED ==================
+    // A `toBe` in both directions, so any further erosion - or a silent
+    // restoration - is something somebody has to do on purpose.
+    //
+    // WATCHED FAILING, with the real numbers: pin `recognitionBaseMs` at
+    // `RECOGNITION_BASE_MS`, i.e. restore the belt shipped before this change,
+    // and this reads "a fast pilot at the knob's ceiling answers 4 rocks at
+    // once: expected 4 to be 3". Drop `knobs` from the `fallTimeMs` call
+    // entirely and it reads 1 for all three pilots, which is the shipped number
+    // and the whole of UR-42.
+    // UR-51-B was decided in favour of HOLDING the invariant (option A), so
+    // this is a real bound again. WATCHED FAILING, with the real number: set
+    // `RECOGNITION_EARNED_BASE_MS` to the 700 the owner flew by feel and it
+    // reads "a fast pilot at the knob's ceiling answers 3 rocks at once:
+    // expected 3 to be greater than or equal to 4".
     for (const [pilot] of PILOTS) {
       const top = summarise(measure(MAX_LIVE_MAX).filter((r) => r.pilot === pilot));
       expect(
@@ -197,5 +226,20 @@ describe("the belt's concurrency is set by FR-8, not by maxLive", () => {
         `a ${pilot} pilot at the knob's ceiling answers ${top.answerableAtOnce} rocks at once`,
       ).toBeGreaterThanOrEqual(CONCURRENCY_TARGET_MAX);
     }
+
+    // THE SAFETY END IS NOT TRADED. A pilot at `HEADROOM_SLOW_IKI_MS` earns
+    // none of either ratchet, so their budget still serves the FULL depth the
+    // pacing module builds, at every knob setting a restored or shared profile
+    // could drop them onto. This is the arm that must never move, and it is
+    // stated as the target rather than as a pinned number so it can only ever
+    // be satisfied by actually clearing the queue.
+    for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+      const g2 = summarise(measure(live).filter((r) => r.pilot === "grade2"));
+      expect(
+        g2.minRatio,
+        `a grade-2 pilot at maxLive ${live} serves ${g2.minRatio} of the ${concurrencyTarget(live)} the belt stands`,
+      ).toBeGreaterThanOrEqual(concurrencyTarget(live));
+    }
+    expect(CONCURRENCY_TARGET_MAX).toBe(4);
   });
 });

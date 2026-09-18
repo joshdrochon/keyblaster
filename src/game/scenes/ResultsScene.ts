@@ -42,6 +42,7 @@ import {
   type PlatedText,
   type SceneSnapshot,
 } from "./lib/kit";
+import { paintPlate } from "@game/ui/plate";
 import { typographyOf } from "./lib/typography";
 import { laneInit, publishBag, textStyles, type LaneInit } from "./support/laneInit";
 import {
@@ -160,6 +161,12 @@ const PANEL_SURFACE = compositeOver(INK.panel, PANEL_ALPHA, WORST_CASE_SKY);
  */
 const BUTTON_FILL = "#32445E";
 const BUTTON_STROKE = "#5A7195";
+/**
+ * What the primary button's edge is mixed TOWARD, as a token rather than as a
+ * `"#FFFFFF"` written inside a draw call. It is pure white; naming it is what
+ * keeps the scene's ink greppable alongside the rest (UR-69).
+ */
+const BUTTON_EDGE_LIGHT = "#FFFFFF";
 const BUTTON_INK = INK.panelSunken;
 
 /** Where Shadow stands, and how big he is there. */
@@ -533,10 +540,11 @@ export class ResultsScene extends Phaser.Scene {
   private drawPanel(g: Phaser.GameObjects.Graphics, r: Rect | null): void {
     g.clear();
     if (r === null || r.w <= 0 || r.h <= 0) return;
-    g.fillStyle(hexToNum(INK.panel), PANEL_ALPHA);
-    g.fillRoundedRect(r.x, r.y, r.w, r.h, SPACE.radius);
-    g.lineStyle(2, hexToNum(INK.line), 0.9);
-    g.strokeRoundedRect(r.x, r.y, r.w, r.h, SPACE.radius);
+    // THE SHARED PLATE (UR-69), on the `card` rhythm. `PANEL_ALPHA` stays here
+    // rather than becoming the component's default: it is the number
+    // `PANEL_SURFACE` composites and `plateOpacity.test.ts` reads, so this
+    // screen keeps saying what it is drawn at.
+    paintPlate(g, r, { fill: INK.panel, alpha: PANEL_ALPHA, stroke: INK.line, rhythm: "card" });
   }
 
   // -------------------------------------------------------------------------
@@ -1115,10 +1123,16 @@ export class ResultsScene extends Phaser.Scene {
   ): FocusTarget {
     const accent = this.lane.palette.accent;
     const g = this.add.graphics().setDepth(1);
-    g.fillStyle(hexToNum(primary ? accent : BUTTON_FILL), 1);
-    g.fillRoundedRect(r.x, r.y, r.w, r.h, SPACE.radius);
-    g.lineStyle(2, hexToNum(primary ? mixHex(accent, "#FFFFFF", 0.35) : BUTTON_STROKE), 1);
-    g.strokeRoundedRect(r.x, r.y, r.w, r.h, SPACE.radius);
+    // The same component on the `button` rhythm (UR-69). Both buttons get a
+    // border, because what made the shipped pair read as disabled was that
+    // neither had an edge of any kind.
+    paintPlate(g, r, {
+      fill: primary ? accent : BUTTON_FILL,
+      alpha: 1,
+      stroke: primary ? mixHex(accent, BUTTON_EDGE_LIGHT, 0.35) : BUTTON_STROKE,
+      strokeAlpha: 1,
+      rhythm: "button",
+    });
     this.boardParts.push(g);
 
     // D41: a button label is chrome and chrome is lowercase. Applied HERE and

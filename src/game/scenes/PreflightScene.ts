@@ -4,6 +4,7 @@ import { hexToNum, mixHex, paletteAt } from "@game/render/palette";
 import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { HULL, PANEL, rivetPositions } from "@game/ui/panel";
+import { paintPlate } from "@game/ui/plate";
 import { drawShadow, type ShadowFigure, type ShadowPose } from "@game/render/shadow";
 import {
   PREFLIGHT_ASSIST_GIVE_UP,
@@ -459,8 +460,13 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     // the same cockpit: busy-pixel fraction 8.6% here against 14.0% there,
     // lowest in the product. Quiet and unlabelled on purpose - no readout a
     // child could fail (AC-11.3).
-    frame.fillStyle(hexToNum(INK.panel), 1);
-    frame.fillRoundedRect(SHELF.x, SHELF.y, SHELF.w, SHELF.h, SPACE.radius);
+    // THE SHARED PLATE (UR-69). Painted into the frame's own Graphics rather
+    // than adding a second one, which is what `paintPlate` is for.
+    paintPlate(
+      frame,
+      SHELF,
+      { fill: INK.panel, alpha: 1, strokeWidth: 0, rhythm: "instrument" },
+    );
     for (let i = 0; i < 9; i += 1) {
       const lit = i % 3 === 0;
       frame.fillStyle(hexToNum(lit ? accent : INK.line), lit ? 0.75 : 1);
@@ -560,10 +566,13 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     // `faceShade`, which is below the hull's own value, so the rack read as a
     // hole cut in the wall rather than a plate bolted to it - `ui/panel.ts`
     // says exactly this about recesses and it applies here too.
-    bulkhead.fillStyle(hexToNum(PANEL.face), 1);
-    bulkhead.fillRoundedRect(BULKHEAD.x, BULKHEAD.y, BULKHEAD.w, BULKHEAD.h, SPACE.radius);
-    bulkhead.lineStyle(2, hexToNum(PANEL.lip), 0.7);
-    bulkhead.strokeRoundedRect(BULKHEAD.x, BULKHEAD.y, BULKHEAD.w, BULKHEAD.h, SPACE.radius);
+    paintPlate(bulkhead, BULKHEAD, {
+      fill: PANEL.face,
+      alpha: 1,
+      stroke: PANEL.lip,
+      strokeAlpha: 0.7,
+      rhythm: "card",
+    });
     for (const rivet of rivetPositions(BULKHEAD, 22)) {
       bulkhead.fillStyle(hexToNum(PANEL.rivet), 1);
       bulkhead.fillCircle(rivet.x, rivet.y, 5);
