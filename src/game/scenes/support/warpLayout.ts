@@ -2,10 +2,13 @@ import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
 import { GUTTER, contentRight } from "@game/ui/grid";
 import type { Rect } from "@game/ui/layout";
 import {
+  MARK,
   PLATE_RHYTHM,
   PLATE_STACK_GAP,
+  PLATE_STEP,
+  badgeBox,
+  flowFooter,
   lineBox,
-  plateFooter,
   plateHeight,
   stackRows,
 } from "@game/ui/plateLayout";
@@ -93,28 +96,33 @@ const CARD_W = 1728;
  *
  * ================== WHAT IT IS NOW ==================
  * Three rows on the shared plate's `card` rhythm (`ui/plateLayout.ts`), TOP
- * ALIGNED, one 20 px unit apart, with the hint pinned to the card's foot:
+ * ALIGNED, one step apart, with the hint following the sentence:
  *
  *   destination   one line of TYPE.label
  *   the sentence  the worst case, which is two lines
- *   the hint      one line of TYPE.caption, at the foot
+ *   the hint      one line of TYPE.caption
  *
- * `PANEL.h` is now DERIVED from those rows - 268, where it was 280 picked by
- * trying 250 and finding the hint printed through. The gap under the
- * destination line is one unit by construction and is the same at one line and
- * at two.
+ * `PANEL.h` is DERIVED from those rows - 265, where it was 280 picked by trying
+ * 250 and finding the hint printed through. The gap under the destination line
+ * is one step by construction and is the same at one line and at two.
  *
- * MEASURED, ink to ink, in Latin (the rows are sized on the Devanagari line box
- * so Hindi does not collide, so the Latin gap reads a few px wider than the
- * unit):
+ * ================== THE SECOND PASS CONDENSED IT AGAIN ==================
+ * The first pass moved the hole; it did not close it. Two changes, both on the
+ * SHARED component rather than on this screen:
  *
- *                     before          after
- *   one-line stop     291 -> 361      287 -> 313      70 px   ->  26 px
- *   two-line stop     291 -> 327      287 -> 313      36 px   ->  26 px
+ *   the `card` rhythm moved from the `unit` step (20) to the `glass` step (12)
+ *   the hint stopped being pinned to the card's foot (`flowFooter`)
  *
- * And the column as a whole: 236..820 -> 236..808, with the instrument's rows
- * pulled 8 px tighter each and its clearance over the Lantern's band up from
- * 17.6 px to 29.6 px.
+ * MEASURED IN THE SERVED BUILD at Jupiter, ink to ink, in Latin (the rows are
+ * sized on the Devanagari line box so Hindi does not collide, so the Latin gap
+ * reads a few px wider than the step):
+ *
+ *                              shipped   pass 1   pass 2
+ *   destination -> sentence     70.0      29.2     21.2
+ *   sentence -> the hint          -       79.8     32.8
+ *
+ * And the column as a whole: 236..820 -> 236..808 -> 236..805, with its
+ * clearance over the Lantern's band up from 17.6 px to 32.6 px.
  *
  * ================== WHY THE CARD STILL DOES NOT RESIZE ==================
  * It is sized for the WORST CASE rather than for the sentence it holds, and
@@ -124,13 +132,17 @@ const CARD_W = 1728;
  * same geometry". A card that sized to its content would jump the moment the
  * coach landed, which is the thing AC-33 exists to forbid one card over.
  *
- * THE COST, STATED. On a one-line stop the slack that used to sit above the
- * sentence now sits below it: 72 px between the sentence's baseline box and the
- * hint at the card's foot. That is the trade - a gap between a body and a
- * FOOTER, against a gap between a heading and its BODY - and the second is the
- * one that breaks the reading order, because it separates a label from the
- * thing it labels. `warpLayout.test.ts` asserts the number so it cannot grow
- * quietly.
+ * And the worst case is REACHABLE, not paranoia: the coach's gate caps a
+ * composed sentence at 56 characters (`engine/coach/sentence.ts`) and this
+ * card's 1648 px content box holds about 54 at the scene's own width estimate.
+ *
+ * THE COST, STATED. A one-line stop's slack has to go somewhere and it now goes
+ * BELOW the hint: 68 px - exactly the reserved second line - between the hint
+ * and the card's bottom padding, where it reads as a deep foot rather than as a
+ * hole in the reading order. Closing that last 68 px means capping the sentence
+ * to one line, which is a change to D09's fallback behaviour and not this
+ * lane's to make; it is in gauntlet/escalations.md with a lean.
+ * `warpLayout.test.ts` asserts the number so it cannot grow quietly.
  */
 const PANEL_Y = 236;
 
@@ -166,8 +178,25 @@ export const SENTENCE_STEP = SENTENCE_PX + SENTENCE_LEADING;
  */
 export const SENTENCE_MAX_LINES = 2;
 
-/** The sentence block at its worst case: two lines, without trailing leading. */
-const SENTENCE_BLOCK = SENTENCE_MAX_LINES * SENTENCE_STEP - SENTENCE_LEADING;
+/**
+ * The sentence block at its worst case: two lines.
+ *
+ * THE LAST LINE IS A `lineBox`, NOT A STEP (UR-70). It used to be
+ * `2 * SENTENCE_STEP - SENTENCE_LEADING` = 120, which is two 52 px steps with
+ * the trailing leading taken back off - and 120 is smaller than two lines of
+ * 52 px type actually are. Measured in Chromium, one line of 52 px Latin ink is
+ * 60.2 px tall, so a two-line sentence's ink ran 8 px past the block it was
+ * laid out in and the only thing keeping it off the hint was the 20 px the rows
+ * used to be apart. Condensing the rhythm to 12 would have cut that clearance
+ * to 3.8 px: the old under-reservation was invisible until the padding it was
+ * hiding behind went away.
+ *
+ * So the block is now the steps BETWEEN the lines plus one real line box - and
+ * the line box is the Devanagari one (rule 5), which is the tallest of the
+ * three languages this ships in. 68 + 81 = 149.
+ */
+const SENTENCE_BLOCK =
+  (SENTENCE_MAX_LINES - 1) * SENTENCE_STEP + lineBox(SENTENCE_PX);
 
 /** The card's rows, in order, as the heights the rhythm lays out. */
 const PANEL_ROWS: readonly number[] = [
@@ -193,9 +222,47 @@ export function sentenceRow(): Rect {
   return stackRows(PANEL, PANEL_ROWS, "card")[1] as Rect;
 }
 
-/** The keyboard hint, pinned to the card's foot. */
-export function hintRow(): Rect {
-  return plateFooter(PANEL, lineBox(TYPE.caption), "card");
+/**
+ * The keyboard hint, ONE STEP UNDER THE SENTENCE THAT IS ACTUALLY ON SCREEN
+ * (UR-70).
+ *
+ * ================== THE HOLE THIS CLOSES ==================
+ * It was pinned to the card's FOOT, and the card's foot is sized for the
+ * two-line worst case while the sentence on screen is almost always one line -
+ * the coach's own gate caps a composed sentence at 56 characters
+ * (`engine/coach/sentence.ts`) and this card holds about 57. So the reserved
+ * second line was a hole: measured at Jupiter, ink to ink, 79.8 px of nothing
+ * between the sentence and the line that tells the child what to do with it.
+ *
+ * `lines` is the LAID-OUT count, which only `WarpScene.layoutLetters` knows,
+ * so it is a parameter rather than something guessed here. The default is the
+ * worst case, so a caller that does not know yet gets the old foot.
+ *
+ * THE CARD STILL DOES NOT RESIZE. `flowFooter` clamps at the foot, so a
+ * two-line sentence puts the hint exactly where `plateFooter` always put it and
+ * a one-line sentence pulls it up into the card. The slack moves from the
+ * middle of the reading order to the card's bottom, which is the only place a
+ * gap costs nothing - and it is the same trade the note above `PANEL` describes,
+ * finished.
+ */
+export function hintRow(lines: number = SENTENCE_MAX_LINES): Rect {
+  const band = sentenceRow();
+  const laid = Math.max(1, Math.round(lines));
+  const bottom = band.y + (laid - 1) * SENTENCE_STEP + lineBox(SENTENCE_PX);
+  return flowFooter(PANEL, bottom, lineBox(TYPE.caption), "card");
+}
+
+/**
+ * The destination's badge: a square in the card's TOP RIGHT (UR-70).
+ *
+ * `plateLayout.badgeBox` is the shared geometry and this is the warp break
+ * naming its size; the planet in it is drawn by `render/planetBadge.ts`. Inside
+ * the card's own padding, so it can collide with neither the rim nor a bracket
+ * arm, and on the destination line's row, because it is a picture of the word
+ * that row ends with.
+ */
+export function badgeRow(): Rect {
+  return badgeBox(PANEL, MARK.badge, "card");
 }
 
 /**
@@ -260,6 +327,25 @@ export const INSTRUMENT: Rect = {
 /** The charge track, INSET INSIDE the instrument. Not a card of its own. */
 export const INSTRUMENT_INSET = PLATE_RHYTHM.instrument.padX;
 export const METER: Rect = stackRows(INSTRUMENT, INSTRUMENT_ROWS, "instrument")[1] as Rect;
+
+/**
+ * The charge bolt's box, in the track's left cap (UR-70).
+ *
+ * WHERE THE CHARGE STARTS, which is why it is the LEFT cap and not the middle:
+ * the mark is a label for the bar's zero, and a bolt floating in the centre of
+ * an empty track reads as a decoration on a track rather than as the thing the
+ * track is filling with. Centred vertically in `METER` and sized from
+ * `MARK.bolt`, so it can never be taller than the track it is inside - which
+ * `warpLayout.test.ts` asserts, because the track is 26 px and the mark is 22.
+ */
+export function boltRow(): Rect {
+  return {
+    x: METER.x + PLATE_STEP.glass,
+    y: METER.y + (METER.h - MARK.bolt.h) / 2,
+    w: MARK.bolt.w,
+    h: MARK.bolt.h,
+  };
+}
 
 export const COACH: Rect = {
   x: GUTTER,

@@ -6,6 +6,7 @@ import { STOP_IDS, type Lang } from "@engine/types";
 import { lineHeightEm, TYPE } from "@game/ui/theme";
 import { advanceEmFor, wrapLineCount } from "@game/scenes/support/endingLayout";
 import {
+  ACTION_BOTTOM,
   PAGE_MAX_BOTTOM,
   PAGE_MIN_H,
   PAGE_TOP,
@@ -574,6 +575,39 @@ describe("UR-60: launch is centred on the screen and the way out is small and le
     expect(chip.x).toBe(GUTTER);
     expect(chip.w * chip.h).toBeLessThan((btn.w * btn.h) / 2);
     expect(overlaps(chip, btn)).toBe(false);
+  });
+
+  it("sits both actions the same distance from the foot of the screen (UR-76)", () => {
+    // ================== THE DEFECT ==================
+    // The two controls were centred on EACH OTHER, which is the right idea on
+    // the wrong axis: two boxes of different heights sharing a middle do NOT
+    // share a distance from the bottom of the screen. Launch (68 px) ended
+    // 14 px off the artboard's foot while the chip (48 px) had 24, and launch
+    // is the one wearing the focus ring, so it was the crowding the project
+    // owner saw.
+    //
+    // This is the claim the old geometry could not make, and it is written as
+    // a shared LINE rather than as two numbers, so it survives either control
+    // being resized later.
+    //
+    // WATCHED FAILING, with `y: LAUNCH.y + (LAUNCH.h - 48) / 2` restored on
+    // BACK_CHIP and `h: 68` on LAUNCH:
+    //
+    //   launch and back must share one bottom line: expected 1066 to be 1056
+    const btn = launchButton();
+    const chip = backChip();
+    expect(
+      btn.y + btn.h,
+      "launch and back must share one bottom line",
+    ).toBe(chip.y + chip.h);
+    expect(btn.y + btn.h).toBe(ACTION_BOTTOM);
+    // And the line is clear of the foot by more than a hairline. 24 px is what
+    // the chip already had; the point is that launch now has it too.
+    expect(GAME_HEIGHT - ACTION_BOTTOM).toBeGreaterThanOrEqual(24);
+    // THE PAGE CLEARANCE IS NOT WHAT PAID FOR IT. Launch reached the line by
+    // losing height, never by moving up into the page - there are exactly ten
+    // pixels there and none are spare.
+    expect(btn.y).toBeGreaterThan(PAGE_MAX_BOTTOM);
   });
 
   it("keeps BOTH inside the frame WITH their focus rings, and off the page", () => {

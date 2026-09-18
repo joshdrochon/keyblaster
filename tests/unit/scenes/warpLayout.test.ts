@@ -13,10 +13,13 @@ import {
   SHIP_ABOVE,
   SHIP_BELOW,
   SHIP_DESIGN_HALF_W,
+  SENTENCE_MAX_LINES,
   SENTENCE_PX,
   SENTENCE_STEP,
   SHIP_HALF_W,
   WARP_CARDS,
+  badgeRow,
+  boltRow,
   destinationRow,
   hintRow,
   sentenceRow,
@@ -28,7 +31,14 @@ import {
   lanternPlumeBox,
   shipBandTop,
 } from "@game/scenes/support/warpLayout";
-import { PLATE_RHYTHM, PLATE_STACK_GAP, lineBox } from "@game/ui/plateLayout";
+import {
+  MARK,
+  PLATE_RHYTHM,
+  PLATE_STACK_GAP,
+  lineBox,
+  plateContent,
+  plateFooter,
+} from "@game/ui/plateLayout";
 import { TYPE } from "@game/ui/theme";
 
 /**
@@ -204,9 +214,16 @@ describe("the three cards still read as one column", () => {
     // has to hold a second line without printing it through the hint. Read off
     // the rows now rather than off `PANEL.y + 78` and `PANEL.h - 44`, which
     // were the two literals the card was laid out with before UR-70.
+    //
+    // AND THE SECOND LINE IS REACHABLE, which is why this is not paranoia. The
+    // coach's gate caps a composed sentence at 56 characters
+    // (`engine/coach/sentence.SENTENCE_LIMITS.maxChars`) and this card's
+    // content box is 1648 px, which at the scene's own 0.58-em estimate holds
+    // about 54 - so the reserved line is a case the screen really can reach,
+    // and the card is sized for it whatever the sentence on screen is.
     const band = sentenceRow();
     const secondLineBottom = band.y + SENTENCE_STEP + Math.round(SENTENCE_PX * 1.3);
-    expect(hintRow().y).toBeGreaterThan(secondLineBottom);
+    expect(hintRow(2).y).toBeGreaterThan(secondLineBottom);
   });
 
   it("do not overlap each other", () => {
@@ -237,16 +254,22 @@ describe("UR-70: the column is condensed, and the gap is not a function of the s
    * destination line, so half a one-line sentence's slack went above it:
    *
    *                    before        after
-   *   one-line stop    70 px         26 px
-   *   two-line stop    36 px         26 px
+   *   one-line stop    70 px         26 px         18 px
+   *   two-line stop    36 px         26 px         18 px
+   *
+   * The third column is this pass. The `card` rhythm moved from the `unit`
+   * step (20) to the `glass` step (12) - condensation as a property of the
+   * SHARED component (`ui/plateLayout.PLATE_RHYTHM`), not a literal on this
+   * screen - and the hint stopped being pinned to the card's foot.
    *
    * Ink to ink, in Latin. The rows are sized on the DEVANAGARI line box (rule
-   * 5: three languages), so the Latin gap reads 6 px wider than the 20 px unit
-   * the rhythm lays out.
+   * 5: three languages), so the Latin gap reads 6 px wider than the step the
+   * rhythm lays out.
    *
-   * WATCHED FAILING - `sentenceRow()` put back to the shipped centring,
-   * `PANEL.y + 78 + round((146 - block) / 2)` with a one-line block - three
-   * cases red, and the third is the one that says the slack merely moved:
+   * ================== WATCH THEM FAIL (rule 4) ==================
+   * `sentenceRow()` put back to the shipped centring, `PANEL.y + 78 +
+   * round((146 - block) / 2)` with a one-line block - three cases red, and the
+   * third is the one that says the slack merely moved:
    *
    *   the three cards still read as one column > fit two lines of sentence
    *   above the hint
@@ -255,41 +278,121 @@ describe("UR-70: the column is condensed, and the gap is not a function of the s
    *     expected 68 to be 20
    *   names what a one-line stop pays for it
    *     expected 24 to be 72
+   *
+   * And this pass's own numbers, off the real red run that preceded it -
+   * `PLATE_RHYTHM.card` back on the `unit` step and `hintRow` back to
+   * `plateFooter`:
+   *
+   *   puts one unit under the destination line, at any sentence length
+   *     expected 18 to be 26
+   *   the card is no taller than the rows in it
+   *     expected 265 to be 268
+   *   the three plates are one unit apart, and the column got shorter
+   *     expected 805 to be 808
+   *   names what a one-line stop pays for it
+   *     expected 93 to be 72
    */
   const INK_LATIN = (px: number): number => Math.round(px * 1.3);
 
   it("puts one unit under the destination line, at any sentence length", () => {
     const d = destinationRow();
     expect(sentenceRow().y - (d.y + d.h)).toBe(PLATE_RHYTHM.card.gap);
-    // Ink to ink, which is the distance a person sees.
-    expect(sentenceRow().y - (d.y + INK_LATIN(TYPE.label))).toBe(26);
+    // Ink to ink, which is the distance a person sees. 26 before this pass.
+    expect(sentenceRow().y - (d.y + INK_LATIN(TYPE.label))).toBe(18);
   });
 
   it("the card is no taller than the rows in it", () => {
     // Derived, not picked. 280 was 250 plus 30 added after the hint was found
-    // printing through.
-    expect(PANEL.h).toBe(268);
-    expect(PANEL.h).toBeLessThan(280);
+    // printing through; 268 was that derived on the `unit` step.
+    expect(PANEL.h).toBe(265);
+    expect(PANEL.h).toBeLessThan(268);
   });
 
   it("the three plates are one unit apart, and the column got shorter", () => {
     expect(INSTRUMENT.y - bottom(PANEL)).toBe(PLATE_STACK_GAP);
     expect(COACH.y - bottom(INSTRUMENT)).toBe(PLATE_STACK_GAP);
-    // 236..820 before; the whole column is 12 px shorter and its clearance over
-    // the Lantern's band went from 17.6 px to 29.6 px.
-    expect(bottom(COACH)).toBe(808);
-    expect(shipBandTop() - bottom(COACH)).toBeGreaterThan(29);
+    // 236..820 before UR-70, 236..808 after its first pass, 236..805 now, with
+    // the clearance over the Lantern's band up from 17.6 px to 32.6 px.
+    expect(bottom(COACH)).toBe(805);
+    expect(shipBandTop() - bottom(COACH)).toBeGreaterThan(32);
+  });
+
+  it("puts the hint under the sentence rather than at the card's foot", () => {
+    // THE HOLE UR-70 IS ABOUT, ON THE OTHER SIDE OF THE SENTENCE. The card is
+    // sized for a two-line composed sentence and shows a one-line one, so the
+    // reserved line was left as a gap between the sentence and the line that
+    // tells the child what to do with it - 79.8 px of nothing, measured ink to
+    // ink in the served build at Jupiter.
+    //
+    // `flowFooter` puts the hint one step under the sentence THAT IS THERE and
+    // clamps at the foot, so a one-line stop gets it pulled up and a two-line
+    // stop gets it exactly where `plateFooter` always put it. The card does not
+    // resize either way, which is `relayoutSentence`'s contract.
+    const band = sentenceRow();
+    const oneLine = band.y + lineBox(SENTENCE_PX);
+    expect(hintRow(1).y).toBe(oneLine + PLATE_RHYTHM.card.gap);
+    expect(hintRow(2)).toEqual(plateFooter(PANEL, lineBox(TYPE.caption), "card"));
+    expect(hintRow(1).y).toBeLessThan(hintRow(2).y);
+    // The default is the WORST case, so a caller that has not laid the sentence
+    // out yet can never get a hint above a line that is about to be drawn.
+    expect(hintRow()).toEqual(hintRow(SENTENCE_MAX_LINES));
   });
 
   it("names what a one-line stop pays for it", () => {
     // THE TRADE, ASSERTED SO IT CANNOT GROW QUIETLY. The card cannot resize -
     // `relayoutSentence` swaps in a composed sentence live and its contract is
-    // "same geometry" - so a one-line stop's slack has to go somewhere. It goes
-    // between the sentence and the FOOTER rather than between the destination
-    // line and the sentence, because the second separates a label from the
-    // thing it labels.
+    // "same geometry" - so a one-line stop's slack has to go somewhere. It is
+    // now BELOW the hint, at the card's foot, where a gap reads as a card's
+    // bottom padding; it used to be between the sentence and the hint, where it
+    // read as a hole in the middle of the reading order.
     const oneLineBottom = sentenceRow().y + INK_LATIN(SENTENCE_PX);
-    expect(hintRow().y - oneLineBottom).toBe(72);
+    expect(hintRow(1).y - oneLineBottom).toBe(25);
+    // What is left under the hint, and it is exactly the reserved second line:
+    // one `SENTENCE_STEP`. That is the number a decision about capping the
+    // composed sentence to one line would buy back, and it is in
+    // gauntlet/escalations.md rather than taken here.
+    const hint = hintRow(1);
+    expect(bottom(PANEL) - PLATE_RHYTHM.card.padY - (hint.y + hint.h)).toBe(68);
+    expect(bottom(PANEL) - PLATE_RHYTHM.card.padY - (hint.y + hint.h)).toBe(
+      SENTENCE_STEP,
+    );
+  });
+
+  /**
+   * UR-70'S TWO PLACED MARKS. The prompt glyph and the dots hang off the header
+   * lines, which are measured off live Text bounds and so belong to the scene;
+   * these two are rectangles in the column and belong here.
+   *
+   * WATCHED FAILING - `badgeRow` reading the card on the `chip` rhythm, which
+   * is the mistake a badge helper with a default rhythm invites, and `boltRow`
+   * given `METER.y` instead of the centred y:
+   *
+   *   sets the destination badge inside the card's top right corner
+   *     expected { x: 1758, y: 248, w: 44, h: 44 } to deeply equal
+   *     { x: 1740, y: 248, w: 44, h: 44 }
+   *   puts the charge bolt inside the track, at the end the fill starts from
+   *     expected 573 to be 575
+   */
+  it("sets the destination badge inside the card's top right corner", () => {
+    const badge = badgeRow();
+    const box = plateContent(PANEL, "card");
+    expect(badge).toEqual({ x: 1740, y: box.y, w: MARK.badge, h: MARK.badge });
+    // INSIDE the padding, so it can collide with neither a bracket arm nor the
+    // rim, whichever of them a screen turns on.
+    expect(badge.x + badge.w).toBe(box.x + box.w);
+    expect(badge.y).toBe(destinationRow().y);
+    expect(badge.y + badge.h).toBeLessThanOrEqual(sentenceRow().y);
+  });
+
+  it("puts the charge bolt inside the track, at the end the fill starts from", () => {
+    const bolt = boltRow();
+    expect(bolt.h).toBeLessThan(METER.h);
+    expect(bolt.y).toBe(METER.y + (METER.h - MARK.bolt.h) / 2);
+    expect(bolt.y + bolt.h).toBeLessThanOrEqual(METER.y + METER.h);
+    // The LEFT cap: the mark labels the bar's zero, so it sits where the fill
+    // starts rather than floating in the middle of an empty track.
+    expect(bolt.x).toBe(METER.x + 12);
+    expect(bolt.x + bolt.w).toBeLessThan(METER.x + METER.w / 2);
   });
 
   it("measures its rows in Devanagari, so Hindi does not collide", () => {

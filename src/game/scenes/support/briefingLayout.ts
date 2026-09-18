@@ -361,7 +361,42 @@ export function controlStrip(): Rect {
  * of plate - the button is the widest thing on the screen's foot and the only
  * thing on its centre line, which is what makes it the focus.
  */
-export const LAUNCH = { w: 420, h: 68, y: 998 } as const;
+/**
+ * THE LINE BOTH ACTIONS REST ON (UR-76).
+ *
+ * The two controls used to be centred on EACH OTHER - `BACK_CHIP.y` was
+ * `LAUNCH.y + (LAUNCH.h - 48) / 2` - which is the right idea and the wrong
+ * axis. Centring two boxes of different heights puts the taller one's bottom
+ * closer to the edge of the screen than the shorter one's: launch ended 14 px
+ * off the artboard's foot against the chip's 24 px, and once launch wears the
+ * focus ring it is the first thing on the screen a child looks at, so it was
+ * the crowding they saw. Reported by the project owner against this screen.
+ *
+ * So the shared quantity is the BOTTOM, not the middle. One named line, and
+ * both controls derive from it, which is also what makes it testable: an
+ * element's distance from the foot of the screen is now a property of the row
+ * rather than an accident of two independently chosen heights.
+ *
+ * THE CHIP DID NOT MOVE. The line IS where the chip already sat (1008 + 48),
+ * because the chip was the one that looked right - launch is what comes to it.
+ */
+export const ACTION_BOTTOM = 1056;
+
+/**
+ * LAUNCH SHRANK BY 10 px RATHER THAN MOVING UP 10, and that is forced.
+ *
+ * `PAGE_MAX_BOTTOM` is 988 and launch sits at 998, so there are exactly ten
+ * pixels between the page and the button and none of them are spare. Moving
+ * launch up to meet `ACTION_BOTTOM` would spend all ten and put the button on
+ * the page. Its height is therefore derived from the line it has to reach,
+ * which keeps `LAUNCH.y` - and so the page clearance - exactly where the long
+ * note above left it.
+ *
+ * 58 px is still a fifth taller than the chip and three times its area at
+ * 420 px wide, so the size argument below is untouched: launch is the widest
+ * thing on the screen's foot and the only thing on its centre line.
+ */
+export const LAUNCH = { w: 420, h: ACTION_BOTTOM - 998, y: 998 } as const;
 
 /**
  * THE WAY OUT, SMALL AND ON THE LEFT (UR-60).
@@ -374,13 +409,17 @@ export const LAUNCH = { w: 420, h: 68, y: 998 } as const;
  * suit a small control is a control a child cannot find, and the gold ring is
  * the only thing on this screen that says where the keyboard is.
  *
- * Centred on launch's middle row, so the two actions share a line rather than
- * one floating above the other's shoulder.
+ * On launch's BOTTOM line, so the two actions share a line rather than one
+ * floating above the other's shoulder - and share their distance from the foot
+ * of the screen, which centring them on each other did not give (UR-76).
  */
 export const BACK_CHIP = {
   w: 224,
   h: 48,
-  y: LAUNCH.y + (LAUNCH.h - 48) / 2,
+  // On `ACTION_BOTTOM`, the same line launch reaches - so the two controls sit
+  // the same distance from the foot of the screen whatever either one's height
+  // becomes later.
+  y: ACTION_BOTTOM - 48,
 } as const;
 
 /**

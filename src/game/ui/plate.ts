@@ -3,8 +3,12 @@ import { hexToNum } from "@game/render/palette";
 import type { Rect } from "./layout.js";
 import { INK, SPACE } from "./theme.js";
 import {
+  MARK,
   RIM,
+  boltPoints,
   bracketSegments,
+  dotCentres,
+  promptSegments,
   rimRadius,
   rimRect,
   type PlateRhythmName,
@@ -60,6 +64,25 @@ import {
 
 export type PlateCorner = "round" | "pill" | "bracket";
 
+/**
+ * THE CHROME GOLD, AND WHY IT IS A DEFAULT RATHER THAN A CALL SITE'S PROBLEM.
+ *
+ * UR-70 asks for gold brackets and a gold line around the element. A previous
+ * lane passed the STOP's accent instead, on the argument that the comp happened
+ * to be at a gold stop and that hard-coding a colour would push a themed value
+ * into shared chrome. The argument is right about direction and wrong about
+ * which way it points: the stop accent IS the themed value, and at Mars it is
+ * red, so the brackets read as four faint red slivers rather than as the corner
+ * hardware of an instrument. Chrome does not change colour with the planet -
+ * that is what makes it chrome, and it is the same reason `ui/theme.INK.accent`
+ * is one accent for the whole menu system.
+ *
+ * So gold is the DEFAULT and not a rule. `stroke` and `rim` both still take a
+ * colour, so a screen that wants its stop's accent asks for it in one word, and
+ * `INK.accent` is a token - no hex reaches a scene.
+ */
+const CHROME_INK = INK.accent;
+
 export interface PlateProps {
   /** Surface colour. A token, or the stop palette's own plate colour. */
   readonly fill?: string;
@@ -77,9 +100,13 @@ export interface PlateProps {
   readonly radius?: number;
   /**
    * UR-70's rim: a second outline OUTSIDE the plate with a gap of sky between.
-   * Pass the colour, e.g. the stop accent. Omitted or false, no rim is drawn.
+   *
+   * `true` is the chrome gold, which is what UR-70 asked for and what a screen
+   * that just wants "a nice line around the whole element" should say. A string
+   * is that colour instead - pass the stop accent to dress the rim for the
+   * stop. Omitted or false, no rim is drawn.
    */
-  readonly rim?: string | false;
+  readonly rim?: string | boolean;
   readonly rimAlpha?: number;
   readonly rimWidth?: number;
   readonly rimGap?: number;
@@ -113,7 +140,11 @@ export function paintPlate(
 ): void {
   const radius = plateRadius(rect, props);
   const fill = props.fill ?? INK.panel;
-  const stroke = props.stroke ?? INK.line;
+  // A BRACKETED PLATE DEFAULTS TO THE CHROME GOLD, a plain one to the panel
+  // line. Brackets are hardware and hardware is gold (see `CHROME_INK`); a
+  // continuous border is the plate's own edge and stays the quiet line it has
+  // always been, so nothing that is already on screen changes colour.
+  const stroke = props.stroke ?? (props.corner === "bracket" ? CHROME_INK : INK.line);
 
   g.fillStyle(hexToNum(fill), props.alpha ?? 1);
   g.fillRoundedRect(rect.x, rect.y, rect.w, rect.h, radius);
@@ -132,12 +163,71 @@ export function paintPlate(
     }
   }
 
-  if (typeof props.rim === "string") {
+  if (props.rim !== undefined && props.rim !== false) {
     const gap = props.rimGap ?? RIM.gap;
     const outer = rimRect(rect, gap);
-    g.lineStyle(props.rimWidth ?? RIM.width, hexToNum(props.rim), props.rimAlpha ?? 0.55);
+    const ink = props.rim === true ? CHROME_INK : props.rim;
+    g.lineStyle(props.rimWidth ?? RIM.width, hexToNum(ink), props.rimAlpha ?? 0.55);
     g.strokeRoundedRect(outer.x, outer.y, outer.w, outer.h, rimRadius(radius, gap));
   }
+}
+
+// ---------------------------------------------------------------------------
+// The marks (UR-70)
+// ---------------------------------------------------------------------------
+
+/**
+ * A terminal prompt, drawn into a box.
+ *
+ * UR-70 wants the screen's tab to read like a console: this is the `>_` on it.
+ * A PAINTER AND NOT A LABEL - see `promptSegments` for why it is three strokes
+ * rather than two characters in a Text.
+ */
+export function paintPromptGlyph(
+  g: Phaser.GameObjects.Graphics,
+  box: Rect,
+  ink: string = CHROME_INK,
+  options: { readonly alpha?: number; readonly width?: number } = {},
+): void {
+  g.lineStyle(options.width ?? 3, hexToNum(ink), options.alpha ?? 0.9);
+  for (const s of promptSegments(box)) g.lineBetween(s.x1, s.y1, s.x2, s.y2);
+}
+
+/**
+ * A row of status dots, centred in a box (UR-70's two dots on the header line).
+ *
+ * `count` is a prop and the default is two because that is what the ticket
+ * asks for, not because two is a law: the whole point of the mark living here
+ * is that the screen that wants three says three.
+ */
+export function paintStatusDots(
+  g: Phaser.GameObjects.Graphics,
+  box: Rect,
+  ink: string = CHROME_INK,
+  options: { readonly count?: number; readonly alpha?: number; readonly radius?: number } = {},
+): void {
+  g.fillStyle(hexToNum(ink), options.alpha ?? 0.8);
+  for (const c of dotCentres(box, options.count ?? 2)) {
+    g.fillCircle(c.x, c.y, options.radius ?? MARK.dot);
+  }
+}
+
+/**
+ * The charge bolt on the warp drive's track (UR-70).
+ *
+ * Filled, and stroked in the same ink when asked, because the mark is drawn
+ * ON the track: the bolt sits where the meter's fill will later run under it,
+ * so it has to read on the sunken ink and on the accent alike. The scene picks
+ * the ink; what is fixed here is that it is ONE polygon (`boltPoints`).
+ */
+export function paintBolt(
+  g: Phaser.GameObjects.Graphics,
+  box: Rect,
+  ink: string = CHROME_INK,
+  options: { readonly alpha?: number } = {},
+): void {
+  g.fillStyle(hexToNum(ink), options.alpha ?? 1);
+  g.fillPoints(boltPoints(box) as unknown as Phaser.Geom.Point[], true);
 }
 
 /**

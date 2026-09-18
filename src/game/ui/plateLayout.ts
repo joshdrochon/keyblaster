@@ -97,7 +97,37 @@ export interface PlateRhythm {
  *             menu kit's rows have always used.
  */
 export const PLATE_RHYTHM = {
-  card: { padX: STEP.pad, padY: PLATE_STEP.card, gap: PLATE_STEP.card },
+  /**
+   * `padY` AND `gap` ARE `glass` (12) AND NOT `card` (20) - UR-70's condensed
+   * rhythm, applied to the COMPONENT rather than to one screen.
+   *
+   * UR-70 is a complaint about vertical air: the reference element packs its
+   * rows and ours does not. The three steps did not change and no fourth one
+   * arrived; what changed is WHICH of them a card is on. 12 is the step a plate
+   * cut to a line of type has always used (`SKY_PLATE.padY`), so a card is now
+   * inset by the same amount as a chip and its rows sit one `glass` apart
+   * instead of one `unit`.
+   *
+   * MEASURED on the warp break, ink to ink, in Latin at Jupiter:
+   *
+   *                                        before    after
+   *   "destination: saturn" -> sentence     29.2      21.2
+   *   sentence -> the hint at the foot      79.8      32.8   (with `flowFooter`)
+   *   the card's own height                  268       265
+   *
+   * `padX` IS UNCHANGED at `STEP.pad`. UR-70 is a vertical complaint and the
+   * horizontal inset is what sets a wrapped sentence's line count - a screen
+   * whose card wraps to two lines instead of one is a different defect wearing
+   * this fix's clothes.
+   *
+   * WHAT THIS DOES NOT DO, STATED. The rhythm is meant to carry to all nine
+   * screens, and today it reaches ONE: `support/warpLayout.ts` is the only
+   * module in the game that lays rows out with `stackRows`/`plateHeight`. The
+   * other eight still add their own numbers to their own anchors, so they will
+   * condense when they are migrated and not before. This is the component being
+   * right first, not the migration being finished.
+   */
+  card: { padX: STEP.pad, padY: PLATE_STEP.glass, gap: PLATE_STEP.glass },
   /**
    * `padX` IS THE CARD'S, and that is a change (UR-69 near-miss).
    *
@@ -210,6 +240,43 @@ export function plateFooter(rect: Rect, height: number, name: PlateRhythmName = 
   return { x: box.x, y: box.y + box.h - height, w: box.w, h: height };
 }
 
+/**
+ * The footer, PULLED UP TO THE CONTENT when the content does not fill the card
+ * (UR-70).
+ *
+ * ================== THE HOLE THIS CLOSES ==================
+ * `plateFooter` pins a row to the plate's foot, which is right when the rows
+ * above it fill the card and wrong when they do not. The warp break is the
+ * second case and it is not an edge case: the card is sized for a TWO-LINE
+ * sentence because a composed one (D09/E-AI-1) may be two lines, the sentence
+ * on screen is almost always one, and the difference - one whole 52 px line
+ * plus its leading - was left as a hole between the sentence and the hint.
+ * Measured at Jupiter, ink to ink: 79.8 px of nothing.
+ *
+ * The card still may not RESIZE - `relayoutSentence`'s contract is same plate,
+ * same meter, same coach area, same geometry, and a card that sized to its
+ * sentence would jump the moment the coach landed. So the slack stays in the
+ * card; this moves it from the MIDDLE of the reading order to the foot, which
+ * is the only place a gap costs nothing.
+ *
+ * `contentBottom` is where the rows above actually end - the LAID-OUT bottom,
+ * not the reserved one. When they reach the foot this returns exactly what
+ * `plateFooter` returns, so a full card is unchanged and a two-line sentence
+ * puts the hint back where it has always been.
+ */
+export function flowFooter(
+  rect: Rect,
+  contentBottom: number,
+  height: number,
+  name: PlateRhythmName = "card",
+): Rect {
+  const r = rhythmOf(name);
+  const foot = plateFooter(rect, height, name);
+  const box = plateContent(rect, name);
+  const y = Math.max(box.y, Math.min(foot.y, contentBottom + r.gap));
+  return { x: foot.x, y, w: foot.w, h: height };
+}
+
 // ---------------------------------------------------------------------------
 // Chrome geometry (UR-70)
 // ---------------------------------------------------------------------------
@@ -304,4 +371,116 @@ export function badgeBox(
 ): Rect {
   const box = plateContent(rect, name);
   return { x: box.x + box.w - size, y: box.y, w: size, h: size };
+}
+
+// ---------------------------------------------------------------------------
+// The marks (UR-70)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE FOUR MARKS UR-70 NAMES, AS BOXES AND POINTS.
+ *
+ * ================== WHY THEY ARE HERE AND NOT IN `WarpScene.ts` ==================
+ * The same argument the plate itself won. A terminal prompt on a tab, two
+ * status dots on a header line, a destination badge and a charge bolt are
+ * CHROME: none of them is about warping, all of them are the kind of thing the
+ * next screen will want, and a mark drawn into one of nine bespoke scenes is
+ * the defect UR-69 reported. So the geometry is pure and lives here beside
+ * `bracketSegments`, the painting lives in `ui/plate.ts` beside `paintPlate`,
+ * and a scene passes a BOX.
+ *
+ * Every one of them is drawn INSIDE the box it is handed and is sized from it,
+ * so the same function draws a mark on a 96 px chip and on a 1728 px card
+ * without a second set of numbers. `plateChrome.test.ts` asserts the
+ * containment rather than trusting it.
+ */
+export const MARK = {
+  /** The `>_` prompt's square, and the chip a dot cluster sits in. */
+  glyph: 26,
+  /** A status dot's radius, and the distance between two of their centres. */
+  dot: 5,
+  dotStep: 18,
+  /** The destination badge's square, inside the card's top right. */
+  badge: 44,
+  /** The charge bolt, which is TALL: a bolt as wide as it is high is a leaf. */
+  bolt: { w: 13, h: 22 },
+} as const;
+
+/**
+ * The three strokes of a terminal prompt: the chevron's two arms and the
+ * underscore under it (UR-70).
+ *
+ * STROKES, NOT A GLYPH. It could have been the two characters `>_` in a Text,
+ * and that is exactly what it must not be: a Text is a font's opinion about
+ * where a chevron sits on a baseline, it lands on the contrast registry as a
+ * colour pair nobody can read, and it would be the tenth type size on a screen
+ * the census measures. Two lines and a bar are the same picture with none of
+ * that, and they scale with the box rather than with a font.
+ *
+ * The chevron takes the upper two thirds and the bar the bottom, so the mark
+ * reads as a prompt with a cursor under it rather than as a "greater than"
+ * sign that happens to have a line near it.
+ */
+export function promptSegments(box: Rect): Segment[] {
+  const pad = Math.max(2, Math.round(box.h * 0.12));
+  const left = box.x + pad;
+  const top = box.y + pad;
+  const apexX = box.x + box.w * 0.5;
+  const apexY = box.y + box.h * 0.42;
+  const chevronBottom = box.y + box.h * 0.72;
+  const barY = box.y + box.h - pad;
+  return [
+    { x1: left, y1: top, x2: apexX, y2: apexY },
+    { x1: apexX, y1: apexY, x2: left, y2: chevronBottom },
+    { x1: box.x + box.w * 0.55, y1: barY, x2: box.x + box.w - pad, y2: barY },
+  ];
+}
+
+/**
+ * The centres of a row of status dots, centred in the box (UR-70's two dots
+ * beside the header line).
+ *
+ * Centred rather than left-packed so that one dot, two or three all sit on the
+ * box's middle - a cluster that grows off its left edge moves the whole header
+ * line the day somebody adds a third state.
+ */
+export function dotCentres(
+  box: Rect,
+  count: number,
+  step: number = MARK.dotStep,
+): { readonly x: number; readonly y: number }[] {
+  const n = Math.max(0, Math.round(count));
+  const span = n <= 1 ? 0 : (n - 1) * step;
+  const x0 = box.x + box.w / 2 - span / 2;
+  const y = box.y + box.h / 2;
+  const out: { x: number; y: number }[] = [];
+  for (let i = 0; i < n; i += 1) out.push({ x: x0 + i * step, y });
+  return out;
+}
+
+/**
+ * The lightning bolt, as the seven points of one closed polygon (UR-70's bolt
+ * on the warp drive bar).
+ *
+ * ONE POLYGON AND NOT TWO TRIANGLES, because the two halves of a bolt share an
+ * edge: drawn as two shapes they meet on a seam that shows as a hairline at
+ * every size, and a stroked version of that outline would draw the seam twice.
+ *
+ * The fractions are of the BOX, so the bolt fits whatever it is handed, and its
+ * extremes are the box's own corners - the test asserts the polygon's bounding
+ * box IS the box, which is what stops a later tweak quietly shrinking the mark
+ * inside a box the layout has already reserved.
+ */
+export function boltPoints(box: Rect): { readonly x: number; readonly y: number }[] {
+  const x = (f: number): number => box.x + box.w * f;
+  const y = (f: number): number => box.y + box.h * f;
+  return [
+    { x: x(0.55), y: y(0) },
+    { x: x(0), y: y(0.6) },
+    { x: x(0.4), y: y(0.6) },
+    { x: x(0.25), y: y(1) },
+    { x: x(1), y: y(0.4) },
+    { x: x(0.52), y: y(0.4) },
+    { x: x(0.95), y: y(0) },
+  ];
 }

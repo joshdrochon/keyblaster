@@ -8,6 +8,7 @@ import {
   PLATE_STEP,
   badgeBox,
   bracketArm,
+  flowFooter,
   bracketSegments,
   lineBox,
   plateContent,
@@ -85,7 +86,8 @@ import { LINE_HEIGHT, SKY_PLATE, SPACE, TYPE } from "@game/ui/theme";
  *   is 11 px short and nothing in an English capture shows it:
  *
  *     gives the warp card the height its own rows ask for
- *       expected 257 to be 268
+ *       expected 257 to be 268   (that run's card; it is 265 since UR-70
+ *                                 condensed the card onto the `glass` step)
  *     uses the Devanagari line box whatever is loaded
  *       expected 31 to be 37
  *
@@ -94,8 +96,12 @@ import { LINE_HEIGHT, SKY_PLATE, SPACE, TYPE } from "@game/ui/theme";
 
 const STEPS = Object.values(PLATE_STEP);
 
-/** The warp break's sentence card, which is the screen UR-70 was reported on. */
-const CARD = { x: 96, y: 236, w: 1728, h: 268 };
+/**
+  * The warp break's sentence card, which is the screen UR-70 was reported on.
+  * 265 tall since the `card` rhythm moved onto the `glass` step; it was 268 on
+  * the `unit` step and 280 before it was derived at all.
+  */
+const CARD = { x: 96, y: 236, w: 1728, h: 265 };
 
 describe("the rhythm is three steps and nothing between them", () => {
   it("names exactly three, and they are the ones already in the tokens", () => {
@@ -192,7 +198,7 @@ describe("a stack of rows is top-aligned", () => {
   it("the first row starts one pad below the plate's top edge", () => {
     const laid = stackRows(CARD, rows);
     expect(laid[0]?.y).toBe(CARD.y + PLATE_RHYTHM.card.padY);
-    expect(laid[0]?.y).toBe(256);
+    expect(laid[0]?.y).toBe(248);
   });
 
   it("rows are exactly one gap apart, whatever is in them", () => {
@@ -215,7 +221,8 @@ describe("a stack of rows is top-aligned", () => {
     const gapOf = (laid: { y: number; h: number }[]): number =>
       (laid[1] as { y: number }).y - ((laid[0] as { y: number; h: number }).y + (laid[0] as { h: number }).h);
     expect(gapOf(one)).toBe(gapOf(two));
-    expect(gapOf(one)).toBe(20);
+    // 12 since UR-70 condensed the card onto the `glass` step; 20 before.
+    expect(gapOf(one)).toBe(12);
   });
 
   it("shares the content box's left edge and width", () => {
@@ -231,6 +238,103 @@ describe("a stack of rows is top-aligned", () => {
     const box = plateContent(CARD);
     expect(foot.y + foot.h).toBe(box.y + box.h);
     expect(foot.y + foot.h).toBe(CARD.y + CARD.h - PLATE_RHYTHM.card.padY);
+  });
+});
+
+/**
+ * UR-70's CONDENSATION, AND THE HOLE ON THE OTHER SIDE OF IT.
+ *
+ * Two claims, and they are the two halves of "nice and condensed without
+ * excessive padding":
+ *
+ *   1. A CARD IS ON THE `glass` STEP. Not a fourth number - the three steps are
+ *      unchanged - but the card's pad and row gap moved from `unit` (20) to
+ *      `glass` (12), which is the condensation applied to the COMPONENT rather
+ *      than to one screen.
+ *   2. A FOOTER FOLLOWS THE CONTENT WHEN THE CONTENT IS SHORT. `plateFooter`
+ *      alone leaves a card sized for its worst case with a hole in the middle
+ *      of its reading order; `flowFooter` moves that slack to the foot and
+ *      clamps, so a full card is byte-identical to what it was.
+ *
+ * ================== WATCH THEM FAIL (rule 4) ==================
+ * Read off real red runs. `PLATE_RHYTHM.card` put back on `PLATE_STEP.card` -
+ * six cases red across this file, which is the blast radius of one step:
+ *
+ *   the first row starts one pad below the plate's top edge
+ *     expected 256 to be 248
+ *   puts the same air under the label whether the body is one line or two
+ *     expected 20 to be 12
+ *   a card is on the condensed step, and it is still one of the three
+ *     expected 20 to be 12
+ *   the whole point: a card gets shorter without a new number
+ *     expected 268 to be 236
+ *   pulls a footer up to a short body instead of leaving a hole
+ *     expected 414 to be 390
+ *   gives the warp card the height its own rows ask for
+ *     expected 297 to be 265
+ *
+ * `flowFooter` rewritten to return `plateFooter`'s y unconditionally, which is
+ * what it replaced:
+ *
+ *   pulls a footer up to a short body instead of leaving a hole
+ *     expected 458 to be 390
+ *   never puts the footer above the content box
+ *     expected -3 to be greater than or equal to 12
+ */
+describe("UR-70: a card is condensed, and its footer follows its content", () => {
+  it("a card is on the condensed step, and it is still one of the three", () => {
+    expect(PLATE_RHYTHM.card.padY).toBe(PLATE_STEP.glass);
+    expect(PLATE_RHYTHM.card.gap).toBe(PLATE_STEP.glass);
+    expect(PLATE_RHYTHM.card.padY).toBe(12);
+    // No fourth step arrived to buy this.
+    expect(STEPS).toEqual([8, 12, 20]);
+    // And the HORIZONTAL inset did not move: UR-70 is a vertical complaint, and
+    // a wider or narrower card rewraps the sentence, which is a different
+    // defect wearing this fix's clothes.
+    expect(PLATE_RHYTHM.card.padX).toBe(40);
+  });
+
+  it("the whole point: a card gets shorter without a new number", () => {
+    const rows = [lineBox(TYPE.label), 120, lineBox(TYPE.caption)];
+    expect(plateHeight(rows, "card")).toBe(236);
+    // 16 off the pads and 16 off the two gaps, against the same three rows on
+    // the `unit` step.
+    const onUnit = PLATE_STEP.card * 2 + rows.reduce((a, b) => a + b, 0) + PLATE_STEP.card * 2;
+    expect(onUnit - plateHeight(rows, "card")).toBe(32);
+  });
+
+  it("pulls a footer up to a short body instead of leaving a hole", () => {
+    // The warp break's own case: a card sized for a two-line sentence showing a
+    // one-line one. The body ends at `oneLine`; the footer used to sit at the
+    // card's foot regardless, which is the 79.8 px hole UR-70 reported.
+    const box = plateContent(CARD);
+    const oneLine = box.y + lineBox(TYPE.label) + PLATE_RHYTHM.card.gap + lineBox(52);
+    const foot = flowFooter(CARD, oneLine, lineBox(TYPE.caption));
+    expect(foot.y).toBe(oneLine + PLATE_RHYTHM.card.gap);
+    expect(foot.y).toBe(390);
+    expect(foot.y).toBeLessThan(plateFooter(CARD, lineBox(TYPE.caption)).y);
+    // Same x and width as any other row - it is a row, not a floating label.
+    expect(foot.x).toBe(box.x);
+    expect(foot.w).toBe(box.w);
+  });
+
+  it("clamps at the foot, so a full card is exactly what it always was", () => {
+    // THE HALF THAT PROTECTS THE OTHER EIGHT SCREENS. A card whose rows reach
+    // its foot must be untouched by this, or `flowFooter` is a second layout
+    // rather than one behaviour with a short case.
+    const height = lineBox(TYPE.caption);
+    const foot = plateFooter(CARD, height);
+    for (const bottom of [foot.y, foot.y + 100, CARD.y + CARD.h * 2]) {
+      expect(flowFooter(CARD, bottom, height)).toEqual(foot);
+    }
+  });
+
+  it("never puts the footer above the content box", () => {
+    // A plate short enough that one row does not fit cannot be made to draw its
+    // footer outside itself.
+    const tiny = { x: 0, y: 0, w: 200, h: 40 };
+    const foot = flowFooter(tiny, -500, lineBox(TYPE.caption));
+    expect(foot.y).toBeGreaterThanOrEqual(plateContent(tiny).y);
   });
 });
 
@@ -250,8 +354,8 @@ describe("height is derived from content", () => {
   it("gives the warp card the height its own rows ask for", () => {
     // The number the screen now draws, derived rather than picked. It was 280,
     // which was 250 plus 30 added after the hint was found printing through.
-    const rows = [lineBox(TYPE.label), 2 * (52 + 16) - 16, lineBox(TYPE.caption)];
-    expect(plateHeight(rows)).toBe(268);
+    const rows = [lineBox(TYPE.label), (52 + 16) + lineBox(52), lineBox(TYPE.caption)];
+    expect(plateHeight(rows)).toBe(265);
   });
 });
 
@@ -289,7 +393,9 @@ describe("the corner bracket is four corners, not a border", () => {
     const arm = bracketArm(CARD);
     expect(arm * 2).toBeLessThan(CARD.w - radius * 2);
     expect(arm * 2).toBeLessThan(CARD.h - radius * 2);
-    expect(arm).toBe(38);
+    // 37 on a 265 px card; it was 38 when the card was 268, because the arm is
+    // a fraction of the plate's shorter side rather than a fixed length.
+    expect(arm).toBe(37);
   });
 
   it("does not shrink to a speck or grow to half an edge", () => {

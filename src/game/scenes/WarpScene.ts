@@ -24,7 +24,8 @@ import { hexToNum, mixHex } from "@game/render/palette";
 import { LANTERN_DESIGN_HEIGHT, type LanternRig } from "@game/render/lantern";
 import { drawPlayerLantern, playerLivery } from "./lib/livery.js";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
-import { DUR, INK, TYPE } from "@game/ui/theme";
+import { DUR, INK, SKY_PLATE, TYPE } from "@game/ui/theme";
+import type { Rect } from "@game/ui/layout";
 import { headerText } from "@game/ui/grid";
 import { highlightSpans, prefixOf, quotedWords } from "./support/coachHighlight";
 import { hasStageBundle, stageBundle } from "./lib/content";
@@ -40,7 +41,9 @@ import {
   type PlatedText,
   type SceneSnapshot,
 } from "./lib/kit";
-import { paintPlate } from "@game/ui/plate";
+import { paintBolt, paintPlate, paintPromptGlyph, paintStatusDots } from "@game/ui/plate";
+import { MARK, PLATE_STEP } from "@game/ui/plateLayout";
+import { paintPlanetBadge, planetBadgeInk, planetBadgeSpec } from "@game/render/planetBadge";
 import {
   laneInit,
   latchOnRender,
@@ -158,6 +161,8 @@ import {
   WORD_PULSE_MS,
   WORD_PULSE_SCALE,
   completedWordRange,
+  badgeRow,
+  boltRow,
   destinationRow,
   hintRow,
   sentenceRow,
@@ -225,6 +230,16 @@ export class WarpScene extends Phaser.Scene {
 
   private sentence!: WarpSentenceState;
   private letters: Phaser.GameObjects.Text[] = [];
+  /**
+   * How many lines the sentence on screen actually laid out to (UR-70).
+   *
+   * The card reserves two and the sentence is almost always one, and the hint
+   * is placed under the LAID-OUT bottom rather than under the reservation - so
+   * this is read every time the line is rebuilt. `layoutLetters` sets it;
+   * nothing else may.
+   */
+  private sentenceLines = 1;
+  private hintLabel!: Phaser.GameObjects.Text;
   private meterFill!: Phaser.GameObjects.Graphics;
   private percentLabel!: Phaser.GameObjects.Text;
   /** The plated wrapper, so the plate is re-cut when the number changes width. */
@@ -614,7 +629,43 @@ export class WarpScene extends Phaser.Scene {
       depth: this.headerDepth(),
       padY: 10,
     });
-    return [...heading.objects, ...calm.objects];
+    // UR-70's TWO HEADER MARKS. The prompt sits after the tab, the dots after
+    // the line under it, both on the ink that row is already drawn in - so
+    // neither is a new colour and neither is a tenth type size.
+    //
+    // AFTER, NOT BEFORE. Every one of these marks hangs off the RIGHT end of a
+    // line that is already there, because the left edges on this screen are the
+    // thing UR-69's census is counting: a glyph placed before the heading would
+    // either push the heading off `GUTTER` or add an eleventh left edge to a
+    // screen that has fifteen.
+    const marks = this.add.graphics().setDepth(this.headerDepth());
+    paintPromptGlyph(marks, this.markBoxAfter(heading, MARK.glyph), INK.text, {
+      alpha: 0.85,
+    });
+    paintStatusDots(marks, this.markBoxAfter(calm, MARK.glyph + MARK.dot * 2), INK.textDim, {
+      count: 2,
+      alpha: 0.75,
+    });
+    return [...heading.objects, ...calm.objects, marks];
+  }
+
+  /**
+   * The box a mark takes at the right end of a plated line.
+   *
+   * Measured off the TEXT's own bounds rather than off the plate's, because a
+   * Graphics' bounds are whatever was last drawn into it and the plate is drawn
+   * from those same text bounds anyway. One `glass` step of air, so the mark
+   * reads as part of the line rather than as something stuck to it.
+   */
+  private markBoxAfter(line: PlatedText, width: number): Rect {
+    const b = line.text.getBounds();
+    const height = MARK.glyph;
+    return {
+      x: b.x + b.width + SKY_PLATE.padX + PLATE_STEP.glass,
+      y: b.y + b.height / 2 - height / 2,
+      w: width,
+      h: height,
+    };
   }
 
   /** Depth the header's text draws at; its plate takes one below. */
@@ -634,19 +685,51 @@ export class WarpScene extends Phaser.Scene {
     // eight screens the moment anyone wants them - which is the whole reason
     // UR-70 was blocked on UR-69 rather than applied to this screen alone.
     //
-    // THE RIM IS THE STOP'S ACCENT, NOT GOLD. The comp is Saturn's and Saturn's
-    // accent is ice blue; "gold" is what the owner saw at the stop they were
-    // on. Hard-coding the colour would be exactly the standards rule 1 defect -
-    // a themed value reaching the chrome - in reverse.
+    // THE BRACKETS ARE GOLD, AND THAT IS A REVERSAL. They were the stop's
+    // accent, on the argument that the comp happened to be at a gold stop and
+    // that a fixed colour would push a themed value into shared chrome. The
+    // argument points the wrong way: the stop accent is the themed value, and
+    // at Mars it is red, so the brackets read as four faint red slivers instead
+    // of as an instrument's corner hardware. Gold is now the plate's DEFAULT
+    // for `corner: "bracket"` (`ui/plate.CHROME_INK`, which is `INK.accent`),
+    // so this call site names no colour at all and a screen that wants its
+    // stop's accent still gets it by passing `stroke`.
+    //
+    // AND THERE IS NO RIM ON THIS CARD. UR-70 asks for one gold line around the
+    // whole element; this card already had one and it was the FOCUS RING. The
+    // ring sits at `SPACE.focusRingOffset` 6 and is 4 px wide, so it spans 4..8
+    // px outside the plate; `RIM.gap` is 8 and the rim is 2 px wide, so it
+    // spans 7..9. They overlapped, in the same gold, and the two of them
+    // painted one muddy 5 px edge - which is why the capture showed a single
+    // thick line rather than the two-line chrome read the rim exists for.
+    // There is no room to move the rim outboard either: the header's own plate
+    // ends 21 px above this card. So the focus ring IS the gold line here, the
+    // `rim` prop stays on the shared plate for the screens that want a line
+    // without a focus ring, and the choice is in gauntlet/escalations.md.
     made.push(
       plate(this, PANEL.x, PANEL.y, PANEL.w, PANEL.h, {
         fill: INK.panel,
-        stroke: pal.accent,
         corner: "bracket",
-        rim: pal.accent,
-        rimAlpha: 0.45,
       }),
     );
+
+    // UR-70's DESTINATION BADGE: the planet at the other end of this warp,
+    // drawn in the card's top right. Vector, from the DESTINATION's palette
+    // (D83, AC-22.7) - `render/planetBadge.ts`. The badge square is the shared
+    // plate's (`plateLayout.badgeBox`), which is why it cannot collide with the
+    // bracket arms or hang over the card's padding.
+    const badge = badgeRow();
+    const destinationId = this.nextStopId();
+    if (destinationId !== null) {
+      const g = this.add.graphics();
+      paintPlanetBadge(
+        g,
+        badge,
+        planetBadgeSpec(destinationId),
+        planetBadgeInk(destinationId, INK.panel),
+      );
+      made.push(g);
+    }
     // The instruction is on the header line now ("warp.beltCleared"), where it
     // sits next to what just happened. This slot carries the OTHER half the
     // player was missing - where the drive is taking them - so the screen names
@@ -669,9 +752,14 @@ export class WarpScene extends Phaser.Scene {
     // byte-identical to the screen that shipped before this feature existed,
     // and the only thing that can ever put a string in it is a live composed
     // sentence that passed every gate.
+    // RIGHT-ANCHORED TO THE LEFT OF THE BADGE, not to the content's right edge,
+    // which is where the badge now is. It is normally empty, so a collision
+    // here would only ever have shown up on the one path that puts a string in
+    // it - a live composed sentence, i.e. the path with no shipped fallback to
+    // notice it.
     this.composedMark = label(
       this,
-      destination.x + destination.w,
+      badge.x - PLATE_STEP.glass,
       destination.y,
       "",
       {
@@ -709,15 +797,18 @@ export class WarpScene extends Phaser.Scene {
       }
     }
 
-    const hint = hintRow();
-    made.push(
-      label(this, hint.x, hint.y, this.lane.copy.text("warp.hint"), {
-        size: TYPE.caption,
-        color: pal.plateText,
-        alpha: 0.55,
-        lang: this.lane.lang,
-      }),
-    );
+    // UR-70. ONE STEP UNDER THE SENTENCE THAT IS ON SCREEN, not pinned to the
+    // card's foot - `hintRow` takes the laid-out line count, which is the only
+    // thing that knows whether the reserved second line is in use. See
+    // `support/warpLayout.hintRow`.
+    const hint = hintRow(this.sentenceLines);
+    this.hintLabel = label(this, hint.x, hint.y, this.lane.copy.text("warp.hint"), {
+      size: TYPE.caption,
+      color: pal.plateText,
+      alpha: 0.55,
+      lang: this.lane.lang,
+    });
+    made.push(this.hintLabel);
     return made;
   }
 
@@ -776,11 +867,17 @@ export class WarpScene extends Phaser.Scene {
     // which put half a one-line sentence's slack ABOVE it - 70 px between
     // "destination: saturn" and the sentence a child is there to type. The card
     // keeps its shape (`relayoutSentence` must not move it) and the slack now
-    // falls between the sentence and the hint at the card's foot.
+    // falls below the hint, at the card's foot, rather than between the
+    // sentence and the hint - see `hintRow`.
     const top = band.y;
 
     let x = left;
     let y = top;
+    // The LAID-OUT line count, which is what places the hint. Counted here
+    // because this loop is the only thing that knows where the line broke:
+    // the wrap is decided from a per-word width estimate, so it cannot be
+    // derived from the string afterwards without writing the estimate twice.
+    this.sentenceLines = 1;
     const all = cells(this.sentence);
     let i = 0;
 
@@ -792,6 +889,7 @@ export class WarpScene extends Phaser.Scene {
       if (x > left && x + estimate > left + maxWidth) {
         x = left;
         y += SENTENCE_STEP;
+        this.sentenceLines += 1;
       }
       for (const cell of [...word, ...(end < all.length ? [all[end]] : [])]) {
         if (cell === undefined) continue;
@@ -944,9 +1042,30 @@ export class WarpScene extends Phaser.Scene {
     });
     made.push(track);
 
+    /**
+     * UR-70's LIGHTNING BOLT, on the bar itself - AND IT IS DRAWN TWICE.
+     *
+     * The bolt marks where the charge starts, so it sits in the track's left
+     * cap, which is exactly the pixels the fill covers first. One bolt cannot
+     * survive that: in the accent it disappears the moment the accent fill
+     * reaches it, and in the track's own sunken ink it is invisible until the
+     * fill arrives. So the mark is painted on BOTH sides of the fill - accent
+     * underneath, panel ink on top - and the fill decides which one you see. An
+     * empty track shows the lit bolt; a charged one shows it stamped out of the
+     * gold. Neither pass is a new colour: both inks are already on this
+     * instrument.
+     */
+    const boltUnder = this.add.graphics();
+    paintBolt(boltUnder, boltRow(), pal.accent, { alpha: 0.75 });
+    made.push(boltUnder);
+
     this.meterFill = this.add.graphics();
     made.push(this.meterFill);
     this.paintMeter();
+
+    const boltOver = this.add.graphics();
+    paintBolt(boltOver, boltRow(), INK.panelSunken, { alpha: 0.9 });
+    made.push(boltOver);
 
     // "warp drive charged - next stop Jupiter". The old line was "warp drive
     // charged. hold on." - true, and it never told the player they were about
@@ -995,8 +1114,20 @@ export class WarpScene extends Phaser.Scene {
 
   /** The stop AFTER the belt that was just cleared, or null at the last one. */
   private nextStop(): string | null {
-    const next = STOP_IDS[STOP_IDS.indexOf(this.stopId) + 1];
-    return next === undefined ? null : this.lane.copy.stopName(next);
+    const next = this.nextStopId();
+    return next === null ? null : this.lane.copy.stopName(next);
+  }
+
+  /**
+   * The same stop as an ID rather than as a name.
+   *
+   * The badge needs the ID and the line needs the NAME, and they are different
+   * things: `copy.stopName` is translated, so a badge keyed off it would look
+   * up "Saturne" in a palette table keyed by "saturn" and quietly draw nothing
+   * in French.
+   */
+  private nextStopId(): StopId | null {
+    return STOP_IDS[STOP_IDS.indexOf(this.stopId) + 1] ?? null;
   }
 
   /**
@@ -1377,6 +1508,13 @@ export class WarpScene extends Phaser.Scene {
     });
     this.panelRoot.add(this.layoutLetters());
     this.paintLetters();
+    // UR-70. The hint sits under the sentence, so a composed sentence that
+    // wraps where the shipped one did not takes the hint down with it. The
+    // CARD does not move - `flowFooter` clamps at its foot - so the plate, the
+    // meter and the coach area are still byte-identical either way, which is
+    // the part of this method's contract that is load-bearing.
+    const hint = hintRow(this.sentenceLines);
+    this.hintLabel.setPosition(hint.x, hint.y);
     // The meter is driven by `chargeFraction`, which is index/length; index is
     // 0 and the length changed, so the drawn fill has to be told the new zero
     // rather than left holding a fraction of the old string.
