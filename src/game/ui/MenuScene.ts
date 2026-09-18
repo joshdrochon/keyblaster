@@ -30,6 +30,12 @@ import { showToast } from "./toast.js";
  *    screen reader and assertable by Playwright (mirror.ts).
  *  - THE CALM NOTICE LINE (AC-18.4), rendered once, one line, non-blocking.
  */
+/** The y every menu heading is drawn at. One line, every screen (UR-85). */
+export const HEADING_TOP = 84;
+
+/** An eyebrow above the heading - a step counter, a section name. */
+export const HEADING_EYEBROW_TOP = 44;
+
 export abstract class MenuScene extends Phaser.Scene {
   protected app!: App;
   protected t!: MenuTranslator;
@@ -129,14 +135,26 @@ export abstract class MenuScene extends Phaser.Scene {
    * never given a fixed width, because "Beacon Log" -> "Registro de balizas" is
    * +90% and a fixed plate would clip it.
    */
-  protected addHeading(key: MenuKey, y = 84): Phaser.GameObjects.Text {
+  /**
+   * THE LINE EVERY MENU'S HEADING SITS ON (UR-85).
+   *
+   * Named rather than defaulted in a parameter, because the whole point is that
+   * no screen gets to choose it. `ProfileCreateScene` used to draw its own
+   * heading at 116 to make room for a step counter above it, so two screens a
+   * child sees back to back put their title 32 px apart.
+   */
+  protected addHeading(
+    key: MenuKey,
+    y = HEADING_TOP,
+    wrapWidth = GAME_WIDTH - SPACE.gutter * 2,
+  ): Phaser.GameObjects.Text {
     const text = this.t.t(key);
     this.headingText = uiText(this, SPACE.gutter, y, text, {
       size: TYPE.display,
       lang: this.uiStyle.lang,
       uppercase: this.uiStyle.uppercase,
       increasedLetterSpacing: this.uiStyle.increasedLetterSpacing,
-      wrapWidth: GAME_WIDTH - SPACE.gutter * 2,
+      wrapWidth,
     }).setDepth(this.depth);
     // Mirror what is DRAWN, not what came out of the table: the letter-case
     // setting (D41) is applied by uiText, and a mirror that reported the raw

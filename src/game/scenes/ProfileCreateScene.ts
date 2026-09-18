@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { MAX_NAME_LENGTH } from "@engine/persistence";
-import { MenuScene } from "@game/ui/MenuScene";
+import { HEADING_EYEBROW_TOP, HEADING_TOP, MenuScene } from "@game/ui/MenuScene";
 import {
   type Control,
   MenuButton,
@@ -91,8 +91,19 @@ export class ProfileCreateScene extends MenuScene {
     const heading = this.headingFor(this.step);
     this.setHeadingText(this.t.t(heading));
 
+    // THE SHARED HEADING, NOT A SECOND ONE (UR-85).
+    //
+    // This screen drew its own title at y 116 so a step counter could sit above
+    // it, while every other menu draws at `HEADING_TOP`. The picker and this
+    // screen are consecutive, so a child watched the title jump 32 px on the
+    // way in. The counter is an EYEBROW above the shared line now, which is
+    // space the header band already had.
+    //
+    // The narrower wrap is still this screen's own: Shadow stands at the right
+    // and a full-width title would run into him. That is a fact about this
+    // screen's furniture, so it is a prop rather than a second drawing.
     this.track(
-      uiText(this, SPACE.gutter, 74, this.t.t("ui.create.step", {
+      uiText(this, SPACE.gutter, HEADING_EYEBROW_TOP, this.t.t("ui.create.step", {
         n: this.step + 1,
         total: 3,
       }), {
@@ -102,13 +113,7 @@ export class ProfileCreateScene extends MenuScene {
         uppercase: this.uiStyle.uppercase,
         increasedLetterSpacing: this.uiStyle.increasedLetterSpacing,
       }).setDepth(this.depth),
-      uiText(this, SPACE.gutter, 116, this.t.t(heading), {
-        size: TYPE.display,
-        lang: this.uiStyle.lang,
-        uppercase: this.uiStyle.uppercase,
-        increasedLetterSpacing: this.uiStyle.increasedLetterSpacing,
-        wrapWidth: GAME_WIDTH - SPACE.gutter * 2 - 300,
-      }).setDepth(this.depth),
+      this.addHeading(heading, HEADING_TOP, GAME_WIDTH - SPACE.gutter * 2 - 300),
     );
 
     const controls =
