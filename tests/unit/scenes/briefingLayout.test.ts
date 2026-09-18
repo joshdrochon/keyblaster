@@ -39,7 +39,14 @@ import {
   controlSurfaceLayout,
 } from "@game/ui/controlSurfaceLayout";
 import { DESIGN_WIDTH, GAME_HEIGHT } from "@game/sceneKeys";
-import { GUTTER, HEADING_TOP, HINT_TOP, backCorner, contentRight } from "@game/ui/grid";
+import {
+  BACK_CORNER_BOTTOM,
+  GUTTER,
+  HEADING_TOP,
+  HINT_TOP,
+  backCorner,
+  contentRight,
+} from "@game/ui/grid";
 import { setGameWidth } from "@game/sceneKeys";
 
 /**
@@ -586,7 +593,12 @@ describe("UR-60: launch is centred on the screen and the way out is small and le
     const btn = launchButton();
     expect(chip).toEqual(backCorner(BACK_CHIP.w, BACK_CHIP.h));
     expect(chip.x).toBe(DESIGN_WIDTH - GUTTER - chip.w);
-    expect(chip.y).toBe(HEADING_TOP);
+    // BOTTOM-right since UR-95: the top-right corner is not free on every
+    // screen - the Briefing's cockpit glass reaches it (C19) - and a corner
+    // that is only free on some screens is not a shared corner. The chip sits
+    // on the hint's own foot line now, so instructions and the way out are one
+    // row: text bottom-left, control bottom-right.
+    expect(chip.y).toBe(BACK_CORNER_BOTTOM - chip.h);
     // UR-60'S SIZE ARGUMENT IS UNTOUCHED: still under half launch's area, and
     // still nowhere near it.
     expect(chip.w * chip.h).toBeLessThan((btn.w * btn.h) / 2);

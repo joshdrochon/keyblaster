@@ -6,6 +6,8 @@ import { recordSkyText as record } from "./skyTextRegistry";
 import type { Lang } from "@engine/types";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
 import { typographyOf } from "./typography";
+import { backCorner } from "@game/ui/grid";
+import type { Rect } from "@game/ui/layout";
 
 /**
  * The bits of chrome the four story screens share: type, plates, a focus ring
@@ -608,4 +610,75 @@ export function visibleText(scene: Phaser.Scene): string[] {
   };
   walk(scene.children.list);
   return out;
+}
+
+/**
+ * THE WAY OUT, AS ONE ELEMENT (UR-98).
+ *
+ * ================== WHAT WAS REPORTED ==================
+ * The Briefing and Pre-flight both show a chip reading "back to the map", and
+ * they were two different controls wearing one name. Measured on the served
+ * build:
+ *
+ *   briefing   224 x 48   INK.panel        TYPE.caption   INK.textDim
+ *   preflight  262 x 66   INK.panelRaised  TYPE.label     INK.text
+ *
+ * Different size, plate, type and ink, on two screens a child walks straight
+ * between. Neither was wrong alone; having two was.
+ *
+ * ================== WHY A COMPONENT AND NOT A CONSTANT ==================
+ * Sharing only the RECTANGLE is what they already did - both call
+ * `grid.backCorner` - and it did not stop them diverging, because the plate,
+ * the type and the ink stayed each screen's own. So the drawing lives here too:
+ * a scene asks for the chip and gets the chip.
+ *
+ * The size is the Briefing's 224 x 48 rather than Pre-flight's 262 x 66,
+ * deliberately the smaller: this is the quiet way out on a screen whose forward
+ * action is the point, which is UR-60's rule.
+ */
+export const BACK_CHIP_SIZE = { w: 224, h: 48 } as const;
+
+/** Where it sits. `grid.backCorner`, so both screens share the foot line. */
+export const backChipRect = (): Rect => backCorner(BACK_CHIP_SIZE.w, BACK_CHIP_SIZE.h);
+
+export interface BackChipOptions {
+  readonly depth: number;
+  readonly label: string;
+  readonly lang: Lang;
+  readonly onPress: () => void;
+  /** `HIT_ZONE_PREFIX` + this. The pointer e2e enumerates these names. */
+  readonly hitId: string;
+}
+
+/**
+ * Draw it. Plate, label and the pointer route, in that z-order.
+ *
+ * The KEYBOARD route out is not here: Escape belongs to the scene's own
+ * `onBack`, and a chip that installed a key handler would be a second owner of
+ * it (UR-86 made `onBack` required for exactly that reason).
+ */
+export function drawBackChip(
+  scene: Phaser.Scene,
+  options: BackChipOptions,
+): Phaser.GameObjects.GameObject[] {
+  const rect = backChipRect();
+  const face = plate(scene, rect.x, rect.y, rect.w, rect.h, {
+    fill: INK.panel,
+  }).setDepth(options.depth);
+  const text = label(scene, rect.x + rect.w / 2, rect.y + rect.h / 2, options.label, {
+    size: TYPE.caption,
+    color: INK.textDim,
+    align: "center",
+    lang: options.lang,
+  })
+    .setOrigin(0.5)
+    .setDepth(options.depth + 1);
+  const zone = scene.add
+    .zone(rect.x, rect.y, rect.w, rect.h)
+    .setOrigin(0, 0)
+    .setName(`${HIT_ZONE_PREFIX}${options.hitId}`)
+    .setDepth(options.depth + 2)
+    .setInteractive({ useHandCursor: true })
+    .on("pointerdown", options.onPress);
+  return [face, text, zone];
 }

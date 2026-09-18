@@ -8,6 +8,7 @@ import {
   HEADING_TOP,
   HINT_CONTRACT,
   HINT_TOP,
+  BACK_CORNER_BOTTOM,
   backCorner,
   headerText,
 } from "@game/ui/grid";
@@ -215,11 +216,18 @@ describe("UR-39: the screen has a header, one column and a way out", () => {
     // which is what stops the two drifting apart again.
     const chip = backChip();
     expect(chip).toEqual(backCorner(BACK_CHIP.w, BACK_CHIP.h));
-    expect(chip.y).toBe(HEADING_TOP);
+    // BOTTOM-right since UR-95: the top-right corner is not free on every
+    // screen - the Briefing's cockpit glass reaches it (C19) - and a corner
+    // that is only free on some screens is not a shared corner. The chip sits
+    // on the hint's own foot line now, so instructions and the way out are one
+    // row: text bottom-left, control bottom-right.
+    expect(chip.y).toBe(BACK_CORNER_BOTTOM - chip.h);
     expect(chip.x + chip.w).toBe(WINDOW.x + WINDOW.w);
     // Clear of the header block on the left, and of the glass below it.
     expect(chip.x).toBeGreaterThan(HEADING.x + 400);
-    expect(chip.y + chip.h).toBeLessThan(WINDOW.y);
+    // It clears the window from BELOW now, which is the claim that survives a
+    // window whose top edge moves.
+    expect(chip.y).toBeGreaterThan(WINDOW.y + WINDOW.h);
   });
 
   it("keeps Shadow INSIDE the plate he is speaking from", () => {
@@ -397,45 +405,30 @@ describe("UR-77.3: the planet is the shared celestial body, not a second one", (
     }
   });
 
-  it("is ONE flat disc in the scene - no glow, no highlight, no terminator", () => {
-    // The source is the evidence here, because "how many circles" is not a
-    // property of a layout module. Four `fillCircle` calls on one Graphics is
-    // what a thumbprint is made of.
+  it("draws NO planet of its own - the parallax's celestial layer does (UR-96)", () => {
+    // SUPERSEDES "is ONE flat disc in the scene". That assertion was right
+    // while this scene owned a disc: it had been four translucent circles and
+    // read as a thumbprint, and one flat circle was the fix.
     //
-    // WATCHED FAILING: paste the shipped glow back -
-    //   disc.fillStyle(hexToNum(accent), 0.1); disc.fillCircle(0, 0, r * 1.4);
-    // - and this reports "the planet is drawn from 2 circles: expected 2 to be 1".
+    // The scene now owns none. The planet was excluded from the parallax for
+    // one stated reason - it had to SWING IN - and the swing was the defect:
+    // it slid on entry and again on every typed word, so the planet jumped
+    // whenever the child succeeded. With the swing gone the reason is gone, and
+    // the Briefing's window next door has always shown a still planet from the
+    // shared `celestial` layer. Two screens, one implementation, one position.
+    //
+    // WATCHED FAILING, with the private disc restored:
+    //   the scene still draws its own planet: expected 1 to be 0
     const scene = readFileSync(resolve(SRC, "PreflightScene.ts"), "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/\/\/[^\n]*/g, "");
     const circles = scene.match(/disc\.fillCircle\(/g) ?? [];
-    expect(circles.length, `the planet is drawn from ${circles.length} circles`).toBe(1);
-    // The four that shipped, by their own arithmetic.
-    expect(scene).not.toContain("r * 1.4");
-    expect(scene).not.toContain("-r * 0.26");
-    expect(scene).not.toContain("r * 0.22");
+    expect(circles.length, "the scene still draws its own planet").toBe(0);
+    // And it takes the layer instead, which is the half that makes it appear.
+    expect(scene).toContain('"celestial"');
+    // Nothing moves it any more. These were the two tweens that were reported.
+    expect(scene).not.toContain("planetLegX");
+    expect(scene).not.toContain("WINDOW.w * 0.62");
   });
 
-  it("swings in from off the glass and comes to rest on it", () => {
-    const r = planetRadius(1920, 1080);
-    expect(planetParkX(r), "parked on the glass").toBeGreaterThan(WINDOW.x + WINDOW.w);
-    // Three ritual steps, three legs, ending at rest.
-    expect(planetLegX(0)).toBe(planetRestX());
-    expect(planetLegX(2)).toBeLessThan(planetLegX(1));
-    expect(planetLegX(1)).toBeLessThan(planetLegX(0));
-    // WHOLLY ON THE GLASS AT EVERY LEG, which is new: the leg length was sized
-    // against a 300 px disc that could not fall off the left edge, and at the
-    // shared body's 130 px the first leg put a third of the planet outside the
-    // window. WATCHED FAILING: put `legShare` back to 0.28 - "leg 2 hangs off
-    // the glass: expected 955.44 to be greater than or equal to 1029.6".
-    for (let leg = 0; leg < 3; leg += 1) {
-      expect(planetLegX(leg), `leg ${leg} hangs off the glass`).toBeGreaterThanOrEqual(
-        WINDOW.x + r,
-      );
-      expect(planetLegX(leg) + r).toBeLessThanOrEqual(WINDOW.x + WINDOW.w);
-    }
-    expect(planetRestX() + r).toBeLessThan(WINDOW.x + WINDOW.w);
-    expect(planetCy()).toBeGreaterThan(WINDOW.y);
-    expect(planetCy()).toBeLessThan(WINDOW.y + WINDOW.h);
-  });
 });

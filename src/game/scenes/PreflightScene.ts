@@ -28,6 +28,8 @@ import {
   label,
   plate,
   skyText,
+  drawBackChip,
+  type PlatedText,
   visibleText,
   type SceneSnapshot,
   type Snapshotable,
@@ -169,11 +171,6 @@ import {
   backChip,
   controlStrip,
   mullionHorizontalAt,
-  planetCy,
-  planetFill,
-  planetLegX,
-  planetParkX,
-  planetRadius,
   windowRect,
 } from "./support/preflightLayout";
 import { drawCockpitWindow } from "@game/ui/viewportWindow";
@@ -220,7 +217,6 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
   private shadow!: ShadowFigure;
   private prompt: WordPrompt | null = null;
   private rows: RowView[] = [];
-  private planet!: Phaser.GameObjects.Container;
   private lineText!: Phaser.GameObjects.Text;
   private hintText!: HintLine;
   /** Off-display-list Graphics backing the window mask. */
@@ -228,6 +224,8 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
   /** UR-39: the Escape/Backspace listener, so shutdown can remove it. */
   private onKey: ((event: KeyboardEvent) => void) | null = null;
   private readyText!: Phaser.GameObjects.Text;
+  /** The stop name, which steps aside for the ready line (UR-94). */
+  private stopNamePlate: PlatedText | null = null;
 
   private plan: RitualPlan | null = null;
   private mode: RitualMode = "none";
@@ -316,9 +314,15 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
       reducedMotion: ctx.reducedMotion,
       width: GAME_WIDTH,
       height: GAME_HEIGHT,
-      // The stop's planet is drawn here, not by the parallax, because it has
-      // to SWING IN; the parallax owns its celestial layer's position.
-      decorate: ["sky", "farField", "midField", "nearField"],
+      // THE PLANET IS THE PARALLAX'S AGAIN (UR-96).
+      //
+      // This list excluded "celestial" and the scene drew its own disc, for one
+      // stated reason: it had to SWING IN. It swung on entry and again on every
+      // typed word, which is what was reported - a planet that jumps whenever
+      // the child succeeds. With the swing gone the reason is gone, and the
+      // Briefing's window next door has always shown a still planet from this
+      // same layer. Two screens, one implementation, one position.
+      decorate: ["sky", "celestial", "farField", "midField", "nearField"],
       // NOTHING TRAVELS ON THIS SCREEN (UR-50.5). `worldSpeed: 0` never did
       // this on its own: `DRIFT_X` gives every decorative plane a px/s FLOOR
       // (+5, -8, +11, -15) that runs at any world speed, so the planes marched
@@ -375,8 +379,13 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
       style: { lang, ...typographyOf(this) },
     });
 
-    this.readyText = label(this, ROW.x, ROW.y - 96, text.text("preflight.ready"), {
-      size: TYPE.heading,
+    // THE READY LINE REPLACES THE STOP NAME (UR-94). It was drawn at
+    // `ROW.y - 96` = 204 in `TYPE.heading` while the stop name's plate runs to
+    // 211, so the two overlapped by seven pixels - and it sat on the GUTTER at
+    // 96 while the name sat on the ink line at 118. Two defects from one magic
+    // offset. It takes the name's own line now and the name steps aside.
+    this.readyText = label(this, SUBHEADING.x, SUBHEADING.y, text.text("preflight.ready"), {
+      size: TYPE.body,
       color: INK.accentSoft,
       lang,
     })
@@ -446,26 +455,14 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     for (const l of this.parallax.layers) l.container.setMask(win.glass);
 
     /**
-     * THE PLANET: ONE FLAT DISC (UR-77 item 3).
-     *
-     * It was four overlapping translucent circles - an accent glow, a body, a
-     * highlight and a terminator - at r=300, and it read as a grey-brown
-     * thumbprint however the terminator's hue was adjusted, because stacking
-     * translucent circles is what makes mud. The Briefing's planet is the
-     * shared celestial body: one flat disc, a third the size, hazed into the
-     * sky and separated from it by value. This is that, with the swing the
-     * ritual needs. The arithmetic is in `preflightLayout.planetFill`, checked
-     * against `render/parallax.ts`'s own lines by the unit test.
+     * The window's furniture. The PLANET is not here: the parallax's
+     * `celestial` layer draws it through this glass (UR-96), the same way the
+     * Briefing's window has always shown it.
      */
-    const r = planetRadius(GAME_WIDTH, GAME_HEIGHT);
-    const cy = planetCy();
-    const disc = this.add.graphics();
-    disc.fillStyle(hexToNum(planetFill(pal, skyAt(pal, cy / GAME_HEIGHT))), 1);
-    disc.fillCircle(0, 0, r);
-    // Parked off the right edge of the glass. It arrives over the whole
-    // sequence on Cubic.Out, so the ship reads as coming about.
-    this.planet = this.add.container(planetParkX(r), cy, [disc]).setDepth(2);
-    this.planet.setMask(win.glass);
+    // NO PRIVATE DISC (UR-96). The parallax's `celestial` layer draws the stop's
+    // planet through this same glass, exactly as the Briefing's window does, so
+    // a second one here would be two planets and the drift that comes with two
+    // implementations of one thing.
 
     // THE STRIP, AS THE BRIEFING'S OWN HARDWARE (UR-61 by way of UR-77).
     // Painted into the frame's Graphics rather than adding a second one.
@@ -499,7 +496,7 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
       depth: 20,
       padY: 14,
     });
-    skyText(this, SUBHEADING.x, SUBHEADING.y, this.stopName(), {
+    this.stopNamePlate = skyText(this, SUBHEADING.x, SUBHEADING.y, this.stopName(), {
       screen: "preflight",
       id: "preflight.stop",
       size: TYPE.body,
@@ -509,26 +506,17 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
       padY: 8,
     });
 
-    const chip = backChip();
-    plate(this, chip.x, chip.y, chip.w, chip.h, { fill: INK.panelRaised }).setDepth(20);
-    label(this, chip.x + chip.w / 2, chip.y + chip.h / 2, text.text("preflight.back"), {
-      size: TYPE.label,
-      color: INK.text,
-      align: "center",
+    // ONE CHIP, SHARED WITH THE BRIEFING (UR-98). This screen drew a 262x66
+    // plate in `INK.panelRaised` at `TYPE.label` where the Briefing drew a
+    // 224x48 in `INK.panel` at `TYPE.caption` - two controls, one name, on two
+    // screens a child walks straight between. The component owns all of it.
+    drawBackChip(this, {
+      depth: 20,
+      label: text.text("preflight.back"),
       lang,
-    })
-      .setOrigin(0.5)
-      .setDepth(21);
-
-    // A pointer target on the chip, so the mouse can leave by the same control
-    // the keyboard does. `HIT_ZONE_PREFIX` is what the pointer e2e enumerates.
-    this.add
-      .zone(chip.x, chip.y, chip.w, chip.h)
-      .setOrigin(0, 0)
-      .setName(`${HIT_ZONE_PREFIX}preflight-back`)
-      .setDepth(22)
-      .setInteractive({ useHandCursor: true })
-      .on("pointerdown", () => this.goBack());
+      hitId: "preflight-back",
+      onPress: () => this.goBack(),
+    });
   }
 
   /** The stop this ritual is for, named. */
@@ -685,12 +673,7 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     this.phaseUntil = time + this.introMs();
     // The planet arrives one leg per step, so the view is still coming about
     // when the last system lights.
-    this.tweens.add({
-      targets: this.planet,
-      x: planetLegX(RITUAL_STEPS.length - 1 - this.stepIndex),
-      duration: this.introMs() + 900,
-      ease: EASE.arrive,
-    });
+
   }
 
   /**
@@ -790,7 +773,17 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
         this.shadow.setPose("cheering");
       }
     }
-    this.hintText.setAlpha(0);
+    // THE HINT DOES NOT BLINK OUT WITH THE WORD (UR-97).
+    //
+    // It was hidden here, on the settle beat - which is the exact moment the
+    // word leaves the glass - so the instructions vanished every time a child
+    // succeeded and came back when the next word arrived. A keyboard hint that
+    // flashes is worse than none: it draws the eye away from the window on the
+    // one frame the child has just earned.
+    //
+    // It is shown for the whole ritual now. `setAlpha(1)` on the typing beat
+    // below is kept because the line fades IN when the first word does, and
+    // that entrance is still wanted.
     this.phase = "settle";
     this.phaseUntil = time + this.settleMs();
   }
@@ -820,6 +813,10 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     // rebuilt a baseline from history (D51), and that is worth keeping.
     persistCalibration(this, this.calibration);
     this.say("preflight.line.done", "saluting");
+    const name = this.stopNamePlate;
+    if (name !== null) {
+      this.tweens.add({ targets: name.objects, alpha: 0, duration: 260, ease: EASE.arrive });
+    }
     this.tweens.add({
       targets: this.readyText,
       alpha: 1,
@@ -827,12 +824,7 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
       duration: 420,
       ease: EASE.pop,
     });
-    this.tweens.add({
-      targets: this.planet,
-      x: WINDOW.x + WINDOW.w * 0.62,
-      duration: finaleMs,
-      ease: EASE.arrive,
-    });
+
   }
 
   private complete(): void {

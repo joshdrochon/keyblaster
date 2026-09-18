@@ -101,6 +101,14 @@ export const CONTENT_TOP = 236;
 export const HINT_TOP = GAME_HEIGHT - 76;
 
 /**
+ * The foot line the hint plate and the back chip share (UR-95).
+ *
+ * The hint's plate is its caption ink plus `SKY_PLATE.padY` at each end; 44 is
+ * that box, measured. Named here so the chip and the hint cannot drift apart.
+ */
+export const BACK_CORNER_BOTTOM = HINT_TOP + 44;
+
+/**
  * THE ONE CORNER A VISIBLE BACK CONTROL LIVES IN: TOP-RIGHT.
  *
  * ================== WHAT WAS REPORTED ==================
@@ -141,8 +149,26 @@ export const ARTBOARD_RIGHT = DESIGN_WIDTH - GUTTER;
  * Where a back control of this size goes. The size and the ink stay the
  * screen's; the CORNER is the product's.
  */
+/**
+ * BOTTOM-right, not top-right (UR-95).
+ *
+ * The corner moved because the top-right one is not free: the Briefing's
+ * cockpit glass reaches `ARTBOARD_RIGHT` at `HEADING_TOP`, so a chip there sat
+ * ON the window (C19), and Pre-flight's cleared it only because its window
+ * happens to start lower. A corner that is only free on some screens is not a
+ * shared corner.
+ *
+ * The foot of the screen is free on both, and it pairs the way out with the
+ * hint line that names the key for it: instructions bottom-left, the control
+ * bottom-right, one row. `BACK_CORNER_BOTTOM` is the hint plate's own bottom
+ * edge, so the two sit on one line however tall either becomes.
+ *
+ * WHY THE CHIP SURVIVED AT ALL. Escape leaves both screens and the hint says
+ * so, which made removing it tempting - but it is the only POINTER route back
+ * from either, and a child on a mouse would have had none.
+ */
 export function backCorner(w: number, h: number): Rect {
-  return { x: ARTBOARD_RIGHT - w, y: BACK_CORNER_TOP, w, h };
+  return { x: ARTBOARD_RIGHT - w, y: BACK_CORNER_BOTTOM - h, w, h };
 }
 
 /** Vertical air between two stacked blocks. */

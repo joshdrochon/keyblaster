@@ -31,6 +31,8 @@ import { STOP_IDS } from "@engine/types";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import {
   createFocusRing,
+  backChipRect,
+  drawBackChip,
   createKeyboardMenu,
   label,
   plate,
@@ -246,16 +248,16 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     // suit a small control is how a keyboard-only child loses the caret, and a
     // previous lane already reported a focus-ring defect on this screen that
     // turned out to be a 29.7 s timeout rather than a ring (standards rule 9).
-    const chip = backChip();
-    plate(this, chip.x, chip.y, chip.w, chip.h, { fill: INK.panel }).setDepth(21);
-    label(this, chip.x + chip.w / 2, chip.y + chip.h / 2, text.text("briefing.back"), {
-      size: TYPE.caption,
-      color: INK.textDim,
-      align: "center",
+    // ONE CHIP, SHARED WITH PRE-FLIGHT (UR-98). This screen's plate, type and
+    // ink used to be its own; they are the component's now.
+    const chip = backChipRect();
+    drawBackChip(this, {
+      depth: 21,
+      label: text.text("briefing.back"),
       lang,
-    })
-      .setOrigin(0.5)
-      .setDepth(22);
+      hitId: "briefing-back",
+      onPress: () => this.goBack(),
+    });
 
     // LEFT TO RIGHT, which is the order they are now ON THE SCREEN. Arrow keys
     // walk this list - the vertical axis routes Right and Down forward, Left
