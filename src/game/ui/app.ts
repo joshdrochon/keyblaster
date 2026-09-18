@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { type GameServices, services } from "@game/boot";
 import type { Notice } from "@engine/persistence";
 import { isShipped, resolveContentLang } from "@engine/i18n";
+import { equipShip as equipShipOnProfile } from "@engine/unlocks/index.js";
 import {
   DEFAULT_SETTINGS,
   type Profile,
@@ -46,6 +47,22 @@ export interface App {
    * which can differ from the patch when AC-14.1 repairs the language pair.
    */
   applySettings(patch: Partial<Settings>): Settings;
+  /**
+   * Wear an earned hull, and keep it (UR-48; D79, AC-6d.1b).
+   *
+   * Returns the id actually worn afterwards, which is NOT always the one asked
+   * for: `@engine/unlocks.equipShip` refuses a hull this pilot does not hold,
+   * and this returns what the profile ended up with rather than echoing the
+   * request back. A caller that trusted its own argument would report a locked
+   * ship as equipped.
+   *
+   * Flushes, for the reason `applySettings` flushes: the store's write is
+   * debounced by 250 ms and a hull a child earned must survive the tab closing
+   * a second later. That is the half of the round trip a value assertion cannot
+   * see, and `tests/unit/unlocks/equip.test.ts` runs the whole chain -
+   * value, store, serialize, second store, read back.
+   */
+  equipShip(shipId: string): string | null;
   /** One calm line about the load, or null (AC-18.4). Returned once per page. */
   takeNoticeText(): string | null;
 }
@@ -128,6 +145,20 @@ export function appFor(scene: Phaser.Scene): App {
       // A settings change is worth keeping even if the tab dies next second.
       store.flush();
       return updated?.settings ?? merged;
+    },
+
+    equipShip(shipId): string | null {
+      const profile = store.activeProfile();
+      if (!profile) return null;
+      // The guard is the ENGINE's, not this function's. A refusal written here
+      // would be a second copy of "is this hull held?" that a second caller
+      // could skip, which is the arrangement that lost `crossDrift` and lost
+      // keep-clear twice. `equipShip` returns the same object when it refuses.
+      const next = equipShipOnProfile(profile, shipId);
+      if (next === profile) return profile.shipId;
+      const updated = store.updateProfile(profile.id, () => next);
+      store.flush();
+      return updated?.shipId ?? profile.shipId;
     },
 
     takeNoticeText(): string | null {

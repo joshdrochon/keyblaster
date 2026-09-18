@@ -43,10 +43,16 @@ export const PARTICLES: readonly ParticleSpec[] = [
     //
     // `quantity` is now the SIZE OF THE POPULATION, not the size of one burst:
     // the fragments leave on `shardOnsetsMs()` over ~440 ms rather than all on
-    // the fracture frame. 16 -> 12 is a deliberate cut, and the reason is in
-    // the block comment on `shardOnsetsMs` below.
+    // the fracture frame.
+    //
+    // It went 16 -> 12 when the schedule landed, as a cut taken on frame-time
+    // grounds that could not be measured at the time, and it is back at 16 now
+    // that they have been. P-22.9 was swept over both board depths on a
+    // serialised run and the count is not what the budget is spent on; the
+    // measured before/after is in the block comment on `shardOnsetsMs` below,
+    // with the arithmetic and the ceiling that keeps it from drifting up again.
     id: "blastShards",
-    quantity: 12,
+    quantity: 16,
     lifespanMs: [480, 900],
     speed: [140, 420],
     angle: [0, 360],
@@ -147,27 +153,68 @@ export function signatureAxes(a: ParticleSpec, b: ParticleSpec): number {
  * SAME DISTRIBUTION AS THE SOUND, SAMPLED FEWER TIMES. `crumbleSamples` places
  * grain `g` at `-tau * ln(1 - u)` with `tau = CRUMBLE_SHAPE.densityTau` (0.15 s)
  * and a stratified `u`, clamped to 0.46 s. This is that, in milliseconds, with
- * 12 strata instead of 64. Stratified for the same reason the audio is: 12 free
- * draws clump badly by luck, and a burst that happened to put nine of its twelve
- * fragments after 200 ms would read as a slide rather than a break.
+ * 16 strata instead of 64. Stratified for the same reason the audio is: 16 free
+ * draws clump badly by luck, and a burst that happened to put nine of its
+ * sixteen fragments after 200 ms would read as a slide rather than a break.
  *
- * WHY THE FLOOR AND THE CEILING ARE EXPLICIT. The raw exponential puts the first
- * stratum at 6.4 ms and the last at 477 ms, and both are outside the measured
- * window. Clamping to `SHARD_FIRST_DETACH_MS` keeps the first fragment off the
+ * AND 16 IS THE ONE POPULATION WHOSE STRATA NEST INSIDE THE SOUND'S. The audio
+ * cuts the distribution into 64 equal slices; 64 / 16 = 4, so visual stratum `i`
+ * is exactly the union of audio grains 4i..4i+3 and its midpoint sits at the
+ * centre of that block. No other count in the range divides 64 - at 12, 14 or 15
+ * the two partitions cut the same curve at different places and the picture is
+ * merely near the sound rather than a decimation of it. UR-48 is the claim that
+ * they are the SAME distribution, so the count that makes that exactly true is
+ * the one to hold.
+ *
+ * WHY THE FLOOR AND THE CEILING ARE EXPLICIT. At a population of 16 the raw
+ * exponential puts the first stratum at 4.8 ms and the last at 520 ms, and both
+ * are outside the measured window. Both ends run FURTHER out as the population
+ * grows - they were 6.4 ms and 477 ms at 12 - which is why the two clamps are
+ * constants taken from the sound rather than anything derived from the count.
+ * Clamping to `SHARD_FIRST_DETACH_MS` keeps the first fragment off the
  * fracture frame - the point of the whole change - and clamping to
  * `SHARD_LAST_DETACH_MS` keeps the tail inside the sound it is matched to
  * instead of a fragment leaving after the crumble has finished.
  *
- * THE PERFORMANCE ARGUMENT, because this landed on a board that just got much
- * fuller (belts now climb to maxLive 7; time-weighted occupancy went from ~1.0
- * rocks to 3.4-3.9). Staggering on its own buys nothing: the minimum lifespan
- * (480 ms) is longer than the whole onset spread (440 ms), so every fragment is
- * still alive when the last one is born and the peak simultaneous count barely
- * moves. Per-frame particle cost is `population x lifespan`, and the only lever
- * on it is the population. 16 -> 12 takes per-destruction particle work down
- * 25% (16 x ~690 ms avg life = 11040 particle-ms, to 12 x ~690 = 8280), which
- * is headroom handed back to the extra rocks now being drawn. The satisfaction
- * comes from the schedule; the budget comes from the count.
+ * THE PERFORMANCE ARGUMENT, WHICH WAS MADE TWICE AND MEASURED ONCE. This landed
+ * on a board that had just got much fuller (belts now climb to maxLive 7;
+ * time-weighted occupancy went from ~1.0 rocks to 3.4-3.9), so the population
+ * was cut 16 -> 12 on the reasoning below. All of that reasoning still holds
+ * except its conclusion.
+ *
+ * Staggering on its own buys nothing: the minimum lifespan (480 ms) is longer
+ * than the whole onset spread (440 ms), so every fragment is still alive when
+ * the last one is born and the peak simultaneous count barely moves. Per-frame
+ * particle cost is `population x lifespan`, and the only lever on it is the
+ * population. 12 -> 16 is therefore a real 33% rise in per-destruction particle
+ * work (12 x ~690 ms avg life = 8280 particle-ms, to 16 x ~690 = 11040), which
+ * at the perf spec's ~8 blasts/s is about 66 shards alive on average against 88.
+ *
+ * AND IT DOES NOT SHOW UP. P-22.9 was swept over both board depths, one worker
+ * at a time on an otherwise idle machine, twice per population. Per-frame work,
+ * p95, in ms:
+ *
+ *                     maxLive 5        maxLive 7
+ *     12 fragments    9.3, 9.2         9.2, 9.3
+ *     16 fragments    9.7, 9.2, 9.3    9.6, 9.3, 9.2
+ *
+ * against a 16.7 ms bar. The arms differ by less than the harness differs from
+ * itself between two runs of the SAME build, so what the sweep establishes is
+ * not "16 is cheap" but "at this resolution the shard population is not what
+ * this frame budget is spent on". The 25% that the cut bought back was real
+ * arithmetic about particles and almost nothing about frames.
+ *
+ * READ THOSE ARTIFACTS WITH `frames` IN HAND. Headless Chromium rasterises in
+ * software and shares the machine with whatever else is running, so a contended
+ * run reports the box rather than the game - the same build gives ~9.2 ms over
+ * ~410 frames idle and 12.1 ms over 122 frames while three other suites are
+ * going. A 60 s window that collected barely 120 frames was not measuring this
+ * code. The margin to 16.7 is left deliberately wide on top of that, because
+ * every number here describes SwiftShader and not a player's GPU; a headed
+ * capture is still owed and is on the escalation queue.
+ *
+ * The satisfaction comes from the schedule. The count is what the schedule has
+ * to spend, and the budget turned out to be able to afford it.
  */
 
 /** Time constant of the onset decay. Mirrors `CRUMBLE_SHAPE.densityTau`. */

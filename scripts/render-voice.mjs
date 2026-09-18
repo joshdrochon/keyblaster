@@ -20,6 +20,8 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+
+import { needsRender, textFingerprint } from "./lib/voice-cache.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -352,6 +354,7 @@ const previous = existingManifest();
 const FORCE = flag("force");
 let spent = 0;
 let failed = 0;
+
 let skipped = 0;
 const manifest = [];
 
@@ -359,7 +362,14 @@ try {
   for (const line of lines) {
     const priorRow = previous.get(line.id);
     const file = `${line.id}.mp3`;
-    if (!FORCE && priorRow !== undefined && existsSync(join(OUT, file))) {
+    const why = needsRender({
+      line,
+      priorRow,
+      fileExists: existsSync(join(OUT, file)),
+      voiceId: VOICE_ID,
+      force: FORCE,
+    });
+    if (why === null) {
       manifest.push(priorRow);
       skipped += 1;
       continue;
@@ -373,7 +383,17 @@ try {
       const audio = await render(line);
       writeFileSync(join(OUT, file), audio);
       spent += cost;
-      manifest.push({ id: line.id, file, chars: line.text.length, bytes: audio.length });
+      // voiceId and textSha are what make `needsRender` exact: they record
+      // what this clip was actually made from, so a later voice or copy change
+      // re-renders instead of silently keeping stale audio.
+      manifest.push({
+        id: line.id,
+        file,
+        chars: line.text.length,
+        bytes: audio.length,
+        voiceId: VOICE_ID,
+        textSha: textFingerprint(line.text),
+      });
       console.log(`  rendered ${line.id.padEnd(26)} ${audio.length} bytes`);
     } catch (error) {
       failed += 1;

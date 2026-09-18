@@ -21,7 +21,8 @@ import { LAYERS, layer, type LayerId } from "@game/render/layers";
 import { particleSpec } from "@game/render/particles";
 import { buildParallax, EASE, type Parallax } from "@game/render/parallax";
 import { hexToNum, mixHex } from "@game/render/palette";
-import { LANTERN_DESIGN_HEIGHT, drawLantern, type LanternRig } from "@game/render/lantern";
+import { LANTERN_DESIGN_HEIGHT, type LanternRig } from "@game/render/lantern";
+import { drawPlayerLantern, playerLivery } from "./lib/livery.js";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import { DUR, INK, TYPE } from "@game/ui/theme";
 import { headerText } from "@game/ui/grid";
@@ -423,7 +424,12 @@ export class WarpScene extends Phaser.Scene {
       // `support/warpLayout.ts` owns the rectangle and `warpLayout.test.ts`
       // asserts it is disjoint from every card.
       const stand = lanternStand();
-      this.lantern = drawLantern(this, stand.x, stand.y, {
+      // THE PILOT'S OWN HULL (UR-48). The standalone path drew the file
+      // constants; the overlay path draws no ship at all, because the ship on
+      // screen is Flight's and Flight's is already the pilot's. Both paths now
+      // show one hull, and `drawPlayerLantern` delegates to the single
+      // `drawLantern` rather than adding a drawing (standards rule 3).
+      this.lantern = drawPlayerLantern(this, stand.x, stand.y, {
         scale: stand.height / LANTERN_DESIGN_HEIGHT,
         reducedMotion: this.lane.reducedMotion,
         idleBob: true,
@@ -1850,6 +1856,12 @@ export class WarpScene extends Phaser.Scene {
     return {
       scene: SCENE_KEYS.warp,
       stopId: this.stopId,
+      // UR-48. The hull this screen draws. The standalone path drew the file
+      // constants whoever was flying; the overlay path draws no ship at all and
+      // reports null, because the one on screen is Flight's and Flight's was
+      // already the pilot's. WHERE it is drawn is `ship.box` below, which this
+      // screen already reported and which a spec can crop and look at.
+      shipLivery: this.lantern === null ? null : playerLivery(this) ?? null,
       /** Every colour pair this screen draws over the sky (V-22.8). */
       skyText: skyTextSamples(this),
       accent: this.lane.palette.accent,

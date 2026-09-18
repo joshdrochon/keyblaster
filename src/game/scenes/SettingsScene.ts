@@ -9,6 +9,8 @@ import {
 import { MenuScene } from "@game/ui/MenuScene";
 import { type Control } from "@game/ui/controls";
 import {
+  type HullChoice,
+  HullRow,
   KnobRow,
   PanelButton,
   type SelectorChoice,
@@ -16,6 +18,8 @@ import {
   SwitchRow,
   drawConsoleFace,
 } from "@game/ui/cockpit";
+import { liveryForShip } from "@game/ui/catalog";
+import { equippedIndex, hullSlots } from "@game/ui/hulls";
 import { SETTINGS_CONSOLE, bottomOf, fitPlan, flowColumn } from "@game/ui/layout";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { uiText } from "@game/ui/text";
@@ -238,6 +242,11 @@ export class SettingsScene extends MenuScene {
 
     // --- flight deck -------------------------------------------------------
 
+    // THE HULL IS THE FIRST THING ON THE FLIGHT DECK, above the reading and
+    // motion rows. It is the only control on this panel a child comes here
+    // WANTING, and it is the reward the rest of the game is paying out.
+    right.push(this.hullRow(rightX, y, colW));
+
     right.push(
       new SelectorRow<"lower" | "upper">(
         this,
@@ -347,6 +356,71 @@ export class SettingsScene extends MenuScene {
     this.addHint("ui.common.hintAdjust");
     this.setControls([...left, ...right, resetKey]);
     if (this.restoreFocus) this.list.focus(this.restoreFocus);
+  }
+
+  /**
+   * THE EQUIP SURFACE (UR-48; D73, D79; AC-6d.1b, AC-18.1, AC-19.1).
+   *
+   * ================== THE DEFECT ==================
+   * Hulls unlock at 1 / 3 / 5 / 7 beacons and nothing in the shipped game could
+   * put one on. The only writer of `profile.shipId` outside the schema was
+   * `ProfileCreateScene`, where a pilot who does not exist yet holds `ship-1`
+   * and nothing else - so `shipId` could only ever hold `ship-1`, and ships 2,
+   * 3 and 4 were drawn, catalogued, earnable and unwearable. A child could play
+   * the whole route, earn three hulls and fly the same ship forever.
+   *
+   * ================== WHY HERE, AND NOT A NEW SCREEN ==================
+   * This screen is already called "ship controls" and already reads as the
+   * inside of the Lantern (UR-11). It is reached from the Director map AND from
+   * Pause (`goBack` sends Esc back to whichever it was), so ONE row lands the
+   * surface on both routes with one build and one set of assertions. A separate
+   * hangar screen would need a row in the design brief's screen inventory, its
+   * own Esc path, its own focus order and its own e2e - and `trace-check`
+   * enforces the inventory in both directions, so it is not a small change.
+   *
+   * ================== WHAT IT COSTS, STATED ==================
+   * Equipping from Pause does NOT repaint the ship mid-belt. `FlightScene`
+   * resolves its hull in `create()`, so a hull chosen over a frozen belt is
+   * flown from the next stage. That is the safe direction: the alternative is
+   * swapping the livery of a rig that is mid-tween, and a half-repainted ship
+   * during a run is worse than a reward that lands at the next launch.
+   */
+  private hullRow(x: number, y: number, width: number): HullRow {
+    const profile = this.app.profile();
+    const slots = hullSlots(profile);
+    const choices: readonly HullChoice[] = slots.map((slot) => ({
+      id: slot.ship.id,
+      label: this.t.t(slot.ship.nameKey),
+      locked: slot.locked,
+      // Locked hulls SAY WHAT UNLOCKS THEM, in the same sentence the create
+      // screen prints under the same tile (D73/D79) - the string and the number
+      // both come from the catalogue, so the two screens cannot drift.
+      detail: slot.locked
+        ? this.t.t(slot.ship.unlockKey, { n: slot.ship.unlockBeacons })
+        : this.t.t(slot.equipped ? "ui.settings.hullFlying" : "ui.settings.hullEquip"),
+      // THE COLOURWAY THIS HULL IS ACTUALLY WEARING, skin included - the same
+      // `liveryForShip` the flying ship resolves through. `slot.ship.colors`
+      // would be the BASE look, so a pilot who earned the frost trim would be
+      // offered a swatch that is not the ship they get, which is the equip
+      // surface lying about its own reward. The create screen shows base and
+      // skin as separate tiles because it has eight of them; this row has four.
+      colors: liveryForShip(slot.ship.id, profile?.unlockedSkins ?? []),
+    }));
+    return new HullRow(this, this.uiStyle, "settings.hull", x, y, this.depth, {
+      label: this.t.t("ui.settings.hull"),
+      width,
+      value: slots[equippedIndex(slots)]?.ship.id ?? "",
+      choices,
+      // Rebuild, because every hull's line changed: the one just equipped now
+      // says "flying now" and the one that used to is back to offering itself.
+      // `applyAndRestart`'s idiom - a SCENE restart, never a page reload - with
+      // the focus restored to this row, so the child is still on the ship they
+      // just chose and can see it is being flown.
+      onEquip: (id) => {
+        this.app.equipShip(id);
+        this.scene.restart({ returnTo: this.returnTo, focus: "settings.hull" });
+      },
+    });
   }
 
   /**
@@ -554,6 +628,10 @@ export class SettingsScene extends MenuScene {
       settings: { ...s },
       resetStage: this.resetStage,
       returnTo: this.returnTo,
+      // The hull actually WORN, read back off the profile rather than echoed
+      // from the row: a row reporting its own argument would say "ship-4" for a
+      // press `@engine/unlocks.equipShip` refused.
+      shipId: this.app.profile()?.shipId ?? null,
       contentLangChoices: availableContentLangs(s.inputMethod),
     };
   }

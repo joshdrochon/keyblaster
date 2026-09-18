@@ -63,7 +63,19 @@ export interface BootOptions {
  * start the shipping game and then `bootFlight` would start a second copy OF
  * THE SAME GAME. One boot per page; the stub is what keeps it to one.
  */
+/**
+ * How many times the app-entry stub actually fired, per page.
+ *
+ * Kept because the failure it explains is otherwise a geometry riddle. When the
+ * glob misses, `entryHits` is 0 and the page quietly holds two games; printing
+ * the count next to the geometry turns "the canvas is at y=720" into "the app
+ * entry booted alongside this one and pushed it into a second grid row".
+ */
+const entryHits = new WeakMap<Page, { n: number }>();
+
 export async function muteHmr(page: Page): Promise<void> {
+  const hits = { n: 0 };
+  entryHits.set(page, hits);
   /**
    * THE TRAILING `*` IS LOAD-BEARING (instance 17).
    *
@@ -85,13 +97,14 @@ export async function muteHmr(page: Page): Promise<void> {
    * evidence has been trustworthy when nobody was working and unreliable
    * exactly when everybody was.
    */
-  await page.route("**/src/main.ts*", (route) =>
-    route.fulfill({
+  await page.route("**/src/main.ts*", (route) => {
+    hits.n += 1;
+    return route.fulfill({
       status: 200,
       contentType: "application/javascript",
       body: "export {};",
-    }),
-  );
+    });
+  });
   await page.route("**/@vite/client", (route) =>
     route.fulfill({
       status: 200,
@@ -124,77 +137,199 @@ export async function bootFlight(page: Page, options: BootOptions = {}): Promise
     { timeout: 30_000 },
   );
 
+  await assertGameOnScreen(page, "boot");
+
   /**
-   * ONE GAME ON THE PAGE, CHECKED AT RUNTIME.
+   * AND AGAIN ONCE THE FRAMES HAVE SETTLED.
    *
-   * `oneBootPath.test.ts` asserts there is one `new Phaser.Game` in `src/`, and
-   * that is true and was not enough: a second game can arrive because the entry
-   * point booted alongside this one, which is a fact about the network rather
-   * than about the source. Two games share a canvas stack, a keyboard and a
-   * frame budget, and `__kbGame` then points at whichever won - measured as a
-   * coin flip, the game canvas landing at y=0 in half the runs and y=720 in the
-   * other half. A capture taken then is of whichever game is on top, which is
-   * how a spec asking for a Saturn belt got back the Title screen.
+   * The check above runs the moment the first rock exists. Layout that depends
+   * on a stylesheet, a resize observer or a second canvas arriving late is not
+   * settled then, so a boot-time pass is a statement about one moment. Two
+   * rendered frames later it is a statement about the frame a measurement will
+   * actually be taken from. Cheap, and it is the half that was missing when
+   * V-22.4 died "always after `bootFlight`'s own layout check had passed".
    *
-   * Checked here because every flight spec goes through this function, and
-   * checked LOUDLY because the failure it catches is invisible in every other
-   * way: the scene boots, the state reads, the assertions run, and the pixels
-   * belong to a different program.
+   * It is NOT what fixed the 4-in-9 - see the note on `assertGameOnScreen` -
+   * but a check taken once and too early is worth fixing on its own terms.
    */
-  const layout = await page.evaluate(() => {
+  await waitFrames(page, 2);
+  await assertGameOnScreen(page, "settled");
+}
+
+// ---------------------------------------------------------------------------
+// The page is showing what you think it is (coding-standards rule 7)
+// ---------------------------------------------------------------------------
+
+interface CanvasBox {
+  /** Backing-store width. Kept because it is how the two games told apart. */
+  readonly width: number;
+  /** The ON-SCREEN rect, which is what "on screen" has to be judged against. */
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+  /** True for the canvas `__kbGame` owns - the one this boot created. */
+  readonly mine: boolean;
+}
+
+interface PageLayout {
+  readonly games: readonly CanvasBox[];
+  readonly backdrops: readonly CanvasBox[];
+  readonly viewW: number;
+  readonly viewH: number;
+  readonly entryStubHits: number;
+}
+
+/**
+ * How far off the edge a canvas may sit before a measurement of it is a lie.
+ *
+ * Two device-independent pixels. A sub-pixel rect during a resize is not a
+ * defect and clamping it is right; half the picture hanging out of the window
+ * is the instance-20 defect and clamping it silently returns a clip of the part
+ * that happened to fit. The old code clamped BOTH and only threw when the
+ * overlap reached zero, so a canvas half off the bottom produced numbers that
+ * looked entirely normal.
+ */
+const EDGE_SLACK_PX = 2;
+
+export async function readLayout(page: Page): Promise<Omit<PageLayout, "entryStubHits">> {
+  return page.evaluate(() => {
+    const own = (window.__kbGame as unknown as { canvas?: HTMLCanvasElement } | undefined)?.canvas;
     const all = [...document.querySelectorAll("canvas")];
-    const describe = (c: Element): { width: number; y: number; height: number } => {
+    // NOT rounded: `flightCanvasBox` derives its screenshot clip from this and
+    // every pixel measurement downstream is fractional across the canvas.
+    // Rounding happens only in the failure message.
+    const describe = (c: Element): CanvasBox => {
       const r = c.getBoundingClientRect();
       return {
         width: (c as HTMLCanvasElement).width,
-        y: Math.round(r.y),
-        height: Math.round(r.height),
+        x: r.x,
+        y: r.y,
+        w: r.width,
+        h: r.height,
+        mine: c === own,
       };
     };
+    const isBackdrop = (c: Element): boolean =>
+      (c as HTMLElement).dataset["testid"] === "viewport-backdrop";
     return {
-      games: all
-        .filter((c) => (c as HTMLElement).dataset["testid"] !== "viewport-backdrop")
-        .map(describe),
-      backdrops: all
-        .filter((c) => (c as HTMLElement).dataset["testid"] === "viewport-backdrop")
-        .map(describe),
+      games: all.filter((c) => !isBackdrop(c)).map(describe),
+      backdrops: all.filter(isBackdrop).map(describe),
+      viewW: window.innerWidth,
       viewH: window.innerHeight,
     };
   });
+}
+
+/**
+ * ============ THE PAGE IS SHOWING WHAT YOU THINK IT IS, AT THIS MOMENT ============
+ *
+ * `docs/verification-gaps.md` instance 20: the game canvas rendered entirely
+ * below the fold, so every pixel measured was a clip to a canvas nobody could
+ * see, and the scene booted and the state read fine the whole time. Rule 7 says
+ * to assert one game canvas, at most one backdrop, and that it is on screen.
+ * This is that rule as code, and it is called at BOOT, again once the frames
+ * have settled, and again from `flightCanvasBox` - which is every measurement
+ * this harness takes.
+ *
+ * ================== THE 4-IN-9, MEASURED ==================
+ * V-22.4 died in four of nine runs with
+ * `the game canvas is not on screen: {"x":0,"y":720,...}`, at a different stop
+ * each time. The escalated lean was that the layout drifts after boot and the
+ * check is taken too early. It is not. Nine boots per arm, `PW_WORKERS=1`,
+ * `utimes` on `src/game/boot.ts` before each boot (the condition instance 17
+ * names: a file in the graph saved while the dev server is up, which is the
+ * normal state of a parallel build):
+ *
+ *   route "**\/src/main.ts"   entry stub hit on 1 boot of 9, FOUR canvases -
+ *                             two backdrops and two games - and the game this
+ *                             boot owns at y=720 in 6 of 9. In the other 3 it
+ *                             was at y=0 and the OTHER game was at y=720: the
+ *                             coin flip instance 17 recorded, not a drift.
+ *   route "**\/src/main.ts*"  entry stub hit on 9 boots of 9, two canvases,
+ *                             the game at y=0. 0 of 9 below the fold.
+ *
+ * So the second grid row is a second `Phaser.Game`, present from the first
+ * frame, and `flight.spec.ts`, `flight-perf.spec.ts` and `world-frame.spec.ts`
+ * each carried a private copy of `muteHmr` with the glob instance 17 had
+ * already been fixed in HERE. The fix to the harness is this function; the fix
+ * to those three is the trailing `*`, and `tests/unit/arch/oneBootPath.test.ts`
+ * now fails if a fourth copy appears.
+ */
+export async function assertGameOnScreen(page: Page, when: string): Promise<CanvasBox> {
+  return checkLayout(page, await readLayout(page), when);
+}
+
+/**
+ * The judgement, separated from the round trip that feeds it.
+ *
+ * `flightCanvasBox` needs the geometry AND the verdict, and taking them in two
+ * `page.evaluate` calls would be the two-round-trip mistake instance 14 is
+ * about - one extra trip between the state and the picture, on a world that
+ * falls in real seconds. One read, one verdict, derived from the same rects.
+ */
+function checkLayout(
+  page: Page,
+  seen: Omit<PageLayout, "entryStubHits">,
+  when: string,
+): CanvasBox {
+  const layout: PageLayout = { ...seen, entryStubHits: entryHits.get(page)?.n ?? -1 };
+  const round = (b: CanvasBox): Record<string, number | boolean> => ({
+    width: b.width,
+    x: Math.round(b.x),
+    y: Math.round(b.y),
+    w: Math.round(b.w),
+    h: Math.round(b.h),
+    mine: b.mine,
+  });
+  const where = `at ${when}: ${JSON.stringify({
+    ...layout,
+    games: layout.games.map(round),
+    backdrops: layout.backdrops.map(round),
+  })}`;
+
   if (layout.games.length !== 1) {
     throw new Error(
-      `${layout.games.length} game canvases on the page, expected 1: ${JSON.stringify(layout)}. ` +
-        "The app entry booted alongside this one - see muteHmr. Every pixel measured " +
-        "from here would belong to whichever game won the race.",
-    );
-  }
-  /**
-   * AND IT HAS TO BE ON SCREEN.
-   *
-   * `#app` is `display:grid; place-items:center` and the viewport backdrop is
-   * absolutely positioned so it does not take a grid row. When that goes wrong -
-   * a second backdrop, or one that has not had its positioning applied yet - the
-   * two canvases become two ROWS and the game is pushed entirely below the fold.
-   * Caught in a 3-worker run as `{"y":720, "height":720, "viewH":720}`: the
-   * game's top edge exactly at the bottom of the window.
-   *
-   * Every pixel this harness measures is a screenshot clipped to that canvas, so
-   * a canvas off the fold is a measurement of nothing. Asserted at BOOT, with
-   * the geometry, rather than surfacing later as a Playwright clip error in the
-   * middle of somebody's rubric item.
-   */
-  const game = layout.games[0];
-  if (game !== undefined && game.y >= layout.viewH) {
-    throw new Error(
-      `the game canvas is below the fold: ${JSON.stringify(layout)}. Two canvases have ` +
-        "become two grid rows; nothing measured from a clip to this canvas is the game.",
+      `${layout.games.length} game canvases on the page, expected 1, ${where}. ` +
+        (layout.entryStubHits === 0
+          ? "The app-entry stub NEVER FIRED, so `/src/main.ts` booted the shipping game " +
+            "alongside this one. Vite serves the entry as `/src/main.ts?t=<ts>` once any " +
+            "file in the graph has been saved, and a glob without a trailing `*` does not " +
+            "match a query string (instance 17). "
+          : "The app entry booted alongside this one - see muteHmr. ") +
+        "Every pixel measured from here would belong to whichever game won the race.",
     );
   }
   if (layout.backdrops.length > 1) {
+    throw new Error(`${layout.backdrops.length} viewport backdrops on the page, ${where}.`);
+  }
+
+  const game = layout.games[0];
+  if (game === undefined) throw new Error(`no game canvas on the page, ${where}`);
+  if (!game.mine) {
     throw new Error(
-      `${layout.backdrops.length} viewport backdrops on the page: ${JSON.stringify(layout)}.`,
+      `the only game canvas on the page is not the one \`__kbGame\` owns, ${where}. ` +
+        "Measuring it would be measuring a program this boot did not start.",
     );
   }
+
+  const off = {
+    left: Math.max(0, -game.x),
+    top: Math.max(0, -game.y),
+    right: Math.max(0, game.x + game.w - layout.viewW),
+    bottom: Math.max(0, game.y + game.h - layout.viewH),
+  };
+  const worst = Math.max(off.left, off.top, off.right, off.bottom);
+  if (worst > EDGE_SLACK_PX) {
+    throw new Error(
+      `the game canvas is ${Math.round(worst)}px outside the viewport ` +
+        `(${JSON.stringify(off)}), ${where}. ` +
+        "`#app` is a centred grid and the backdrop is absolutely positioned so it takes no " +
+        "row; a second in-flow canvas makes two ROWS and pushes the game off the window. " +
+        "Nothing measured from a screenshot clipped to this canvas is the game.",
+    );
+  }
+  return game;
 }
 
 export const flightState = (page: Page): Promise<FlightState> =>
@@ -223,45 +358,36 @@ export const flightState = (page: Page): Promise<FlightState> =>
 export async function flightCanvasBox(
   page: Page,
 ): Promise<{ x: number; y: number; width: number; height: number }> {
-  const box = await page.evaluate(() => {
-    const canvas = (window.__kbGame as unknown as { canvas?: HTMLCanvasElement } | undefined)
-      ?.canvas;
-    if (canvas === undefined) return null;
-    const r = canvas.getBoundingClientRect();
-    return {
-      x: r.x,
-      y: r.y,
-      width: r.width,
-      height: r.height,
-      viewW: window.innerWidth,
-      viewH: window.innerHeight,
-    };
-  });
-  if (box === null) throw new Error("the flight game has no canvas");
-
   /**
-   * CLAMPED TO THE VIEWPORT, because `page.screenshot({ clip })` refuses a
-   * rectangle that reaches outside the image: "Clipped area is either empty or
-   * outside the resulting image". A canvas can sit partly outside it - during a
-   * resize, or before layout has settled - and every caller here feeds this box
-   * straight to `clip`, so the failure surfaces as a Playwright error in the
-   * middle of a measurement rather than as anything diagnosable.
+   * ASSERTED AT THE MOMENT OF THE MEASUREMENT, THEN CLAMPED - in that order.
    *
-   * Clamped rather than asserted: a few pixels off the edge is not a defect, and
-   * the measurements that use this are fractional across the canvas. A box with
-   * NO overlap at all is a different thing and throws, because measuring it
-   * would return whatever happened to be at the origin.
+   * Every caller feeds this box straight to `page.screenshot({ clip })`, so
+   * this function is where a measurement gets BOUND to a picture. It used to
+   * clamp anything and throw only when the overlap reached zero, which meant a
+   * canvas half outside the window returned a clip of the part that fitted and
+   * the caller got a well-formed number for a picture of nothing in particular.
+   * Instance 20's whole lesson is that the numbers come back looking normal.
+   *
+   * So the layout is judged HERE rather than inherited from a boot-time pass:
+   * one game canvas, at most one backdrop, it is the canvas `__kbGame` owns,
+   * and it is inside the viewport to within `EDGE_SLACK_PX`. Coding-standards
+   * rule 7 in code instead of in words. The clamp then only ever absorbs that
+   * 2px of sub-pixel slack.
+   *
+   * ONE ROUND TRIP, deliberately. The verdict is computed from the SAME rects
+   * the clip is cut from, in Node, rather than by asking the page a second
+   * question - a second trip here would put a wall-clock gap between the check
+   * and the picture on a world that falls in real seconds, which is the defect
+   * instance 14 is about. The check costs nothing the old code did not spend.
    */
-  const x = Math.max(0, Math.min(box.x, box.viewW));
-  const y = Math.max(0, Math.min(box.y, box.viewH));
-  const width = Math.max(0, Math.min(box.x + box.width, box.viewW) - x);
-  const height = Math.max(0, Math.min(box.y + box.height, box.viewH) - y);
-  if (width < 1 || height < 1) {
-    throw new Error(
-      `the game canvas is not on screen: ${JSON.stringify(box)}. Nothing measured ` +
-        "from a screenshot clipped to it would be the game.",
-    );
-  }
+  const layout = await readLayout(page);
+  if (layout.games.length === 0) throw new Error("the flight game has no canvas");
+  const game = checkLayout(page, layout, "measurement");
+
+  const x = Math.max(0, Math.min(game.x, layout.viewW));
+  const y = Math.max(0, Math.min(game.y, layout.viewH));
+  const width = Math.max(0, Math.min(game.x + game.w, layout.viewW) - x);
+  const height = Math.max(0, Math.min(game.y + game.h, layout.viewH) - y);
   return { x, y, width, height };
 }
 

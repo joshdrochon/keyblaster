@@ -174,20 +174,148 @@ const STORE_WRITERS: ReadonlyArray<{ call: string; fields: readonly string[] }> 
   { call: "updateSettings", fields: ["settings"] },
 ];
 
+// ---------------------------------------------------------------------------
+// Liveness: REACHABLE, not merely mentioned (UR-51 Finding A, gaps instance 25)
+// ---------------------------------------------------------------------------
+
+/**
+ * ================= THE GUARD COULD NOT SEE ITS OWN DEFECT =================
+ *
+ * This file is `docs/verification-gaps.md` instance 25: a guard written to
+ * catch "a persisted field with no live writer" that stays green when you
+ * delete the write it polices. Confirmed on this branch by three lanes and
+ * re-confirmed here against the real file, not a string:
+ *
+ *   both `persistStageKnobs(this, this.controller.knobs)` call sites deleted
+ *   from `src/game/scenes/FlightScene.ts`  ->  12/12 PASS. `knobs` still
+ *   reported as covered by `applyKnobs (src/engine/controller/knobs.ts)`.
+ *
+ * WHY, AND IT IS NOT WHAT THE ESCALATION SAID. UR-51 Finding A diagnosed it as
+ * "`gameSource()` includes `src/game/scenes/lib/init.ts` — where the wrapper is
+ * defined, so a helper matches its own definition", and leaned on excluding a
+ * writer's own defining file. Measured before implementing it: **0 of 6
+ * writers are defined inside `gameSource()` at all.** Every one of them lives
+ * in `src/engine`, which `gameSource()` never reads. Excluding a writer's own
+ * defining file is a strict no-op here and would have shipped a second blind
+ * guard on top of the first.
+ *
+ * The real cause is that liveness was ONE HOP DEEP. `writersByField` asked
+ * "does the string `applyKnobs(` occur anywhere in src/game", and the only
+ * occurrence is inside `persistStageKnobs`, a wrapper in `lib/init.ts`.
+ * Nothing asked whether anything calls the wrapper. Four of the six writers
+ * are reached that way (`applyCalibration`, `applyKnobs`, `clearStopOnProfile`,
+ * `withProfileBook` — all of them only from `lib/init.ts`), so four of the
+ * fourteen fields were certified by the existence of a helper rather than by
+ * any path a child's save can travel.
+ *
+ * THE FIX. Attribute every call to the top-level function it sits in, then
+ * take the transitive closure from scene/module scope. A writer counts as live
+ * only when there is a call chain to it from code the game actually runs, so a
+ * wrapper that nothing calls certifies nothing — including itself.
+ *
+ * WHAT THIS STILL CANNOT SEE, stated rather than left to be discovered. Class
+ * bodies are one unit (`ROOT_SCOPE`): a private scene method is treated as
+ * live because Phaser's lifecycle can reach it. A write stranded in a private
+ * method that nothing calls would still pass. That is instance 23's blind spot
+ * and closing it needs a real call graph over class members, not a regex;
+ * raised rather than half-done.
+ */
+const ROOT_SCOPE = "@scene-and-module-scope";
+
+/**
+ * A top-level `function` declaration and its body, anchored at column 0.
+ *
+ * Same body-end assumption `findProfileWriters` already makes: a top-level
+ * function ends at the first `}` in column 0. Nested blocks are indented.
+ */
+const TOP_LEVEL_FN = /^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*(?:<[^>]*>)?\s*\([\s\S]*?\n\}/gm;
+
+interface CodeUnit {
+  /** The top-level function this code belongs to, or `ROOT_SCOPE`. */
+  readonly owner: string;
+  readonly code: string;
+}
+
+/**
+ * Split source into one unit per top-level function, plus everything else.
+ *
+ * "Everything else" is imports, module-level statements and class bodies, and
+ * it is the root: Phaser instantiates the scenes, so a class body is running
+ * code. Anything a regex misses (an arrow assigned to a const, say) falls into
+ * the root and is therefore treated as live — the same answer the old check
+ * gave, so a miss here is never STRICTER than before, only less helpful.
+ */
+export function unitsOf(source: string): CodeUnit[] {
+  const units: CodeUnit[] = [];
+  let rest = "";
+  let cursor = 0;
+  for (const m of source.matchAll(TOP_LEVEL_FN)) {
+    const at = m.index ?? 0;
+    units.push({ owner: m[1]!, code: m[0]! });
+    rest += source.slice(cursor, at);
+    cursor = at + m[0]!.length;
+  }
+  rest += source.slice(cursor);
+  units.push({ owner: ROOT_SCOPE, code: rest });
+  return units;
+}
+
+/**
+ * callee -> the owners that call it. `name` for a bare call, `.name` for a
+ * method call, because the store writers are reached as `store.createProfile(`.
+ *
+ * A function's own declaration line matches its own name, so every unit
+ * "calls" itself. That is deliberate and harmless: a self-call cannot make a
+ * name live, because the closure below only promotes a callee whose CALLER is
+ * already live. It is also precisely the self-vouching this fix removes.
+ */
+export function callGraph(source: string): Map<string, Set<string>> {
+  const calls = new Map<string, Set<string>>();
+  const add = (callee: string, owner: string): void => {
+    const owners = calls.get(callee) ?? new Set<string>();
+    owners.add(owner);
+    calls.set(callee, owners);
+  };
+  for (const unit of unitsOf(source)) {
+    for (const m of unit.code.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)) add(m[1]!, unit.owner);
+    for (const m of unit.code.matchAll(/\.\s*([A-Za-z_$][\w$]*)\s*\(/g)) add(`.${m[1]!}`, unit.owner);
+  }
+  return calls;
+}
+
+/** Every name reachable by a call chain from scene/module scope. */
+export function liveNames(source: string): Set<string> {
+  const calls = callGraph(source);
+  const live = new Set<string>([ROOT_SCOPE]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const [callee, owners] of calls) {
+      if (live.has(callee)) continue;
+      for (const owner of owners) {
+        if (!live.has(owner)) continue;
+        live.add(callee);
+        grew = true;
+        break;
+      }
+    }
+  }
+  return live;
+}
+
 export function writersByField(source: string, fields: readonly string[]): Map<string, string[]> {
   // Stripped again here, not only in `gameSource()`. The first draft stripped
   // only at read time, so a mention of `awardTrophies(` in a COMMENT inside
   // src/game satisfied the check — the detector graded a defect fixed on the
   // strength of prose describing it, which is precisely the ticket-board bug
   // this repo already found once. The negative control below caught it.
-  const game = stripComments(source);
+  const live = liveNames(stripComments(source));
   const cover = new Map<string, string[]>(fields.map((f) => [f, []]));
   for (const w of findProfileWriters(fields)) {
-    if (!new RegExp(`\\b${w.name}\\s*\\(`).test(game)) continue;
+    if (!live.has(w.name)) continue;
     for (const f of w.fields) cover.get(f)?.push(`${w.name} (${w.file})`);
   }
   for (const s of STORE_WRITERS) {
-    if (!new RegExp(`\\.${s.call}\\s*\\(`).test(game)) continue;
+    if (!live.has(`.${s.call}`)) continue;
     for (const f of s.fields) cover.get(f)?.push(`store.${s.call}`);
   }
   return cover;
@@ -280,5 +408,98 @@ describe("negative control: the detector can be made to fail", () => {
       // awardTrophies(profile, award) is called from the results screen
       /* awardTrophies(profile, award) */`;
     expect(writersByField(sabotaged, fields).get("trophies")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The control that this guard did not have, and needed (gaps instance 25)
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete every CALL to `fn` and leave its declaration standing.
+ *
+ * The lookbehind is the whole point: `export function persistStageKnobs(`
+ * survives, `persistStageKnobs(this, …)` does not. That is the exact shape of
+ * the defect - a wrapper that exists, imports correctly, type-checks, and is
+ * reached by nothing.
+ */
+function dropCallsTo(source: string, fn: string): string {
+  return source.replaceAll(new RegExp(`(?<!function\\s)\\b${fn}\\s*\\(`, "g"), "__uncalled__(");
+}
+
+describe("negative control: a wrapper nothing calls certifies nothing", () => {
+  /**
+   * WATCHED FAILING AGAINST THE REAL FILES, NOT ONLY THESE STRINGS.
+   *
+   * Before the reachability fix, with the shipped source edited and restored:
+   *
+   *   both `persistStageKnobs(this, this.controller.knobs)` calls deleted from
+   *   FlightScene.ts                                        -> 12/12 PASS
+   *
+   * After it, the same three edits, each run and restored:
+   *
+   *   persistStageKnobs x2 deleted from FlightScene
+   *     -> "Profile field(s) knobs have no live writer in src/game"
+   *        expected [ 'knobs' ] to deeply equal []                   (1 failed)
+   *   persistStageBook x2 deleted from FlightScene
+   *     -> expected [ 'words' ] to deeply equal [], and
+   *        "words lost its writer — this was a shipped defect once"  (2 failed)
+   *   refineStoredCalibration deleted from FlightScene AND
+   *   persistCalibration deleted from PreflightScene
+   *     -> expected [ 'calibration' ] to deeply equal [], and
+   *        "calibration lost its writer"                             (2 failed)
+   *
+   * The controls below are the durable form of those three edits.
+   */
+  const fields = profileFields();
+
+  it.each([
+    ["persistStageKnobs", "knobs"],
+    ["persistStageBook", "words"],
+    ["persistStopCleared", "progress"],
+    ["persistCalibration", "calibration"],
+  ])("a %s wrapper that nothing calls leaves %s an orphan", (wrapper, field) => {
+    const sabotaged = dropCallsTo(gameSource(), wrapper);
+    expect(sabotaged, `${wrapper}'s declaration must survive the sabotage`).toContain(
+      `function ${wrapper}(`,
+    );
+    expect(writersByField(sabotaged, fields).get(field)).toEqual([]);
+  });
+
+  it("THE BLINDNESS ITSELF: the one-hop rule this replaced still reports it covered", () => {
+    // The check that shipped was
+    //   new RegExp(`\\b${writerName}\\s*\\(`).test(gameSource())
+    // and `applyKnobs(` occurs exactly once in src/game - inside the wrapper.
+    // Asserting BOTH halves here means a revert to the cheaper rule cannot pass
+    // this file: the old rule is required to still be fooled, and the new one
+    // is required not to be.
+    const sabotaged = stripComments(dropCallsTo(gameSource(), "persistStageKnobs"));
+    expect(/\bapplyKnobs\s*\(/.test(sabotaged), "the one-hop rule saw no defect").toBe(true);
+    expect(writersByField(sabotaged, fields).get("knobs")).toEqual([]);
+  });
+
+  it("is not too blunt: one dead route does not condemn a field with a live one", () => {
+    // `calibration` is written by two chains - PreflightScene -> persistCalibration
+    // and FlightScene -> refineStoredCalibration -> persistCalibration. Cutting
+    // the second must leave the field covered, or the guard is flagging a
+    // transitive hop rather than a dead field.
+    const sabotaged = dropCallsTo(gameSource(), "refineStoredCalibration");
+    expect(writersByField(sabotaged, fields).get("calibration")).not.toEqual([]);
+  });
+
+  it("the reachability closure is transitive, not one hop deeper", () => {
+    // A two-hop chain that is genuinely live must stay live: `applyCalibration`
+    // sits inside `persistCalibration`, which `refineStoredCalibration` calls,
+    // which FlightScene calls. If the closure stopped at depth 2 this would
+    // have gone orphan the moment PreflightScene's direct call was cut.
+    const sabotaged = stripComments(gameSource()).replaceAll(
+      "persistCalibration(this, this.calibration)",
+      "__uncalled__(this, this.calibration)",
+    );
+    const live = liveNames(sabotaged);
+    expect(live.has("refineStoredCalibration")).toBe(true);
+    expect(live.has("persistCalibration")).toBe(true);
+    expect(live.has("applyCalibration")).toBe(true);
+    expect(writersByField(sabotaged, fields).get("calibration")).not.toEqual([]);
   });
 });

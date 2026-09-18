@@ -9,7 +9,12 @@ import type { FlightDebugState } from "../../src/game/scenes/FlightScene.js";
 // now that this spec boots the shipping game (the viewport backdrop is the
 // other one), and picking the first one is what made V-22.3 measure a sky that
 // never moves.
-import { flightCanvasBox, freezeFlight, spawnAt } from "./support/flightBoot.js";
+import {
+  assertGameOnScreen,
+  flightCanvasBox,
+  freezeFlight,
+  spawnAt,
+} from "./support/flightBoot.js";
 // @ts-expect-error - .mjs tooling module, no type declarations by design
 import { CORE, measureSilhouettes } from "../gauntlet/silhouette.mjs";
 
@@ -89,7 +94,17 @@ async function muteHmr(page: Page): Promise<void> {
   // stubbed out: two Phaser instances on one page share a canvas stack, a
   // keyboard and a frame budget, and every number measured here would be
   // measuring both.
-  await page.route("**/src/main.ts", (route) =>
+  // THE TRAILING `*` IS LOAD-BEARING (verification-gaps instance 17).
+  // Vite serves the entry as `/src/main.ts?t=<ts>` once any file in the graph
+  // has been saved, and a Playwright glob does not match a query string - so
+  // without it this stub silently stops firing and the shipping game boots
+  // alongside the one under test. Measured here, 9 boots per arm at
+  // PW_WORKERS=1 with a `utimes` on src/game/boot.ts before each: without the
+  // `*` the stub fired on 1 boot of 9, the page held FOUR canvases, and the
+  // game this boot owns was below the fold in 6 of 9. With it, 9 of 9 fired,
+  // two canvases, y=0 every time. `tests/unit/arch/oneBootPath.test.ts` now
+  // fails if a copy of this stub loses the `*` again.
+  await page.route("**/src/main.ts*", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/javascript",
@@ -146,6 +161,18 @@ async function bootFlight(page: Page, options: BootOptions = {}): Promise<void> 
       { timeout: 15_000 },
     );
   }
+
+  /**
+   * THE PAGE IS SHOWING WHAT THIS SPEC THINKS IT IS.
+   *
+   * This file carries its own copy of `bootFlight`, and the copy never had the
+   * layout check that `support/flightBoot.ts` grew for instance 20 - which is
+   * why V-22.4's four-in-nine deaths were reported as happening "after
+   * bootFlight's own layout check had passed". There was no check on this path
+   * to pass. One game canvas, at most one backdrop, and on screen, before any
+   * of the measurements below bind a number to a picture.
+   */
+  await assertGameOnScreen(page, "boot");
 }
 
 /** Wait for N rendered frames. A loaded headless box can take a second over

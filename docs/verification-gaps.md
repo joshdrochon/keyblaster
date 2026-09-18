@@ -29,7 +29,7 @@ that binding.
 
 ---
 
-## The twenty-six
+## The twenty-eight
 
 | # | What was green | What shipped | Found by |
 |---|---|---|---|
@@ -166,6 +166,8 @@ the flight screen draws the same hardcoded cream ship regardless.
 | 24 | The **difficulty controller** — `Knobs`, the ease ramp, `endStage`, all unit-tested, all correct | `endStage` computes the new knob and emits it on `FLIGHT_EVENTS.stageComplete`. `grep -rn "FLIGHT_EVENTS.stageComplete" src/` returns **one hit: the emit**. No listener, no `Profile` field, and neither `PreflightScene.complete` nor `ResultsScene.replay` passes `knobs`. So `FlightConfig.knobs` is `{}` and `maxLive` is **2 on every belt, for every child, forever** | The difficulty lane, before changing anything, checking where its output would land |
 | 25 | `profileWriters`, the guard written **specifically** to catch instance 1 — a persisted field with no live writer | Deleting the `persistStageKnobs` call from `FlightScene` leaves it **green**. So does deleting the `words` write, and the `calibration` write. Its liveness regex matches the wrapper's own definition in `src/game/scenes/lib/init.ts`, so every writer routed through that helper verifies itself. The guard against the defect class had the defect class | The lane closing instance 24, checking whether the existing guard would have caught it |
 | 26 | `no-user-quotes`, the gate that keeps a bug reporter's words out of a repo that gets submitted, passing on every commit for months | It looked for attribution phrases and for a hand-listed set of the reporter's misspellings — guesses about what a future quote would look like. **42 tracked lines quote reports verbatim**, across `src/`, `tests/` and the shipped `docs/`. One quotes a report with its typo intact. The gate's own docstring called itself "deliberately a blunt instrument" that "cannot recognise an arbitrary future quote" — while `gauntlet/user-reported.json` had every quote enumerated under `said` the whole time | Checking which private files were gitignored, and noticing the tracked ones had never been checked the same way |
+| 27 | `profileWriters`, the guard for persisted fields with no live writer, green on every run | Its liveness search was ONE HOP DEEP. `applyKnobs(` occurs exactly once in `src/game` - inside `persistStageKnobs` - and nothing asked whether anything called that wrapper. Four of fourteen Profile fields were certified by a helper merely EXISTING. Deleting both `persistStageKnobs` calls from `FlightScene` left it 12/12 PASS. Note also that the escalated diagnosis was WRONG: it blamed the regex matching the wrapper's own definition, and 0 of 6 writers are even defined in the scanned tree, so that fix would have been a strict no-op shipped as a repair | A lane told to verify the diagnosis before implementing it |
+| 28 | `muteHmr`, fixed once in the shared `support/flightBoot.ts`, and three specs passing | `flight.spec.ts`, `flight-perf.spec.ts` and `world-frame.spec.ts` each carried a PRIVATE COPY routing `**/src/main.ts` - the glob without the trailing `*` that the shared helper had already had fixed. After any file is saved Vite serves `/src/main.ts?t=<ts>`, the stub misses, and the shipping entry boots A SECOND GAME: four canvases, two grid rows, and the measured canvas below the fold in 6 of 9 boots. This is instance 17 surviving in three copies of the thing that was fixed. `flight.spec.ts` had no layout check at all, so the escalation's claim that it failed 'after the layout check passed' described a check that did not exist on that path | A controlled probe, 9 boots per arm, touching a source file before each |
 
 Instance 24 is the orphan pattern (instance 1) arriving at the top of the
 game. UR-51 asked whether the engine that raises difficulty with the player was
@@ -258,11 +260,11 @@ All of that machinery verifies **internal consistency**. None of it verifies
 that the thing being checked is the thing being shipped. That binding is
 maintained by attention, and attention is exactly what a green suite spends.
 
-Every one of the twenty-six was ultimately found the same way: by someone looking at
+Every one of the twenty-eight was ultimately found the same way: by someone looking at
 the actual artifact — a screen, a waveform, a route, a rendered page — rather
 than at a result. That is the cheapest available guard and the easiest to skip.
 
-**25 and 26 are a category of their own, and they are worse.** Both are
+**25, 26 and 27 are a category of their own, and they are worse.** Both are
 *guards* — code whose entire purpose is to catch this defect class — and both
 had the defect class. `profileWriters` was written to catch instance 1 and
 cannot see the write it was pointed at. `no-user-quotes` shipped 42 leaks while

@@ -132,6 +132,82 @@ describe("UR-36: there is one game, and every spec boots it", () => {
   });
 
   /**
+   * ============ THE RUNTIME HALF, CHECKED STATICALLY (instance 17) ============
+   *
+   * UR-36 deleted the second `Phaser.Game` from `src/`, and the e2e harness
+   * RE-CREATED IT AT RUNTIME. `page.route("**\/src/main.ts", …)` matches
+   * nothing once Vite starts serving the entry as `/src/main.ts?t=<timestamp>`,
+   * which it does the moment any file in the graph is saved - the normal state
+   * of a parallel build. The stub falls through, the shipping entry boots
+   * alongside the game under test, and `__kbGame` points at whichever won.
+   *
+   * `support/flightBoot.ts` was fixed with a trailing `*` and a comment calling
+   * it load-bearing. Three specs carried private copies of the same stub and
+   * none of them was fixed: `flight.spec.ts`, `flight-perf.spec.ts` and
+   * `world-frame.spec.ts` - the last of which produces the image a HUMAN judges
+   * for R-world. Measured on 2026-09-17, 9 boots per arm at PW_WORKERS=1 with a
+   * `utimes` on `src/game/boot.ts` before each boot:
+   *
+   *   "**\/src/main.ts"   stub fired on 1 of 9 boots, FOUR canvases on the page
+   *                       (two backdrops, two games), the game this boot owns
+   *                       below the fold in 6 of 9 - and at y=0 in the other 3
+   *                       with the SECOND game at y=720. A coin flip.
+   *   "**\/src/main.ts*"  stub fired on 9 of 9, two canvases, y=0 every time.
+   *
+   * A comment could not stop the fourth copy. This can.
+   */
+  it("every app-entry stub tolerates Vite's ?t= query string", () => {
+    const offenders: string[] = [];
+    for (const file of walk(path.join(REPO, "tests"))) {
+      // This file carries the defect as a literal in its own control below.
+      // Excluded by identity rather than by exemption: it is the checker.
+      if (rel(file) === "tests/unit/arch/oneBootPath.test.ts") continue;
+      // The stub is identified by what it routes, not by the helper's name:
+      // three of the four copies were inline in a spec rather than in a helper.
+      // A literal beginning `**/` is a route glob and nothing else - it cannot
+      // be prose, an import specifier or a path read from disk.
+      for (const m of code(file).matchAll(/["'`](\*\*\/[^"'`]*src\/main\.ts[^"'`]*)["'`]/g)) {
+        const pattern = m[1]!;
+        if (!pattern.endsWith("src/main.ts*")) offenders.push(`${rel(file)}: ${pattern}`);
+      }
+    }
+    expect(
+      offenders,
+      "a route glob without the trailing `*` stops matching the moment a file is saved, " +
+        "and the shipping entry then boots a second game (instance 17)",
+    ).toEqual([]);
+  });
+
+  it("CATCHES the glob that shipped the defect", () => {
+    // The negative control for the check above, as a literal, so the check is
+    // known to fire rather than known to pass.
+    const asItWas = `await page.route("**/src/main.ts", (route) => route.fulfill({}));`;
+    const found = [...asItWas.matchAll(/["'`](\*\*\/[^"'`]*src\/main\.ts[^"'`]*)["'`]/g)]
+      .map((m) => m[1]!)
+      .filter((p) => !p.endsWith("src/main.ts*"));
+    expect(found).toEqual(["**/src/main.ts"]);
+  });
+
+  it("every flight harness asserts the page is showing what it thinks it is", () => {
+    // Instance 20: the game canvas rendered entirely below the fold and every
+    // pixel measured was a clip to a canvas nobody could see. The check for it
+    // lived in `support/flightBoot.ts` only, so the three specs that boot for
+    // themselves had nothing to pass - which is why V-22.4's failures were
+    // reported as happening "after bootFlight's own layout check had passed".
+    for (const spec of [
+      "tests/e2e/flight.spec.ts",
+      "tests/e2e/flight-perf.spec.ts",
+      "tests/e2e/world-frame.spec.ts",
+      "tests/e2e/support/flightBoot.ts",
+    ]) {
+      expect(
+        code(path.join(REPO, spec)),
+        `${spec} boots a game and never checks the canvas is on screen`,
+      ).toMatch(/assertGameOnScreen\s*\(/);
+    }
+  });
+
+  /**
    * THE NEGATIVE CONTROL (D85). The check has to catch the file it was written
    * for, in the state it was written in.
    */

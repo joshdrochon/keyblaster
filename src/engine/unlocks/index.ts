@@ -201,3 +201,59 @@ export function applyUnlocks(
     unlockedSkins: [...profile.unlockedSkins, ...skins],
   };
 }
+
+// ---------------------------------------------------------------------------
+// EQUIPPING (UR-48, coding-standards rule 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * ================== THE OTHER HALF OF THE DEFECT ==================
+ *
+ * Earning worked and equipping did not. `applyUnlocks` above genuinely grants
+ * hulls at 1 / 3 / 5 / 7 beacons, and the ONLY writer of `profile.shipId`
+ * anywhere in `src/` outside `blankProfile` / `decodeProfile` was
+ * `ProfileCreateScene`, at creation time - where `unlocksForNewPilot()` grants
+ * `ship-1` and locks the other three tiles. So `shipId` could only ever hold
+ * `ship-1` for the life of a real save: ships 2, 3 and 4 were drawn,
+ * catalogued, earnable and unwearable.
+ *
+ * That is coding-standards rule 2 in its purest form, and rule 2 names this
+ * field by name. The reader seam was closed first (`scenes/lib/livery.ts`);
+ * this is the WRITER seam, and without it the reader can only ever report
+ * `ship-1`.
+ *
+ * ================== WHY THE GUARD IS HERE AND NOT IN THE ROW ==================
+ * "A locked hull cannot be equipped by any input" is a property of the SAVE,
+ * not of one screen's keyboard handling. A guard living inside the Settings row
+ * would be re-implemented, or forgotten, by the second caller - which is how
+ * `crossDrift` was lost and how keep-clear was lost twice. `equipShip` cannot
+ * be called in a way that skips its own check: the refusal IS the return value.
+ *
+ * It reads `profile.unlockedShips` and nothing else. The THRESHOLD that fills
+ * that list is `SHIP_UNLOCKS` above; this function has no access to a beacon
+ * count and nowhere to put one, so an unlock rule cannot be duplicated here and
+ * drift from the one the toast announced.
+ */
+
+/** True when this profile holds the hull, i.e. equipping it is allowed. */
+export function canEquipShip(profile: Profile, shipId: string): boolean {
+  return profile.unlockedShips.includes(shipId);
+}
+
+/**
+ * Wear an earned hull. Pure; the caller persists it.
+ *
+ * Returns the SAME object when the hull is locked, unknown, or already being
+ * worn - so a refusal and a no-op are one code path, a caller can cheaply tell
+ * whether anything happened, and no store write is made for a press that
+ * changed nothing.
+ *
+ * The skin is deliberately NOT touched. `catalog.liveryForShip` decides what a
+ * hull is wearing from `unlockedSkins`, and a pilot who has earned the trim for
+ * the hull they just equipped is wearing it the moment they equip it.
+ */
+export function equipShip(profile: Profile, shipId: string): Profile {
+  if (!canEquipShip(profile, shipId)) return profile;
+  if (profile.shipId === shipId) return profile;
+  return { ...profile, shipId };
+}

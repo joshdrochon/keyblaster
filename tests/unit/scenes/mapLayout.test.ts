@@ -100,12 +100,19 @@ describe("UR-53: the Lantern hovers above the current planet", () => {
     // The report was not "it is in the wrong place", it was that the map had no
     // player in it. `drawLantern` is the ONE implementation (rule 3); a private
     // copy in a scene is what the one-drawing guard could not see for months.
+    //
+    // UR-64 moved the call to `lib/livery.drawPlayerLantern`, which DELEGATES
+    // to that one implementation with the pilot's hull resolved - it does not
+    // draw. Both spellings are accepted here so this case keeps asking its own
+    // question ("is there a ship, and is it the shared one") rather than
+    // becoming a second, weaker copy of the livery guard in
+    // `tests/unit/arch/liveryReaders.test.ts`.
     const src = readFileSync(
       resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/scenes/DirectorMapScene.ts"),
       "utf8",
     );
-    expect(src).toContain("drawLantern(this,");
-    expect(src).not.toMatch(/private\s+drawLantern/);
+    expect(src).toMatch(/draw(Player)?Lantern\(this,/);
+    expect(src).not.toMatch(/private\s+draw(Player)?Lantern\s*\(/);
   });
 
   it.each(ALL_STOPS)("%s: the ship sits directly over its planet", (_id, i) => {

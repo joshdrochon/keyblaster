@@ -89,7 +89,7 @@ export const STRING_KEYS: readonly StringKey[] = Object.keys(
  * i18n: "+25%"); fit.ts is what tests that against a label budget.
  */
 export const ES: Record<StringKey, string> = {
-  "title.tagline": "Ilumina el camino por el sistema solar.",
+  "title.tagline": "Escribe el camino por el sistema solar.",
   "title.play": "jugar",
   "title.settings": "ajustes",
   "title.beaconLog": "registro de balizas",
@@ -144,7 +144,7 @@ export const ES: Record<StringKey, string> = {
  * is addressed with.
  */
 export const HI: Record<StringKey, string> = {
-  "title.tagline": "सौर मंडल का रास्ता रोशन करो।",
+  "title.tagline": "सौर मंडल का रास्ता टाइप करो।",
   "title.play": "खेलो",
   "title.settings": "सेटिंग्स",
   "title.beaconLog": "बीकन सूची",

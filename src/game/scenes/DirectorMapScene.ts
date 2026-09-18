@@ -7,7 +7,7 @@ import { DUR, INK, SKY_PLATE, SPACE, TYPE } from "@game/ui/theme";
 import { headerText } from "@game/ui/grid";
 import { hintOrigin } from "@game/ui/hint";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
-import { LANTERN_DESIGN_HEIGHT, drawLantern, type LanternRig } from "@game/render/lantern";
+import { LANTERN_DESIGN_HEIGHT, type LanternLivery, type LanternRig } from "@game/render/lantern";
 import {
   CAPTION_GAP,
   CHIP,
@@ -62,6 +62,7 @@ import {
   type ResolvedInit,
   type StoryInit,
 } from "./lib/init";
+import { drawPlayerLantern, playerLivery } from "./lib/livery";
 
 /**
  * Screen inventory row 3 - Director map (D13, D40, D27, D43).
@@ -126,6 +127,17 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   private panelStars!: Phaser.GameObjects.Graphics;
   /** UR-53: the Lantern, hovering over whichever stop is selected. */
   private lantern: LanternRig | null = null;
+  /**
+   * UR-48 evidence: the four colours this screen DREW the ship with.
+   *
+   * THE SAME OBJECT that is handed to the drawing, resolved once, not a second
+   * call to the resolver sitting beside the draw call. A parallel accumulator
+   * reports the right answer while the drawing uses a hardcoded one, and that
+   * is the exact shape of the defect this field exists to make visible
+   * (`docs/verification-gaps.md`; `FlightScene.livery` says the same thing).
+   * `undefined` in a standalone mount with no store - see `lib/livery.ts`.
+   */
+  private shipLivery: LanternLivery | undefined = undefined;
   private shipTween: Phaser.Tweens.Tween | null = null;
   private selected: StopId = "earth";
   /** How many star glyphs the screen has actually drawn (D27 evidence). */
@@ -151,6 +163,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     this.nodes = [];
     this.starGlyphs = 0;
     this.lantern = null;
+    this.shipLivery = undefined;
     this.shipTween = null;
   }
 
@@ -347,9 +360,20 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
    * instrument lit so it reads as the same object the Title and Flight draw.
    */
   private buildLantern(reducedMotion: boolean): void {
-    this.lantern = drawLantern(this, nodeX(0), SHIP_Y, {
+    // IT IS THE PILOT'S OWN HULL (UR-48). This screen drew the ship in the
+    // file constants, deliberately, matching `WarpScene` - and that was
+    // recorded at the time as coding-standards rule 2 in a different place,
+    // owed its own ticket rather than smuggled into the one that put the ship
+    // here. This is that ticket. `lib/livery.drawPlayerLantern` resolves
+    // `profile.shipId` (and its earned skin) through the one seam, so the ship
+    // hovering over the route is the ship the child chose and the ship they
+    // fly. Resolved into a field first so what is REPORTED is the same object
+    // that was DRAWN WITH, never a second computation beside it.
+    this.shipLivery = playerLivery(this);
+    this.lantern = drawPlayerLantern(this, nodeX(0), SHIP_Y, {
       scale: SHIP_SCALE,
       reducedMotion,
+      livery: this.shipLivery,
       idleBob: true,
       exhaust: false,
       beam: false,
@@ -689,6 +713,10 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
               y: this.lantern.container.y,
               targetX: nodeX(STOP_IDS.indexOf(this.selected)),
             },
+      // UR-48 evidence: the hull the pilot is wearing, as this screen drew it.
+      // Null in a standalone mount with no store, which is the case that must
+      // keep the reference sheet's constants (`lib/livery.ts`).
+      shipLivery: this.shipLivery ?? null,
       skyText: skyTextSamples(this),
       starGlyphs: this.starGlyphs,
       entryPoints: this.menu.targets
@@ -710,6 +738,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     this.shipTween = null;
     this.lantern?.destroy();
     this.lantern = null;
+    this.shipLivery = undefined;
     this.menu.destroy();
     this.shadow.destroy();
     this.parallax.destroy();

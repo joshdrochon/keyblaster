@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { FlightDebugState } from "../../src/game/scenes/FlightScene.js";
+import { assertGameOnScreen } from "./support/flightBoot.js";
 
 /**
  * The two measured core-loop numbers: P-22.9 (frame time) and L-6e.1 (input
@@ -75,7 +76,17 @@ async function muteHmr(page: Page): Promise<void> {
   // stubbed out: two Phaser instances on one page share a canvas stack, a
   // keyboard and a frame budget, and every number measured here would be
   // measuring both.
-  await page.route("**/src/main.ts", (route) =>
+  // THE TRAILING `*` IS LOAD-BEARING (verification-gaps instance 17).
+  // Vite serves the entry as `/src/main.ts?t=<ts>` once any file in the graph
+  // has been saved, and a Playwright glob does not match a query string - so
+  // without it this stub silently stops firing and the shipping game boots
+  // alongside the one under test. Measured here, 9 boots per arm at
+  // PW_WORKERS=1 with a `utimes` on src/game/boot.ts before each: without the
+  // `*` the stub fired on 1 boot of 9, the page held FOUR canvases, and the
+  // game this boot owns was below the fold in 6 of 9. With it, 9 of 9 fired,
+  // two canvases, y=0 every time. `tests/unit/arch/oneBootPath.test.ts` now
+  // fails if a copy of this stub loses the `*` again.
+  await page.route("**/src/main.ts*", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/javascript",
@@ -120,6 +131,10 @@ async function bootFlight(page: Page, options: BootOptions = {}): Promise<void> 
     null,
     { timeout: 15_000 },
   );
+  // One game on the page, and on screen (instance 17 + 20). A frame-time
+  // number measured while the shipping entry is rendering a second game
+  // alongside this one is a number about two programs sharing a core.
+  await assertGameOnScreen(page, "boot");
 }
 
 const state = (page: Page): Promise<FlightState> =>

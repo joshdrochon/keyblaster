@@ -69,7 +69,11 @@ describe("UR-48: the shard onsets are the crumble's onsets", () => {
    * WATCHED FAIL: with `SHARD_FIRST_DETACH_MS` dropped from 18 to 0 (the clamp
    * removed, i.e. the raw distribution):
    *   "the first fragment detaches on the fracture frame ...":
-   *   expected 6 to be greater than or equal to 15
+   *   expected 5 to be greater than or equal to 15
+   *
+   * (That value was 6 while the population was 12 and is 5 at 16: the first
+   * stratum's midpoint moves left as the population grows, which is the reason
+   * the floor is a constant rather than a property of the count.)
    */
   it("the first fragment detaches after the crack, in the 15-22 ms window", () => {
     const first = onsets[0] as number;
@@ -89,8 +93,8 @@ describe("UR-48: the shard onsets are the crumble's onsets", () => {
    * to one instant should do:
    *   "every fragment leaves on the same frame ...": expected 1 to be greater
    *   than or equal to 8
-   *   "the whole population has detached by 150 ms ...": expected 12 to be less
-   *   than 12
+   *   "the whole population has detached by 150 ms ...": expected 16 to be less
+   *   than 16
    *   (the tail test): expected 18 to be greater than or equal to 400
    *
    * The second assertion below - the cap on one wave's share - is covered by
@@ -121,21 +125,33 @@ describe("UR-48: the shard onsets are the crumble's onsets", () => {
    * exponential with `densityTau` 0.15 s, so at t = tau the emission rate has
    * fallen to 1/e of its initial value and the cumulative count stands at
    * 1 - 1/e = 63.2%. Both halves are asserted, because either alone is weak:
-   * a cumulative floor alone passes for "all twelve at t=0", and a rate ratio
+   * a cumulative floor alone passes for "all sixteen at t=0", and a rate ratio
    * alone passes for a schedule that never gets going.
    *
    * The UPPER bound is the one that carries the meaning. If everything has
    * detached by 150 ms there is no tail, and the burst is a puff with a delay
    * on it.
    *
+   * THE 0.6 FLOOR LOOKS TIGHTER AT 16 AND IS NOT. Ten of sixteen detach by
+   * 150 ms against a floor of 9.6, which reads as 0.4 of slack where the
+   * population of 12 had 0.8. The fraction is the thing being asserted, not the
+   * count: 10/16 = 0.625 against the exponential's own 1 - 1/e = 0.632, where
+   * 8/12 = 0.667 overshot it. The larger sample sits CLOSER to the distribution
+   * it is drawn from; the apparent slack was discretisation error pointing the
+   * safe way.
+   *
    * WATCHED FAIL: with `SHARD_ONSET_TAU_MS` raised 150 -> 600 (a rock that
    * sheds evenly instead of breaking):
-   *   "the bulk of the material has not dispersed by 150 ms ...": expected 3 to
-   *   be greater than or equal to 7.199999999999999
+   *   "the bulk of the material has not dispersed by 150 ms ...": expected 4 to
+   *   be greater than or equal to 9.6
+   *   and, in the test below it, "nothing is left for the tail": expected 8 to
+   *   be 15
    * WATCHED FAIL: with `SHARD_ONSET_TAU_MS` lowered 150 -> 20 (everything at
    * the floor):
-   *   "the whole population has detached by 150 ms ...": expected 12 to be less
-   *   than 12
+   *   "the whole population has detached by 150 ms ...": expected 16 to be less
+   *   than 16
+   *   and, above it, "every fragment leaves on the same frame ...": expected 7
+   *   to be greater than or equal to 8
    */
   it("the density has decayed by 150 ms", () => {
     const by150 = shardsDetachedBy(150);
@@ -167,9 +183,11 @@ describe("UR-48: the shard onsets are the crumble's onsets", () => {
    * still to come; by 460 ms the population is complete.
    *
    * WATCHED FAIL: with `SHARD_LAST_DETACH_MS` raised 440 -> 900 (the ceiling
-   * removed, i.e. the raw distribution's own last stratum at 477 ms):
+   * removed, i.e. the raw distribution's own last stratum, at 520 ms for a
+   * population of 16 - it was 477 ms at 12, and it runs further out the more
+   * strata there are, which is why the clamp is a constant):
    *   "the last fragment leaves outside the sound it is matched to": expected
-   *   477 to be less than or equal to 460
+   *   520 to be less than or equal to 460
    * and, in the test below it:
    *   "the last fragment leaves after the crumble buffer has ended": expected
    *   900 to be less than 500
@@ -215,34 +233,72 @@ describe("UR-48: the shard onsets are the crumble's onsets", () => {
   });
 
   /**
-   * THE BUDGET (P-22.9 / AC-22.9).
+   * THE BUDGET (P-22.9 / AC-22.9), NOW MEASURED RATHER THAN FEARED.
    *
-   * Difficulty wiring landed alongside this: belts now climb to maxLive 7 and
-   * time-weighted occupancy went from about 1.0 rocks to 3.4-3.9 over a route,
-   * so there are far more rocks being drawn on every frame that a blast lands
-   * on. Per-frame particle cost is population x lifespan, and staggering does
-   * not reduce it - the minimum lifespan (480 ms) is longer than the whole
-   * onset spread (440 ms), so every fragment is still alive when the last one
-   * is born. The population is the only lever, and it went DOWN:
+   * Per-frame particle cost is population x lifespan, and staggering does not
+   * reduce it - the minimum lifespan (480 ms) is longer than the whole onset
+   * spread (440 ms), so every fragment is still alive when the last one is
+   * born. The population is the only lever on it:
    *
-   *     before  16 fragments x ~690 ms mean life = 11040 particle-ms per blast
-   *     after   12 fragments x ~690 ms mean life =  8280 particle-ms per blast
+   *     12 fragments x ~690 ms mean life =  8280 particle-ms per blast
+   *     16 fragments x ~690 ms mean life = 11040 particle-ms per blast
    *
-   * The floor is art-direction section 8, which asks for 6-10 shards; the
-   * schedule stays above its top end.
+   * which at the perf spec's ~8 blasts/s is about 66 versus 88 shards alive on
+   * average. That is a 33% rise in particle work, and it was a real reason to
+   * be cautious while nobody had run the number.
    *
-   * WATCHED FAIL, both bounds. With `quantity` put back to 16:
-   *   "the shard population grew - this change may not buy its satisfaction
-   *    with frame time ...": expected 16 to be less than or equal to 12
+   * THE COUNT WENT 16 -> 12 AND IS BACK AT 16. The cut was taken on frame-time
+   * grounds that could not be measured at the time and it is reversed now that
+   * they can be. P-22.9 was swept over both board depths, one worker at a time
+   * so the two depths were not competing for the same software renderer, on an
+   * otherwise idle machine, twice per population. Per-frame work, p95, in ms:
+   *
+   *                     maxLive 5        maxLive 7
+   *     12 fragments    9.3, 9.2         9.2, 9.3
+   *     16 fragments    9.7, 9.2, 9.3    9.6, 9.3, 9.2
+   *
+   * against a 16.7 ms bar; the shipped pair is in `gauntlet/evidence/
+   * frametime.json` and `frametime-maxlive7.json`. The arms differ by less than
+   * the harness differs from itself between two runs of the same build, so what
+   * this establishes is not that 16 is cheap but that at this resolution the
+   * shard population is not what the frame budget is spent on.
+   *
+   * READ THOSE ARTIFACTS WITH `frames` IN HAND. The harness is a software
+   * renderer sharing a machine with whatever else is running, and a contended
+   * run reports the machine rather than the game: the same build gives ~9.2 ms
+   * over ~410 frames on an idle box and 12.1 ms over 122 frames with three
+   * other suites going. `frames` is the tell - a 60 s window that collected
+   * barely 120 of them was not measuring this code, and every p95 quoted above
+   * comes from a run that cleared 390. The margin to 16.7 is left wide on top
+   * of that, because every number here describes SwiftShader and not a player's
+   * GPU; a headed capture is still owed.
+   *
+   * WHY 16 AND NOT 14 OR 15, which the onset assertions above also accept. The
+   * sound cuts the distribution into 64 equal strata. 64 / 16 = 4, so each
+   * visual stratum is exactly four audio grains and the picture is a clean
+   * decimation of what is heard; 12, 14 and 15 divide the same curve at
+   * different places, which makes the two merely similar. UR-48 claims they are
+   * the SAME distribution, so the count that makes the claim exactly true wins.
+   * 16 is also the only one of the three that has ever been looked at.
+   *
+   * THE CEILING IS THE POINT OF THIS TEST. The floor stops a later lane buying
+   * frame time by shaving the burst; the ceiling stops the count drifting
+   * upward on the strength of "there was loads of headroom", which is how the
+   * budget gets spent without anyone deciding to spend it. Moving either bound
+   * is a decision, and it comes with a re-sweep.
+   *
+   * WATCHED FAIL, both bounds. With `quantity` at 17:
+   *   "the shard population grew past the measured ceiling ...":
+   *   expected 17 to be less than or equal to 16
    * With `quantity` cut to 8:
    *   "the population fell below the top of art-direction section 8's 6-10
    *    range ...": expected 8 to be greater than or equal to 10
    */
-  it("the per-destruction population did not grow", () => {
+  it("the per-destruction population stays inside the measured ceiling", () => {
     expect(
       POPULATION,
-      "the shard population grew - this change may not buy its satisfaction with frame time on a board that just tripled its rock count",
-    ).toBeLessThanOrEqual(12);
+      "the shard population grew past the measured ceiling - 16 is what P-22.9 was swept at over both board depths, and a bigger burst needs its own sweep before it needs a defence",
+    ).toBeLessThanOrEqual(16);
     expect(
       POPULATION,
       "the population fell below the top of art-direction section 8's 6-10 range - with the fragments now spread over 440 ms a thinner population is a trickle, and this floor is what stops a later lane buying frame time by shaving the burst",

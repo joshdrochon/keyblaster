@@ -32,7 +32,8 @@ import {
   type StopPalette,
 } from "../render/palette.js";
 import { TEX, ensureTextures } from "../render/textures.js";
-import { LANTERN_DESIGN_HEIGHT, drawLantern, type LanternRig } from "../render/lantern.js";
+import { LANTERN_DESIGN_HEIGHT, type LanternRig } from "../render/lantern.js";
+import { drawPlayerLantern, playerLivery } from "./lib/livery.js";
 import { LANGS, type Lang } from "../../engine/types.js";
 import { SHIPPED_LANGS } from "../../engine/i18n/index.js";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
@@ -119,6 +120,8 @@ interface MenuItem {
 export class TitleScene extends Phaser.Scene {
   private parallax!: Parallax;
   private lantern!: LanternRig;
+  /** Where the Lantern was drawn this build, for `snapshot()` (UR-48). */
+  private lanternAt = { x: 0, y: 0, height: 0 };
   private items: MenuItem[] = [];
   private focusIndex = 0;
   private focusRing!: Phaser.GameObjects.Graphics;
@@ -196,7 +199,18 @@ export class TitleScene extends Phaser.Scene {
     });
 
     // --- the Lantern, idling in the ship plane ---------------------------
-    this.lantern = drawLantern(this, W * 0.72, H * 0.58, {
+    // THE PILOT'S OWN HULL (UR-48). This screen drew the ship in the file
+    // constants, which meant the FIRST screen a returning pilot sees showed
+    // them somebody else's ship - the one place a wrong hull is most visible.
+    // `drawPlayerLantern` resolves it from the profile and delegates to the one
+    // `drawLantern` (standards rule 3): there is no second drawing here.
+    // Where the ship was actually put, reported in `snapshot()` so
+    // `hull-livery.spec.ts` can clip a frame at the ship instead of at a
+    // remembered constant - `GAME_WIDTH` is derived from the window (D99), so a
+    // hardcoded clip measures the wrong part of a 21:9 frame and reports zero,
+    // which reads as a defect rather than as a bad measurement.
+    this.lanternAt = { x: W * 0.72, y: H * 0.58, height: H * 0.42 };
+    this.lantern = drawPlayerLantern(this, W * 0.72, H * 0.58, {
       scale: (H * 0.42) / LANTERN_DESIGN_HEIGHT,
       reducedMotion: context.reducedMotion,
       idleBob: true,
@@ -642,6 +656,12 @@ export class TitleScene extends Phaser.Scene {
   snapshot(): SceneSnapshot {
     return {
       scene: SCENE_KEYS.title,
+      // UR-48. The hull this screen is drawing, and where. The FIRST screen a
+      // returning pilot sees used to draw the file constants regardless of
+      // whose save was loaded; `shipLivery` is what says it no longer does, and
+      // `ship` is what lets a spec point a camera at it.
+      ship: { ...this.lanternAt },
+      shipLivery: playerLivery(this) ?? null,
       focusIndex: this.focusIndex,
       items: this.items.map((i) => i.id),
       skyText: skyTextSamples(this),

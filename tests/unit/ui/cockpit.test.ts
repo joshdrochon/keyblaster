@@ -402,9 +402,16 @@ describe("how the console is allowed to be drawn", () => {
     // navigation (focus.ts). It is set once, in the base every panel control
     // extends, so a fourth control cannot be added without it.
     expect(cockpit).toMatch(/class PanelControl extends Control \{[\s\S]*?this\.adjustable = true/);
-    // Three controls, three real `adjust` implementations.
-    expect(cockpit.match(/extends PanelControl\b/g)).toHaveLength(3);
-    expect(cockpit.match(/override adjust\(/g)).toHaveLength(3);
+    // FOUR controls, four real `adjust` implementations. The fourth is the
+    // hull bay (UR-48), and this guard is what caught it arriving: it failed
+    // `expected [ 'extends PanelControl', ...(3) ] to have a length of 3 but
+    // got 4` the moment `HullRow` landed, which is the check asking the new
+    // control the same question it asks the other three.
+    expect(cockpit.match(/extends PanelControl\b/g)).toHaveLength(4);
+    expect(cockpit.match(/override adjust\(/g)).toHaveLength(4);
+    // And the hull row's arrows BROWSE - Enter is what equips - so it is the
+    // one control here whose `activate` is not `adjust` in disguise.
+    expect(cockpit).toMatch(/class HullRow extends PanelControl \{/);
   });
 
   it("the flat pill slider is GONE, not left beside the knob", () => {
@@ -448,6 +455,15 @@ const row = (span: number, labelLines: number, lang: "en" | "hi"): number =>
 
 /** The reset key, which is `PanelButton`: a body-size row plus its bevel. */
 const key = (lang: "en" | "hi"): number => rowHeight(TYPE.body, lang) + 6;
+
+/**
+ * The hull row's hardware span (UR-48), from the same two numbers `cockpit.ts`
+ * builds it from: a `drawShip` at size 72 is ~1.14x its size in ink, and the
+ * row pads it like every other module. Re-derived here rather than exported, so
+ * a change to the glyph size in `cockpit.ts` that this column cannot afford
+ * shows up as a failing frame rather than as a silently larger constant.
+ */
+const HULL_SPAN = Math.round(72 * 1.14) + SPACE.rowPadY * 2;
 
 /** A selector carrying AC-14.1's one calm note line under it. */
 const withNote = (h: number, lang: "en" | "hi", lines: number): number =>
@@ -502,7 +518,13 @@ describe("the settings console fits the frame", () => {
     });
 
     it(`the flight-deck column and the reset key clear it too (${lang})`, () => {
+      // The hull row (UR-48) is the first module on this column and the tallest
+      // thing on the panel: a 72 px ship in its bay plus the line that says what
+      // unlocks it. Modelled at its WORST - a two-line label and a two-line
+      // unlock sentence - because "unlocks after 7 beacons" is two lines in
+      // Devanagari, which is where this column runs out of room first.
       const column = [
+        withNote(row(HULL_SPAN, 2, lang), lang, 2),
         row(HARDWARE_SPAN.selector, 2, lang),
         row(HARDWARE_SPAN.switch, 2, lang),
         row(HARDWARE_SPAN.switch, 2, lang),
@@ -510,6 +532,35 @@ describe("the settings console fits the frame", () => {
       ];
       const plan = fits(column, [key(lang)], SETTINGS_CONSOLE.keyGap);
       expect(plan.fits, `bottom ${plan.bottom}`).toBe(true);
+    });
+
+    it(`the hull row is what this column can least afford to grow (${lang})`, () => {
+      // Rule 8: the bar does not move to make a number pass, so the headroom is
+      // MEASURED rather than assumed. As it stands, HULL_SPAN is 110 and the
+      // column ends at 949 (en) and 965 (hi) against a hint at 1004 with a
+      // 26 px bezel - 29 px of margin in the tighter script, at a row gap
+      // already tightened from 18 to 10.
+      //
+      // 64 px taller - a size-128 ship in the bay - is 174, and Devanagari
+      // then ends at 1013 and does NOT fit, at the row gap's floor of 6. That
+      // is the negative control: this column has room for the hull bay and
+      // not much more, and the check can be made to fail.
+      const withHull = [
+        withNote(row(HULL_SPAN, 2, lang), lang, 2),
+        row(HARDWARE_SPAN.selector, 2, lang),
+        row(HARDWARE_SPAN.switch, 2, lang),
+        row(HARDWARE_SPAN.switch, 2, lang),
+        row(HARDWARE_SPAN.switch, 2, lang),
+      ];
+      const oversized = [
+        withNote(row(HULL_SPAN + 64, 2, lang), lang, 2),
+        ...withHull.slice(1),
+      ];
+      expect(fits(withHull, [key(lang)], SETTINGS_CONSOLE.keyGap).fits).toBe(true);
+      expect(
+        fits(oversized, [key(lang)], SETTINGS_CONSOLE.keyGap).fits,
+        "the frame would swallow a 64 px taller hull bay without saying so",
+      ).toBe(lang === "en");
     });
   }
 

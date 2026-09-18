@@ -39,6 +39,7 @@ import {
   drawGlass,
   drawPositionLamps,
 } from "./controlSurface.js";
+import { drawShip } from "./chrome.js";
 import { INK, SPACE, TYPE, rowHeight } from "./theme.js";
 import { plateWidth, uiText } from "./text.js";
 
@@ -908,4 +909,309 @@ function drawKey(
     focused ? 1 : 0.45,
   );
   g.strokeRoundedRect(0, 0, w, h - 5, r);
+}
+
+// -- hull bay ---------------------------------------------------------------
+
+/** The ship drawn in the bay, in `drawShip` size units. */
+const HULL_GLYPH = 72;
+
+/**
+ * What `HULL_GLYPH` costs the row's height.
+ *
+ * `drawShip` draws from -52 to +62 in its own 100-unit space, so a size-72 ship
+ * is ~82 px of ink; the row must clear that plus its padding. Modelled in
+ * `cockpit.test.ts` against the real console frame, in Devanagari, which is
+ * where the flight-deck column runs out of room first.
+ */
+const HULL_GLYPH_SPAN = Math.round(HULL_GLYPH * 1.14) + SPACE.rowPadY * 2;
+
+/** Only reached by a row built with no choices at all, which no screen does. */
+const SHIP_FALLBACK = {
+  hull: PANEL.knob,
+  stripe: PANEL.knobLit,
+  glass: PANEL.glass,
+  lens: PANEL.pointer,
+} as const;
+
+/** One hull the row can show, as data. Assembled by the screen, not by this file. */
+export interface HullChoice {
+  readonly id: string;
+  /** The hull's name, e.g. "kestrel". */
+  readonly label: string;
+  /** Not held by this pilot: the row shows it and refuses to equip it. */
+  readonly locked: boolean;
+  /**
+   * The line under the row for THIS hull: "unlocks after 5 beacons" when it is
+   * locked, "flying now" when it is worn, "press enter to fly this one"
+   * otherwise. Always present, because a row that only explains itself
+   * sometimes is a row a child has to press to understand.
+   */
+  readonly detail: string;
+  /** Hull, stripe, porthole glass, emitter lens (`catalog.ShipDef.colors`). */
+  readonly colors: Parameters<typeof drawShip>[4];
+}
+
+export interface HullRowOptions {
+  readonly label: string;
+  readonly width: number;
+  /** The id currently WORN. The cursor opens here. */
+  readonly value: string;
+  readonly choices: readonly HullChoice[];
+  /** Called on Enter, and ONLY for a hull whose `locked` is false. */
+  readonly onEquip: (id: string) => void;
+}
+
+/**
+ * THE HULL BAY: the ship a pilot is wearing, on the console they already sit at
+ * (UR-48; D73, D79; AC-6d.1b, AC-18.1).
+ *
+ * ================== THE DEFECT ==================
+ * Hulls unlock at 1 / 3 / 5 / 7 beacons and NOTHING COULD EQUIP ONE. The only
+ * writer of `profile.shipId` outside the schema was the create screen, where a
+ * new pilot holds `ship-1` alone, so a child could play the whole route, earn
+ * three hulls and fly the same ship for the life of the save. This row is the
+ * missing input; `@engine/unlocks.equipShip` is the missing write.
+ *
+ * ================== BROWSE, THEN EQUIP - AND WHY NOT THE OTHER WAY ==================
+ * Every other row on this panel changes its value on Left/Right. This one does
+ * not, and the reason is the locked hulls. Two arrangements were possible:
+ *
+ *   ARROWS EQUIP, LOCKED HULLS SKIPPED. Then the four-position lamp row lies
+ *   about how many ships exist, and the hull a child is three beacons away from
+ *   is invisible on the one screen that would have told them about it. D73/D79
+ *   require the opposite - locked hulls are visible, dim, and say what unlocks
+ *   them - and the create screen already does it that way.
+ *
+ *   ARROWS BROWSE, ENTER EQUIPS. The cursor reaches all four, a locked one
+ *   reads out its own sentence, and Enter is refused on it. Chosen.
+ *
+ * Landing on a hull cannot equip it in any case, because landing on a LOCKED
+ * hull must not - so a row whose cursor and whose worn hull are the same thing
+ * could not exist here. They are two fields, and the readout says which is
+ * which: the worn hull's line is "flying now".
+ *
+ * ================== WHAT LOCKED COSTS AND WHAT IT DOES NOT ==================
+ * The ROW is never `Control.locked`. `FocusList.adjust` drops the key for a
+ * locked control, so a locked row would be a row whose arrows are dead - the
+ * child could not reach ship-4 to read about it at all. Locked is a property of
+ * the hull under the cursor, and it changes exactly two things: the ink and the
+ * ship go dim, and Enter does nothing.
+ *
+ * `onEquip` is never called for a locked hull. That is belt and braces rather
+ * than the guard: `@engine/unlocks.equipShip` refuses the same write, so a
+ * second caller of that seam cannot equip a locked hull either.
+ *
+ * ================== THE ROW NEVER REFLOWS ==================
+ * The glass window and the note both reserve the WIDEST and TALLEST any choice
+ * needs, measured at build. The column is flowed once, by `SettingsScene`, and
+ * a row that changed height when the cursor moved would push the reset key off
+ * the console face - the fixed-pitch defect `layout.ts` exists to prevent.
+ */
+export class HullRow extends PanelControl {
+  private cursor: number;
+  private equipped: string;
+  private readonly choices: readonly HullChoice[];
+  private readonly readout: Phaser.GameObjects.Text;
+  private readonly note: Phaser.GameObjects.Text;
+  private readonly onEquip: (id: string) => void;
+  private readonly glassX: number;
+  private readonly glassW: number;
+  private readonly shipX: number;
+  private readonly shipY: number;
+  private ship: Phaser.GameObjects.Container | null = null;
+  private headH = 0;
+
+  constructor(
+    scene: Phaser.Scene,
+    style: ControlStyle,
+    id: string,
+    x: number,
+    y: number,
+    depth: number,
+    options: HullRowOptions,
+  ) {
+    super(scene, style, id, x, y, depth, options.label, options.width);
+    this.choices = options.choices;
+    this.onEquip = options.onEquip;
+    this.equipped = options.value;
+    const at = options.choices.findIndex((c) => c.id === options.value);
+    this.cursor = at < 0 ? 0 : at;
+
+    this.glassW = Math.max(
+      HW.glassMinW,
+      this.measureWidest(options.choices.map((c) => c.label)) + HW.glassPadX * 2,
+    );
+    this.glassX = this.boxW - SPACE.rowPadX - 26 - this.glassW;
+    // The ship sits between the label and the readout, in the hardware column.
+    this.shipX = Math.round(this.glassX - 26 - HULL_GLYPH * 0.45);
+    this.fitLabel(this.shipX - HULL_GLYPH * 0.45 - SPACE.gap);
+
+    this.readout = uiText(scene, 0, 0, this.current().label, {
+      size: TYPE.label,
+      color: readoutInk(style.accent),
+      lang: style.lang,
+      uppercase: style.uppercase,
+      increasedLetterSpacing: style.increasedLetterSpacing,
+      // A hull's name is a proper noun, like a language name on the row above.
+      chrome: false,
+    });
+    this.note = uiText(scene, SPACE.rowPadX, 0, this.current().detail, {
+      size: TYPE.caption,
+      color: INK.textDim,
+      lang: style.lang,
+      uppercase: style.uppercase,
+      increasedLetterSpacing: style.increasedLetterSpacing,
+      wrapWidth: options.width - SPACE.rowPadX * 2,
+    });
+
+    this.headH = Math.max(
+      rowHeight(TYPE.label, style.lang),
+      HARDWARE_SPAN.selector,
+      HULL_GLYPH_SPAN,
+      this.title.height + SPACE.rowPadY * 2,
+    );
+    this.shipY = Math.round(this.headH / 2);
+    // Reserve the TALLEST note any hull needs, measured rather than assumed, so
+    // "unlocks after 7 beacons" wrapping to two lines in Devanagari does not
+    // change the row's height the moment the cursor reaches ship-4.
+    this.boxH = this.headH + this.tallestNote(options) + 10;
+    this.title.setY(Math.round((this.headH - this.title.height) / 2));
+    this.note.setY(this.headH - 4);
+    this.container.add(this.readout);
+    this.container.add(this.note);
+    this.layout();
+    this.redraw();
+  }
+
+  /** The height of the wordiest line any hull in this row can show. */
+  private tallestNote(options: HullRowOptions): number {
+    let tallest = 0;
+    for (const choice of options.choices) {
+      const probe = uiText(this.scene, 0, 0, choice.detail, {
+        size: TYPE.caption,
+        lang: this.style.lang,
+        uppercase: this.style.uppercase,
+        increasedLetterSpacing: this.style.increasedLetterSpacing,
+        wrapWidth: options.width - SPACE.rowPadX * 2,
+        chrome: false,
+      });
+      tallest = Math.max(tallest, probe.height);
+      probe.destroy();
+    }
+    return Math.ceil(tallest);
+  }
+
+  private current(): HullChoice {
+    return (
+      this.choices[this.cursor] ??
+      ({ id: "", label: "", locked: true, detail: "", colors: SHIP_FALLBACK } as HullChoice)
+    );
+  }
+
+  /** The hull under the cursor. Not necessarily the one being worn. */
+  get cursorId(): string {
+    return this.current().id;
+  }
+
+  /** The hull being WORN. This is the value `profile.shipId` holds. */
+  get value(): string {
+    return this.equipped;
+  }
+
+  private get glassY(): number {
+    return Math.round((this.headH - (HW.glassH + HW.lampGap + HW.lampSize)) / 2);
+  }
+
+  private layout(): void {
+    this.readout.setX(Math.round(this.glassX + (this.glassW - this.readout.width) / 2));
+    this.readout.setY(Math.round(this.glassY + (HW.glassH - this.readout.height) / 2));
+  }
+
+  /** Left/Right BROWSE. Nothing is written and nothing is equipped. */
+  override adjust(delta: number): void {
+    if (this.choices.length === 0) return;
+    const n = this.choices.length;
+    this.cursor = (((this.cursor + delta) % n) + n) % n;
+    this.refresh();
+  }
+
+  /**
+   * Enter equips the hull under the cursor, unless it is locked.
+   *
+   * A locked press is a NO-OP, deliberately and silently: the row is already
+   * showing the sentence that says why, and a child who presses Enter on a ship
+   * they have not earned has not done anything wrong (D31 - nothing in this
+   * game reads as punishment).
+   */
+  override activate(): void {
+    const choice = this.current();
+    if (choice.locked || choice.id === "") return;
+    this.equipped = choice.id;
+    this.onEquip(choice.id);
+    this.refresh();
+  }
+
+  private refresh(): void {
+    this.readout.setText(this.current().label);
+    this.note.setText(this.current().detail);
+    this.layout();
+    this.redraw();
+  }
+
+  protected redraw(): void {
+    this.paintBay();
+    const choice = this.current();
+    const gy = this.glassY;
+    drawGlass(this.g, this.glassX, gy, this.glassW, HW.glassH);
+    const mid = gy + HW.glassH / 2;
+    const chevron = this.focused ? this.style.accent : INK.textDim;
+    drawChevron(this.g, this.glassX - 10, mid, -1, chevron);
+    drawChevron(this.g, this.glassX + this.glassW + 10, mid, 1, chevron);
+    drawPositionLamps(
+      this.g,
+      this.glassX,
+      gy + HW.lampGap + HW.glassH,
+      this.glassW,
+      this.cursor,
+      this.choices.length,
+      this.style.accent,
+      this.focused,
+    );
+    // A LOCKED HULL IS DIM AND STILL READABLE. `labelInk(false)` is INK.textDim,
+    // which `cockpit.test.ts` measures at 4.5:1 on every surface on this panel
+    // INCLUDING the glass - so "dim" costs saturation, never legibility.
+    this.readout.setColor(choice.locked ? labelInk(false) : readoutInk(this.style.accent));
+    this.ship?.destroy();
+    // ONE ship drawing, `ui/chrome.drawShip` - the same pen the create screen's
+    // tiles use, so the four hulls read identically on the two screens that
+    // offer them. The Lantern RIG in `render/lantern.ts` is the flying ship and
+    // is what the reference compare judges; a console instrument is not that,
+    // and shrinking the rig into a 72 px bay would put a second caller on a
+    // drawing a human signed off at full size.
+    this.ship = drawShip(this.scene, this.shipX, this.shipY, HULL_GLYPH, choice.colors, choice.locked);
+    this.container.add(this.ship);
+    this.container.bringToTop(this.readout);
+  }
+
+  /**
+   * `locked` here is the hull UNDER THE CURSOR, not the row.
+   *
+   * That is what `MirrorItem.locked` means to a reader - "visible but not
+   * choosable" - and it is the fact a child needs spoken to them: the row they
+   * are on is showing a ship they cannot fly yet, and `detail` says what earns
+   * it. The row itself is always operable, which is why `Control.locked` stays
+   * false (see the class comment).
+   */
+  toMirror(): MirrorItem {
+    const choice = this.current();
+    return {
+      id: this.id,
+      role: "option",
+      label: this.title.text,
+      value: choice.label,
+      detail: choice.detail,
+      locked: choice.locked,
+    };
+  }
 }

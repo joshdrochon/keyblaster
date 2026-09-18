@@ -8,6 +8,7 @@ import {
   restartScene,
   waitForScene,
 } from "./support/lane.js";
+import { assertGameOnScreen } from "./support/flightBoot.js";
 
 const BOOT_MODULE = "/src/game/flight/boot.ts";
 
@@ -58,7 +59,17 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
   // `pixelReadback` is gone with the second render config. Nothing here reads a
   // live WebGL canvas any more - every number below decodes a PNG screenshot,
   // which is what the shipping renderer actually put on the screen.
-  await page.route("**/src/main.ts", (route) =>
+  // THE TRAILING `*` IS LOAD-BEARING (verification-gaps instance 17).
+  // Vite serves the entry as `/src/main.ts?t=<ts>` once any file in the graph
+  // has been saved, and a Playwright glob does not match a query string - so
+  // without it this stub silently stops firing and the shipping game boots
+  // alongside the one under test. Measured here, 9 boots per arm at
+  // PW_WORKERS=1 with a `utimes` on src/game/boot.ts before each: without the
+  // `*` the stub fired on 1 boot of 9, the page held FOUR canvases, and the
+  // game this boot owns was below the fold in 6 of 9. With it, 9 of 9 fired,
+  // two canvases, y=0 every time. `tests/unit/arch/oneBootPath.test.ts` now
+  // fails if a copy of this stub loses the `*` again.
+  await page.route("**/src/main.ts*", (route) =>
     route.fulfill({ status: 200, contentType: "application/javascript", body: "export {};" }),
   );
   await page.goto("/");
@@ -86,6 +97,13 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
     { timeout: 20_000 },
   );
   await page.waitForTimeout(2500);
+
+  // THE PICTURE A HUMAN JUDGES (instances 11 and 20). This spec writes
+  // `flight-frame.png` for R-world, and it has already once handed the art lane
+  // a capture of the Title screen. One game canvas, owned by this boot, on
+  // screen - asserted before the frame is taken, not inferred from the boot
+  // having returned.
+  await assertGameOnScreen(page, "before the R-world capture");
 
   // ONE FRAME, DECODED, USED FOR EVERYTHING BELOW.
   //

@@ -1955,9 +1955,10 @@ export class FlightScene extends Phaser.Scene {
      * on the fracture frame. The crumble the ear hears is 64 grains scattered
      * over ~460 ms by a decaying density, so the two disagreed: the picture had
      * finished breaking before the sound had started shedding. `shardWaves()`
-     * is the sound's own onset distribution sampled 12 times; see the block
-     * comment on `shardOnsetsMs` in `render/particles.ts` for the derivation and
-     * for why the population was cut rather than grown.
+     * is the sound's own onset distribution sampled 16 times - one visual
+     * stratum per four audio grains; see the block comment on `shardOnsetsMs`
+     * in `render/particles.ts` for the derivation, and for the P-22.9 sweep
+     * that put the population back to 16 after it was cut to 12 unmeasured.
      *
      * THE TINT IS RE-APPLIED PER WAVE, and that is load-bearing rather than
      * tidy. `setParticleTint` colours the particles emitted AFTER it, so with a
