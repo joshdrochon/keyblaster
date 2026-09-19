@@ -123,9 +123,30 @@ const NOT_A_PLATE: Record<string, string> = {
     "plate rather than being one.",
   "HudScene.ts::fillRoundedRect(x + i * 24, y, 16, 16, 5)":
     "one HULL MARK. Sixteen square pixels of accent; there is nothing on it.",
-  "PreflightScene.ts::fillRoundedRect(ROW.x + 128, y + 16, ROW.w - 180, 8, 4)":
-    "an 8 px DONE BAR across a finished system row. A tick's replacement " +
-    "(AC-22b.1 forbids the tick's partner), not a surface.",
+  // UR-101.2 SPLIT ONE ENTRY INTO TWO, and the split is the change: the bar had
+  // TWO POSITIONS - it was drawn only when its row was already `lit`, so it went
+  // 0% to 100% with nothing in between on the one instrument a child watches
+  // while they type. It fills as the step runs now, which needs an empty channel
+  // as well as the fill inside it.
+  //
+  // NEITHER IS A SURFACE, which is the only question this list asks. An 8 px
+  // rule with nothing drawn on it is a MARK - the same reading the old single
+  // entry had, and the same one `HudScene`'s 3x16 rule and 16 px hull marks
+  // have. `plate.paintPlate` with `corner: "pill"` is the shared component for a
+  // rounded mark and was considered: it paints a fill, a stroke and a rhythm at
+  // a fixed rectangle, and this is one rectangle redrawn every frame at a width
+  // that is a fraction of a number - a progress READING, not a plate whose size
+  // happens to vary. Routing it through the plate component would make the
+  // component take a fill fraction, which is the "props are palette, corner,
+  // rim, rhythm" failure this file's header names.
+  "PreflightScene.ts::fillRoundedRect(barX, barY, barW, barH, 4)":
+    "the check bar's empty CHANNEL. 8 px of unlit track, always present so the " +
+    "bar reads as an instrument rather than as an object that arrives when it " +
+    "starts filling. Nothing is drawn on it.",
+  "PreflightScene.ts::fillRoundedRect(barX, barY, Math.max(barH, barW * row.barShown), barH, 4)":
+    "the FILL inside that channel, its width a fraction of the step's progress " +
+    "(UR-101.2). Still the tick's replacement - AC-22b.1 forbids the tick's " +
+    "partner - and still a mark, not a surface.",
   // The Title's accent RULE and the briefing page's accent RIBBON used to be
   // here - "a mark, not a surface". Both are now `plate.paintPlate` with
   // `corner: "pill"`, which is what a rounded 8 px bar is, so neither needs an

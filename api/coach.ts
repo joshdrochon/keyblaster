@@ -244,6 +244,22 @@ function sightFor(req: CoachRequest): string {
   return req.lang === "en" ? WARP_SIGHT_WORDS.join(", ") : "(none)";
 }
 
+/**
+ * THE EDGE RUNTIME, AND IT IS NOT OPTIONAL (UR-100).
+ *
+ * The handler below takes a Web `Request` and returns a Web `Response`, which
+ * is the EDGE runtime's contract. Vercel's default is NODE, whose contract is
+ * `(req, res)` - so without this the function was deployed, invoked, and
+ * crashed on every call with FUNCTION_INVOCATION_FAILED. Verified against the
+ * live deployment before this line existed.
+ *
+ * The client gives up at 1500 ms and uses its shipped fallback (AC-15.1), so
+ * the game looked perfectly fine while its one server surface was dead - which
+ * is exactly why this had to be checked against the deployment rather than
+ * against a green build.
+ */
+export const config = { runtime: "edge" } as const;
+
 export default async function handler(request: Request): Promise<Response> {
   const json = (body: unknown, status: number) =>
     new Response(JSON.stringify(body), {

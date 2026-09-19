@@ -876,3 +876,38 @@ describe("E-MUSIC-1: the stop's composed piece plays when the game says which st
     expect(audio.graph.music.trackId).toBe("earth");
   });
 })
+
+/**
+ * UR-101.4: A DIRECT `resetTone()` IS A RESET, AND THE EVIDENCE SAYS SO.
+ *
+ * `toneResets` counts "how many times the pitched ladder went back to its
+ * root", and it was incremented only on the `routeFlightCue` path. Harmless
+ * while `FlightScene.create()` was the one direct caller; not harmless once
+ * `lib/typedWord.ts` resets at every completed prompt, because the first
+ * evidence run of the pre-flight ritual came back `toneSteps: 31,
+ * toneResets: 0` - the exact signature UR-30 calls the defect, on a run where
+ * the ladder was resetting correctly seven times.
+ *
+ * WATCHED FAILING, before the counter was added: "expected 0 to be 3".
+ */
+describe("UR-101.4: toneResets counts every reset, not only the routed ones", () => {
+  it("counts a reset asked for directly", () => {
+    const { audio } = harness();
+    expect(audio.snapshot().toneResets).toBe(0);
+    audio.resetTone();
+    audio.resetTone();
+    audio.resetTone();
+    expect(audio.snapshot().toneResets).toBe(3);
+  });
+
+  it("still counts the flight path's word-ending resets, and both together", () => {
+    const { audio } = harness();
+    audio.routeFlightCue({ cue: "keystroke" });
+    audio.routeFlightCue({ cue: "blast" });
+    expect(audio.snapshot().toneResets).toBe(1);
+    audio.resetTone();
+    expect(audio.snapshot().toneResets).toBe(2);
+    // The pairing the field exists for: steps with no resets is the defect.
+    expect(audio.snapshot().toneSteps).toBe(1);
+  });
+});

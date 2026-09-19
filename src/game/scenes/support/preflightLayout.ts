@@ -1,5 +1,5 @@
 import { GUTTER, HINT_CONTRACT, backCorner, headerText } from "@game/ui/grid";
-import { TYPE } from "@game/ui/theme";
+import { SPACE, TYPE } from "@game/ui/theme";
 import type { Rect } from "@game/ui/layout";
 import { CONSOLE_STRIP, consoleStripBelow } from "@game/ui/controlSurfaceLayout";
 import { VIEWPORT_WINDOW } from "@game/ui/viewportWindowLayout";
@@ -37,9 +37,54 @@ import {
  * Nothing here imports Phaser or the DOM.
  */
 
-/** The three system rows, down the left. */
-/** The three system rows, down the left, on the product's gutter. */
-export const ROW = { x: GUTTER, y: 300, w: 584, h: 116, gap: 26 } as const;
+/**
+ * HOW FAR THE ROWS SIT INSIDE THE RACK THEY ARE BOLTED TO (UR-101.1).
+ *
+ * `SPACE.rowPadX`, which is 22, which is `SKY_PLATE.padX` - the inner line the
+ * heading's plated ink, the stop name's and the keyboard hint's already sit on
+ * (UR-89 collapsed those to one number for exactly this reason). So the rows
+ * land on the SAME inner line as every other piece of text on this screen
+ * instead of on a fourth one of their own.
+ *
+ * It is 22 and not the 28 the rack used to hang off the gutter by, because 28
+ * is on no scale: it is the value UR-89 took OUT of `SPACE.rowPadX` for being
+ * the one inset in `theme.ts` that belonged to nothing.
+ */
+export const RACK_PAD = SPACE.rowPadX;
+
+/**
+ * THE WIDTH OF THIS SCREEN'S LEFT COLUMN. ONE NUMBER (UR-101.1).
+ *
+ * Fixing the rack's LEFT edge showed the other half of the same defect in the
+ * capture: the rack ran 96..724 and Shadow's dialogue plate directly beneath it
+ * ran 96..856, so the two stacked plates shared a left edge and disagreed about
+ * their right one by 132 px. Aligned on one side and ragged on the other is
+ * arguably worse to look at than honestly misaligned, and "jenky" was a
+ * whole-screen judgement rather than a note about one rectangle.
+ *
+ * 760 is the dialogue plate's existing width, so the plate that was already
+ * right keeps its number and the rack comes to it - the same move UR-76 made
+ * when it picked the back chip's line over launch's. The rows are then this
+ * less the rack's padding on each side, which is what makes the column ONE
+ * declaration instead of three that have to be kept in step by hand.
+ */
+export const COLUMN_W = 760;
+
+/**
+ * The three system rows, down the left.
+ *
+ * INSET FROM THEIR RACK, NOT ON THE GUTTER (UR-101.1). The pair used to be
+ * anchored the other way round - rows on the gutter, rack grown outwards from
+ * them - which put the RACK at `GUTTER - 28` = 68, twenty-eight pixels left of
+ * every other element on the screen. See `BULKHEAD`.
+ */
+export const ROW = {
+  x: GUTTER + RACK_PAD,
+  y: 300,
+  w: COLUMN_W - RACK_PAD * 2,
+  h: 116,
+  gap: 26,
+} as const;
 
 /** The cockpit window: the only hole in the hull. */
 /** The cockpit window. Its right edge is the right gutter (`ui/grid.ts`). */
@@ -165,7 +210,7 @@ export const SUBHEADING = headerText(1, undefined, 8);
  * so the invariant the test holds is that every PLATE starts on the gutter and
  * text is inset from its plate - two numbers instead of four.
  */
-export const LINE_PLATE = { x: GUTTER, y: 716, w: 760, h: 200 } as const;
+export const LINE_PLATE = { x: GUTTER, y: 716, w: COLUMN_W, h: 200 } as const;
 
 /**
  * SHADOW STANDS INSIDE THE PLATE, which is the warp break's coach card exactly
@@ -387,11 +432,26 @@ export function planetFill(pal: StopPalette, localSky: string): string {
  * own twin). A rack has a back plate; three cards on a wall do not read as
  * instruments. It is the cockpit's own material (`ui/panel.ts`), so this adds
  * structure rather than decoration.
+ *
+ * ================== UR-101.1: IT WAS THE ONE THING OFF THE COLUMN ==========
+ * The project owner called this screen "jenky". Measured on the served build:
+ * heading ink 118, stop name 118, hint 118 - and this rack at 68, because it
+ * was written as `GUTTER - 28` and grown outwards from rows that were
+ * themselves on the gutter.
+ *
+ * THE PAIR WAS ANCHORED BACKWARDS. A rack is a PLATE, and UR-39 already settled
+ * the rule for this exact screen: every plate starts on the gutter and what is
+ * drawn on it is inset from it. Putting the ROWS on the gutter forces the plate
+ * they are mounted on off the grid by whatever padding it wants, which is
+ * precisely what happened. So the rack takes the gutter and the rows are inset
+ * from it by `RACK_PAD` - and since that is `SKY_PLATE.padX`, the rows land on
+ * the same inner line the heading, the stop name and the hint were already on.
+ * Two vertical lines on this screen now, 96 and 118, where there were four.
  */
 export const BULKHEAD = {
-  x: GUTTER - 28,
+  x: GUTTER,
   y: ROW.y - 40,
-  w: ROW.w + 56,
+  w: COLUMN_W,
   /**
    * ASYMMETRIC PADDING - 40 above, 12 below - because there are only 16 px
    * between the last row and the dialogue plate. A symmetric 44 ran the rack
@@ -401,6 +461,84 @@ export const BULKHEAD = {
    */
   h: 3 * ROW.h + 2 * ROW.gap + 52,
 } as const;
+
+// ---------------------------------------------------------------------------
+// UR-101.2: the check bar, which had two positions
+// ---------------------------------------------------------------------------
+
+/** Everything the check bar's value depends on. Numbers in, a fraction out. */
+export interface CheckBarInput {
+  /** Accepted keystrokes so far in this step, across all of its words. */
+  readonly typedKeys: number;
+  /** What the whole step is worth in keystrokes. The ritual plan knows it. */
+  readonly totalKeys: number;
+  /** Words of this step already retired - typed, or carried past by the assist. */
+  readonly wordIndex: number;
+  /** How many words this step plans to ask for. */
+  readonly wordCount: number;
+  /** How long the word on the glass has been there, ms. */
+  readonly wordElapsedMs: number;
+  /** D100's `promptAssistMs` window for that word, ms. 0 between words. */
+  readonly wordWindowMs: number;
+}
+
+/**
+ * HOW FULL A PRE-FLIGHT CHECK BAR SHOULD BE, 0..1.
+ *
+ * ================== THE DEFECT ==================
+ * The bar was drawn only when its row was already `lit`, so it had exactly two
+ * positions - 0% and 100% - on the one instrument a child is looking at while
+ * they type. Reported by the project owner.
+ *
+ * ================== THE RULE: max(typed, elapsed) ==================
+ * Not a sum, and not a switch.
+ *
+ *   TYPED    keystrokes / the step's total keystrokes, across ALL of its words,
+ *            so a four-word step is one continuous fill rather than four jumps.
+ *            This is the half that makes the bar feel driven by the child's
+ *            hands, which is what was actually asked for.
+ *   ELAPSED  where the screen's own clock stands in the step: words already
+ *            retired, plus how far into the current word's D100 assist window
+ *            it is. This is UR-31's timeout, which had no visible form at all
+ *            until now - a child had no way to know the step would finish
+ *            without them.
+ *
+ * ================== WHY BOTH, AND WHY `max` ==================
+ * Nobody is forced to type and the ship cannot leave without pre-flight. A bar
+ * driven only by keystrokes would sit at zero while the step completed
+ * underneath it, so the display and the truth would disagree on the exact
+ * screen D100 exists to keep from trapping a child. A bar driven only by the
+ * clock would ignore the child entirely.
+ *
+ * `max` means typing can only ever pull the bar AHEAD of the clock and never
+ * behind it. A quick typist fills it in a second; a child who types nothing
+ * watches it fill on its own and still launches; a child typing slowly sees
+ * their own keys outrunning the clock. Every one of those is the honest picture
+ * of what is happening to them.
+ *
+ * ================== WHY IT IS NOT A GRADE (AC-11.3) ==================
+ * Because of `max`, and this is the load-bearing consequence rather than a
+ * side effect: at the end of a step the bar is FULL for a child who typed every
+ * letter and FULL for a child who touched nothing. It cannot distinguish them,
+ * so it cannot be read as a mark. It reports how far through the ceremony the
+ * SHIP is, which is what the lamp beside it has always reported, drawn at a
+ * resolution the lamp does not have.
+ *
+ * Monotonicity is the caller's (`PreflightScene` keeps a running maximum), not
+ * this function's: a pure reading that clamped itself would hide a real dip
+ * rather than fixing one.
+ */
+export function checkBarProgress(input: CheckBarInput): number {
+  if (input.wordCount <= 0) return 1;
+  const typed =
+    input.totalKeys <= 0 ? 0 : Math.max(0, input.typedKeys) / input.totalKeys;
+  const inWord =
+    input.wordWindowMs <= 0
+      ? 0
+      : Math.min(1, Math.max(0, input.wordElapsedMs / input.wordWindowMs));
+  const elapsed = (Math.max(0, input.wordIndex) + inWord) / input.wordCount;
+  return Math.min(1, Math.max(typed, elapsed));
+}
 
 /** Shadow's drawn footprint, the same model `resultsLayout.shadowBox` uses. */
 export function lineShadowBox(
@@ -417,7 +555,12 @@ export function lineShadowBox(
  * the line is drawn by `ui/hintLine.drawHint` now and its plate lands on the
  * grid's corner, so the honest question is whether this screen's own columns
  * agree with the product's gutter - which is what the third entry asks.
+ *
+ * UR-101.1 REPLACED `ROW.x` WITH `BULKHEAD.x` HERE, and the swap is the whole
+ * point of that item rather than a cosmetic edit. The rows are not a plate;
+ * the rack they are bolted to is, and it was the one plate on this screen that
+ * had never been asked the question this function asks. It answered 68.
  */
 export function leftEdges(): number[] {
-  return [ROW.x, LINE_PLATE.x, HINT_CONTRACT.x];
+  return [BULKHEAD.x, LINE_PLATE.x, HINT_CONTRACT.x];
 }

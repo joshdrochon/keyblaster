@@ -619,8 +619,27 @@ export function installAudio(options: InstallAudioOptions): AudioService {
       graph.voice.cancel();
     },
 
+    /**
+     * UR-101.4: THIS COUNTS NOW, AND IT DID NOT BEFORE.
+     *
+     * `toneResets` is documented above as "how many times the pitched ladder
+     * went back to its root", and it was only ever incremented on the
+     * `routeFlightCue` path - so a reset asked for directly was invisible to
+     * the evidence. That did not matter while `FlightScene.create()` was the
+     * only direct caller, once a stage.
+     *
+     * It matters now: `lib/typedWord.ts` resets at every completed prompt, and
+     * the first evidence run of the pre-flight ritual came back reading
+     * `toneSteps: 31, toneResets: 0` - which is EXACTLY the shape UR-30
+     * describes as the defect ("a run with hundreds of steps and no resets"),
+     * on a run where the ladder was in fact resetting seven times. An evidence
+     * field that reports the defect's signature while the code is correct is
+     * worse than no field, because the next person to read it either chases a
+     * bug that is not there or learns to ignore the number.
+     */
     resetTone(): void {
       graph.keystrokeTone.reset();
+      toneResets += 1;
     },
 
     snapshot(): WiringSnapshot {
