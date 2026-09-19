@@ -3,6 +3,13 @@ import type { Allowlist } from "../allowlist/index.js";
 import type { LengthBias } from "../controller/knobs.js";
 import { checkWord, normalizeWord } from "../allowlist/index.js";
 import { type WordBook, isEligible, recordFor } from "../words/index.js";
+import {
+  BELT_ANCHOR_COUNT,
+  BELT_CARRY_FRACTION,
+  bankSeed,
+  beltSizeFor,
+  sampleBelt,
+} from "./bank.js";
 import { weightedPick } from "./sample.js";
 import { sharedPrefixUnlocked } from "./tier.js";
 import { biasedWeightOf, firstLetter, isGuaranteedCatch } from "./weights.js";
@@ -109,7 +116,11 @@ export type Relaxation = "repeat" | "consecutive" | "catch" | "source" | "eligib
 export interface SelectionState {
   /** Stage index along the route (types.stageIndexOf). */
   readonly stage: number;
-  /** This stop's pool: deduped, normalised, allowlisted. Never empty. */
+  /**
+   * THIS BELT's words: one sample of the stop's bank (`bank.sampleBelt`),
+   * deduped, normalised, allowlisted. Never empty, and frozen for the stage -
+   * AC-9.1's no-replacement bag is defined over a fixed pool.
+   */
   readonly stagePool: readonly string[];
   /** Words from EARLIER stops, for the AC-9.3 interleave. May be empty. */
   readonly retentionPool: readonly string[];
@@ -208,13 +219,50 @@ export interface NoPick {
 
 export type PickOutcome = Picked | NoPick;
 
+/**
+ * Overrides for the bank-to-belt sample (bank.ts). Every field has a shipped
+ * default, so a caller that says nothing gets the sample the game flies.
+ *
+ * It exists so the simulation harnesses can fly a NAMED belt - "seed 7 at
+ * Jupiter" - rather than whichever belt the book happened to produce. Nothing
+ * on the real path passes it.
+ */
+export interface BeltInput {
+  /** Words this belt flies. Default: `beltSizeFor(bank.length)`. */
+  readonly size?: number;
+  /** Default: `bankSeed(bank, book)` - see bank.ts on why the book. */
+  readonly seed?: number;
+  /** 0..1. Default: `BELT_CARRY_FRACTION`. */
+  readonly carry?: number;
+  /** Opening bank entries every belt flies. Default: `BELT_ANCHOR_COUNT`. */
+  readonly anchors?: number;
+  /**
+   * What this pilot has already met in this bank, highest priority first.
+   * Default: derived from `book` by `carryOrder`.
+   *
+   * Overriding it is how a harness flies a RETURNING pilot's belt without
+   * also handing the pilot a warm book - which would change fall times and
+   * recognition costs and confound the very measurement it was flown for. The
+   * belt is the returning one; the hands are still cold.
+   */
+  readonly known?: readonly string[];
+}
+
 export interface SelectionInput {
   readonly stage: number;
+  /**
+   * THIS STOP'S BANK, not the belt (UR-79b). A bank larger than
+   * `BELT_MAX_WORDS` is sampled down to one belt's worth by `bank.sampleBelt`;
+   * a list at or under it is flown whole, which is every hand-built pool in the
+   * test suite and every pool that was never grown.
+   */
   readonly stagePool: Iterable<string>;
   readonly retentionPool?: Iterable<string>;
   readonly book?: WordBook;
   /** If given, every emitted word is guaranteed to be allowlisted. */
   readonly allowlist?: Allowlist;
+  /** Rarely set; see `BeltInput`. */
+  readonly belt?: BeltInput;
 }
 
 /** Thrown at STAGE SETUP, never during play. See createSelectionState. */
@@ -235,8 +283,20 @@ export class EmptyStagePoolError extends Error {
  */
 export function createSelectionState(input: SelectionInput): SelectionState {
   const book = input.book ?? {};
-  const stagePool = cleanPool(input.stagePool, input.allowlist);
-  if (stagePool.length === 0) throw new EmptyStagePoolError(input.stage);
+  const bank = cleanPool(input.stagePool, input.allowlist);
+  if (bank.length === 0) throw new EmptyStagePoolError(input.stage);
+
+  // UR-79b: the belt is a SAMPLE of the bank. Frozen here, at stage setup, so
+  // every spawn of this belt draws from one list - resampling mid-stage would
+  // break AC-9.1's no-replacement bag, which is defined over a fixed pool.
+  const stagePool = sampleBelt({
+    bank,
+    size: input.belt?.size ?? beltSizeFor(bank.length),
+    seed: input.belt?.seed ?? bankSeed(bank, (w) => (book[w]?.exposures ?? 0)),
+    carry: input.belt?.carry ?? BELT_CARRY_FRACTION,
+    anchors: input.belt?.anchors ?? BELT_ANCHOR_COUNT,
+    known: input.belt?.known ?? carryOrder(bank, book, input.stage),
+  });
 
   const inStage = new Set(stagePool);
   // A word cannot be both this stop's curriculum and its own retention probe.
@@ -257,6 +317,40 @@ export function createSelectionState(input: SelectionInput): SelectionState {
     lastServed: null,
     sharedPrefixTier: sharedPrefixUnlocked(stagePool, book),
   };
+}
+
+/**
+ * The bank words this child has already met, in the order the SCHEDULER wants
+ * them back (UR-79b). `bank.sampleBelt` fills the carried half of each length
+ * bucket from the front of this list.
+ *
+ * Due words first, because a word whose `nextEligibleStage` has arrived is a
+ * review the game has already promised itself (D23); then the least-practised,
+ * because a word with two exposures needs the third more than a word with nine
+ * does; then bank order, so the whole thing is a pure function of the book and
+ * a replay carries the same words.
+ *
+ * Words the book has never seen are absent by construction - they are the
+ * FRESH half, and they are drawn at random rather than ranked.
+ */
+function carryOrder(
+  bank: readonly string[],
+  book: WordBook,
+  stage: number,
+): readonly string[] {
+  const rank = new Map<string, number>();
+  bank.forEach((word, i) => rank.set(word, i));
+  return bank
+    .filter((word) => (book[word]?.exposures ?? 0) > 0)
+    .sort((a, b) => {
+      const ra = recordFor(book, a);
+      const rb = recordFor(book, b);
+      const dueA = stage >= ra.nextEligibleStage ? 0 : 1;
+      const dueB = stage >= rb.nextEligibleStage ? 0 : 1;
+      if (dueA !== dueB) return dueA - dueB;
+      if (ra.exposures !== rb.exposures) return ra.exposures - rb.exposures;
+      return rank.get(a)! - rank.get(b)!;
+    });
 }
 
 /** Normalise, drop empties and non-allowlisted words, dedupe, keep order. */

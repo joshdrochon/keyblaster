@@ -196,8 +196,11 @@ import {
   completedWordRange,
   badgeRow,
   boltBesideLabel,
+  coachRows,
   destinationRow,
   sentenceRow,
+  shadowOrigin,
+  SHADOW_SCALE,
   pulsedPosition,
   wordPulseCentre,
   type PulseBox,
@@ -273,6 +276,16 @@ export class WarpScene extends Phaser.Scene {
    */
   private sentenceLines = 1;
   private hintLine!: HintLine;
+  /**
+   * The charge label's own Text and the bolt's box, kept for the `boxes()`
+   * probe below. The bolt is placed off the LABEL'S MEASURED BOUNDS
+   * (`warpLayout.boltBesideLabel`), so the only honest way to assert which side
+   * of the words it landed on is to read back the two objects that were drawn -
+   * recomputing the rectangle in a test would assert the arithmetic twice and
+   * the screen not at all.
+   */
+  private chargeLabelText!: Phaser.GameObjects.Text;
+  private boltBox: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private meterFill!: Phaser.GameObjects.Graphics;
   private percentLabel!: Phaser.GameObjects.Text;
   /** The plated wrapper, so the plate is re-cut when the number changes width. */
@@ -1038,6 +1051,7 @@ export class WarpScene extends Phaser.Scene {
       },
     );
     made.push(...chargeLabel.objects);
+    this.chargeLabelText = chargeLabel.text;
 
     // Right-anchored to the SAME x the track ends at, on the SAME y the label
     // sits at. That pair is the whole of "one instrument": the readout is the
@@ -1106,12 +1120,13 @@ export class WarpScene extends Phaser.Scene {
     // wherever the string was assumed to end.
     const bolt = this.add.graphics();
     const labelBox = chargeLabel.text.getBounds();
-    paintBolt(
-      bolt,
-      boltBesideLabel({ x: labelBox.x, y: labelBox.y, w: labelBox.width, h: labelBox.height }),
-      INK.accent,
-      { alpha: 1 },
-    );
+    this.boltBox = boltBesideLabel({
+      x: labelBox.x,
+      y: labelBox.y,
+      w: labelBox.width,
+      h: labelBox.height,
+    });
+    paintBolt(bolt, this.boltBox, INK.accent, { alpha: 1 });
     made.push(bolt);
 
     this.meterFill = this.add.graphics();
@@ -1280,30 +1295,38 @@ export class WarpScene extends Phaser.Scene {
       }),
     );
 
-    // The card is shorter than it was (UR-63 gave the bottom of the frame back
-    // to the ship), so Shadow and the two lines of copy are fitted to it rather
-    // than left at numbers that were chosen for a 236 px card. `SHADOW_HEIGHT`
-    // is 2.9 body radii, i.e. 186 design units, so 0.66 draws 123 px inside a
-    // 140 px card. The note gets two lines of 30 px body above the bottom edge,
-    // which is what the longest Spanish and Hindi fallback notes need.
-    this.shadow = drawShadow(this, COACH.x + 120, COACH.y + COACH.h / 2, "pointing", {
-      scale: 0.66,
+    // ============ THE CARD IS SIZED FOR HIM, NOT HE FOR THE CARD ============
+    //
+    // Every number here used to be a literal - `COACH.x + 120`, `COACH.h / 2`,
+    // `scale: 0.66`, `COACH.x + 230`, `+ 22`, `+ 56`, `COACH.w - 290` - and the
+    // comment that stood here reasoned from `SHADOW_HEIGHT`, which under-reads
+    // the drawing by half a radius. Measured by screenshot difference in the
+    // served build, Shadow came out 147 px tall in a 140 px card whose inner
+    // box is 116, crossing the top edge by 9 px. `support/warpLayout.ts` now
+    // owns all of it and derives the card's height from the figure; see the
+    // note over `SHADOW_ABOVE_R` for the four coefficients and how they are
+    // guarded against `render/shadow.ts` drifting.
+    const stand = shadowOrigin();
+    this.shadow = drawShadow(this, stand.x, stand.y, "pointing", {
+      scale: SHADOW_SCALE,
       reducedMotion: this.lane.reducedMotion,
       depth: layer("hud").depth,
     });
 
+    const [speakerRow, noteRow] = coachRows(TYPE.body, TYPE.caption) as [Rect, Rect];
+
     made.push(
-      label(this, COACH.x + 230, COACH.y + 22, this.lane.copy.text("warp.speaker"), {
+      label(this, speakerRow.x, speakerRow.y, this.lane.copy.text("warp.speaker"), {
         size: TYPE.caption,
         color: pal.accent,
         lang: this.lane.lang,
       }),
     );
 
-    this.noteText = label(this, COACH.x + 230, COACH.y + 56, "", {
+    this.noteText = label(this, noteRow.x, noteRow.y, "", {
       size: TYPE.body,
       color: INK.text,
-      wrapWidth: COACH.w - 290,
+      wrapWidth: noteRow.w,
       lang: this.lane.lang,
     });
     this.noteText.setAlpha(0);
@@ -1950,6 +1973,66 @@ export class WarpScene extends Phaser.Scene {
       ease: EASE.arrive,
     });
 
+    /**
+     * ============ THE FOCUS RING GOES WITH THE CARD IT IS AROUND ============
+     *
+     * THE DEFECT, MEASURED. The project owner reported a yellow outline that
+     * "lazily stays behind for a bit" after the sentence is typed out, and it
+     * is this ring. It is NOT a `rim` on the shared plate - the sentence card
+     * is drawn with `corner: "bracket"` and no rim at all, deliberately, and
+     * the note in `buildSentencePanel` says why: the ring IS this card's gold
+     * line, so there is nothing else on screen that could be mistaken for one.
+     *
+     * The ring is created OUTSIDE `panelRoot`, at `layer("hud").depth + 1`, so
+     * that it draws over the card rather than under it. Nothing was wrong with
+     * that; what was wrong is that the tween above fades `panelRoot` and the
+     * ring is not in it, so the ring was left painted at full alpha over an
+     * empty frame until the scene was torn down. Sampled every animation frame
+     * from the last keystroke, in the served build:
+     *
+     *            panelRoot.alpha   ring.graphics.alpha
+     *   +135 ms       0.000               1.000
+     *   +701 ms       0.000               1.000
+     *   +1601 ms      0.000               1.000
+     *
+     * The ring outlived the card by the whole of the exit - 260 ms of launch
+     * delay plus a 900 ms flight - and then vanished with the scene rather than
+     * fading, which is exactly what "lingers, then disappears" looks like.
+     *
+     * SAME DURATION AND SAME EASE AS THE PANEL, on purpose: it is one beat, not
+     * two things that happen to leave at about the same time. UR-82's
+     * snap-and-fade teardown is not involved - that is `ui/chrome.FocusRing`,
+     * which this screen does not use; the story lane's ring is
+     * `scenes/lib/kit.createFocusRing` and its only fade is the one it plays on
+     * arrival.
+     */
+    this.tweens.add({
+      targets: this.ring.graphics,
+      alpha: 0,
+      duration: PANEL_CLEAR_MS,
+      ease: EASE.arrive,
+    });
+
+    // AND THE HINT LINE, WHICH HAD THE IDENTICAL DEFECT (UR-104).
+    //
+    // It is outside `panelRoot` for the same reason the ring is - it belongs to
+    // the screen's foot, not to the card - so the panel fade never reached it
+    // either, and it sat at full alpha over an empty frame for the whole exit.
+    // It was not in the report; it is the same bug one object along, and
+    // fixing the reported half only would have left the screen clearing in two
+    // stages for no reason a player could see.
+    //
+    // Same duration, same ease, same beat as the panels and the ring: the
+    // screen empties as one thing.
+    for (const object of this.hintLine.objects) {
+      this.tweens.add({
+        targets: object,
+        alpha: 0,
+        duration: PANEL_CLEAR_MS,
+        ease: EASE.arrive,
+      });
+    }
+
     const ship = this.lantern?.container ?? null;
     if (ship !== null) {
       this.tweens.add({
@@ -2295,6 +2378,71 @@ export class WarpScene extends Phaser.Scene {
           scaleX: l.scaleX,
           scaleY: l.scaleY,
         })),
+      /**
+       * THE FOUR RECTANGLES THE REPORTED DEFECTS ARE ABOUT, read off the LIVE
+       * objects rather than recomputed from `support/warpLayout.ts`.
+       *
+       * `warpLayout.test.ts` already asserts the arithmetic without a browser.
+       * What it cannot see is the part every one of these four defects lived
+       * in: how tall a 52 px sentence's ink really is at this letter spacing,
+       * how tall Shadow is actually drawn, which side of the measured label the
+       * bolt landed on, and whether the focus ring is still painted after the
+       * panels have gone. All four are properties of the rendered frame, so
+       * they are read from it.
+       *
+       * Cheap on purpose - four `getBounds()` calls and two numbers - so a spec
+       * may sample it every animation frame while the exit plays, which is the
+       * only way the ring's fade is measurable at all.
+       */
+      boxes: () => {
+        const rect = (b: Phaser.Geom.Rectangle): Rect => ({
+          x: b.x,
+          y: b.y,
+          w: b.width,
+          h: b.height,
+        });
+        const letters = this.letters.map((l) => l.getBounds());
+        const union = letters.reduce(
+          (acc, b) => ({
+            top: Math.min(acc.top, b.y),
+            bottom: Math.max(acc.bottom, b.y + b.height),
+          }),
+          { top: Infinity, bottom: -Infinity },
+        );
+        return {
+          panel: { ...PANEL },
+          coach: { ...COACH },
+          sentenceBand: sentenceRow(),
+          sentenceInk:
+            letters.length === 0
+              ? null
+              : { top: union.top, bottom: union.bottom, h: union.bottom - union.top },
+          sentenceLines: this.sentenceLines,
+          shadow: rect(this.shadow.root.getBounds()),
+          chargeLabel: rect(this.chargeLabelText.getBounds()),
+          bolt: { ...this.boltBox },
+          ring: {
+            alpha: this.ring.graphics.alpha,
+            visible: this.ring.graphics.visible,
+            active: this.ring.graphics.active,
+          },
+          panelAlpha: this.panelRoot.alpha,
+        };
+      },
+      /**
+       * Take Shadow off the frame, so his DRAWN height can be measured by
+       * differencing two screenshots.
+       *
+       * He is eight `Graphics` in a `Container`, and a Phaser `Graphics` has no
+       * meaningful `getBounds()` - the container's comes back as a zero-sized
+       * rect at the origin, which is what the first attempt at this measurement
+       * got and very nearly believed. The only honest source for how tall he is
+       * actually drawn is the pixels, and the pixels can only be attributed to
+       * him by turning him off and subtracting.
+       */
+      setShadowVisible: (visible: boolean) => {
+        this.shadow.root.setVisible(visible);
+      },
       texts: () => visibleText(this),
       textStyles: () => textStyles(this),
       parallaxOffsets: () => this.parallax.debugOffsets(),

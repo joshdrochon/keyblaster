@@ -7,6 +7,7 @@ import {
   type SelectionState,
 } from "@engine/selection/index.js";
 import { applyEvent, blankRecord, recordFor, type WordBook } from "@engine/words/index.js";
+import type { StopId } from "@engine/types";
 import { stagePoolFor } from "@game/flight/stage.js";
 import { mulberry32 } from "./rng.js";
 import { masteredRecord, uniformBook } from "./fixtures.js";
@@ -32,8 +33,21 @@ import { masteredRecord, uniformBook } from "./fixtures.js";
  * rather than flaky (the invariants suite makes the same argument for AC-2.1).
  */
 
-const MARS = stagePoolFor("mars");
-const JUPITER = stagePoolFor("jupiter");
+/**
+ * THE BELT, NOT THE BANK (UR-79b).
+ *
+ * `stagePoolFor` hands back a stop's whole word BANK - 100 words at Mars, 115
+ * elsewhere - and `createSelectionState` samples ONE BELT out of it. Every
+ * claim in this file is about the pool the picker actually serves, so the
+ * fixtures are the belt: taking the bank would assert that a 58-spawn stage
+ * serves all 100 Mars words, which is the pool size the whole bank mechanism
+ * exists to avoid (see `@engine/selection/bank`).
+ */
+const beltFor = (stop: StopId): readonly string[] =>
+  createSelectionState({ stage: 1, stagePool: stagePoolFor(stop), book: {} }).stagePool;
+
+const MARS = beltFor("mars");
+const JUPITER = beltFor("jupiter");
 const SEEDS = 200;
 
 interface Served {

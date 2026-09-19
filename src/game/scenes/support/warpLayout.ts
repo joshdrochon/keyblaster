@@ -336,7 +336,26 @@ export const BOLT_GAP_PX = 5;
 
 /**
  * The charge bolt's box, set beside the words rather than inside the track
- * (UR-78, revising UR-70).
+ * (UR-78, revising UR-70), and BEFORE them rather than after (this pass).
+ *
+ * ================== WHICH SIDE, AND WHY IT CHANGED ==================
+ * UR-78 put the mark five pixels PAST the label. The project owner asked for it
+ * five pixels before. The reading is better and the reason is the one UR-78
+ * already wrote down for itself: the mark is "the left end of the line whose
+ * right end is the number". Past the words it was not the left end of anything
+ * - it sat between "warp drive" and 1500 px of empty track, with the percentage
+ * far away on the right. Before the words it opens the line.
+ *
+ * THE GAP AND THE CENTRING ARE UNTOUCHED. `BOLT_GAP_PX` is the same 5 px of
+ * ink-to-ink air and the box is still centred on the label's own middle; the
+ * only thing that changed is the sign.
+ *
+ * AND NOTHING ELSE MOVED. The label's left edge is `INSTRUMENT.x` plus the
+ * instrument rhythm's `padX`, which is `STEP.pad` - a grid line this screen
+ * shares with the rest of the game, and `left-edge-conformance.spec.ts` is what
+ * holds it. The bolt reaches 22 px left of the label to x 118, which is still
+ * 22 px inside the instrument's own border, so the mark fits in the padding
+ * that was already there and the words stay where they are.
  *
  * UR-70 put the mark in the track's left cap on the reasoning that a bolt is a
  * label for the bar's zero. That reasoning cost more than it bought: inside the
@@ -357,19 +376,188 @@ export const BOLT_GAP_PX = 5;
  */
 export function boltBesideLabel(label: Rect): Rect {
   return {
-    x: label.x + label.w + BOLT_GAP_PX,
+    x: label.x - BOLT_GAP_PX - MARK.bolt.w,
     y: label.y + label.h / 2 - MARK.bolt.h / 2,
     w: MARK.bolt.w,
     h: MARK.bolt.h,
   };
 }
 
+// ---------------------------------------------------------------------------
+// The coach card, and the figure it has to hold
+// ---------------------------------------------------------------------------
+
+/**
+ * SHADOW'S DRAWN FOOTPRINT, in `render/shadow.ts`'s own design units.
+ *
+ * ================== THE DEFECT ==================
+ * The card was `h: 140`, a literal, and the note beside it reasoned that
+ * "`SHADOW_HEIGHT` is 2.9 body radii, i.e. 186 design units, so 0.66 draws
+ * 123 px inside a 140 px card". Both halves of that are wrong, and the second
+ * is wrong because the first is.
+ *
+ * MEASURED IN THE SERVED BUILD, by differencing two screenshots of the same
+ * frame with the figure switched off (`__kb.warp.setShadowVisible`), because a
+ * Phaser `Graphics` has no bounds and `shadow.root.getBounds()` comes back as a
+ * zero-sized rect at the origin:
+ *
+ *   Shadow, drawn      y 613..760     147 px tall
+ *   the coach card     y 622..762     140 px, inner box 634..750 = 116 px
+ *
+ * So he is 31 px taller than the box he is laid out in, he crosses the card's
+ * top edge by 9 px into the sky above it, and he stops 2 px short of the bottom
+ * edge. That is the crowding the project owner reported.
+ *
+ * ================== WHY `SHADOW_HEIGHT` UNDER-READS ==================
+ * `render/shadow.SHADOW_HEIGHT` is declared as "full drawn height (hover shadow
+ * to antenna tip)" and is 2.9 radii. The drawing is 3.42:
+ *
+ *   ABOVE  the antenna's tip is at `sink*R - 1.46R` and its outer glow circle
+ *          adds `0.36R`, so the figure starts 1.82R over the origin
+ *   BELOW  the cast-shadow ellipse is centred at `R*(1 + sink) + 0.42R` and is
+ *          `0.36R` tall, so it ends 1.60R under it
+ *
+ * 3.42 * 64 * 0.66 = 144.5 px, which is the 147 measured less two pixels of
+ * additive glow either side. `SHADOW_HEIGHT` is therefore not the number to
+ * derive a box from, and this lane may not fix it - `render/shadow.ts` imports
+ * Phaser, so it can be neither imported here nor loaded in a node unit test,
+ * and it is another lane's file besides.
+ *
+ * DUPLICATED ON PURPOSE, AND GUARDED, exactly like `SHIP_ABOVE` / `SHIP_BELOW`
+ * above: `warpLayout.test.ts` PARSES the four coefficients back out of
+ * `render/shadow.ts` and compares. Redraw the antenna longer or the hover
+ * lower and the suite goes red, rather than the card quietly clipping him
+ * again.
+ */
+export const SHADOW_R = 64;
+/** Antenna tip (`-1.46R`) plus its outer glow circle (`0.36R`). */
+export const SHADOW_ABOVE_R = 1.82;
+/** Hover cast shadow: `+1.0R`, offset `+0.42R`, half of its `0.36R` height. */
+export const SHADOW_BELOW_R = 1.6;
+
+/**
+ * The scale the warp break draws him at.
+ *
+ * Unchanged. The card is what moves: the figure is the right size for this
+ * screen - he reads at a glance beside two lines of 30 px body copy - and
+ * shrinking him to fit a box that was picked by hand would be solving it from
+ * the wrong end, the same way UR-63 did not answer "the ship is behind a card"
+ * by drawing a smaller ship.
+ */
+export const SHADOW_SCALE = 0.66;
+
+/** How tall Shadow is actually drawn on this screen, in screen pixels. */
+export function shadowDrawnHeight(): number {
+  return (SHADOW_ABOVE_R + SHADOW_BELOW_R) * SHADOW_R * SHADOW_SCALE;
+}
+
+/**
+ * How far the antenna's and the hover's additive glows bleed past the
+ * arithmetic, each side.
+ *
+ * NOT a safety margin and not a guess: the screenshot difference put the drawn
+ * figure at 147 px where `(1.82 + 1.60) * 64 * 0.66` is 144.47, and the
+ * two-pixel skirt is the antialiased edge of a soft circle. A box sized to the
+ * arithmetic alone would clip exactly that edge, which is the visible part of
+ * the complaint.
+ */
+const SHADOW_GLOW_BLEED_PX = 2;
+
+/**
+ * The card's height, DERIVED from the figure it holds plus the shared card
+ * rhythm's padding - never a literal again.
+ */
+const COACH_H =
+  Math.ceil(shadowDrawnHeight() + SHADOW_GLOW_BLEED_PX * 2) +
+  PLATE_RHYTHM.card.padY * 2;
+
 export const COACH: Rect = {
   x: GUTTER,
   y: INSTRUMENT.y + INSTRUMENT.h + PLATE_STACK_GAP,
   w: CARD_W,
-  h: 140,
+  h: COACH_H,
 };
+
+/**
+ * Where Shadow's ORIGIN goes, so that his drawing is centred in the card's
+ * inner box.
+ *
+ * NOT `COACH.y + COACH.h / 2`, which is what the scene used to pass and is the
+ * other half of the same defect. His origin is his body's centre and his
+ * drawing is not symmetric about it - 1.82 radii of antenna and glow above,
+ * 1.60 radii of hover and cast shadow below - so centring the ORIGIN in the
+ * card pushes the whole figure 0.11 radii too high. Measured, that is the 9 px
+ * by which he came out over the card's top edge.
+ */
+export function shadowOrigin(): { x: number; y: number } {
+  return {
+    // His LEFT reach clears the card's padding, rather than his origin sitting
+    // in the middle of the column - the drawing is not symmetric about it.
+    x: COACH.x + PLATE_RHYTHM.card.padX + SHADOW_LEFT_R * SHADOW_R * SHADOW_SCALE,
+    y:
+      COACH.y +
+      PLATE_RHYTHM.card.padY +
+      SHADOW_GLOW_BLEED_PX +
+      SHADOW_ABOVE_R * SHADOW_R * SHADOW_SCALE,
+  };
+}
+
+/**
+ * How far he reaches either side of his origin, in radii.
+ *
+ * NOT SYMMETRIC, and not the cast shadow's `2.3R` either, which is what the
+ * first pass at this assumed. The same screenshot difference that measured his
+ * height measured his width: he came out x 130..249 about an origin at 185, so
+ * 55 px left and 64 px right at scale 0.66 - 1.32 and 1.52 radii. The right is
+ * the pointing pose's spark cluster and the left is the swung arm; the cast
+ * shadow, at 1.15 radii each way, is inside both.
+ *
+ * Measured rather than parsed out of `render/shadow.ts` like the vertical pair,
+ * because the horizontal extent is a UNION OVER POSES - this screen draws him
+ * `pointing` and then `cheering` when the warp fires - and six pose entries
+ * reduced to two numbers by regex would be a transcription pretending to be a
+ * derivation. What the numbers are load-bearing for is also much weaker: this
+ * card is 1728 px wide, so the only thing they decide is that he does not sit
+ * in the card's own padding and that the copy starts clear of him.
+ */
+export const SHADOW_LEFT_R = 1.32;
+export const SHADOW_RIGHT_R = 1.52;
+
+/**
+ * The width of the column Shadow stands in, at the card's left: the rhythm's
+ * padding, his drawing, and the rhythm's padding again.
+ *
+ * `COACH.x + 230` was the literal this replaces, and `COACH.w - 290` was the
+ * wrap width that had to agree with it by hand.
+ */
+export const SHADOW_COLUMN_W =
+  PLATE_RHYTHM.card.padX * 2 +
+  Math.ceil((SHADOW_LEFT_R + SHADOW_RIGHT_R) * SHADOW_R * SHADOW_SCALE);
+
+/**
+ * The two rows of copy beside him: the speaker label, then the note.
+ *
+ * The note is TWO LINES of `TYPE.body` and always has been - the longest
+ * Spanish and Hindi fallback notes need both - and reserving them is the same
+ * discipline the sentence card's second line is under (AC-33): the coach area
+ * is laid out before the note arrives and must not move when it does.
+ */
+export function coachRows(bodyPx: number, captionPx: number): readonly Rect[] {
+  const x = COACH.x + SHADOW_COLUMN_W;
+  const w = COACH.w - SHADOW_COLUMN_W - PLATE_RHYTHM.card.padX;
+  const rows = [lineBox(captionPx), lineBox(bodyPx, 2)];
+  const h = rows.reduce((a, b) => a + b, 0) + PLATE_RHYTHM.card.gap;
+  // Centred against the FIGURE rather than top-aligned in the card. The card is
+  // now sized for him and he is the tallest thing in it, so copy pinned to the
+  // inner top would leave the hole under it that UR-70 spent a whole pass
+  // closing on the card above.
+  let y = COACH.y + (COACH.h - h) / 2;
+  return rows.map((rowH) => {
+    const row: Rect = { x, y, w, h: rowH };
+    y += rowH + PLATE_RHYTHM.card.gap;
+    return row;
+  });
+}
 
 // ---------------------------------------------------------------------------
 // The Lantern

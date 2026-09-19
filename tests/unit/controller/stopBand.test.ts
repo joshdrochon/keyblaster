@@ -167,17 +167,37 @@ describe("UR-83 / FR-10: every stop is a band of maxLive, not a value", () => {
 });
 
 describe("UR-83: the band clamps the knob, and the adaptive rules are untouched", () => {
+  /**
+   * UR-84 / C21: `recordOutcome` now adapts WITHIN the belt as well, so a
+   * thirty-rock belt moves the knob before either helper returns. Every
+   * assertion in this block is about what the BAND does to a STAGE BOUNDARY, so
+   * the knob is restored to the one the belt opened on; the within-belt arm has
+   * its own file (`tests/unit/controller/midStage.test.ts`), including the
+   * assertion that a mid-belt move cannot leave the band either.
+   *
+   * WATCHED FAILING, with the real number: return `c` unchanged and
+   * "a tighten stops at the stop's ceiling and says so" reads
+   * `expected 'hold' to be 'tighten'` - the knob was already at Mars' ceiling
+   * when the boundary was asked, so the boundary correctly held.
+   */
+  const atOpeningKnob = (opened: ControllerState, flown: ControllerState): ControllerState => ({
+    ...flown,
+    knobs: opened.knobs,
+    stageMidMoveAt: 0,
+    stageMidMoves: 0,
+    lastMidDecision: null,
+  });
   /** A belt whose every rock was blasted with most of its budget unused. */
   function cruised(state: ControllerState): ControllerState {
     let c = state;
     for (let i = 0; i < 30; i += 1) c = recordOutcome(c, "blasted", 0.9);
-    return c;
+    return atOpeningKnob(state, c);
   }
   /** A belt that went badly: a quarter missed, every rock taken at the line. */
   function struggled(state: ControllerState): ControllerState {
     let c = state;
     for (let i = 0; i < 30; i += 1) c = recordOutcome(c, i % 4 === 0 ? "missed" : "blasted", 0.02);
-    return c;
+    return atOpeningKnob(state, c);
   }
 
   it("UR-83: a child arriving on the cold start is LIFTED to the stop's floor", () => {

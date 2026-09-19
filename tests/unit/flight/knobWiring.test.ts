@@ -262,12 +262,25 @@ describe("UR-51 / D31 / AC-10.3: ending a belt at a stall never tightens", () =>
     // The direction that protects the grade-2 child. A belt they could not
     // finish hands the next one back easier, and `onRestartRequested` re-reads
     // the stored knob, so the retry gets it too.
+    //
+    // ================== UR-84 MOVED WHEN THE RELIEF ARRIVES ==================
+    // It used to arrive only at the stage boundary, and this asserted
+    // `decideStage(badly).action === "loosen"`. Twenty misses is five times
+    // `MIDSTAGE_LOOSEN_SAMPLE`, so the knob is now walked back DURING the belt
+    // and by the boundary there is nothing left to give - run against the
+    // current code the old assertion reads `expected 'hold' to be 'loosen'`,
+    // where the hold reason is `at-loosen-floor` and the knob is already there.
+    // That is the safety claim getting stronger, not weaker, so what is
+    // asserted is the OUTCOME - the belt ends easier than it opened - plus the
+    // two facts that make it one: relief happened, and it happened in-belt.
+    const openedAt = afterBelt(0, 0).knobs;
     const badly = afterBelt(30, 20);
     expect(decideStage(badly).windowRate).toBeLessThan(LOOSEN_BELOW);
-    expect(decideStage(badly).action).toBe("loosen");
-    const before = badly.knobs;
+    expect(badly.stageMidMoves, "mid-belt relief").toBeGreaterThan(0);
+    expect(badly.lastMidDecision?.action).toBe("loosen");
     const after = endStage(badly).knobs;
-    expect(after).not.toEqual(before);
+    expect(after, "the belt ends easier than it opened").not.toEqual(openedAt);
+    expect(decideStage(badly).action, "and the boundary never tightens").not.toBe("tighten");
   });
 
   it("AC-10.1: a belt ends exactly once, so at most one knob moves per stage", () => {

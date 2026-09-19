@@ -146,7 +146,7 @@ describe("AC-4.3 / FR-6: a Mars belt is completable without the hull reaching ze
     const evidence: Record<string, unknown> = {};
     for (const [name, player] of PLAYERS) {
       for (const maxLive of [MAX_LIVE_MIN, MAX_LIVE_MAX]) {
-        const s = flyMany(player, { knobs: { maxLive } });
+        const s = flyMany(player, { knobs: { maxLive }, adaptiveKnob: false });
         evidence[`${name}@maxLive${maxLive}`] = s;
         // Not "usually survives". A stage that stalls for one child in forty is
         // a stage that stalls, and D31 says that child is not the problem.
@@ -245,7 +245,7 @@ describe("AC-6e.3: pacing the belt to the player does not empty the sky", () => 
     // a NON-EMPTY board: an empty board with rocks pending spawns at once.
     for (const [name, player] of PLAYERS) {
       for (const maxLive of [MAX_LIVE_MIN, MAX_LIVE_MAX]) {
-        const s = flyMany(player, { knobs: { maxLive } });
+        const s = flyMany(player, { knobs: { maxLive }, adaptiveKnob: false });
         expect(s.maxDeadMs, `${name} at maxLive ${maxLive}`).toBeLessThanOrEqual(2000);
       }
     }
@@ -273,7 +273,7 @@ describe("AC-6e.3: pacing the belt to the player does not empty the sky", () => 
     // reaches a few hundred ms; asserting 2000 off a single seed would be a
     // number tuned to one run.
     const quiet = simulateBelt(
-      belt({ spawnCount: 24, knobs: { maxLive: MAX_LIVE_MIN }, emptyBoardFastPath: false }),
+      belt({ spawnCount: 24, knobs: { maxLive: MAX_LIVE_MIN }, adaptiveKnob: false, emptyBoardFastPath: false }),
       SLOW,
       {},
       mulberry32(5),
@@ -284,7 +284,7 @@ describe("AC-6e.3: pacing the belt to the player does not empty the sky", () => 
     // And with the shipped rule back, the same belt on the same seed is silent
     // for no time at all.
     const shipped = simulateBelt(
-      belt({ spawnCount: 24, knobs: { maxLive: MAX_LIVE_MIN } }),
+      belt({ spawnCount: 24, knobs: { maxLive: MAX_LIVE_MIN }, adaptiveKnob: false }),
       SLOW,
       {},
       mulberry32(5),
@@ -307,7 +307,7 @@ describe("D31: the belt slows down for the player who is struggling", () => {
   it("D31: tightening maxLive never feeds a struggling player faster than they clear", () => {
     const struggling: SimPlayer = { ...SLOW, accuracy: 0.75 };
     for (const maxLive of [MAX_LIVE_MIN, MAX_LIVE_MAX]) {
-      const s = flyMany(struggling, { knobs: { maxLive } });
+      const s = flyMany(struggling, { knobs: { maxLive }, adaptiveKnob: false });
       // The D17 band's own floor. Below this the controller itself calls the
       // stage too hard (LOOSEN_BELOW), so the belt has stopped being a belt.
       expect(s.meanHitRate, `maxLive ${maxLive}`).toBeGreaterThanOrEqual(0.8);
@@ -679,7 +679,7 @@ describe("UR-51 / FR-10: the primary knob now changes what is on the board", () 
     // the 1.021 on record, their hit rate moves 0.9099 -> 0.9435 and their belt
     // 250.27 s -> 249.02 s. A different game for the child who must not get one.
     for (const [name, player] of ALL) {
-      const s = flyMany(player, { knobs: { maxLive: MAX_LIVE_MIN } });
+      const s = flyMany(player, { knobs: { maxLive: MAX_LIVE_MIN }, adaptiveKnob: false });
       expect(s.stalls, name).toBe(0);
       expect(s.peakLive, name).toBeLessThanOrEqual(2);
       expect(s.meanLive, name).toBeLessThan(1.05);
@@ -707,7 +707,7 @@ describe("UR-51 / FR-10: the primary knob now changes what is on the board", () 
     //     That is the P0a stall defect, reproduced exactly, and it is why the
     //     two halves are one change and not two.
     for (const [name, player] of ALL) {
-      const s = flyMany(player, { knobs: { maxLive: MAX_LIVE_MAX } });
+      const s = flyMany(player, { knobs: { maxLive: MAX_LIVE_MAX }, adaptiveKnob: false });
       expect(s.meanLive, name).toBeGreaterThanOrEqual(3);
       expect(s.pctTime3plus, name).toBeGreaterThan(85);
       expect(s.peakLive, name).toBeGreaterThanOrEqual(3);
@@ -719,7 +719,7 @@ describe("UR-51 / FR-10: the primary knob now changes what is on the board", () 
     // an opinion about how busy four rocks feels. The shield canister stays OFF,
     // so this holds without its safety net.
     for (const [name, player] of ALL) {
-      const s = flyMany(player, { knobs: { maxLive: MAX_LIVE_MAX } });
+      const s = flyMany(player, { knobs: { maxLive: MAX_LIVE_MAX }, adaptiveKnob: false });
       expect(s.stalls, name).toBe(0);
       expect(s.worstHull, name).toBeGreaterThan(0);
       expect(s.meanHitRate, name).toBeGreaterThanOrEqual(survivableHitRate(WORDS));
@@ -733,7 +733,7 @@ describe("UR-51 / FR-10: the primary knob now changes what is on the board", () 
     // time. A step that did nothing would be a stage that felt like no reward.
     let previous = 0;
     for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
-      const s = flyMany(MEDIAN, { knobs: { maxLive: live } });
+      const s = flyMany(MEDIAN, { knobs: { maxLive: live }, adaptiveKnob: false });
       expect(s.meanLive, `maxLive ${live}`).toBeGreaterThan(previous);
       expect(s.stalls, `maxLive ${live}`).toBe(0);
       previous = s.meanLive;
@@ -757,7 +757,7 @@ describe("UR-51 / FR-10: the primary knob now changes what is on the board", () 
     expect(MAX_INTENSITY_INDEX).toBe(2);
 
     for (const [name, player] of ALL) {
-      const s = flyMany(player, { knobs: { maxLive: MAX_LIVE_MAX } });
+      const s = flyMany(player, { knobs: { maxLive: MAX_LIVE_MAX }, adaptiveKnob: false });
       // The board reaches the depth the top layer needs, and holds it for most
       // of the belt rather than brushing it once.
       expect(intensityIndex(s.peakLive, 10), name).toBe(MAX_INTENSITY_INDEX);
@@ -768,7 +768,7 @@ describe("UR-51 / FR-10: the primary knob now changes what is on the board", () 
     // And at the knob's floor it is still unreachable, which is the same
     // statement as "the struggling child's belt has not changed".
     for (const [name, player] of ALL) {
-      const s = flyMany(player, { knobs: { maxLive: MAX_LIVE_MIN } });
+      const s = flyMany(player, { knobs: { maxLive: MAX_LIVE_MIN }, adaptiveKnob: false });
       expect(intensityIndex(s.peakLive, 10), name).toBeLessThan(MAX_INTENSITY_INDEX);
     }
   });
@@ -777,7 +777,7 @@ describe("UR-51 / FR-10: the primary knob now changes what is on the board", () 
     const rows: Record<string, unknown> = {};
     for (const [name, player] of ALL) {
       for (const maxLive of [MAX_LIVE_MIN, MAX_LIVE_MAX]) {
-        const s = flyMany(player, { knobs: { maxLive } });
+        const s = flyMany(player, { knobs: { maxLive }, adaptiveKnob: false });
         rows[`${name}@maxLive${maxLive}`] = {
           ...s,
           meanLive: Number(s.meanLive.toFixed(3)),

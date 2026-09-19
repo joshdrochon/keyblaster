@@ -21,8 +21,18 @@ import {
   badgeRow,
   BOLT_GAP_PX,
   boltBesideLabel,
+  coachRows,
   destinationRow,
   sentenceRow,
+  shadowDrawnHeight,
+  shadowOrigin,
+  SHADOW_ABOVE_R,
+  SHADOW_BELOW_R,
+  SHADOW_COLUMN_W,
+  SHADOW_LEFT_R,
+  SHADOW_RIGHT_R,
+  SHADOW_R,
+  SHADOW_SCALE,
   instrumentChargedRow,
   instrumentContains,
   instrumentLabelRow,
@@ -328,10 +338,15 @@ describe("UR-70: the column is condensed, and the gap is not a function of the s
     expect(INSTRUMENT.y - bottom(PANEL)).toBe(PLATE_STACK_GAP);
     expect(COACH.y - bottom(INSTRUMENT)).toBe(PLATE_STACK_GAP);
     // 236..820 before UR-70, 236..808 after its first pass, 236..805 with the
-    // hint still in the card, 236..762 now that it is not. Read off the red run
-    // this change produced - `expected 762 to be 805`. The column can only get
-    // SHORTER here, so the Lantern's clearance only grows: 32.6 px to 75.6 px.
-    expect(bottom(COACH)).toBe(762);
+    // hint still in the card, 236..762 once it left it.
+    //
+    // 236..795 NOW, and this is the one change in the sequence that made the
+    // column LONGER: the coach card grew from a hand-picked 140 to the 173 its
+    // figure actually needs (see the Shadow block below). Read off the red run
+    // this change produced - `expected 795 to be 762`. The clearance over the
+    // Lantern's band is spent down from 75.6 px to 42.6 px and is still well
+    // over the 32 px floor, which is what this pair of lines is for.
+    expect(bottom(COACH)).toBe(795);
     expect(shipBandTop() - bottom(COACH)).toBeGreaterThan(32);
   });
 
@@ -392,34 +407,72 @@ describe("UR-70: the column is condensed, and the gap is not a function of the s
   });
 
   /**
-   * UR-78 MOVED THE BOLT OUT OF THE TRACK.
+   * UR-78 MOVED THE BOLT OUT OF THE TRACK. THIS PASS MOVED IT TO THE OTHER SIDE
+   * OF THE WORDS.
    *
    * UR-70 set it in the track's left cap. Inside the track the mark is behind
    * the fill, so it had to be drawn twice - accent under, sunken ink over - and
-   * at no charge level was it the gold the percentage is drawn in. Beside the
-   * label it is one drawing in one colour, and it is the left end of the line
-   * whose right end is the number.
+   * at no charge level was it the gold the percentage is drawn in. UR-78 put it
+   * beside the label, where it is one drawing in one colour; it put it five
+   * pixels PAST the label, and the project owner asked for five pixels before.
+   *
+   * The ask and UR-78's own reasoning agree: the mark is "the left end of the
+   * line whose right end is the number", and past the words it was the left end
+   * of nothing - it sat between "warp drive" and 1500 px of empty track.
    *
    * MEASURED OFF THE LABEL, so this takes a box rather than reading a constant:
    * "warp drive" is a translated string at a themed size and the only honest
-   * source for its right edge is the object that drew it.
+   * source for its edges is the object that drew it.
    *
-   * WATCHED FAILING, with the gap put back to `PLATE_STEP.glass` (12):
-   *   sets the charge bolt five pixels past the label, centred on its line
-   *     expected 312 to be 305
-   * and with `y: label.y` instead of the centred y:
-   *     expected 100 to be 91
+   * WATCHED FAILING, with `label.x + label.w + BOLT_GAP_PX` restored - the real
+   * printed values of the red run this change produced:
+   *   sets the charge bolt five pixels BEFORE the label, centred on its line
+   *     expected 305 to be 182
+   *   leaves the label's own left edge exactly where it was
+   *     expected 255 to be 118
+   *   the bolt opens the instrument's line instead of splitting it
+   *     expected 268 to be less than or equal to 136
    */
-  it("sets the charge bolt five pixels past the label, centred on its line", () => {
+  it("sets the charge bolt five pixels BEFORE the label, centred on its line", () => {
     const label = { x: 200, y: 100, w: 100, h: 24 };
     const bolt = boltBesideLabel(label);
     expect(BOLT_GAP_PX).toBe(5);
-    expect(bolt.x).toBe(305);
+    // 200 - 5 - 13. The GAP is ink to ink on the side the mark is now on, so it
+    // is the label's left edge less the gap less the mark's own width.
+    expect(bolt.x).toBe(182);
+    expect(bolt.x + bolt.w + BOLT_GAP_PX).toBe(label.x);
     expect(bolt.w).toBe(MARK.bolt.w);
     expect(bolt.h).toBe(MARK.bolt.h);
     // Centred on the label's own middle, not hung off its baseline - a glyph
-    // does not sit on the baseline a mark would share.
+    // does not sit on the baseline a mark would share. UNCHANGED by this pass;
+    // only the side moved.
     expect(bolt.y + bolt.h / 2).toBe(label.y + label.h / 2);
+  });
+
+  it("leaves the label's own left edge exactly where it was", () => {
+    // THE POINT OF THE CASE. The owner's note was explicit that the label's
+    // left edge is on a grid line shared with other screens
+    // (`left-edge-conformance.spec.ts`), so the bolt had to fit in the padding
+    // that is already there rather than push the words right.
+    //
+    // `instrumentLabelRow().x` is `INSTRUMENT.x + PLATE_RHYTHM.instrument.padX`
+    // and the mark reaches BOLT_GAP + MARK.bolt.w = 18 px left of it, to 118 -
+    // which is still 22 px inside the instrument's own border.
+    const row = instrumentLabelRow();
+    expect(row.x).toBe(INSTRUMENT.x + PLATE_RHYTHM.instrument.padX);
+    const bolt = boltBesideLabel({ x: row.x, y: row.y, w: 114, h: 28 });
+    expect(bolt.x).toBe(118);
+    expect(bolt.x).toBeGreaterThan(INSTRUMENT.x);
+    // Not flush to the plate's edge, the same 16 px the rows are held to.
+    expect(bolt.x - INSTRUMENT.x).toBeGreaterThanOrEqual(16);
+  });
+
+  it("the bolt opens the instrument's line instead of splitting it", () => {
+    // The readable statement of which side it is on, in one number, so a future
+    // edit that flips the sign back cannot pass by adjusting a literal.
+    const row = instrumentLabelRow();
+    const bolt = boltBesideLabel({ x: row.x, y: row.y, w: 114, h: 28 });
+    expect(bolt.x + bolt.w).toBeLessThanOrEqual(row.x);
   });
 
   it("keeps the bolt clear of the track it used to sit inside", () => {
@@ -488,5 +541,229 @@ describe("UR-62: the warp drive is one instrument, not three pieces", () => {
       expect(inner.x - INSTRUMENT.x).toBeGreaterThanOrEqual(16);
       expect(right(INSTRUMENT) - right(inner)).toBeGreaterThanOrEqual(16);
     }
+  });
+});
+
+describe("Shadow's card is built round Shadow", () => {
+  /**
+   * ================== THE DEFECT, AS MEASURED PIXELS ==================
+   * The project owner reported that the coach card at the foot of the warp
+   * break is too short for the figure in it. It was, and the note beside the
+   * number said otherwise: "`SHADOW_HEIGHT` is 2.9 body radii, i.e. 186 design
+   * units, so 0.66 draws 123 px inside a 140 px card."
+   *
+   * `render/shadow.SHADOW_HEIGHT` under-reads the drawing by half a radius, so
+   * the reasoning was sound and the input was wrong. Measured in the SERVED
+   * build (`npx vite build --outDir dist-warp`, port 4270) by differencing two
+   * screenshots of the same frame with the figure switched off - a Phaser
+   * `Graphics` has no bounds, and `shadow.root.getBounds()` comes back as a
+   * zero-sized rect at the origin, which is what the first attempt at this
+   * measurement got:
+   *
+   *                      before          after
+   *   Shadow drawn       y 613..760      y 634..782
+   *   the card           y 622..762      y 622..795
+   *   the inner box      y 634..750      y 634..783
+   *   drawn height       147 px          147 px
+   *   inner height       116 px          149 px
+   *   over the top edge  9 px            0
+   *
+   * ================== WATCH THEM FAIL (rule 4) ==================
+   * Real printed values, from the red run with `COACH.h` put back to the
+   * literal 140 and `drawShadow` back on `COACH.y + COACH.h / 2`:
+   *
+   *   the three plates are one unit apart, and the column got shorter
+   *     expected 762 to be 795
+   *   holds the whole of the figure inside its own padding
+   *     expected 116 to be greater than or equal to 144.4608
+   *   stands him so the DRAWING is centred, not his origin
+   *     expected 692 to be close to 712.88, received difference is
+   *     20.879999999999995, but expected 0.05
+   *   puts the copy beside him rather than through him
+   *     expected 623.5 to be greater than or equal to 634
+   *
+   * The 20.88 px in the third line is the defect stated exactly: his origin was
+   * being centred, and the drawing is 0.11 radii top-heavy about it.
+   */
+  const innerTop = (): number => COACH.y + PLATE_RHYTHM.card.padY;
+  const innerBottom = (): number => bottom(COACH) - PLATE_RHYTHM.card.padY;
+
+  it("takes its four coefficients from the module that draws him", () => {
+    // RESTATED AND GUARDED, the same arrangement as `SHIP_ABOVE` / `SHIP_BELOW`
+    // above and for the same reason: `render/shadow.ts` imports Phaser, so it
+    // can be neither imported here nor loaded in this node environment. Redraw
+    // the antenna longer or drop the hover further and these stop matching,
+    // rather than the card silently clipping him again.
+    const shadow = readFileSync("src/game/render/shadow.ts", "utf8");
+
+    const radius = /export const SHADOW_RADIUS = (\d+);/.exec(shadow);
+    expect(radius?.[1], "SHADOW_RADIUS not found in shadow.ts").toBeDefined();
+    expect(Number(radius?.[1])).toBe(SHADOW_R);
+
+    // ABOVE: the antenna's tip, plus the outer circle of its glow.
+    const tip = /const tipY = spec\.sink \* R - ([\d.]+) \* R;/.exec(shadow);
+    const halo = /g\.fillCircle\(tipX, tipY, ([\d.]+) \* R\);/.exec(shadow);
+    expect(tip?.[1], "the antenna tip's y is not where this test looks").toBeDefined();
+    expect(halo?.[1], "the antenna glow's radius is not where this test looks").toBeDefined();
+    expect(Number(tip?.[1]) + Number(halo?.[1])).toBeCloseTo(SHADOW_ABOVE_R, 6);
+
+    // BELOW: the cast-shadow ellipse - its centre, and half its height.
+    const hover = /const y = R \* \(1\.0 \+ spec\.sink\);/.test(shadow);
+    const cast =
+      /g\.fillEllipse\(0, y \+ ([\d.]+) \* R, [\d.]+ \* R, ([\d.]+) \* R\);/.exec(shadow);
+    expect(hover, "the hover's baseline is not R * (1 + sink) any more").toBe(true);
+    expect(cast?.[1], "the cast shadow's offset is not where this test looks").toBeDefined();
+    expect(1 + Number(cast?.[1]) + Number(cast?.[2]) / 2).toBeCloseTo(SHADOW_BELOW_R, 6);
+  });
+
+  it("is NOT the height `render/shadow.SHADOW_HEIGHT` claims", () => {
+    // THE NEGATIVE CONTROL, and the whole reason this block exists. The number
+    // the old card was reasoned from is in the source, is called "full drawn
+    // height", and is half a radius short of the drawing. Asserting the gap
+    // keeps this test honest if a later pass fixes the constant: the day these
+    // agree, the restatement above can be deleted for an import.
+    const shadow = readFileSync("src/game/render/shadow.ts", "utf8");
+    const claimed = /SHADOW_RADIUS \* ([\d.]+);/.exec(shadow);
+    expect(claimed?.[1], "SHADOW_HEIGHT's multiplier is not where this test looks")
+      .toBeDefined();
+    expect(Number(claimed?.[1])).toBe(2.9);
+    expect(SHADOW_ABOVE_R + SHADOW_BELOW_R).toBeCloseTo(3.42, 6);
+    expect(SHADOW_ABOVE_R + SHADOW_BELOW_R).toBeGreaterThan(Number(claimed?.[1]));
+  });
+
+  it("holds the whole of the figure inside its own padding", () => {
+    // THE CARD IS DERIVED FROM HIM. Not "is at least as tall as", which a
+    // literal could satisfy by accident: the inner box is what the drawing
+    // needs, and the only slack in it is the two pixels of additive glow the
+    // screenshot difference found past the arithmetic on each side.
+    const drawn = shadowDrawnHeight();
+    expect(drawn).toBeCloseTo((1.82 + 1.6) * 64 * 0.66, 6);
+    const inner = innerBottom() - innerTop();
+    expect(inner).toBeGreaterThanOrEqual(drawn);
+    expect(inner - drawn).toBeLessThan(PLATE_RHYTHM.card.padY);
+    // And the card is the inner box plus the SHARED rhythm's padding, so a
+    // padding change carries here like it carries everywhere else.
+    expect(COACH.h).toBe(Math.ceil(drawn + 4) + PLATE_RHYTHM.card.padY * 2);
+    expect(COACH.h).toBe(173);
+  });
+
+  it("stands him so the DRAWING is centred, not his origin", () => {
+    // The other half of the same defect. His origin is his body's centre and
+    // the drawing is not symmetric about it - 1.82 radii above, 1.60 below - so
+    // centring the origin in the card pushed the figure 0.11 radii high, which
+    // is the 9 px by which he came out over the card's top edge.
+    const at = shadowOrigin();
+    const top = at.y - SHADOW_ABOVE_R * SHADOW_R * SHADOW_SCALE;
+    const foot = at.y + SHADOW_BELOW_R * SHADOW_R * SHADOW_SCALE;
+    expect(at.y).toBeCloseTo(712.88, 1);
+    expect(top).toBeGreaterThanOrEqual(innerTop());
+    expect(foot).toBeLessThanOrEqual(innerBottom());
+    // NOT the old placement, stated as a number so the literal cannot come back.
+    expect(at.y).not.toBe(COACH.y + COACH.h / 2);
+    // Inside the card's PADDING horizontally too, on his measured left reach
+    // rather than on the cast shadow's - the drawing is not symmetric about his
+    // origin, and the first pass at this centred him in the column and put him
+    // 6 px inside the padding while his sparks crowded the copy.
+    //
+    // WATCHED FAILING, with the origin back on `COACH.x + SHADOW_COLUMN_W / 2`,
+    // which is where the case below catches it:
+    //   puts the copy beside him rather than through him
+    //     expected 296 to be greater than or equal to 300.2048
+    expect(at.x - SHADOW_LEFT_R * SHADOW_R * SHADOW_SCALE).toBeGreaterThanOrEqual(
+      COACH.x + PLATE_RHYTHM.card.padX,
+    );
+  });
+
+  it("puts the copy beside him rather than through him", () => {
+    const [speaker, note] = coachRows(TYPE.body, TYPE.caption) as [Rect, Rect];
+    const at = shadowOrigin();
+    // Clear of the column he stands in, which is his own width plus padding -
+    // `COACH.x + 230` was the literal this replaces.
+    expect(speaker.x).toBe(COACH.x + SHADOW_COLUMN_W);
+    expect(speaker.x).toBeGreaterThanOrEqual(
+      at.x + SHADOW_RIGHT_R * SHADOW_R * SHADOW_SCALE + PLATE_RHYTHM.card.padX,
+    );
+    expect(note.x).toBe(speaker.x);
+    // Both rows inside the card's padding, top and bottom.
+    expect(speaker.y).toBeGreaterThanOrEqual(innerTop());
+    expect(bottom(note)).toBeLessThanOrEqual(innerBottom());
+    expect(right(note)).toBeLessThanOrEqual(right(COACH) - PLATE_RHYTHM.card.padX);
+    // TWO LINES for the note, reserved before it arrives (AC-33). The longest
+    // Spanish and Hindi fallback notes need both, and a card that grew when the
+    // note landed is the thing AC-33 forbids.
+    expect(note.h).toBe(lineBox(TYPE.body, 2));
+    // Centred against the figure, so the copy does not sit in the top of a card
+    // that is now sized for him.
+    const above = speaker.y - innerTop();
+    const below = innerBottom() - bottom(note);
+    expect(Math.abs(above - below)).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("the sentence card's reserved second line", () => {
+  /**
+   * ================== THE REPORT, AND THE MEASUREMENT ==================
+   * The project owner reported the sentence card as too big for the sentences
+   * it holds. It is, and the slack is entirely the reserved second line.
+   *
+   * MEASURED IN THE SERVED BUILD, every belted stop, both letter-spacing
+   * settings - twelve screens, read off the live `Text` objects' bounds:
+   *
+   *   stop       lines   ink top   ink bottom   ink height
+   *   mars         1       297        357.2        60.2
+   *   jupiter      1       297        357.2        60.2
+   *   saturn       1       297        357.2        60.2
+   *   uranus       1       297        357.2        60.2
+   *   neptune      1       297        357.2        60.2
+   *   pluto        1       297        357.2        60.2
+   *
+   * Identical with D41's increased letter spacing on: the setting widens the
+   * line, and none of the six comes near the 1648 px content box, so nothing
+   * wraps. 60.2 px of ink in a 149 px band - the card carries 88.8 px it never
+   * draws on any of the twelve.
+   *
+   * ================== AND IT STILL CANNOT SHRINK ==================
+   * Because the 149 IS the two lines: `(2 - 1) * SENTENCE_STEP + lineBox(52)`,
+   * 68 + 81. There is no third thing in the band to take, which is what this
+   * case exists to say - a one-line card would be 154 and the 68 px saved is
+   * exactly the reserved line, not padding beside it.
+   *
+   * Dropping it is a change to D09's composed-sentence behaviour and not this
+   * lane's to make; it is in gauntlet/escalations.md with the numbers and a
+   * lean. `SENTENCE_MAX_LINES` is asserted here so it cannot be quietly
+   * lowered instead.
+   *
+   * WATCHED FAILING, with `SENTENCE_MAX_LINES` set to 1 - the real printed
+   * values, and note how far the damage reaches for one number:
+   *   reserves exactly one extra line and nothing beside it
+   *     expected 1 to be 2
+   *   is the whole of the card's slack, and nothing else
+   *     expected 154 to be 222
+   *   fit two lines of sentence inside the card
+   *     expected 378 to be greater than or equal to 433
+   *   the three plates are one unit apart, and the column got shorter
+   *     expected 727 to be 795
+   *   stands him so the DRAWING is centred, not his origin
+   *     expected 644.8768 to be close to 712.88, received difference is
+   *     68.00319999999999, but expected 0.05
+   */
+  it("reserves exactly one extra line and nothing beside it", () => {
+    expect(SENTENCE_MAX_LINES).toBe(2);
+    const oneLine = plateHeight([lineBox(TYPE.label), lineBox(SENTENCE_PX)], "card");
+    expect(PANEL.h - oneLine).toBe(SENTENCE_STEP);
+    expect(sentenceRow().h - lineBox(SENTENCE_PX)).toBe(SENTENCE_STEP);
+  });
+
+  it("is the whole of the card's slack, and nothing else", () => {
+    // 222 today, 154 with the reserve gone. The difference is one 68 px step,
+    // so there is no smaller card available that keeps two lines.
+    expect(PANEL.h).toBe(222);
+    expect(plateHeight([lineBox(TYPE.label), lineBox(SENTENCE_PX)], "card")).toBe(154);
+    // The gate that makes the second line reachable, restated from
+    // `engine/coach/sentence.ts`: 56 characters at the scene's own 0.58-em
+    // estimate is 1697 px, which does not fit the 1648 px content box.
+    const contentW = plateContent(PANEL, "card").w;
+    expect(contentW).toBe(1648);
+    expect(56 * SENTENCE_PX * 0.58).toBeGreaterThan(contentW);
   });
 });

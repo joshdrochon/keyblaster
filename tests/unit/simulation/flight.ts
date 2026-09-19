@@ -47,6 +47,7 @@ import { fallTimeIkiMs, fallTimeMs } from "@engine/fallTime/index.js";
 import {
   createSelectionState,
   pickNext,
+  type BeltInput,
   type SelectionState,
 } from "@engine/selection/index.js";
 import {
@@ -64,6 +65,7 @@ import {
 } from "@engine/types.js";
 import {
   type ControllerState,
+  clearanceMargin,
   createController,
   hitRate,
   rampedMaxLive,
@@ -309,6 +311,20 @@ export function calibrationOf(player: SimPlayer): Calibration {
 export interface BeltConfig {
   stopIndex: number;
   /**
+   * UR-79b: WHICH BELT this bank hands over (`@engine/selection/bank`).
+   *
+   * Absent - the default, and what every pre-existing row in this directory
+   * uses - is the shipped rule: a fresh book flies the bank's BASELINE BLOCK,
+   * which is the pool that shipped before banks existed. So every stall count,
+   * fall time and duration band already measured here is measured on exactly
+   * the belt it was measured on.
+   *
+   * Naming a `seed` (and a `carry`) is how a test flies a RETURNING pilot's
+   * belt, which is the thing the bank lane added and the thing no existing row
+   * would otherwise ever see.
+   */
+  belt?: BeltInput;
+  /**
    * WHICH STOP THIS BELT IS (UR-83). The controller reads it for the per-stop
    * `maxLive` band (`@engine/controller/stopBand`), which is the whole of the
    * route's progression.
@@ -405,6 +421,20 @@ export interface BeltConfig {
    */
   emptyBoardFastPath?: boolean;
   /**
+   * UR-84's WITHIN-BELT adaptation: the controller may move the knob during the
+   * belt, not only at its boundary (`@engine/controller.decideMidStage`).
+   *
+   * ON by default because it ships. Setting it FALSE pins the knob at whatever
+   * `knobs` opened on for the whole belt, and that is what a test measuring
+   * "the board AT maxLive N" actually wants: with it on, the belt at
+   * `MAX_LIVE_MAX` loosens off the ceiling for a slow pilot and the belt at
+   * `MAX_LIVE_MIN` climbs off the floor for a fast one, so neither run is a
+   * measurement of that knob setting any more. The SHIPPED belt is measured in
+   * `tests/unit/simulation/launchRoute.test.ts`, where the knob is supposed to
+   * move.
+   */
+  adaptiveKnob?: boolean;
+  /**
    * Turn OFF the D21/D23 retention interleave for this belt - the earlier stops'
    * words are never offered to the picker. The engine control for L-6e.4: if
    * the retention line still trends up with the interleave gone, the number is
@@ -471,6 +501,19 @@ export interface BeltResult {
   liveTimeMs: number[];
   /** Time-weighted mean rocks on the board over the belt. */
   meanLive: number;
+  /**
+   * `controller.knobs.maxLive` at the instant each rock was spawned (UR-84).
+   *
+   * The knob now moves INSIDE a belt, so "what knob did this belt fly" is no
+   * longer one number and a harness that reported one would be reporting the
+   * opening setting and calling it the belt. This is what makes "how many rocks
+   * before the pilot reached the stop's ceiling" a measurement rather than an
+   * inference.
+   */
+  maxLiveTrail: number[];
+  /** Knob moves made INSIDE this belt (UR-84), and how many gave time back. */
+  midMoves: number;
+  midLoosens: number;
   book: WordBook;
 }
 
@@ -553,6 +596,7 @@ export function simulateBelt(
     stagePool: cfg.stagePool,
     retentionPool: (cfg.noRetention ?? false) ? [] : cfg.retentionPool,
     book,
+    belt: cfg.belt,
   });
   let controller: ControllerState = createController({
     knobs: cfg.knobs ?? {},
@@ -615,6 +659,9 @@ export function simulateBelt(
   let maxDeadMs = 0;
   let deadSinceMs: number | null = null;
   let peakLive = 0;
+  const maxLiveTrail: number[] = [];
+  let midMoves = 0;
+  let midLoosens = 0;
   const liveTimeMs: number[] = [];
   let stalled = false;
 
@@ -628,6 +675,23 @@ export function simulateBelt(
     const depth = live.length;
     liveTimeMs[depth] = (liveTimeMs[depth] ?? 0) + Math.max(0, t - nowMs);
     nowMs = t;
+  };
+
+  /**
+   * UR-84: count the knob moves `recordOutcome` made INSIDE the belt, and which
+   * direction they went. Reading the controller's own counter rather than
+   * diffing the knob, so a move that the band clamped back to where it started
+   * is still counted as the decision it was.
+   */
+  const noteMidMove = (before: ControllerState, after: ControllerState): ControllerState => {
+    if (!(cfg.adaptiveKnob ?? true)) {
+      return { ...after, knobs: before.knobs, stageMidMoveAt: 0, stageMidMoves: 0 };
+    }
+    if (after.stageMidMoves > before.stageMidMoves) {
+      midMoves += 1;
+      if (after.lastMidDecision?.action === "loosen") midLoosens += 1;
+    }
+    return after;
   };
 
   const pending = (): boolean => spawned < cfg.spawnCount;
@@ -663,7 +727,24 @@ export function simulateBelt(
         }),
       };
       learn([...rock.word].length - 1, busy.fkMs);
-      controller = recordOutcome(controller, "blasted");
+      // UR-84: THE MARGIN TRAVELS WITH THE OUTCOME, IN-BELT, exactly as
+      // `FlightScene.onBlast` reports it. It used to be omitted here and fed
+      // only at the stage boundary, which is the `no-margin` fail-safe: the
+      // controller could never tighten mid-belt in this harness however well
+      // the pilot flew, so a harness without this line measures a belt the game
+      // does not fly.
+      controller = noteMidMove(
+        controller,
+        recordOutcome(
+          controller,
+          "blasted",
+          clearanceMargin({
+            spawnedAtMs: rock.spawnedAtMs,
+            leftAtMs: nowMs,
+            fallMs: rock.deadlineMs - rock.spawnedAtMs,
+          }),
+        ),
+      );
       if (rock.isCanister) {
         hull = hullAfterShield(hull, maxHull);
         canisterLive = false;
@@ -693,7 +774,21 @@ export function simulateBelt(
         ...nextBook,
         [due.word]: applyEvent(record, { kind: "miss", atMs: nowMs, stage: cfg.stopIndex }),
       };
-      controller = recordOutcome(controller, "missed");
+      // A rock that reached the breach line spent its whole budget: margin 0,
+      // reported rather than omitted, which is what makes a belt going badly
+      // loosen mid-flight instead of waiting for the hull to empty.
+      controller = noteMidMove(
+        controller,
+        recordOutcome(
+          controller,
+          "missed",
+          clearanceMargin({
+            spawnedAtMs: due.spawnedAtMs,
+            leftAtMs: nowMs,
+            fallMs: due.deadlineMs - due.spawnedAtMs,
+          }),
+        ),
+      );
       if (due.isCanister) canisterLive = false;
       const spawn = byWord.get(due.word + due.spawnedAtMs);
       if (spawn !== undefined) spawn.clearedAtMs = nowMs;
@@ -761,6 +856,15 @@ export function simulateBelt(
         // a harness that left it out would fly a belt that builds a 4-deep
         // queue out of rocks budgeted for a 1-deep one.
         knobs: controller.knobs,
+        // UR-84: the stop's own pace. `FlightScene.spawnRock` passes exactly
+        // this; a harness that left it out would measure a route with no speed
+        // progression, which is the thing being changed.
+        stop: cfg.stopId,
+        // C22: the board's own depth at this instant. `FlightScene.spawnRock`
+        // passes exactly this (`this.rocks.length`, read before the new rock is
+        // pushed), and a harness that left it out would measure a belt whose
+        // first rock is budgeted for a queue that is not there.
+        liveCount: live.length,
       });
       const isCanister =
         (cfg.canisters ?? false) && maySpawnCanister(hull, maxHull, canisterLive) && rng() < 0.5;
@@ -779,6 +883,7 @@ export function simulateBelt(
         }),
       };
       live.push(rock);
+      maxLiveTrail.push(controller.knobs.maxLive);
       peakLive = Math.max(peakLive, live.length);
       lastSeenStage[word] = cfg.stopIndex;
       spawned += 1;
@@ -870,6 +975,9 @@ export function simulateBelt(
       nowMs === 0
         ? 0
         : liveTimeMs.reduce((sum, ms, depth) => sum + depth * (ms ?? 0), 0) / nowMs,
+    maxLiveTrail,
+    midMoves,
+    midLoosens,
     book: nextBook,
   };
 }

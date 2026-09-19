@@ -387,9 +387,22 @@ export function skyAt(travel: SkyTravel, progress: number): SkyStops {
 // ---------------------------------------------------------------------------
 
 /**
- * The words this stop's belt may spawn: the stage bundle's own asteroid pool,
- * which is also the pool the warp sentence is drawn from (AC-12.3 requires
- * every content word of the sentence to be in it).
+ * This stop's whole word BANK: the stage bundle's own asteroid pool, which is
+ * also the pool the warp sentence is drawn from (AC-12.3 requires every content
+ * word of the sentence to be in it).
+ *
+ * ================== BANK, NOT BELT (UR-79b) ==================
+ * This used to be both. It is now the bank only: 96 words at Mars, 112 at every
+ * other stop, against a belt of 40 and 46. `createSelectionState` samples ONE
+ * BELT out of whatever this returns (`@engine/selection/bank`), so a belt still
+ * flies the same number of distinct words it always did - the constraint that
+ * caps it at 46 is measured and is restated in bank.ts - while a child who
+ * comes back to a stop meets words they have not seen.
+ *
+ * The seam did not move and no caller changed: this function hands over a list
+ * of words, the engine decides which of them this belt gets. The allowlist
+ * `FlightScene` compiles from this is therefore the whole bank, which is what
+ * it should be - every word the stop can ever serve is typeable.
  *
  * THIS IS THE D09 SEAM. Flight spawns from this list and the warp break
  * highlights from the run recorded while flying it (`blastHistory.ts`), so the
@@ -412,7 +425,17 @@ export function stagePoolFor(stop: StopId): readonly string[] {
   return activation === null ? [] : [activation];
 }
 
-/** Words from every earlier stop, for the AC-9.3 interleave. */
+/**
+ * Words from every earlier stop, for the AC-9.3 interleave.
+ *
+ * NOT sampled, and that is deliberate. Retention is 20% of a belt's slots -
+ * about eleven rocks - drawn from every stop already flown, which at Jupiter is
+ * already 96 distinct words and at Pluto was 178 before this lane and is 544
+ * after it. Eleven draws from 178 repeat no more than eleven draws from 544, so
+ * the number of words a child meets in one belt is unchanged and only WHICH
+ * ones moves. The cap exists for the stage pool, where 58 spawns have to cycle
+ * a bag, and there is nothing here for it to protect.
+ */
 export function retentionPoolFor(stops: readonly StopId[]): readonly string[] {
   return stops.flatMap((s) => stagePoolFor(s));
 }

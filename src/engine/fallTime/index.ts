@@ -1,4 +1,5 @@
-import { DEFAULT_CALIBRATION, type Calibration } from "../types.js";
+import { DEFAULT_CALIBRATION, type Calibration, type StopId } from "../types.js";
+import { stopPaceDrop } from "../controller/stopBand.js";
 import {
   MAX_LIVE_MAX,
   MAX_LIVE_MIN,
@@ -199,8 +200,28 @@ export const RECOGNITION_SLOW_BASE_MS = 1500;
  * `MAX_LIVE_MIN`, 1200 at `HEADROOM_SLOW_IKI_MS` whatever the knob says, and
  * 700 only at the top of the knob for a pilot whose measured interval and whose
  * margin have both earned it.
+ *
+ * ================== WHY IT IS 1185 AND WAS 1184 (C20) ==================
+ * This value is the SMALLEST the recognition ratchet may reach while UR-51-B's
+ * answerable-depth invariant still holds: FR-8's one-deep budget must be at
+ * least `expectedClearMs` for every pilot at every knob setting, or the belt
+ * stands a queue deeper than the budget can serve and drops the back of it on
+ * the child's hull. 1184 was computed against the clamp floor UR-51 scaled by
+ * the queue depth, and that floor was MASKING a shortfall rather than
+ * satisfying the invariant: with C20's literal floor the worst cell is a fast
+ * pilot's two-letter word "go" at `MAX_LIVE_MAX`, which read
+ *
+ *     fast @ maxLive 7: expected 3.999032258064516 to be greater than or
+ *     equal to 4
+ *
+ * i.e. the invariant was 0.024% short in the budget and held only by a clamp.
+ * At 1185 the same cell reads 4.002 and every other cell in the four-pilot x
+ * six-setting grid clears with room. It costs a fast pilot 1.6 ms of fall time
+ * at the top of the knob - `tests/unit/fallTime/fallTime.test.ts` sweeps the
+ * grid - and it buys back an invariant that was being satisfied by the wrong
+ * mechanism.
  */
-export const RECOGNITION_EARNED_BASE_MS = 1184;
+export const RECOGNITION_EARNED_BASE_MS = 1185;
 
 /**
  * Floor on the inter-key interval FALL TIME may be computed from, ms (UR-51).
@@ -441,9 +462,9 @@ export function recognitionBudgetMs(
  * ================== THE WHOLE SURFACE, IN ONE TABLE ==================
  *
  *     maxLive        2       3       4       5       6       7
- *     iki 260/350  1200    1196.8  1193.6  1190.4  1187.2  1184     (ratchets)
- *     iki 440      1308    1306.0  1304.0  1301.9  1299.9  1297.8
- *     iki 520      1404    1403.0  1402.0  1400.9  1399.9  1398.9
+ *     iki 260/350  1200    1197.0  1194.0  1191.0  1188.0  1185     (ratchets)
+ *     iki 440      1308    1306.1  1304.2  1302.2  1300.3  1298.4
+ *     iki 520      1404    1403.1  1402.1  1401.2  1400.2  1399.3
  *     iki 600+     1500    1500    1500    1500    1500    1500     (flat)
  *
  * TWO ENDS OF ONE AXIS, AND BOTH ARE THE SAME DEFECT. `headroomEarned` is the
@@ -571,28 +592,146 @@ export function recognitionReaderBaseMs(ikiMs: number): number {
  * is still motor cost and still visible, ease is still recognition cost and
  * still invisible, and their ratio at any knob setting is FR-8's ratio. Nothing
  * here can make one word cheap relative to another.
+ *
+ * ================== C22: THE DEPTH IS THE BOARD'S, NOT THE KNOB'S =========
+ * `liveCount` is how many rocks were ALREADY on the board when this one
+ * spawned, and it is the quantity this factor was always about.
+ *
+ * The multiplier exists so a rock can survive the queue AHEAD OF IT. It was
+ * taken from `concurrencyTarget(maxLive)` - the depth the knob is ASKING FOR -
+ * so a rock spawning onto an EMPTY board at Pluto was granted the same 3.5x
+ * queueing allowance as a rock spawning behind four others, because the knob
+ * said the board was allowed to hold seven. A rock with nothing ahead of it has
+ * no queue to survive, and 3.5x of FR-8's budget for a rock that is served
+ * immediately is simply 3.5x too long. Flown in a browser at Pluto at ~100%
+ * accuracy, that is what 42-second rocks were made of.
+ *
+ *     rocks already live   0     1     2     3+
+ *     factor (at ml 7)     1.0   2.0   3.0   3.5
+ *     factor (at ml 4)     1.0   2.0   2.2   2.2
+ *
+ * THE CAP IS THE KNOB'S, so nothing here can grant MORE than UR-51 granted:
+ * a rock that genuinely is at the back of a full board gets exactly what it
+ * gets today, and at `MAX_LIVE_MIN` the cap is 1 so the cold-start belt (D18's
+ * one measured moment) is FR-8's formula byte for byte whatever the board is
+ * doing. Every caller that does not pass a count reads the knob's factor
+ * exactly as before, which is what keeps the `toBe` sweeps in
+ * `tests/unit/fallTime/fallTime.test.ts` meaningful.
+ *
+ * AND IT IS THE VARIANCE THE OWNER ASKED FOR, out of the game's own state
+ * rather than out of a random draw: the first rocks of a belt fall fast and the
+ * board slows as it fills, so "some rocks are genuinely much faster than
+ * others" is a thing the belt DOES rather than a number a spread was asked to
+ * fake. It costs no pilot anything on an empty board, because on an empty board
+ * there is nothing to wait for.
+ *
+ * Total: a non-finite count reads as the knob's factor, i.e. the old behaviour,
+ * which is the direction that gives a child more time.
  */
-export function fallBudgetFactor(knobs?: Pick<Knobs, "maxLive">): number {
-  return concurrencyTarget(knobs?.maxLive ?? MAX_LIVE_MIN);
+export function fallBudgetFactor(
+  knobs?: Pick<Knobs, "maxLive">,
+  liveCount?: number,
+): number {
+  const cap = concurrencyTarget(knobs?.maxLive ?? MAX_LIVE_MIN);
+  if (liveCount === undefined || !Number.isFinite(liveCount)) return cap;
+  return Math.min(cap, Math.max(1, Math.floor(liveCount) + 1));
 }
 
 /**
- * Clamp against FR-8's MIN/MAX, scaled by the same factor as the budget.
+ * The multiple this STOP's belt scales the whole budget by (UR-84).
  *
- * ================== WHY THE CLAMP SCALES TOO ==================
+ * ================== THE HALF OF THE ROUTE THAT WAS NOT THERE ==============
+ * UR-83 gave the stop a `maxLive` band, so a later stop is a BUSIER board. It
+ * gave the stop nothing about SPEED, so Pluto and Mars granted the same pilot
+ * the same milliseconds for the same word - and "the game does not push me" is
+ * a report about speed, raised repeatedly against a route whose only
+ * progression was occupancy.
+ *
+ * `@engine/controller/stopBand.stopPaceDrop` owns the route's shape (0 at Mars,
+ * `STOP_PACE_DROP` at Pluto, linear in `stageIndexOf` between them), for the
+ * reason that file gives: one place for the route to be written down. This
+ * function owns who EARNS it, which is the rule the rest of this file already
+ * follows.
+ *
+ * ================== IT COMPOSES, IT DOES NOT REPLACE ==================
+ * Scaled by `headroomEarned`, the same axis as `keystrokeHeadroom`,
+ * `recognitionBaseMs` and `fallSpreadFactor`'s downward half. So the pace at
+ * the last stop reads
+ *
+ *     iki      260*   350    440    520    600+
+ *     pluto    0.80   0.80   0.87   0.94   1.00
+ *
+ * and a pilot measured at `HEADROOM_SLOW_IKI_MS` or slower flies EVERY stop at
+ * FR-8's budget to the byte. A slow pilot at Pluto is therefore still given a
+ * fall they can answer - by arithmetic, not by a simulation result - and the
+ * ability curve is what decides how much of the route's shape reaches them.
+ *
+ * Absent or null is exactly 1, so every caller with no stop in hand flies FR-8's
+ * budget byte for byte, which is what keeps the `toBe` sweeps in
+ * `tests/unit/fallTime/fallTime.test.ts` meaningful.
+ *
+ * Total: a corrupt calibration reads as the SLOWEST pilot through
+ * `headroomEarned`, i.e. no drop at all - the only direction a bad value may
+ * move a child's belt.
+ */
+export function stopPaceFactor(stop?: StopId | null, ikiMs?: number): number {
+  if (stop === null || stop === undefined) return 1;
+  const earned = headroomEarned(ikiMs ?? DEFAULT_CALIBRATION.ikiMs);
+  return 1 - stopPaceDrop(stop) * earned;
+}
+
+/**
+ * Clamp against FR-8's MIN/MAX. The CEILING scales with the queue depth; the
+ * FLOOR is FR-8's literal 2500 ms at every depth (UR-84, collision C20).
+ *
+ * ================== WHY THE CEILING SCALES ==================
  * It has to, or the mechanism fails silently for exactly the pilot it must not
  * fail for. A grade-2 pilot's five-letter word raws at 6420 ms; at a depth of 4
  * that is 25 680 ms, and against a fixed 14 000 ms ceiling it clamps back to a
  * fall/service ratio of 3.03 - so the belt would build a 4-deep queue and then
- * drop the back of it on the child's hull. The bound is part of the budget, not
- * a separate policy about it, so it moves with the budget.
+ * drop the back of it on the child's hull. That bound is part of the budget,
+ * not a separate policy about it, so it moves with the budget. UR-51 is the
+ * report and nothing here weakens it.
+ *
+ * ================== WHY THE FLOOR NO LONGER DOES (C20) ==================
+ * UR-51 scaled BOTH bounds by `fallBudgetFactor`, and the floor was the half
+ * that did not belong there. `concurrencyTarget` is 4 at `MAX_LIVE_MAX`, so the
+ * SHORTEST fall the game could produce at Pluto's ceiling was 2500 x 4 =
+ * 10 000 ms: at the exact moment the board is busiest, no rock could reach the
+ * breach line in under ten seconds. Every mechanism built to make a rock quick
+ * died at this line - UR-83's per-rock spread is applied before the clamp, so a
+ * "fast" rock at a deep board was clamped straight back up to the floor and the
+ * variance never reached the screen. The owner has reported "zero adrenaline"
+ * against a belt whose floor rose every time it got busier.
+ *
+ * THE TWO BOUNDS ANSWER DIFFERENT QUESTIONS, which is why only one of them is
+ * a function of the queue:
+ *
+ *   - the CEILING asks "can the back of the queue still be answered?". That is
+ *     a question about the QUEUE, so it scales with the queue. UR-51's actual
+ *     protection is this bound plus `@engine/pacing`'s spawn gap, and both are
+ *     untouched.
+ *   - the FLOOR asks "is this rock physically reachable by a child at all?".
+ *     That is a question about the CHILD, and a child does not read faster
+ *     because three other rocks are on the board. FR-8 states it as a literal
+ *     2.5 s and it is a literal 2.5 s.
+ *
+ * AND IT CANNOT REACH THE TAIL, swept rather than argued. The floor only ever
+ * binds a rock whose raw budget is already under 2500 ms. A pilot at
+ * `HEADROOM_SLOW_IKI_MS` earns none of the shortening terms in this file, so
+ * over every shipped word at every ease at every knob setting their shortest
+ * raw budget is 3075 ms at `MAX_LIVE_MIN` and 12 300 ms at `MAX_LIVE_MAX`,
+ * against scaled floors of 2500 and 10 000 - clear at both ends and at every
+ * setting between. Lowering a bound the tail never touches cannot cost the tail
+ * anything. `tests/unit/fallTime/fallTime.test.ts` sweeps it as a count of
+ * ZERO changed cells, so a shorter word added to a pool turns it red.
  *
  * At `MAX_LIVE_MIN` the factor is 1, so the bounds are FR-8's literal 2.5 s and
- * 14 s. The PRD's numbers are still the numbers the shipped floor flies.
+ * 14 s, exactly as before.
  */
 export const clampFallTime = (ms: number, factor = 1): number => {
   const f = Number.isFinite(factor) ? Math.max(1, factor) : 1;
-  return Math.min(FALL_TIME_MAX_MS * f, Math.max(FALL_TIME_MIN_MS * f, ms));
+  return Math.min(FALL_TIME_MAX_MS * f, Math.max(FALL_TIME_MIN_MS, ms));
 };
 
 export interface FallTimeInput {
@@ -614,16 +753,38 @@ export interface FallTimeInput {
    * written. See `fallSpreadFactor`.
    */
   readonly spread?: number;
+  /**
+   * Which stop's belt this rock is falling on (UR-84). Only its stage index is
+   * read, and only to scale the whole budget by `stopPaceFactor`. Absent or
+   * null means no per-stop pace at all, i.e. FR-8's budget exactly as written.
+   */
+  readonly stop?: StopId | null;
+  /**
+   * How many rocks were ALREADY on the board when this one spawned (C22).
+   *
+   * Absent means "size the budget from the knob", i.e. UR-51's behaviour
+   * byte for byte - which is what every caller without a board in hand gets.
+   * See `fallBudgetFactor`.
+   */
+  readonly liveCount?: number;
 }
 
 /**
  * AC-8.1: the formula exactly as documented, with the clamps holding.
  * Pure and total - no clock, no randomness, no NaN escapes.
  */
-export function fallTimeMs({ word, ease, calibration, knobs, spread }: FallTimeInput): number {
+export function fallTimeMs({
+  word,
+  ease,
+  calibration,
+  knobs,
+  spread,
+  stop,
+  liveCount,
+}: FallTimeInput): number {
   return clampFallTime(
-    rawFallTimeMs({ word, ease, calibration, knobs, spread }),
-    fallBudgetFactor(knobs),
+    rawFallTimeMs({ word, ease, calibration, knobs, spread, stop, liveCount }),
+    fallBudgetFactor(knobs, liveCount),
   );
 }
 
@@ -638,6 +799,8 @@ export function rawFallTimeMs({
   calibration,
   knobs,
   spread,
+  stop,
+  liveCount,
 }: FallTimeInput): number {
   const iki = calibration?.ikiMs ?? DEFAULT_CALIBRATION.ikiMs;
   const live = knobs?.maxLive ?? MAX_LIVE_MIN;
@@ -645,14 +808,17 @@ export function rawFallTimeMs({
   return (
     (keystrokeBudgetMs(word.length, iki, headroom) +
       recognitionBudgetMs(ease, recognitionBaseMs(live, iki))) *
-    fallBudgetFactor(knobs) *
-    fallSpreadFactor(spread, iki)
+    fallBudgetFactor(knobs, liveCount) *
+    fallSpreadFactor(spread, iki) *
+    stopPaceFactor(stop, iki)
   );
 }
 
 /** True if the computed value hit either clamp (telemetry, not gameplay). */
 export function isClamped(input: FallTimeInput): boolean {
-  const factor = fallBudgetFactor(input.knobs);
+  const factor = fallBudgetFactor(input.knobs, input.liveCount);
   const raw = rawFallTimeMs(input);
-  return raw < FALL_TIME_MIN_MS * factor || raw > FALL_TIME_MAX_MS * factor;
+  // The floor is unscaled (C20) and the ceiling is not, so this asks the same
+  // two questions `clampFallTime` answers rather than a third one.
+  return raw < FALL_TIME_MIN_MS || raw > FALL_TIME_MAX_MS * factor;
 }

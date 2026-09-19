@@ -159,3 +159,90 @@ export function bandOf(stop: StopId | null | undefined): LiveBand {
     ? { floor: MAX_LIVE_MIN, ceiling: MAX_LIVE_MAX }
     : stopBand(stop);
 }
+
+// ---------------------------------------------------------------------------
+// PER-STOP PACE (UR-84)
+// ---------------------------------------------------------------------------
+
+/**
+ * How much of a rock's fall budget the LAST stop takes away, as a fraction.
+ *
+ * ================== WHAT THE STOP DECIDED BEFORE THIS ==================
+ * Only HOW MANY rocks. `stopBandForStage` sets the two ends of the `maxLive`
+ * range and nothing else, so Pluto and Mars differed in the number of things on
+ * the board and in nothing about how fast any one of them fell. Measured on the
+ * route sweep, a ~100%-accuracy pilot arrived at Pluto still finishing each word
+ * with about a third of its budget unspent: a busier board is a different job,
+ * not a faster one, and the owner's report is about speed.
+ *
+ * So the stop now also sets a PACE, on the same `stageIndexOf` axis the band
+ * runs on and in the same file, because a table in a second place is how the
+ * route's shape starts disagreeing with itself.
+ *
+ * ================== IT COMPOSES WITH ABILITY, IT DOES NOT REPLACE IT =======
+ * This file returns the route's shape only. `@engine/fallTime.stopPaceFactor`
+ * is what applies it, and it scales the whole drop by `headroomEarned` - the
+ * one axis `keystrokeHeadroom`, `recognitionBaseMs` and the per-rock spread all
+ * already ratchet on. So:
+ *
+ *     iki      260*   350    440    520    600+
+ *     pluto    0.88   0.88   0.92   0.96   1.00
+ *              ----------------------------  ----
+ *              (the pace multiple at the last stop)
+ *
+ * A pilot measured at `HEADROOM_SLOW_IKI_MS` or slower flies Pluto at exactly
+ * FR-8's budget, at every stop, whatever the route says. A grade-2 child is
+ * therefore not handed one millisecond less anywhere on the route by this - it
+ * is arithmetic rather than a hope about a simulation, and it is the same
+ * safety shape UR-51 and UR-72 already ship.
+ *
+ * ================== WHERE 0.12 COMES FROM ==================
+ * Measured, not chosen: it is the largest drop at which NO pilot gains a belt
+ * anywhere on the route. Route sweep, 40 seeds x 6 belts x 5 pilots, the real
+ * controller carried stop to stop, with C20's unscaled floor and UR-84's
+ * within-belt adaptation both on:
+ *
+ *     drop    0.10   0.12   0.13         0.15              0.20
+ *     stalls  0      0      slow 1 at    median 1 pluto,   median 9 pluto +
+ *                           uranus       slow 1 uranus     1 neptune,
+ *                                        + 1 pluto         slow 3+3+3
+ *
+ * and the pilot that breaks first is the MEDIAN, not the grade-2 one - the
+ * `headroomEarned` scaling exempts the tail entirely, so the binding pilot is
+ * the one at FR-8's own default interval who earns the whole ratchet on every
+ * axis in `@engine/fallTime` at once. `tests/unit/simulation/launchRoute.test.ts`
+ * is the sweep and `gauntlet/evidence/route-speed.json` is its table.
+ *
+ * WHAT IT BUYS, in the number the report is about: a ~100%-accuracy pilot's
+ * lower-quartile margin at Pluto goes 0.427 -> 0.343, i.e. from finishing each
+ * word with 43% of its budget unused to 34%, and their fastest rock at Pluto
+ * goes from a flat 10 000 ms (C20's floor, every belt, every seed) to 5393 ms.
+ *
+ * FR-8'S BOUNDS ARE UNTOUCHED. The pace is applied inside `rawFallTimeMs`, i.e.
+ * BEFORE `clampFallTime`, so no rock can be granted less than FR-8's literal
+ * 2500 ms floor however late the stop is.
+ */
+export const STOP_PACE_DROP = 0.12;
+
+/**
+ * The fraction of the budget this stage takes away, before ability is read.
+ *
+ * Linear in the stage index over the six BELT stops, so Mars is exactly 0 - the
+ * first belt a child ever flies is FR-8's budget byte for byte, which is the
+ * same floor `stopBandForStage` puts Mars on and the same cold start D18 is
+ * about. Earth (0) has no belt (D57) and answers 0 for the reason
+ * `stopBandForStage` answers a band rather than throwing.
+ */
+export function stopPaceDropForStage(stage: number): number {
+  const s = Number.isFinite(stage) ? Math.floor(stage) : 0;
+  const steps = Math.min(STOP_PACE_LAST_STAGE - 1, Math.max(0, s - 1));
+  return (steps / (STOP_PACE_LAST_STAGE - 1)) * STOP_PACE_DROP;
+}
+
+/** Pluto's stage index: the stop at which the whole drop has been applied. */
+const STOP_PACE_LAST_STAGE = 6;
+
+/** The fraction of the budget this stop takes away, before ability is read. */
+export function stopPaceDrop(stop: StopId): number {
+  return stopPaceDropForStage(stageIndexOf(stop));
+}

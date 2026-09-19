@@ -197,6 +197,75 @@ export const TIGHTEN_MARGIN_ABOVE = 0.35;
 export const LOOSEN_MARGIN_BELOW = 0.12;
 
 // ---------------------------------------------------------------------------
+// WITHIN-BELT ADAPTATION (UR-84, collision C21 against D20 / AC-10.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Outcomes this belt must report before a mid-belt TIGHTEN, and the minimum
+ * spacing between two of them.
+ *
+ * ================== THE STRUCTURAL DEFECT THIS ANSWERS ==================
+ * D20 allows exactly one knob move per STAGE, and a stage is a belt. A stop's
+ * band (`./stopBand.ts`) is two to five settings wide, so a pilot at a stop's
+ * floor needs two to five CLEAN BELTS to reach its ceiling - and the route is
+ * six stops long. Measured on the route sweep, a ~100%-accuracy pilot finished
+ * every belt with about a third of each rock's budget unspent, because the
+ * difficulty that was supposed to meet them was still four belts away when the
+ * game ended. UR-83 gave the controller a range; it did not make the climb to
+ * the top of that range fast enough to be felt inside a single belt.
+ *
+ * So the same decision `decideStage` makes at a stage boundary is now also made
+ * DURING the belt, on the same two signals and against the same thresholds.
+ * Nothing about what a tighten requires has changed - `decideStage` is called
+ * verbatim - only how often it is asked.
+ *
+ * ================== WHY D20 NEEDED ITS OWN GUARD AND NOT THIS ONE =========
+ * D20's rule exists to stop the knob oscillating on a noisy sample, and that
+ * risk is REAL and is worse here: a hit rate over five rocks is a far worse
+ * estimate than one over fifty-eight. The stage rule's guard was "wait for the
+ * stage to end", and that guard is exactly what made the controller too slow.
+ * This is the replacement, and it is three gates rather than one:
+ *
+ *   1. SAMPLE. No mid-belt tighten before this many outcomes have been
+ *      reported since the last move (or since the belt opened). Eight, which is
+ *      `WINDOW_SIZE * 0.4` - enough that the stage rate `mayTighten` reads is a
+ *      rate rather than a coin flip, and small enough that a 58-rock belt has
+ *      room for the widest band (Uranus, 3..7, four steps) to be climbed inside
+ *      it: rock 32 of 58, measured rather than hoped.
+ *   2. RATE LIMIT. The same eight is the spacing between moves, so the knob can
+ *      move at most `floor(58 / 8)` = 7 times in a belt and never twice on
+ *      adjacent rocks.
+ *   3. THE TWO SIGNALS, UNCHANGED. The rolling window (20 outcomes, spanning
+ *      belts) must still be above `TIGHTEN_ABOVE`, both rates must still clear
+ *      `TIGHTEN_FLOOR` (AC-10.3 / D18), and the margin quartile must still be
+ *      above `TIGHTEN_MARGIN_ABOVE`. That last one is why this cannot reach the
+ *      supported tail: a grade-2 pilot's measured margin is 0.171, so the gate
+ *      is shut for them at every sample size, on every rock, at every stop.
+ *      Arithmetic, not a simulation result.
+ *
+ * A STALL IS STILL UNREACHABLE BY TIGHTENING for the same reason it was before:
+ * `TIGHTEN_FLOOR` is checked against this belt's own rate, so a belt that is
+ * going badly cannot tighten however flattering the rolling window is.
+ */
+export const MIDSTAGE_TIGHTEN_SAMPLE = 8;
+
+/**
+ * The same, for a mid-belt LOOSEN - and it is deliberately HALF the tighten's.
+ *
+ * The asymmetry is the safety posture stated as a number: a struggling child is
+ * helped twice as fast as a strong one is pressed. Four outcomes is one rock
+ * more than the hull has marks (D27 at the shipped stage length), so the belt
+ * can answer a child who is losing the belt before the belt is lost, which is
+ * the one thing the stage-boundary rule structurally could not do - `beginStall`
+ * forcing a loosen AFTER the hull emptied was the only relief that existed
+ * inside a belt.
+ *
+ * It is also why this change is net SAFER than the rule it collides with: every
+ * mid-belt loosen is relief that did not previously arrive until the belt ended.
+ */
+export const MIDSTAGE_LOOSEN_SAMPLE = 4;
+
+// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
@@ -226,7 +295,13 @@ export type HoldReason =
   /** Both knobs are already at their cap. */
   | "at-tighten-ceiling"
   /** Both knobs are already at their floor. */
-  | "at-loosen-floor";
+  | "at-loosen-floor"
+  /**
+   * UR-84: the signals say move, but this belt has not reported enough
+   * outcomes since the last mid-belt move. Only `decideMidStage` produces it;
+   * `decideStage` never does, so the stage boundary is unchanged.
+   */
+  | "too-soon";
 
 export interface StageDecision {
   readonly action: StageAction;
@@ -268,6 +343,23 @@ export interface ControllerState {
   readonly stagesCompleted: number;
   /** Result of the most recent endStage, or null before the first one. */
   readonly lastDecision: StageDecision | null;
+  /**
+   * `stageSpawned` at the last knob move made INSIDE this belt (UR-84), or 0
+   * when the belt has not moved one yet. The rate limit is read off this rather
+   * than off a clock, because `src/engine` has no clock (CLAUDE.md) and because
+   * "one move per eight rocks" is the quantity the guard is actually about.
+   */
+  readonly stageMidMoveAt: number;
+  /** Knob moves made inside this belt so far (UR-84). Reset by `endStage`. */
+  readonly stageMidMoves: number;
+  /**
+   * The most recent WITHIN-BELT decision that actually moved a knob, or null.
+   *
+   * Separate from `lastDecision` on purpose: that field is documented as the
+   * result of the most recent `endStage` and a debug overlay reads it as one.
+   * Two different events deserve two different fields.
+   */
+  readonly lastMidDecision: StageDecision | null;
 }
 
 export interface ControllerInit {
@@ -315,6 +407,9 @@ export function createController(init: ControllerInit = {}): ControllerState {
     stageBlasted: 0,
     stagesCompleted: 0,
     lastDecision: null,
+    stageMidMoveAt: 0,
+    stageMidMoves: 0,
+    lastMidDecision: null,
   };
 }
 
@@ -341,7 +436,7 @@ export function recordOutcome(
   outcome: SpawnOutcome,
   margin?: number | null,
 ): ControllerState {
-  return {
+  const recorded: ControllerState = {
     ...state,
     window: pushOutcome(state.window, outcome),
     margins:
@@ -350,6 +445,62 @@ export function recordOutcome(
         : pushMargin(state.margins, margin),
     stageSpawned: state.stageSpawned + 1,
     stageBlasted: state.stageBlasted + (outcome === "blasted" ? 1 : 0),
+  };
+  // UR-84: the within-belt decision happens HERE rather than at a call site,
+  // and that is deliberate. Every caller that reports an outcome gets it - the
+  // scene, the belt simulation, the route sweep - so there is no second place
+  // to forget it, which is this repo's most-repeated defect (coding-standards
+  // rule 2). It is still pure, still has no clock, and still moves at most one
+  // knob per call.
+  return applyMidStage(recorded);
+}
+
+/**
+ * What the controller would do RIGHT NOW, mid-belt, or a hold saying why.
+ *
+ * Pure and exported for the same reason `decideStage` is: a debug overlay and a
+ * test can ask "what would happen?" without advancing anything.
+ *
+ * It is `decideStage` plus the two sample gates and nothing else. Re-deriving
+ * the thresholds here would be a second place for FR-10's band to be written
+ * down, and a second place is how the two quietly disagree.
+ */
+export function decideMidStage(state: ControllerState): StageDecision {
+  const decision = decideStage(state);
+  if (decision.action === "hold" || decision.change === null) return decision;
+  const since = state.stageSpawned - state.stageMidMoveAt;
+  const need =
+    decision.action === "loosen" ? MIDSTAGE_LOOSEN_SAMPLE : MIDSTAGE_TIGHTEN_SAMPLE;
+  if (since < need) {
+    return {
+      action: "hold",
+      change: null,
+      windowRate: decision.windowRate,
+      stageRate: decision.stageRate,
+      marginFloor: decision.marginFloor,
+      holdReason: "too-soon",
+    };
+  }
+  return decision;
+}
+
+/**
+ * Apply `decideMidStage`, or return the state untouched.
+ *
+ * `endStage` is NOT affected and its rule is unchanged: the stage boundary
+ * still runs `decideStage` and still moves at most one knob. A belt that has
+ * already moved mid-flight may therefore also move at its boundary, which is
+ * the collision with D20 that C21 logs rather than hides.
+ */
+function applyMidStage(state: ControllerState): ControllerState {
+  const decision = decideMidStage(state);
+  if (decision.change === null) return state;
+  return {
+    ...state,
+    knobs: applyChange(state.knobs, decision.change, state.band),
+    stageMidMoveAt: state.stageSpawned,
+    stageMidMoves: state.stageMidMoves + 1,
+    lastMidDecision: decision,
   };
 }
 
@@ -469,5 +620,11 @@ export function endStage(state: ControllerState): ControllerState {
     stageBlasted: 0,
     stagesCompleted: state.stagesCompleted + 1,
     lastDecision: decision,
+    // UR-84: the within-belt budget is per BELT, so it resets with the tally
+    // the belt is counted in. Carrying it would make the second belt of a route
+    // adapt more slowly than the first for no reason anyone could state.
+    stageMidMoveAt: 0,
+    stageMidMoves: 0,
+    lastMidDecision: null,
   };
 }

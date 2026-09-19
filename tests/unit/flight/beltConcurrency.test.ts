@@ -219,11 +219,25 @@ describe("the belt's concurrency is set by FR-8, not by maxLive", () => {
     // `RECOGNITION_EARNED_BASE_MS` to the 700 the owner flew by feel and it
     // reads "a fast pilot at the knob's ceiling answers 3 rocks at once:
     // expected 3 to be greater than or equal to 4".
+    //
+    // ================== C22 MADE THE TARGET FRACTIONAL ==================
+    // `CONCURRENCY_TARGET_MAX` is 3.5 now, and `answerableAtOnce` is
+    // `floor(fall / service)` - a whole number of rocks. Comparing an integer
+    // count against 3.5 reads `a fast pilot at the knob's ceiling answers 3
+    // rocks at once: expected 3 to be greater than or equal to 3.5`, which is
+    // a unit mismatch rather than a regression. So the count is asserted
+    // against the whole rocks the belt stands, and the RATIO - the quantity the
+    // invariant is actually about, and the one the grade-2 arm below already
+    // uses - is asserted against the target itself.
     for (const [pilot] of PILOTS) {
       const top = summarise(measure(MAX_LIVE_MAX).filter((r) => r.pilot === pilot));
       expect(
         top.answerableAtOnce,
-        `a ${pilot} pilot at the knob's ceiling answers ${top.answerableAtOnce} rocks at once`,
+        `a ${pilot} pilot at the knob's ceiling answers ${top.answerableAtOnce} whole rocks at once`,
+      ).toBeGreaterThanOrEqual(Math.floor(CONCURRENCY_TARGET_MAX));
+      expect(
+        top.minRatio,
+        `a ${pilot} pilot at the knob's ceiling serves ${top.minRatio} of the ${CONCURRENCY_TARGET_MAX} the belt stands`,
       ).toBeGreaterThanOrEqual(CONCURRENCY_TARGET_MAX);
     }
 

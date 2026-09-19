@@ -26,18 +26,53 @@ import { hasStageBundle, stageBundle } from "../lib/content";
  * `createSceneText` and never passed at a call site.
  */
 
+/**
+ * ============ "Shadow" IS A NAME (this pass) ============
+ *
+ * UR-81 made case AUTHORED rather than imposed - `theme.chromeCase` stopped
+ * lowercasing every chrome string - and recased this table under one rule:
+ * Title Case for labels and buttons, sentence case for hints, questions and
+ * whole sentences. It treated "shadow" as a common noun and left it lower case
+ * in all four places it appears.
+ *
+ * It is the coach's name. He is `render/shadow.ts`'s figure, he has a voice
+ * (D63), a pose table and a speaker label, and every prose line ABOUT him in
+ * this repo already capitalises him. A speaker label that reads "shadow" over a
+ * line he just said is the one place a child meets his name, so it is the one
+ * place it has to be right.
+ *
+ * NOTHING RENDERS IT THROUGH `chromeCase`, which was the thing to check before
+ * editing a table: the speaker label is drawn with `lib/kit.label`, not with
+ * `lib/kit.chrome`, so the table's case is the case on screen. `chromeCase`
+ * would still upper-case it under D41's increased-legibility setting, which is
+ * a reading aid and is correct for a name as it is for everything else.
+ */
 const LANE_EN = {
   // Warp break (screen 7, D30, FR-16)
   "warp.beltClear": "the belt is clear. everything is still out here.",
   "warp.chargeLabel": "warp drive",
   "warp.chargePercent": "{percent}%",
   "warp.charged": "warp drive charged. hold on.",
-  "warp.speaker": "shadow",
-  "warp.hint": "type the sentence. a slip just asks for the same letter again.",
+  "warp.speaker": "Shadow",
+  /**
+   * ============ SENTENCE CASE, WHICH MEANS ONE CAPITAL ============
+   *
+   * The screen's bottom-left instruction, drawn by `ui/hintLine.drawHint`. It
+   * is a hint and a whole sentence, so UR-81's rule gives it a capital first
+   * letter and changes nothing else - NOT Title Case, which is for labels and
+   * buttons, and not a capital on the second clause either.
+   *
+   * That last part is the house convention and not a preference: `ui/strings.ts`
+   * already ships "Only earth is lit. six more are waiting for us." and
+   * "Remove {name}? their beacons go too." Making this line the one that
+   * capitalises both of its sentences would be inventing a third rule on the
+   * screen the sweep was opened for.
+   */
+  "warp.hint": "Type the sentence. a slip just asks for the same letter again.",
   // E-AI-1. Shown ONLY when a live model composed this sentence from the words
   // this child just practised and it passed all six gates. Blank otherwise -
   // the whole point is that a judge can tell the two apart.
-  "warp.composed": "shadow wrote this one from your words, just now",
+  "warp.composed": "Shadow wrote this one from your words, just now",
 
   // Beacon placement (screen 8, D15, FR-17)
   "beacon.calibrating": "beacon calibrating. it will find the sky in a moment.",
@@ -114,9 +149,11 @@ const LANE_ES: Partial<Record<LaneStringKey, string>> = {
   "warp.chargeLabel": "motor de salto",
   "warp.chargePercent": "{percent}%",
   "warp.charged": "motor de salto cargado. agárrate.",
-  "warp.speaker": "shadow",
-  "warp.hint": "escribe la frase. un desliz solo pide la misma letra otra vez.",
-  "warp.composed": "shadow escribió esta con tus palabras, ahora mismo",
+  // A NAME IS A NAME IN EVERY LANGUAGE. The Hindi lane table is empty and falls
+  // through to English, so these two lines are the whole of the Spanish sweep.
+  "warp.speaker": "Shadow",
+  "warp.hint": "Escribe la frase. un desliz solo pide la misma letra otra vez.",
+  "warp.composed": "Shadow escribió esta con tus palabras, ahora mismo",
 
   "beacon.calibrating": "la baliza se está calibrando. enseguida encuentra el cielo.",
   "beacon.continue": "continuar",

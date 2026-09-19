@@ -142,6 +142,45 @@ export const CONCURRENCY_TARGET_MIN = 1;
  * Depth at `MAX_LIVE_MAX`. Four, per UR-51, and because the fall budget it
  * implies still clears `expectedClearMs` for the grade-2 pilot with margin -
  * measured, in gauntlet/evidence/belt-concurrency.json, not assumed.
+ *
+ * ================== IT WAS SWEPT DOWNWARD AND PUT BACK (UR-84, C22) =======
+ * This value multiplies the WHOLE of FR-8's fall budget through
+ * `@engine/fallTime.fallBudgetFactor`, so it was the prime suspect for "the
+ * game has no adrenaline": flown in a browser at Pluto at ~100% accuracy,
+ * consecutive rocks ran 8.6 s to 42 s and got SLOWER as the controller climbed,
+ * because every difficulty pass made the board busier and on this engine a
+ * busier board is how the game GRANTS MORE TIME.
+ *
+ * It was swept, 40 seeds x 6 belts x 5 pilots, the real controller carried stop
+ * to stop. Stalls per pilot, WITHOUT C22's live-count fix:
+ *
+ *     value   ace  fast  median  slow  grade2   P0a (knob pinned at ceiling)
+ *     4.0      0    0      0      0      0      all clear
+ *     3.5      0    0      0      0      0      all clear
+ *     3.4      0    0      3      2      0      all clear
+ *     3.25     0    0      4      4      0      all clear
+ *     3.0      0    0      1      3      0      all clear
+ *     2.5      0    0     12     13      0      all clear
+ *     2.0      0    0      5     12      0      median 1, slow 2
+ *
+ * 3.5 was the largest safe step and it bought about 12% - real, and not "fast".
+ * WITH C22's live-count fix the same sweep reads 3.5 costing the median pilot
+ * two belts at Pluto while 4.0 costs nobody anything and produces a QUICKER
+ * first rock (2851 ms against 2851 ms) and a wider belt (5.9x against 5.1x).
+ * So the blunt constant is not what was wrong: the wrong QUANTITY was, and once
+ * `fallBudgetFactor` reads the board's actual depth instead of the knob's
+ * target this value is right where UR-51 put it. Left at 4 deliberately, with
+ * the curve recorded here so the next pass does not sweep it again.
+ *
+ * ================== AND THE PILOT THAT BINDS IS NOT THE TAIL =============
+ * Worth writing down, because it corrects an assumption this project has been
+ * steering by. The grade-2 pilot is at ZERO stalls at every value down to 2.0 -
+ * `headroomEarned` exempts them from every shortening term in
+ * `@engine/fallTime`, so their budget never approaches the bound. The pilots
+ * that break first are the MEDIAN (93% accuracy at FR-8's own 350 ms interval)
+ * and the SLOW (88% at 440 ms), who are also children. A gate written as "the
+ * grade-2 pilot must not stall" would have licensed 2.0 and cost the median
+ * child five belts and the slow child twelve.
  */
 export const CONCURRENCY_TARGET_MAX = 4;
 

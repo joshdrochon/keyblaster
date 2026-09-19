@@ -81,7 +81,26 @@ function play(
   let s = state;
   for (let i = 0; i < hits; i++) s = recordOutcome(s, "blasted", margin);
   for (let i = 0; i < misses; i++) s = recordOutcome(s, "missed", 0);
-  return s;
+  // UR-84 / C21: `recordOutcome` now ALSO adapts inside the belt, so "twenty
+  // clean blasts" moves the knob two settings before this helper returns. Every
+  // assertion in this file is about the STAGE BOUNDARY - what `decideStage` and
+  // `endStage` do with the evidence they were handed - so the knob is put back
+  // where the caller set it and the within-belt arm is measured on its own, in
+  // `tests/unit/controller/midStage.test.ts`. Restoring the knob here is not a
+  // weakened assertion: it is the difference between the two events, and
+  // `play` would otherwise be asserting both at once and attributing neither.
+  //
+  // WATCHED FAILING, with the real numbers: return `s` unchanged and this file
+  // reads `tightens above 0.90: expected { knob: 'maxLive', from: 4, to: 5 } to
+  // deeply equal { knob: 'maxLive', from: 2, to: 3 }` - the knob already two
+  // steps up the band before the boundary was ever asked.
+  return {
+    ...s,
+    knobs: state.knobs,
+    stageMidMoveAt: 0,
+    stageMidMoves: 0,
+    lastMidDecision: null,
+  };
 }
 
 const knobs = (maxLive: number, lengthBias: LengthBias): Knobs => ({
@@ -577,6 +596,10 @@ describe("UR-51 / FR-10: concurrencyTarget turns the primary knob into a board d
   });
 
   it("UR-51: the CEILING is 4, which is the depth UR-51 settles on", () => {
+    // UR-84 swept it downward and put it back - see `CONCURRENCY_TARGET_MAX`
+    // for the whole curve and for why the wrong QUANTITY (the knob's target
+    // depth rather than the board's actual one) was the defect rather than
+    // this value.
     expect(concurrencyTarget(MAX_LIVE_MAX)).toBe(4);
     expect(CONCURRENCY_TARGET_MAX).toBe(4);
   });
@@ -785,10 +808,27 @@ describe("UR-51 / margin: the throttle, and the floor that is not one", () => {
 
     /** A belt that took every hull mark early, then flew 20 clean words. */
     const stalledBelt = (blastMargin: number): ControllerState => {
-      let s = createController({ knobs: { maxLive: 6, lengthBias: 0 } });
+      const opened = createController({ knobs: { maxLive: 6, lengthBias: 0 } });
+      let s = opened;
       for (let i = 0; i < MARKS; i += 1) s = recordOutcome(s, "missed", 0);
       for (let i = 0; i < WINDOW_SIZE; i += 1) s = recordOutcome(s, "blasted", blastMargin);
-      return s;
+      // UR-84 / C21, AND THIS IS THE TEST WHERE THE WITHIN-BELT ARM SHOWS ITS
+      // VALUE MOST PLAINLY. Nine hull marks at margin 0 now loosen the belt
+      // WHILE it is being lost, so by the time this helper returns the knob is
+      // already down - `expected { maxLive: 2, lengthBias: -1 } to deeply equal
+      // { maxLive: 6, lengthBias: 0 }` is what the boundary assertion below
+      // reads without this line. That relief is strictly new and strictly in
+      // the child's favour; it is asserted where it belongs, in
+      // `tests/unit/controller/midStage.test.ts`. Here the knob is put back so
+      // that what is measured is the STAGE BOUNDARY's own decision, which is
+      // D31's claim and is unchanged.
+      return {
+        ...s,
+        knobs: opened.knobs,
+        stageMidMoveAt: 0,
+        stageMidMoves: 0,
+        lastMidDecision: null,
+      };
     };
 
     // THE CONTROL FIRST. A pilot whose rocks were comfortable: the window is
@@ -820,11 +860,22 @@ describe("UR-51 / margin: the throttle, and the floor that is not one", () => {
 
     // A second stalled belt spends the knob that owns BOTH the board depth and
     // the keystroke headroom, so the fall budget comes back too.
-    let t = endStage(struggling);
+    const secondBeltOpened = endStage(struggling);
+    let t = secondBeltOpened;
     for (let i = 0; i < MARKS; i += 1) t = recordOutcome(t, "missed", 0);
     for (let i = 0; i < WINDOW_SIZE; i += 1) t = recordOutcome(t, "blasted", 0.101);
-    expect(decideStage(t).action).toBe("loosen");
-    expect(endStage(t).knobs.maxLive).toBe(5);
+    // UR-84: the relief on this second belt now arrives DURING it. Nine hull
+    // marks at margin 0 are four times `MIDSTAGE_LOOSEN_SAMPLE`, so the knob is
+    // already walking back before the belt ends - which is exactly what D31
+    // wants and is strictly earlier than the boundary could deliver it.
+    expect(t.stageMidMoves, "mid-belt relief on a belt being lost").toBeGreaterThan(0);
+    expect(t.lastMidDecision?.action).toBe("loosen");
+    expect(t.knobs.maxLive, "knob after the mid-belt arm").toBeLessThan(
+      secondBeltOpened.knobs.maxLive,
+    );
+    // And the stage boundary still never tightens a belt that went this badly.
+    expect(decideStage(t).action).not.toBe("tighten");
+    expect(endStage(t).knobs.maxLive).toBeLessThanOrEqual(5);
   });
 
   it("UR-51: two pilots with the SAME hit rate and different margins diverge", () => {

@@ -10,6 +10,7 @@ import {
   KEYSTROKE_HEADROOM_MIN,
   RECOGNITION_BASE_MS,
   clampFallTime,
+  stopPaceFactor,
   fallTimeMs,
   headroomEarned,
   isClamped,
@@ -767,9 +768,13 @@ describe("UR-51 / FR-8: the fall budget scales with the depth the controller ask
                   // budget the lead is taken a fraction of.
                   const expected = spawnGapMs({
                     ...input,
+                    // C20: the CEILING scales with the queue depth, the FLOOR
+                    // does not. This mirrors `clampFallTime` exactly; a copy
+                    // that scaled both would be comparing against a clamp the
+                    // game no longer applies.
                     fallMs: Math.min(
                       FALL_TIME_MAX_MS * concurrencyTarget(live),
-                      Math.max(FALL_TIME_MIN_MS * concurrencyTarget(live), floorBudget),
+                      Math.max(FALL_TIME_MIN_MS, floorBudget),
                     ),
                   });
                   expect(
@@ -825,7 +830,7 @@ describe("UR-51 / FR-8: the fall budget scales with the depth the controller ask
     // The documented ramp, one step per stage, monotone, and no step larger
     // than a fifth of the travel - AC-10.1's "one knob per stage" is worth
     // nothing if the knob's effect on the budget arrives in a cliff.
-    const table = [1200, 1196.8, 1193.6, 1190.4, 1187.2, 1184];
+    const table = [1200, 1197, 1194, 1191, 1188, 1185];
     let previous = RECOGNITION_BASE_MS;
     for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
       const base = recognitionBaseMs(live, CAL.ikiMs);
@@ -890,15 +895,30 @@ describe("UR-51 / FR-8: the fall budget scales with the depth the controller ask
     expect(recognitionBaseMs(MAX_LIVE_MAX)).toBeCloseTo(RECOGNITION_EARNED_BASE_MS, 10);
   });
 
-  it("UR-51: FR-8's clamp floor is untouched, and the ratchet cannot walk under it", () => {
+  it("UR-51 / C20: FR-8's clamp floor is LITERAL, and the ratchet cannot walk under it", () => {
     // FR-8's MIN is a child-safety bound, not a tuning value (PRD FR-8). The
     // recognition ratchet shortens the RAW budget, so the thing worth asserting
     // is that no word at any knob setting for any pilot can be granted less
     // than the bound - the clamp is what guarantees it and this is the check
     // that the ratchet did not reach around it.
+    //
+    // ================== THIS CLAIM CHANGED WITH C20 ==================
+    // The bound used to be `FALL_TIME_MIN_MS * concurrencyTarget(live)`, i.e.
+    // 10 000 ms at the top of the knob, and that is the defect C20 removes: at
+    // the exact moment the board is busiest no rock could reach the breach line
+    // in under ten seconds, so every mechanism built to make a rock quick died
+    // at this line. Run against the current code the old assertion reads
+    //
+    //     "mars" @ maxLive 3 @ iki 260: expected 2850 to be greater than or
+    //     equal to 4000
+    //
+    // where 4000 is 2500 x `concurrencyTarget(3)` and 2850 is a fast pilot's
+    // actual budget for a short word on a two-to-three-deep board. The bound
+    // that remains is FR-8's own literal 2500, at every knob setting, and it is
+    // the one the PRD states.
     let checked = 0;
     for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
-      const floor = FALL_TIME_MIN_MS * concurrencyTarget(live);
+      const floor = FALL_TIME_MIN_MS;
       for (const iki of [260, 350, 440, 600]) {
         for (const stop of STOP_IDS) {
           for (const word of stagePoolFor(stop)) {
@@ -989,14 +1009,37 @@ describe("UR-51 / FR-8: the fall budget scales with the depth the controller ask
     // raw x f > MAX x f is the same inequality as raw > MAX. Received false
     // where true was expected, and the arithmetic says the received value is
     // the right one. The invariance is the property worth pinning.
+    //
+    // ================== AND C20 SPLIT THE TWO ENDS APART ==================
+    // The invariance above is still exactly true at the CEILING, because that
+    // bound still scales: raw x f > MAX x f is the same inequality as
+    // raw > MAX. It is no longer true at the FLOOR, and that asymmetry IS the
+    // change: with the floor at a literal 2500 a short word stops being pinned
+    // as the board deepens, instead of being pinned harder. Measured, for a
+    // grade-2 pilot's one-letter word at `EASE_MIN` (raw 1275 x the queue
+    // factor): 1275 / 2040 / 2805 / 3570 / 4335 / 5100 across maxLive 2..7, so
+    // it is under FR-8's floor at the first two settings and above it at the
+    // rest. Run against the SHIPPED floor - `FALL_TIME_MIN_MS * f` - the old
+    // blanket assertion read `4 short: expected false to be true`, i.e. the
+    // rock the game had just un-pinned.
     const long = "a".repeat(20);
     const grade2 = { ikiMs: 600, fkLatencyMs: 700 };
     for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
       const knobs = { maxLive: live };
       expect(isClamped({ word: long, ease: EASE_MAX, calibration: grade2, knobs }), `${live} long`).toBe(true);
-      expect(isClamped({ word: "a", ease: EASE_MIN, calibration: grade2, knobs }), `${live} short`).toBe(true);
       expect(isClamped({ word: "jupiter", ease: EASE_NEW, calibration: grade2, knobs }), `${live} mid`).toBe(false);
+      const shortRaw = rawFallTimeMs({ word: "a", ease: EASE_MIN, calibration: grade2, knobs });
+      expect(
+        isClamped({ word: "a", ease: EASE_MIN, calibration: grade2, knobs }),
+        `${live} short, raw ${shortRaw.toFixed(0)} against FR-8's ${FALL_TIME_MIN_MS}`,
+      ).toBe(shortRaw < FALL_TIME_MIN_MS);
     }
+    // Stated as the two settings it is true at and the four it is not, so the
+    // sweep above cannot pass by agreeing with itself.
+    const pinned = [2, 3, 4, 5, 6, 7].filter((live) =>
+      isClamped({ word: "a", ease: EASE_MIN, calibration: grade2, knobs: { maxLive: live } }),
+    );
+    expect(pinned, "maxLive settings at which a short rock is still floored").toEqual([2, 3]);
     // And the budget it reports on really did move, so the invariance above is
     // a property of the question rather than of nothing having changed.
     expect(
@@ -1360,8 +1403,10 @@ describe("UR-83 / FR-8: a rock's own share of the budget", () => {
               const factor = fallBudgetFactor({ maxLive: live });
               for (const spread of [0, 0.25, 0.5, 0.75, 1]) {
                 const ms = fallTimeMs({ word, ease, calibration, knobs: { maxLive: live }, spread });
+                // C20: the floor is FR-8's literal 2500 at every depth; only
+                // the ceiling carries the queue's factor.
                 expect(ms, `"${word}" at ${live}/${spread}`).toBeGreaterThanOrEqual(
-                  FALL_TIME_MIN_MS * factor,
+                  FALL_TIME_MIN_MS,
                 );
                 expect(ms).toBeLessThanOrEqual(FALL_TIME_MAX_MS * factor);
               }
@@ -1384,5 +1429,238 @@ describe("UR-83 / FR-8: a rock's own share of the budget", () => {
     expect(Number.isFinite(fallTimeMs({ word: "rock", ease: EASE_NEW, spread: Number.NaN }))).toBe(
       true,
     );
+  });
+});
+
+/**
+ * UR-84 / C20: THE CLAMP FLOOR IS FR-8'S LITERAL 2500 AT EVERY QUEUE DEPTH,
+ * and UR-84: THE STOP SETS A PACE AS WELL AS A BOARD DEPTH.
+ *
+ * UR-51 scaled BOTH clamp bounds by `fallBudgetFactor`. The ceiling belongs
+ * there - it asks whether the back of a queue can still be answered, which is a
+ * question about the queue. The floor asks whether a rock is reachable by a
+ * child at all, which is a question about the child, and a child does not read
+ * faster because three other rocks are on the board. Scaled, it made the
+ * SHORTEST fall the game could produce at `MAX_LIVE_MAX` exactly 10 000 ms, so
+ * every mechanism built to make a rock quick died at that line.
+ */
+describe("UR-84 / C20: the floor is literal, and the stop sets a pace", () => {
+  const ACE = { ikiMs: 240, fkLatencyMs: 380 };
+  const GRADE2_CAL = { ikiMs: HEADROOM_SLOW_IKI_MS, fkLatencyMs: 700 };
+
+  it("C20: the CEILING scales with the queue and the FLOOR does not", () => {
+    // Stated as the two bounds themselves, at every depth the knob produces.
+    //
+    // WATCHED FAILING, with the real number: restore
+    // `Math.max(FALL_TIME_MIN_MS * f, ms)` and this reads
+    // `maxLive 7: expected 10000 to be 2500`.
+    for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+      const f = fallBudgetFactor({ maxLive: live });
+      expect(clampFallTime(0, f), `maxLive ${live}`).toBe(FALL_TIME_MIN_MS);
+      expect(clampFallTime(1e9, f), `maxLive ${live}`).toBe(FALL_TIME_MAX_MS * f);
+    }
+    // And the depth the whole change is about: four times FR-8's floor is what
+    // the shipped clamp imposed at the busiest board the game has.
+    expect(FALL_TIME_MIN_MS * fallBudgetFactor({ maxLive: MAX_LIVE_MAX })).toBe(10_000);
+  });
+
+  it("C20: a fast pilot's quickest rock is no longer a multiple of the floor", () => {
+    // The mechanism, on real words rather than on the bound: at the top of the
+    // knob, with the spread's fastest draw, a short word now lands well under
+    // the 10 000 ms the shipped floor pinned it to.
+    const knobs = { maxLive: MAX_LIVE_MAX };
+    let quickest = Number.POSITIVE_INFINITY;
+    for (const stop of STOP_IDS) {
+      for (const word of stagePoolFor(stop)) {
+        quickest = Math.min(
+          quickest,
+          fallTimeMs({ word, ease: EASE_MIN, calibration: ACE, knobs, spread: 0, stop }),
+        );
+      }
+    }
+    expect(quickest, `quickest rock at the knob's ceiling: ${Math.round(quickest)} ms`).toBeLessThan(
+      5000,
+    );
+    expect(quickest, "and FR-8's own floor still binds it").toBeGreaterThanOrEqual(
+      FALL_TIME_MIN_MS,
+    );
+  });
+
+  it("C20: it cannot reach the supported tail, and that is arithmetic", () => {
+    // PART ONE: on a word this pilot has NOT seen (`EASE_NEW` - every first
+    // exposure, which is what UR-72 measured the tail's cold-read time
+    // against) C20 grants them exactly what UR-51's scaled clamp granted, byte
+    // for byte, at every depth, on every draw, at every stop.
+    let checked = 0;
+    for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+      for (const stop of STOP_IDS) {
+        for (const word of stagePoolFor(stop)) {
+          for (const spread of [0, 0.5, 1]) {
+            const raw = rawFallTimeMs({
+              word,
+              ease: EASE_NEW,
+              calibration: GRADE2_CAL,
+              knobs: { maxLive: live },
+              spread,
+              stop,
+            });
+            // The complete claim, and it is stronger than "the raw is above
+            // the old floor": the fall time this pilot is GRANTED is
+            // byte-identical to the one the shipped clamp granted. Stated by
+            // recomputing UR-51's scaled clamp here and comparing.
+            const f = fallBudgetFactor({ maxLive: live });
+            const shipped = Math.min(
+              FALL_TIME_MAX_MS * f,
+              Math.max(FALL_TIME_MIN_MS * f, raw),
+            );
+            expect(
+              clampFallTime(raw, f),
+              `"${word}" @ ${live}/${spread}/${stop}: raw ${Math.round(raw)}`,
+            ).toBe(shipped);
+            checked += 1;
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(3000);
+
+    // PART TWO: on a word they have MASTERED, whether C20 shortens anything at
+    // all DEPENDS ON THE POOLS, so it is measured rather than pinned.
+    //
+    // ================== WHY THIS IS NOT PINNED TO A NUMBER =================
+    // The answer flipped three times inside one afternoon and none of the
+    // flips were this module's doing: the word pools are a live file
+    // (`src/content/*.json`) being rewritten in a different lane, and whether a
+    // mastered word's budget falls under `2500 * concurrencyTarget(knob)`
+    // depends entirely on whether a short enough word is in a pool that day.
+    // Measured at three points in one session: 0 changed cells (pools with no
+    // word under three letters), then 20 (shorter words added). Both are true
+    // readings of different content.
+    //
+    // So what is asserted is the part that is a property of THIS module and
+    // cannot move with the pools: whatever the pools hold, the tail is never
+    // granted less than FR-8's own literal MIN, which is the child-safety bound
+    // the PRD states. The survivability claim that actually matters - zero
+    // stalls for this pilot at every stop - lives in
+    // `tests/unit/simulation/launchRoute.test.ts` where it belongs.
+    let moved = 0;
+    let checkedMastered = 0;
+    let worstMs = Number.POSITIVE_INFINITY;
+    for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+      const f = fallBudgetFactor({ maxLive: live });
+      for (const stop of STOP_IDS) {
+        for (const word of stagePoolFor(stop)) {
+          const raw = rawFallTimeMs({
+            word,
+            ease: EASE_MIN,
+            calibration: GRADE2_CAL,
+            knobs: { maxLive: live },
+            stop,
+          });
+          const now = clampFallTime(raw, f);
+          const shipped = Math.min(FALL_TIME_MAX_MS * f, Math.max(FALL_TIME_MIN_MS * f, raw));
+          if (now !== shipped) moved += 1;
+          checkedMastered += 1;
+          worstMs = Math.min(worstMs, now);
+          expect(now, `"${word}" @ ${live}/${stop}`).toBeGreaterThanOrEqual(FALL_TIME_MIN_MS);
+        }
+      }
+    }
+    // Reported, not pinned - see above. It is printed so the number is visible
+    // in the run rather than silently absent.
+    expect(
+      moved,
+      `mastered-word cells C20 shortens for the tail: ${moved} of ${checkedMastered}`,
+    ).toBeGreaterThanOrEqual(0);
+    // And the sweep really did look at something, rather than passing on an
+    // empty grid.
+    expect(checkedMastered, "mastered-word cells swept").toBeGreaterThan(3000);
+    // FR-8's own MIN, and it is reached exactly rather than cleared: with the
+    // current pools the tail's shortest mastered-word rock lands ON the bound,
+    // which is the bound doing its job.
+    expect(worstMs, `the tail's shortest possible rock: ${Math.round(worstMs)} ms`).toBeGreaterThanOrEqual(
+      FALL_TIME_MIN_MS,
+    );
+    // And zero stalls for this pilot over the whole route is measured in
+    // `tests/unit/simulation/launchRoute.test.ts`, which is where a claim about
+    // survivability belongs.
+  });
+
+  it("UR-84: the per-stop pace factor, as the table", () => {
+    // Linear in `stageIndexOf` over the six belt stops, and Mars is exactly 1.
+    //
+    // WATCHED FAILING, with the real number: set `STOP_PACE_DROP` to 0 and the
+    // last row reads `pluto: expected 1 to be close to 0.88`.
+    const table: ReadonlyArray<readonly [string, number]> = [
+      ["mars", 1],
+      ["jupiter", 0.976],
+      ["saturn", 0.952],
+      ["uranus", 0.928],
+      ["neptune", 0.904],
+      ["pluto", 0.88],
+    ];
+    for (const [stop, factor] of table) {
+      expect(stopPaceFactor(stop as Parameters<typeof stopPaceFactor>[0], ACE.ikiMs), stop).toBeCloseTo(
+        factor,
+        10,
+      );
+    }
+    // Mars is EXACT, not close: a child's first belt is FR-8's budget byte for
+    // byte, which is the same floor `stopBandForStage` puts Mars on.
+    expect(stopPaceFactor("mars", ACE.ikiMs)).toBe(1);
+    // No stop at all is exactly 1, so every pre-UR-84 caller is unchanged.
+    expect(stopPaceFactor(undefined, ACE.ikiMs)).toBe(1);
+    expect(stopPaceFactor(null, ACE.ikiMs)).toBe(1);
+  });
+
+  it("UR-84: the pace COMPOSES with the ability curve rather than replacing it", () => {
+    // The safety shape this file already ships three times over: the drop is
+    // scaled by `headroomEarned`, so the route's shape reaches a pilot exactly
+    // in proportion to what their measured hands have earned.
+    const row = [240, 350, 440, 520, HEADROOM_SLOW_IKI_MS, 900].map((iki) =>
+      Number(stopPaceFactor("pluto", iki).toFixed(4)),
+    );
+    expect(row).toEqual([0.88, 0.88, 0.9232, 0.9616, 1, 1]);
+    // A slow pilot at the LAST stop flies FR-8's budget, at every stop, and a
+    // corrupt calibration reads as the slowest pilot - the only direction a bad
+    // value may move a child's belt.
+    for (const stop of STOP_IDS) {
+      expect(stopPaceFactor(stop, HEADROOM_SLOW_IKI_MS), stop).toBe(1);
+      expect(stopPaceFactor(stop, Number.NaN), stop).toBe(1);
+    }
+    // And it is monotone in the route: no stop is slower than the one before.
+    let previous = Number.POSITIVE_INFINITY;
+    for (const stop of ["mars", "jupiter", "saturn", "uranus", "neptune", "pluto"] as const) {
+      const f = stopPaceFactor(stop, ACE.ikiMs);
+      expect(f, stop).toBeLessThanOrEqual(previous);
+      previous = f;
+    }
+  });
+
+  it("UR-84: the pace is inside rawFallTimeMs, so FR-8's bounds still hold", () => {
+    // Applied before the clamp, like the spread, so nothing here can produce a
+    // rock outside FR-8's window however late the stop is.
+    for (const stop of STOP_IDS) {
+      for (const word of stagePoolFor(stop)) {
+        for (const calibration of [ACE, DEFAULT_CALIBRATION, GRADE2_CAL]) {
+          for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
+            for (const spread of [0, 1]) {
+              const ms = fallTimeMs({
+                word,
+                ease: EASE_NEW,
+                calibration,
+                knobs: { maxLive: live },
+                spread,
+                stop,
+              });
+              expect(ms, `"${word}" @ ${stop}/${live}`).toBeGreaterThanOrEqual(FALL_TIME_MIN_MS);
+              expect(ms).toBeLessThanOrEqual(
+                FALL_TIME_MAX_MS * fallBudgetFactor({ maxLive: live }),
+              );
+            }
+          }
+        }
+      }
+    }
   });
 });

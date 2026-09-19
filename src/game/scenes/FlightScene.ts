@@ -1566,6 +1566,19 @@ export class FlightScene extends Phaser.Scene {
       // MULTIPLE of the budget, so a fast typist's slow rock is still quick in
       // absolute terms, and FR-8's 2500/14000 clamp is applied after it.
       spread: draws.spread,
+      // UR-84: the stop sets a PACE as well as a board depth. Without it Pluto
+      // and Mars grant the same pilot the same milliseconds for the same word,
+      // and the route's only progression is how many rocks are on screen -
+      // which is the report. Scaled by the measured interval inside
+      // `stopPaceFactor`, so a slow pilot flies every stop at FR-8's budget.
+      stop: this.cfg.stopId,
+      // C22: the board's ACTUAL depth, not the knob's target. The multiplier
+      // pays for the queue AHEAD of this rock, and a rock spawning onto an
+      // empty board has no queue to survive - it was being granted the full
+      // queueing allowance anyway, which is what made a Pluto rock fall for 42
+      // seconds. Capped by the knob's own factor, so a rock that really is at
+      // the back of a full board gets exactly what it got before.
+      liveCount: this.rocks.length,
     });
     const clearEstimateMs = expectedClearMs({
       length: letters,

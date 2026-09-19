@@ -30,7 +30,21 @@ export {
   retentionIsDue,
   retentionQuota,
 } from "./picker.js";
+export {
+  BANK_BELT_FRACTION,
+  BELT_ANCHOR_COUNT,
+  BELT_CARRY_FRACTION,
+  BELT_MAX_WORDS,
+  BELT_MIN_WORDS,
+  bankSeed,
+  beltHistogram,
+  beltSizeFor,
+  sampleBelt,
+} from "./bank.js";
+export type { BeltSample } from "./bank.js";
+
 export type {
+  BeltInput,
   NoPick,
   PickContext,
   PickOutcome,
