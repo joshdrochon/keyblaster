@@ -136,6 +136,14 @@ export class EndingScene extends Phaser.Scene {
     // copy, so "is there a closing line" is answered once and every rect on the
     // screen agrees about it.
     this.layout = endingLayout({
+      // THE REAL STAGE, NOT THE NOMINAL ONE. `ENDING_STAGE` is 1920x1080 and
+      // the canvas resizes with the window, so leaving this out centred every
+      // element of this screen on 960 while the stage's own centre was
+      // elsewhere - measured at a 2071-wide stage, the whole page sat 75 px
+      // left. Each piece was correctly centred; they were centred on a stage
+      // that was not the one being drawn to.
+      width: this.scale.width,
+      height: this.scale.height,
       stopCount: STOP_IDS.length,
       closingLine: this.lane.copy.text("ending.shadowLine"),
       headlineSize: ENDING_TYPE.heading,

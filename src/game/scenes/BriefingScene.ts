@@ -24,6 +24,7 @@ import {
   charsRevealedAt,
   msPerChar,
   revealPerBlock,
+  REVEAL_SKIP_GRACE_MS,
 } from "./support/briefingTypewriter";
 import { audioFrom } from "@game/audio/wiring";
 import { drawControlSurface } from "@game/ui/controlSurface";
@@ -119,6 +120,8 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
   /** The blocks the reveal walks through, in the order it walks them (UR-59). */
   private typed: TypedBlock[] = [];
   private revealFrom = 0;
+  /** Input before this instant is the keystroke that arrived here, not a skip. */
+  private revealSkippableFrom = 0;
   private revealChars = 0;
   private revealed = 0;
   private revealing = false;
@@ -557,6 +560,21 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
      * child who has seen Neptune four times presses the key they always press
      * and the reveal costs them nothing.
      */
+    // THE KEY THAT OPENED THIS SCREEN MUST NOT ALSO CLOSE IT.
+    //
+    // A child opens a briefing by pressing Enter on the map. `create` runs
+    // inside that same input turn, so the listener below was registered in
+    // time to receive the very keystroke that navigated here - measured, one
+    // Enter took `revealed` from 0 to 312 and `revealing` to false before a
+    // single frame had drawn. The reveal was armed correctly every time and
+    // completed instantly every time, which is why it appeared to work once
+    // (the first stop is reached from the Earth ceremony, with no key down)
+    // and never again.
+    //
+    // A short grace window is the whole fix: input during it is ignored, so
+    // the opening keystroke cannot land, and a child who genuinely wants to
+    // skip presses a key a fraction of a second later and still skips.
+    this.revealSkippableFrom = this.revealFrom + REVEAL_SKIP_GRACE_MS;
     this.input.keyboard?.on("keydown", this.finishReveal, this);
     this.input.on(Phaser.Input.Events.POINTER_DOWN, this.finishReveal, this);
     this.completeReveal = () => {
@@ -579,6 +597,9 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
   /** Put the whole page on screen, exactly as it would have been drawn. */
   private finishReveal = (): void => {
     if (!this.revealing) return;
+    // See `revealSkippableFrom`: the keystroke that opened this screen arrives
+    // before the grace window ends and is not a request to skip.
+    if (this.game.loop.time < this.revealSkippableFrom) return;
     this.revealing = false;
     this.revealed = this.revealChars;
     for (const block of this.typed) {
