@@ -322,8 +322,21 @@ describe("UR-39: the screen has a header, one column and a way out", () => {
   });
 
   it("NEGATIVE CONTROL: where Shadow stood before is outside the plate", () => {
-    const wasThere = lineShadowBox({ x: 200, y: 850, scale: 0.86 });
-    expect(wasThere.y + wasThere.h).toBeGreaterThan(LINE_PLATE.y + LINE_PLATE.h);
+    // REPOINTED (UR-103). This used to cite {200, 850, 0.86} as the position
+    // that fell THROUGH the bottom of the plate - true while the plate was a
+    // literal 716. UR-103 moved the plate down to give the rack its air, and
+    // that old position is now comfortably INSIDE it, so the control proved
+    // nothing at all.
+    //
+    // It cites the position Shadow held immediately before this ticket instead:
+    // a literal 816 against a plate that had moved to 780, which put his HEAD
+    // above his own plate. That is the failure this ticket actually caused and
+    // fixed, and it is outside the plate today.
+    //
+    // WATCHED FAILING with `y: LINE_PLATE.y + 100` in place of the literal:
+    //   expected 780 to be less than 780
+    const wasThere = lineShadowBox({ x: 206, y: 816, scale: 0.72 });
+    expect(wasThere.y).toBeLessThan(LINE_PLATE.y);
   });
 
   it("keeps the shelf, the dialogue, the rack and the rows off each other", () => {

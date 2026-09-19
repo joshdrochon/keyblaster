@@ -1,5 +1,5 @@
 import { GUTTER, HINT_CONTRACT, backCorner, headerText } from "@game/ui/grid";
-import { SPACE, TYPE } from "@game/ui/theme";
+import { SPACE, STEP, TYPE } from "@game/ui/theme";
 import type { Rect } from "@game/ui/layout";
 import { CONSOLE_STRIP, consoleStripBelow } from "@game/ui/controlSurfaceLayout";
 import { VIEWPORT_WINDOW } from "@game/ui/viewportWindowLayout";
@@ -85,6 +85,21 @@ export const ROW = {
   h: 116,
   gap: 26,
 } as const;
+
+/** Air inside the rack, above the first row and below the last. */
+export const RACK_PAD_Y = 40;
+
+/**
+ * Air between the rack and Shadow's dialogue plate (UR-103).
+ *
+ * Reported as too tight, and it was: 16 px between the last check row and the
+ * plate - less than the gap between two rows inside the rack. `STEP.pad` is
+ * the inset the rest of the product puts between blocks.
+ */
+export const RACK_TO_LINE_GAP = STEP.pad;
+
+/** Where the rack ends. Both the rack and the plate under it derive from this. */
+export const RACK_BOTTOM = ROW.y + 3 * ROW.h + 2 * ROW.gap + RACK_PAD_Y;
 
 /** The cockpit window: the only hole in the hull. */
 /** The cockpit window. Its right edge is the right gutter (`ui/grid.ts`). */
@@ -210,7 +225,19 @@ export const SUBHEADING = headerText(1, undefined, 8);
  * so the invariant the test holds is that every PLATE starts on the gutter and
  * text is inset from its plate - two numbers instead of four.
  */
-export const LINE_PLATE = { x: GUTTER, y: 716, w: COLUMN_W, h: 200 } as const;
+/**
+ * Shadow's dialogue plate. Its `y` DERIVES from the rack above it (UR-103).
+ *
+ * It was a literal 716, which is what forced the rack's padding to go
+ * asymmetric to avoid colliding with it. Deriving it means the gap is stated
+ * once and the rack keeps its own shape.
+ */
+export const LINE_PLATE = {
+  x: GUTTER,
+  y: RACK_BOTTOM + RACK_TO_LINE_GAP,
+  w: COLUMN_W,
+  h: 200,
+} as const;
 
 /**
  * SHADOW STANDS INSIDE THE PLATE, which is the warp break's coach card exactly
@@ -220,7 +247,15 @@ export const LINE_PLATE = { x: GUTTER, y: 716, w: COLUMN_W, h: 200 } as const;
  * capture, not by a test, which is why `preflightLayout.test.ts` now asserts
  * containment rather than only non-overlap.
  */
-export const LINE_SHADOW = { x: 206, y: 816, scale: 0.72 } as const;
+export const LINE_SHADOW = {
+  x: 206,
+  // DERIVED FROM THE PLATE HE STANDS IN (UR-103). It was a literal 816 against
+  // a plate literal at 716; when the plate moved down to give the rack its air,
+  // he stayed behind and ended up standing above his own plate. One offset, so
+  // the pair cannot separate again.
+  y: LINE_PLATE.y + 100,
+  scale: 0.72,
+} as const;
 
 /** Text inset: past Shadow on the left, a normal pad everywhere else. */
 export const LINE_PAD = { x: 230, y: 56 } as const;
@@ -453,14 +488,16 @@ export const BULKHEAD = {
   y: ROW.y - 40,
   w: COLUMN_W,
   /**
-   * ASYMMETRIC PADDING - 40 above, 12 below - because there are only 16 px
-   * between the last row and the dialogue plate. A symmetric 44 ran the rack
-   * straight through the plate, which the capture showed and the first version
-   * of this module's test did not ask about; it checked the ROWS against the
-   * plate and not the thing the rows are mounted on.
+   * SYMMETRIC NOW (UR-103). It was 40 above and 12 below, squeezed that way
+   * because the dialogue plate's `y` was a literal 716 and the rack had to
+   * dodge it - the rack was being shaped by something underneath it, which is
+   * the wrong way round. The plate derives from the rack below, so the padding
+   * can be what it should have been.
    */
-  h: 3 * ROW.h + 2 * ROW.gap + 52,
+  h: 3 * ROW.h + 2 * ROW.gap + RACK_PAD_Y * 2,
 } as const;
+
+
 
 // ---------------------------------------------------------------------------
 // UR-101.2: the check bar, which had two positions

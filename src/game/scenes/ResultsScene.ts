@@ -245,6 +245,14 @@ interface Piece extends Block {
 
 const EMPTY_PIECE = (id: string): Piece => ({ id, height: 0, parts: [] });
 
+/**
+ * Whether the results screen asks about nearby pilots (UR-102).
+ *
+ * False: there is nothing behind the feature yet, so the question has no
+ * honest answer. See the note at its only use.
+ */
+const BOARD_PROMPT_ENABLED = false;
+
 export class ResultsScene extends Phaser.Scene {
   private lane!: LaneInit;
   private initData: ResultsInit | undefined;
@@ -914,7 +922,22 @@ export class ResultsScene extends Phaser.Scene {
 
     if (!showPanel) this.mark("board-declined");
 
-    if (!this.optedIn && !this.promptAnswered) {
+    // THE NEARBY-PILOTS PROMPT IS HIDDEN (UR-102).
+    //
+    // It asked a child to opt into seeing pilots flying near their speed, and
+    // there is NO DATA SOURCE behind it - no leaderboard, no peers, nothing to
+    // show if they said yes. It has been on the escalation list as "no data
+    // source, lean: hide it" since it was first raised; the owner has now
+    // called it.
+    //
+    // HIDDEN, NOT DELETED. The consent flow, the persisted choice and the board
+    // rendering all still work and are still tested - the one thing that
+    // changed is that the question is not asked. Turning it back on is this
+    // constant, not a rebuild, for the day there is something to put behind it.
+    //
+    // A child who ALREADY opted in keeps their board: the `else if` below is
+    // untouched, so this removes a question rather than revoking a choice.
+    if (BOARD_PROMPT_ENABLED && !this.optedIn && !this.promptAnswered) {
       this.promptShown = true;
       asking = true;
       this.mark("board-prompt");

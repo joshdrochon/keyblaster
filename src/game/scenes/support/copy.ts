@@ -69,7 +69,18 @@ const LANE_EN = {
     "want to see the pilots flying near your speed? you can turn this off any time.",
   "results.boardPromptYes": "show nearby pilots",
   "results.boardPromptNo": "not now",
-  "results.hint": "tab to move, enter to choose",
+  // ONE VERB FOR MOVING, ACROSS THE WHOLE APP (UR-101). This said "tab to
+  // move" while every other screen says arrows - two names for one action on
+  // screens a child moves between. Both keys work here and everywhere (the kit
+  // routes Arrow, Tab and Shift+Tab to the same move), so the copy names the
+  // one the rest of the product names.
+  //
+  // NO "esc to go back" CLAUSE, and that is not an omission. `ResultsScene`
+  // passes `onBack: () => {}` on purpose: the run is scored and banked, and
+  // back would mean back into a belt that is already over. The shared
+  // `ui.common.hintKeys` promises escape, so this screen cannot use it - a hint
+  // that names a key which does nothing is worse than no hint.
+  "results.hint": "Arrows to move · enter to choose",
 
   // Ending card (screen 12)
   "ending.heading": "the map is drawn",
