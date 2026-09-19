@@ -11,7 +11,7 @@ import {
   plateHeight,
   stackRows,
 } from "@game/ui/plateLayout";
-import { TYPE } from "@game/ui/theme";
+import { STEP, TYPE } from "@game/ui/theme";
 
 /**
  * THE WARP BREAK'S GEOMETRY (screen 8), as numbers rather than as literals
@@ -331,8 +331,60 @@ export const INSTRUMENT: Rect = {
 export const INSTRUMENT_INSET = PLATE_RHYTHM.instrument.padX;
 export const METER: Rect = stackRows(INSTRUMENT, INSTRUMENT_ROWS, "instrument")[1] as Rect;
 
-/** Ink-to-ink air between the charge label and its bolt (UR-78). */
-export const BOLT_GAP_PX = 5;
+/**
+ * THE LOCKUP'S LEAD: how far the words start right of the instrument's own
+ * inner line, which is the room the bolt stands in.
+ *
+ * ONE VERTICAL UNIT, AND THAT IS NOT A ROUNDING. `ui/alignment.legalLefts`
+ * names an element's legal left edges as an inner line plus a WHOLE number of
+ * `STEP.unit`s, and `left-edge-conformance.spec.ts` counts the warp break's
+ * off-model elements against a budget of exactly 2 - a budget that may not
+ * grow. A lead of `MARK.bolt.w + 5` = 18 would put "Warp Drive" at 154, which
+ * is on no named line, so the words would pay for the bolt's move by becoming
+ * the screen's third off-model element.
+ *
+ * At 20 the words land at 156, an indent of one unit from the instrument's
+ * inner line, and BOTH ends of the lockup are on lines the model names.
+ */
+export const BOLT_LEAD_PX = STEP.unit;
+
+/**
+ * Ink-to-ink air between the charge bolt and the label (UR-78).
+ *
+ * DERIVED, NOT CHOSEN. It was 5 when the mark hung off the left of the words
+ * into the plate's padding and nothing downstream depended on where it landed.
+ * Now the mark's left edge IS the alignment line, so the gap is whatever is
+ * left of the lead once the mark has taken its own 13 px: 7. Two pixels more
+ * air than before, in exchange for a lockup that starts on the grid.
+ */
+export const BOLT_GAP_PX = BOLT_LEAD_PX - MARK.bolt.w;
+
+/**
+ * Where the charge label's TEXT starts - one bolt and one gap right of the
+ * instrument's inner line.
+ *
+ * ================== THE DEFECT THIS FIXES ==================
+ * The bolt hung to the LEFT of the label at x 118 while the "w" sat on the
+ * alignment line at 136. So the first ink on the instrument's line was 18 px
+ * adrift of every other left edge on the screen, and the thing that WAS on the
+ * grid was the second object in the lockup. The owner read it as the bolt
+ * sticking out into the gutter, which is exactly what it was doing.
+ *
+ * ================== THE FIX ==================
+ * The mark takes the line and the words step right by `BOLT_LEAD_PX`. Nothing
+ * else about the instrument moves: `instrumentLabelRow()` still defines the
+ * row, the percentage is still right-anchored to `row.x + row.w`, and the track
+ * below still spans the same two edges. What changed is WHICH object in the
+ * label's lockup sits on the row's left edge.
+ *
+ * `boltBesideLabel` is UNCHANGED and still reads the drawn text's measured
+ * bounds. Handed a label at `chargeLabelX()` it returns a box whose left edge
+ * is `instrumentLabelRow().x` exactly, so the two halves of the lockup cannot
+ * drift apart at a different type size or in a different language.
+ */
+export function chargeLabelX(): number {
+  return instrumentLabelRow().x + BOLT_LEAD_PX;
+}
 
 /**
  * The charge bolt's box, set beside the words rather than inside the track
@@ -346,16 +398,15 @@ export const BOLT_GAP_PX = 5;
  * - it sat between "warp drive" and 1500 px of empty track, with the percentage
  * far away on the right. Before the words it opens the line.
  *
- * THE GAP AND THE CENTRING ARE UNTOUCHED. `BOLT_GAP_PX` is the same 5 px of
- * ink-to-ink air and the box is still centred on the label's own middle; the
- * only thing that changed is the sign.
+ * THE CENTRING IS UNTOUCHED - the box is still centred on the label's own
+ * middle - and so is the arithmetic below. What moved is the LABEL: it is now
+ * drawn at `chargeLabelX()`, one `BOLT_LEAD_PX` right of the instrument's inner
+ * line, so this same subtraction lands the mark ON that line instead of 18 px
+ * left of it. See the note on `chargeLabelX`.
  *
- * AND NOTHING ELSE MOVED. The label's left edge is `INSTRUMENT.x` plus the
- * instrument rhythm's `padX`, which is `STEP.pad` - a grid line this screen
- * shares with the rest of the game, and `left-edge-conformance.spec.ts` is what
- * holds it. The bolt reaches 22 px left of the label to x 118, which is still
- * 22 px inside the instrument's own border, so the mark fits in the padding
- * that was already there and the words stay where they are.
+ * The bolt used to reach to x 118, in the plate's padding but on no line the
+ * alignment model names for this instrument. It is at 136 now, which is the x
+ * the "w" used to occupy - the left edge of the lockup is the mark.
  *
  * UR-70 put the mark in the track's left cap on the reasoning that a bolt is a
  * label for the bar's zero. That reasoning cost more than it bought: inside the

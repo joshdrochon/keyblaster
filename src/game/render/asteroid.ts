@@ -902,6 +902,90 @@ export function drawShieldCanister(
 }
 
 /**
+ * THE SHELL OF A TWO-LAYER ROCK (D101, AC-26.2).
+ *
+ * ================== WHAT HAS TO READ, AND TO WHOM ==================
+ * A seven-year-old has to be able to tell, at a glance and before they start
+ * typing, that this rock is not going to die in one word. Size does most of it
+ * - `@engine/nested.NESTED_SHELL_MIN_PX` puts every shell 20% above the largest
+ * ordinary rock, so the biggest thing on the board is always a shelled one -
+ * but size alone is a comparison, and a comparison needs a second object on
+ * screen to make. This is the part that is true of the rock on its own: it
+ * looks like something with a SKIN.
+ *
+ * ================== WHY IT IS A WALL AND NOT A WINDOW ==================
+ * The obvious drawing is a smaller rock showing through the middle. It is ruled
+ * out by AC-22.4, the same rule that moved the shield canister's band: the
+ * silhouette probe averages the inner `MEASURED_CORE` (0.45r) of a rock and
+ * compares it against the sky, and anything painted in there drags the reading
+ * toward whatever value it is. The canister's centred bar cost Uranus its
+ * separation - 0.0403 against a bar of 0.06 - and a core drawn in a different
+ * material would do exactly the same thing for exactly the same reason.
+ *
+ * So the shell is drawn at its EDGE. A second outline set inside the rim, at
+ * `SHELL_WALL_OUTER`..`SHELL_WALL_INNER`, plus short radial seams crossing it -
+ * a wall with joins in it. Every mark sits outside 0.52r, the floor the
+ * canister's straps already use, so a shell separates from the sky exactly as
+ * well as the plain rock underneath it.
+ *
+ * ================== AND WHY NOT THE ACCENT ==================
+ * The accent is the canister's, and a canister is a rock a child should fly
+ * TOWARD. A shelled rock is a rock they have to work through. Two different
+ * meanings must not share the one colour the palette reserves for "this one is
+ * special", so the seams are drawn in the material's own rim ink.
+ *
+ * Vector, in code, no raster (D83).
+ */
+/** Outer edge of the shell wall, as a fraction of the outline. */
+export const SHELL_WALL_OUTER = 0.9;
+/** Inner edge. Above `MEASURED_CORE` (0.45) by the same margin the straps use. */
+export const SHELL_WALL_INNER = 0.62;
+/** How many joins the wall is broken into. */
+export const SHELL_SEAM_COUNT = 5;
+
+export function drawNestedShell(
+  g: Phaser.GameObjects.Graphics,
+  options: DebrisDrawOptions,
+): void {
+  drawDebris(g, options);
+  const { sizePx } = options;
+  const radius = sizePx / 2;
+  const shape = variantFor(options.type, options.variantIndex);
+  const points = shapePoints(shape, sizePx);
+  const rim = hexToInt(options.type.rim);
+
+  // The wall: the silhouette's own outline, scaled in. Traced from `points`
+  // rather than stroked as a circle so it follows the rock this shell actually
+  // is - a circle inside a lumpy outline reads as a drawn-on ring.
+  g.lineStyle(Math.max(1.5, sizePx * 0.022), rim, 0.7);
+  g.beginPath();
+  points.forEach((p, i) => {
+    const x = (p.x as number) * SHELL_WALL_OUTER;
+    const y = (p.y as number) * SHELL_WALL_OUTER;
+    if (i === 0) g.moveTo(x, y);
+    else g.lineTo(x, y);
+  });
+  g.closePath();
+  g.strokePath();
+
+  // The joins. Radial, evenly spaced, each crossing the wall from just outside
+  // it to just inside it, so the wall reads as assembled rather than as a
+  // second outline somebody drew for decoration.
+  g.lineStyle(Math.max(1.5, sizePx * 0.02), rim, 0.55);
+  for (let i = 0; i < SHELL_SEAM_COUNT; i += 1) {
+    const theta = -Math.PI / 2 + (i / SHELL_SEAM_COUNT) * Math.PI * 2;
+    const reach = radiusAt(shape.radii, (theta + Math.PI / 2) / (Math.PI * 2)) * radius;
+    g.beginPath();
+    g.moveTo(Math.cos(theta) * reach * 0.98, Math.sin(theta) * reach * 0.98);
+    g.lineTo(
+      Math.cos(theta) * reach * SHELL_WALL_INNER,
+      Math.sin(theta) * reach * SHELL_WALL_INNER,
+    );
+    g.strokePath();
+  }
+}
+
+/**
  * Texture for `blastShards` (render/particles.ts): one small chunk in the
  * rock's own colour, generated from vectors at boot (D83). Returns the texture
  * key so the emitter can be built without the caller knowing the shape.

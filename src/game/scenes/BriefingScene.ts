@@ -25,6 +25,7 @@ import {
   msPerChar,
   revealPerBlock,
 } from "./support/briefingTypewriter";
+import { audioFrom } from "@game/audio/wiring";
 import { drawControlSurface } from "@game/ui/controlSurface";
 import { drawCockpitWindow } from "@game/ui/viewportWindow";
 import { STOP_IDS } from "@engine/types";
@@ -413,8 +414,24 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
       // `text.fill`, not the raw sentence: Earth's opening line carries C07's
       // `{shipName}` token and `stageBundle` hands the prose over unbound, so
       // the first briefing in the game printed "{shipName}" at a child.
+      // ONE RUNG DOWN THE SCALE (UR-91): `TYPE.prose` 36 -> `TYPE.body` 30.
+      // Asked for as "a slight smaller size", and it is a STEP ON THE DECLARED
+      // SCALE rather than a number - 33 would have read the same on a capture
+      // and would have been the 165th distinct value the UR-69 census counted.
+      //
+      // It also buys the page back its margin. `briefingLayout` derives the
+      // plate's height from these rows, and UR-20 was this flow running through
+      // the footer at five stops out of six. Six px off every wrapped line of
+      // the longest run on the screen is the one change that makes that
+      // collision less likely rather than more.
+      //
+      // `TYPE.prose` KEEPS ITS RUNG and is now unused. Deleting it is the open
+      // question theme.ts already names - it is the one entry there that could
+      // plausibly go - and it is in gauntlet/escalations.md as a decision
+      // rather than as done. This lane was asked to step the briefing down, not
+      // to take a size out of the product.
       ...this.bundle.briefing.map((sentence, i) =>
-        build(`sentence-${i}`, text.fill(sentence), TYPE.prose, INK.text, STEP.tight),
+        build(`sentence-${i}`, text.fill(sentence), TYPE.body, INK.text, STEP.tight),
       ),
       // THE FOOTER IS THE LAST BLOCK IN THE FLOW, not a pinned y. That single
       // change is what makes UR-20 impossible rather than fixed.
@@ -514,9 +531,22 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
       block.obj.setWordWrapWidth(null);
       block.obj.setText("");
     }
-    this.revealFrom = this.time.now;
+    // `this.time.now` is written by the scene clock's preUpdate, which has NOT
+    // run when `create` calls this. It holds whatever the clock last saw - the
+    // PREVIOUS scene's final frame - so `elapsed` in `update` came out huge on
+    // the very first frame and `charsRevealedAt` returned the whole page. The
+    // reveal was real, correct, and over before it was ever drawn. Same defect
+    // as `FlightScene.stageStartMs`. `game.loop.time` is the same timeline the
+    // `time` argument comes from, and it is current here.
+    this.revealFrom = this.game.loop.time;
     this.revealed = 0;
     this.revealing = true;
+    // SHADOW STARTS TRANSMITTING (UR-91). Opened here rather than in `create`
+    // so the sound and the first character begin on the same frame, and so the
+    // two things that turn the reveal off - reduced motion, and a page with no
+    // characters - turn the sound off with it by construction. A tick track
+    // under a page that is simply present would be the worst of both.
+    audioFrom(this.registry)?.beginTransmission("briefing:reveal");
     /**
      * ANY KEY FINISHES IT, AND THE KEY STILL DOES ITS OWN JOB.
      *
@@ -557,6 +587,10 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     }
     this.completeReveal?.();
     this.completeReveal = null;
+    // The transmission is over, whether it ran out or the player cut it short,
+    // so the AC-21.4 duck closes and the music comes back up. An impatient
+    // player gets the page AND the mix back on the same keystroke.
+    audioFrom(this.registry)?.endTransmission();
   };
 
   /**
@@ -600,11 +634,18 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     // DRIVEN BY THE SCENE CLOCK, not by a timer per character. A 370-character
     // page would be 370 `time.addEvent` callbacks to leak on a restart, and the
     // restart path on this screen has leaked objects before (see `maskSources`).
-    const shown = charsRevealedAt(time - this.revealFrom, this.revealChars);
+    const elapsed = time - this.revealFrom;
+    const shown = charsRevealedAt(elapsed, this.revealChars);
     if (shown !== this.revealed) {
       this.revealed = shown;
       this.paintReveal();
     }
+    // UR-91. The SAME clock the characters are read from, so the sound cannot
+    // drift from the text it belongs to. The rate limit lives in
+    // `audio/transmission.ts`, not here: one tick per character at 160 cps is
+    // a 160 Hz buzz rather than a rhythm, and where that decision is made is
+    // the difference between a sound and an argument in a scene file.
+    audioFrom(this.registry)?.transmissionTick(elapsed);
     if (shown >= this.revealChars) this.finishReveal();
   }
 
@@ -675,6 +716,9 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     this.completeReveal?.();
     this.completeReveal = null;
     this.revealing = false;
+    // ...and so does the duck. A scene torn down mid-reveal used to be the only
+    // way to leave AC-21.4 held open forever; seven stops is seven restarts.
+    audioFrom(this.registry)?.endTransmission();
     this.typed = [];
     this.menu.destroy();
     this.shadow.destroy();

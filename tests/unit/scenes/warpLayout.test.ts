@@ -21,6 +21,7 @@ import {
   badgeRow,
   BOLT_GAP_PX,
   boltBesideLabel,
+  chargeLabelX,
   coachRows,
   destinationRow,
   sentenceRow,
@@ -51,7 +52,8 @@ import {
   plateFooter,
   plateHeight,
 } from "@game/ui/plateLayout";
-import { TYPE } from "@game/ui/theme";
+import { STEP, TYPE } from "@game/ui/theme";
+import { EDGE_TOLERANCE, legalLefts, offGrid } from "@game/ui/alignment";
 
 /**
  * THE LANTERN IS NOT BEHIND THE WARP CARD.
@@ -424,55 +426,110 @@ describe("UR-70: the column is condensed, and the gap is not a function of the s
    * "warp drive" is a translated string at a themed size and the only honest
    * source for its edges is the object that drew it.
    *
-   * WATCHED FAILING, with `label.x + label.w + BOLT_GAP_PX` restored - the real
-   * printed values of the red run this change produced:
-   *   sets the charge bolt five pixels BEFORE the label, centred on its line
-   *     expected 305 to be 182
-   *   leaves the label's own left edge exactly where it was
-   *     expected 255 to be 118
-   *   the bolt opens the instrument's line instead of splitting it
-   *     expected 268 to be less than or equal to 136
+   * ================== AND THIS PASS PUT THE BOLT ON THE LINE ==================
+   * The mark still opens the line, but it no longer HANGS OFF it. The owner's
+   * report is that the bolt sticks out into the gutter while the "w" sits on
+   * the alignment line, so the lockup's left edge is the wrong object: what a
+   * reader sees first is a glyph 18 px adrift of every other left edge on the
+   * screen.
+   *
+   * The fix is one move: THE BOLT TAKES THE LINE THE LABEL HAD, and the words
+   * step right by one vertical unit to make room for it. The left edge of the
+   * lockup is now the mark, which is what the composition says it is.
+   *
+   * ================== WHY THE LEAD IS 20 AND THE GAP IS 7 ==================
+   * NOT because 7 reads better than 5 - it is the remainder of a number that is
+   * fixed elsewhere. The words land at `instrumentLabelRow().x + LEAD`, and
+   * `ui/alignment.legalLefts` only names an inner line plus a WHOLE vertical
+   * unit (`STEP.unit`, 20). A lead of `MARK.bolt.w + 5` = 18 puts the label at
+   * 154, which is on no named line, so `left-edge-conformance.spec.ts` would
+   * count a third off-model element on the warp break against a budget of 2.
+   *
+   * So the LEAD is the vertical unit and the gap is what is left of it once the
+   * mark has taken its 13 px: `BOLT_GAP_PX = STEP.unit - MARK.bolt.w` = 7. Two
+   * pixels of extra air, and in exchange both ends of the lockup are on a line
+   * the rest of the game already uses.
+   *
+   * WATCHED FAILING, against the old geometry - the real printed values:
+   *   the bolt takes the line the label used to sit on
+   *     the bolt's left edge is at 118, not on the instrument's inner line 136:
+   *     expected 118 to be 136
+   *   the words start to the right of the bolt, one vertical unit in
+   *     expected 136 to be 156
+   *   the lead is one whole vertical unit, so the words stay on a named line
+   *     expected 0 to be 20
+   *   the words are still on a line the alignment model names
+   *     "Warp Drive" starts at 136 and the bolt at 118 is off every named line:
+   *     expected false to be true
+   *   the gap is the vertical unit less the mark's own width
+   *     expected 5 to be 7
    */
-  it("sets the charge bolt five pixels BEFORE the label, centred on its line", () => {
-    const label = { x: 200, y: 100, w: 100, h: 24 };
-    const bolt = boltBesideLabel(label);
-    expect(BOLT_GAP_PX).toBe(5);
-    // 200 - 5 - 13. The GAP is ink to ink on the side the mark is now on, so it
-    // is the label's left edge less the gap less the mark's own width.
-    expect(bolt.x).toBe(182);
-    expect(bolt.x + bolt.w + BOLT_GAP_PX).toBe(label.x);
-    expect(bolt.w).toBe(MARK.bolt.w);
-    expect(bolt.h).toBe(MARK.bolt.h);
-    // Centred on the label's own middle, not hung off its baseline - a glyph
-    // does not sit on the baseline a mark would share. UNCHANGED by this pass;
-    // only the side moved.
-    expect(bolt.y + bolt.h / 2).toBe(label.y + label.h / 2);
-  });
-
-  it("leaves the label's own left edge exactly where it was", () => {
-    // THE POINT OF THE CASE. The owner's note was explicit that the label's
-    // left edge is on a grid line shared with other screens
-    // (`left-edge-conformance.spec.ts`), so the bolt had to fit in the padding
-    // that is already there rather than push the words right.
-    //
-    // `instrumentLabelRow().x` is `INSTRUMENT.x + PLATE_RHYTHM.instrument.padX`
-    // and the mark reaches BOLT_GAP + MARK.bolt.w = 18 px left of it, to 118 -
-    // which is still 22 px inside the instrument's own border.
+  it("the bolt takes the line the label used to sit on", () => {
+    // THE POINT OF THE CASE, and the owner's report in one number: the mark's
+    // LEFT EDGE is the alignment line - the x the "w" used to occupy - so the
+    // lockup starts on the grid instead of hanging 18 px off it.
     const row = instrumentLabelRow();
     expect(row.x).toBe(INSTRUMENT.x + PLATE_RHYTHM.instrument.padX);
-    const bolt = boltBesideLabel({ x: row.x, y: row.y, w: 114, h: 28 });
-    expect(bolt.x).toBe(118);
-    expect(bolt.x).toBeGreaterThan(INSTRUMENT.x);
-    // Not flush to the plate's edge, the same 16 px the rows are held to.
+    const bolt = boltBesideLabel({ x: chargeLabelX(), y: row.y, w: 114, h: 28 });
+    expect(
+      bolt.x,
+      `the bolt's left edge is at ${bolt.x}, not on the instrument's inner line ${row.x}`,
+    ).toBe(row.x);
+    expect(bolt.w).toBe(MARK.bolt.w);
+    expect(bolt.h).toBe(MARK.bolt.h);
+    // Still inside the plate's own padding, and no longer reaching past it.
     expect(bolt.x - INSTRUMENT.x).toBeGreaterThanOrEqual(16);
   });
 
-  it("the bolt opens the instrument's line instead of splitting it", () => {
-    // The readable statement of which side it is on, in one number, so a future
-    // edit that flips the sign back cannot pass by adjusting a literal.
+  it("the words start to the right of the bolt, one vertical unit in", () => {
     const row = instrumentLabelRow();
-    const bolt = boltBesideLabel({ x: row.x, y: row.y, w: 114, h: 28 });
-    expect(bolt.x + bolt.w).toBeLessThanOrEqual(row.x);
+    const bolt = boltBesideLabel({ x: chargeLabelX(), y: row.y, w: 114, h: 28 });
+    expect(chargeLabelX()).toBe(row.x + STEP.unit);
+    // Strictly right of the mark, ink clear of ink.
+    expect(chargeLabelX()).toBeGreaterThan(bolt.x + bolt.w);
+    expect(bolt.x + bolt.w + BOLT_GAP_PX).toBe(chargeLabelX());
+  });
+
+  it("the lead is one whole vertical unit, so the words stay on a named line", () => {
+    expect(chargeLabelX() - instrumentLabelRow().x).toBe(STEP.unit);
+  });
+
+  it("the words are still on a line the alignment model names", () => {
+    // THE GUARD ON THE GUARD. `left-edge-conformance.spec.ts` counts off-model
+    // left edges on the warp break against a budget of exactly 2, and it only
+    // measures Text - the bolt is a Graphics and is invisible to it. So moving
+    // the WORDS is the half of this change that spec can see, and a lead that
+    // is not a whole vertical unit fails it in Playwright twenty minutes later.
+    // Asserted here, in the unit suite, off the same model that spec imports.
+    const legal = legalLefts([INSTRUMENT.x, PANEL.x]);
+    const bolt = boltBesideLabel({
+      x: chargeLabelX(),
+      y: instrumentLabelRow().y,
+      w: 114,
+      h: 28,
+    });
+    expect(
+      offGrid(chargeLabelX(), legal) <= EDGE_TOLERANCE,
+      `"Warp Drive" starts at ${chargeLabelX()} and the bolt at ${bolt.x} is off every named line`,
+    ).toBe(true);
+    // And the mark's own edge is a named line too, which is the whole ask.
+    expect(offGrid(bolt.x, legal)).toBeLessThanOrEqual(EDGE_TOLERANCE);
+  });
+
+  it("the gap is the vertical unit less the mark's own width", () => {
+    // Derived, not chosen. A future edit that nudges the gap has to move the
+    // lead off the scale to do it, and the case above catches that.
+    expect(BOLT_GAP_PX).toBe(STEP.unit - MARK.bolt.w);
+    expect(BOLT_GAP_PX).toBe(7);
+  });
+
+  it("the bolt is still centred on the label's own line, not its baseline", () => {
+    // UNCHANGED by this pass, and worth keeping said: a glyph does not sit on
+    // the baseline a mark would share.
+    const label = { x: 200, y: 100, w: 100, h: 24 };
+    const bolt = boltBesideLabel(label);
+    expect(bolt.y + bolt.h / 2).toBe(label.y + label.h / 2);
+    expect(bolt.x + bolt.w + BOLT_GAP_PX).toBe(label.x);
   });
 
   it("keeps the bolt clear of the track it used to sit inside", () => {

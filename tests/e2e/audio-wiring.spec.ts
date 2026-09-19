@@ -865,6 +865,110 @@ test("AC-21.4 / AC-21.5: Shadow's pre-flight line ducks the live music bus", asy
 // 7. The sliders move the gains
 // ---------------------------------------------------------------------------
 
+/**
+ * UR-91 - THE BRIEFING'S TYPE-ON, ON A CONTEXT THAT IS ACTUALLY RUNNING.
+ *
+ * THIS LIVES HERE RATHER THAN IN `briefing.spec.ts` FOR ONE MEASURED REASON.
+ * It was written there first and reported
+ * "deepest music duck in dB: expected <= -6, Received -0.39313456124266183":
+ * headless Chromium suspends every AudioContext until a gesture, so the duck's
+ * 120 ms ramp advanced about 5 ms and then stopped. The product was correct -
+ * the same page in a BUILT preview measured `busGains.music` 0.3508 against a
+ * resting 0.6999, dead on 6.0 dB - and the number was a fact about the harness.
+ * This file already sets `--autoplay-policy=no-user-gesture-required` for
+ * exactly that reason, and an audio claim belongs with the audio harness.
+ *
+ * WHAT IT GUARDS is UR-25's failure mode, not a new one:
+ * `playTransmissionTick` builds nodes on the voice bus and touches no history,
+ * so a reveal that silently stopped calling it would look identical to one that
+ * never had a sound. The unit tests prove the SOUND is right
+ * (`transmissionRendered.test.ts`); only this proves the SCENE reaches it.
+ *
+ * WATCHED FAILING: delete the `audioFrom(this.registry)?.transmissionTick`
+ * call from `BriefingScene.update` and this reports
+ * "ticks fired over the whole page: expected +0 to be greater than +0" - the
+ * page types in silence, with every unit test still green.
+ */
+test("UR-91 / AC-21.4: the briefing's reveal really sounds, and really ducks the world", async ({
+  page,
+}) => {
+  await bootReal(page, "?scene=Briefing&stop=earth");
+  await page.waitForFunction(
+    () =>
+      (window as unknown as {
+        __kb?: { game: { scene: { getScene(k: string): { snapshot?: () => unknown } | null } } };
+      }).__kb?.game.scene.getScene("Briefing")?.snapshot !== undefined,
+    null,
+    { timeout: 30_000 },
+  );
+  // The boot's own reveal runs out first, so the fader is back up and the
+  // resting number below is honest.
+  await page.waitForTimeout(2500);
+
+  const seen = await page.evaluate(async () => {
+    const kb = window as unknown as {
+      __kb: {
+        game: { scene: { getScene(k: string): unknown } };
+        audio: { snapshot(): Record<string, unknown> };
+      };
+    };
+    const scene = kb.__kb.game.scene.getScene("Briefing") as {
+      snapshot(): { typewriter: { enabled: boolean; complete: boolean } };
+      scene: { restart(data: unknown): void };
+    };
+    const audio = kb.__kb.audio;
+    const busesOf = (s: Record<string, unknown>): Record<string, number> =>
+      s["busGains"] as Record<string, number>;
+
+    const resting = busesOf(audio.snapshot())["music"] as number;
+    // A FRESH reveal to observe: the one that ran during boot is over.
+    scene.scene.restart({ stopId: "earth", ctx: { stopId: "earth" } });
+
+    // THE DEEPEST THE MUSIC GOT, not the first sample of it. DUCK_ATTACK_MS is
+    // 120, so the frame after `beginTransmission` still reads the resting gain.
+    let quietest = Number.POSITIVE_INFINITY;
+    let sawRunning = false;
+    const deadline = performance.now() + 25_000;
+    while (performance.now() < deadline) {
+      const tw = scene.snapshot().typewriter;
+      if (tw.enabled && !tw.complete) {
+        sawRunning = true;
+        quietest = Math.min(quietest, busesOf(audio.snapshot())["music"] as number);
+      }
+      if (sawRunning && tw.complete) break;
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+    }
+    // Let the 420 ms release land before reading the handback.
+    await new Promise((r) => setTimeout(r, 900));
+    const done = audio.snapshot();
+    return {
+      resting,
+      quietest,
+      sawRunning,
+      ticks: done["transmissionTicks"] as number,
+      via: done["transmissionVia"] as string[],
+      transmitting: done["transmitting"] as boolean,
+      afterMusic: busesOf(done)["music"] as number,
+    };
+  });
+
+  // It sounded, and it was the briefing that reached it.
+  expect(seen.sawRunning, "the reveal was never seen running").toBe(true);
+  expect(seen.ticks, "ticks fired over the whole page").toBeGreaterThan(0);
+  expect(seen.via).toContain("briefing:reveal");
+
+  // AC-21.4: the world got out of Shadow's way while he transmitted...
+  expect(
+    20 * Math.log10(seen.quietest / seen.resting),
+    "deepest music duck in dB",
+  ).toBeLessThanOrEqual(-6 + FLOAT32_DB_SLOP);
+
+  // ...and it was handed straight back. A duck left open is a game that plays
+  // the rest of its music 6 dB quiet for the whole session.
+  expect(seen.transmitting).toBe(false);
+  expect(seen.afterMusic).toBeCloseTo(seen.resting, 3);
+});
+
 test("AC-19.1: the settings volume sliders move the live bus gains", async ({ page }) => {
   await bootReal(page, "?scene=Settings");
   await page.waitForFunction(

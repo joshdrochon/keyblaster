@@ -144,10 +144,10 @@ export const UI_EN = {
   "ui.settings.resetYes": "Yes, Clear It", // i18n-ignore
   "ui.settings.resetNo": "Keep My Progress", // i18n-ignore
   "ui.settings.resetDone": "Progress cleared. earth is still yours to light.", // i18n-ignore
-  "ui.settings.layout.qwerty": "qwerty", // i18n-ignore
-  "ui.settings.layout.azerty": "azerty", // i18n-ignore
-  "ui.settings.layout.qwertz": "qwertz", // i18n-ignore
-  "ui.settings.layout.dvorak": "dvorak", // i18n-ignore
+  "ui.settings.layout.qwerty": "QWERTY", // i18n-ignore
+  "ui.settings.layout.azerty": "AZERTY", // i18n-ignore
+  "ui.settings.layout.qwertz": "QWERTZ", // i18n-ignore
+  "ui.settings.layout.dvorak": "Dvorak", // i18n-ignore
   "ui.settings.lang.en": "English", // i18n-ignore
   "ui.settings.lang.es": "Español", // i18n-ignore
   "ui.settings.lang.hi": "हिंदी", // i18n-ignore

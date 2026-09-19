@@ -1,4 +1,13 @@
 import { describe, expect, it } from "vitest";
+// UR-88: FR-8's clamp FLOOR is now the word's and the pilot's, not a constant's
+// (`fallFloorMs`). Every assertion below that used to name `FALL_TIME_MIN_MS`
+// as the bound now names the bound for the word it is actually checking. This
+// is a SPEC CHANGE the owner asked for by name - "short words should genuinely
+// fly, 'go' should cross in under two seconds", which a flat 2500 ms forbids -
+// and not a relaxed assertion: `fallFloorMs` is bounded ABOVE by
+// `FALL_TIME_MIN_MS`, so every one of these bounds is at least as tight as the
+// constant it replaced, and tighter for every word under five letters.
+
 import {
   FALL_SPREAD_DOWN,
   FALL_SPREAD_UP,
@@ -18,6 +27,7 @@ import {
   keystrokeHeadroom,
   rawFallTimeMs,
   fallBudgetFactor,
+  fallFloorMs,
   recognitionBudgetMs,
   RECOGNITION_EARNED_BASE_MS,
   RECOGNITION_SLOW_BASE_MS,
@@ -140,7 +150,10 @@ describe("AC-8.1: formula implemented exactly", () => {
           recognitionBudgetMs(ease, recognitionReaderBaseMs(ikiMs)),
         9,
       );
-      expect(fallTimeMs(input)).toBe(clampFallTime(rawFallTimeMs(input)));
+      expect(fallTimeMs(input)).toBe(
+        // UR-88: the floor is this word's and these hands', not a constant's.
+        clampFallTime(rawFallTimeMs(input), 1, fallFloorMs(len, ikiMs)),
+      );
       // And below FR-8's default the two forms are the SAME expression, so the
       // old assertion still holds there rather than being quietly dropped.
       if (ikiMs <= DEFAULT_CALIBRATION.ikiMs) {
@@ -159,13 +172,18 @@ describe("AC-8.1: formula implemented exactly", () => {
 
 describe("AC-8.1: clamps hold", () => {
   it("never falls faster than the minimum", () => {
-    // Shortest word, fastest typist, easiest word -> well under 2500
+    // Shortest word, fastest typist, easiest word. UR-88: the minimum is this
+    // word's and these hands' - `fallFloorMs` - and FR-8's literal 2500 ms is
+    // its own ceiling, so this bound is TIGHTER than the constant it replaced.
     const ms = fallTimeMs({
       word: "a",
       ease: EASE_MIN,
       calibration: { ikiMs: 100, fkLatencyMs: 200 },
     });
-    expect(ms).toBe(FALL_TIME_MIN_MS);
+    expect(ms).toBe(fallFloorMs(1, 100));
+    expect(fallFloorMs(1, 100)).toBeLessThan(FALL_TIME_MIN_MS);
+    // And a word long enough to need it still gets FR-8's literal floor.
+    expect(fallFloorMs(12, 350)).toBe(FALL_TIME_MIN_MS);
   });
 
   it("never falls slower than the maximum", () => {
@@ -180,18 +198,28 @@ describe("AC-8.1: clamps hold", () => {
   it("stays inside the bounds across the whole realistic input space", () => {
     const rand = mulberry32(7);
     for (let i = 0; i < 5000; i++) {
+      const len = 1 + Math.floor(rand() * 13);
+      const ikiMs = 80 + rand() * 900;
       const ms = fallTimeMs({
-        word: "a".repeat(1 + Math.floor(rand() * 13)),
+        word: "a".repeat(len),
         ease: EASE_MIN + rand() * (EASE_MAX - EASE_MIN),
-        calibration: { ikiMs: 80 + rand() * 900, fkLatencyMs: 500 },
+        calibration: { ikiMs, fkLatencyMs: 500 },
       });
-      expect(ms).toBeGreaterThanOrEqual(FALL_TIME_MIN_MS);
+      // UR-88: the bound for THIS word at THESE hands, which is at most FR-8's
+      // literal 2500 ms and less for anything short.
+      expect(ms).toBeGreaterThanOrEqual(fallFloorMs(len, ikiMs));
       expect(ms).toBeLessThanOrEqual(FALL_TIME_MAX_MS);
     }
   });
 
   it("reports whether a value was clamped, for controller telemetry", () => {
-    expect(isClamped({ word: "a", ease: EASE_MIN, calibration: { ikiMs: 100, fkLatencyMs: 200 } })).toBe(true);
+    // UR-88: the floor a fast pilot's one-letter word is measured against is
+    // now that word's own, so it no longer binds there. The pilot it still
+    // binds for is the one part-way down the `headroomEarned` axis, whose
+    // floor has only partly scaled - measured, not assumed.
+    expect(
+      isClamped({ word: "go", ease: EASE_MIN, calibration: { ikiMs: 440, fkLatencyMs: 650 } }),
+    ).toBe(true);
     expect(isClamped({ word: "planet", ease: 1.0, calibration: { ikiMs: 400, fkLatencyMs: 500 } })).toBe(false);
   });
 
@@ -226,12 +254,32 @@ describe("AC-8.2: a known long word can fall faster than an unknown short word",
     for (let n = 4; n <= 13; n++) expect(at(n)).toBeGreaterThan(at(n - 1));
   });
 
-  it("pins the shortest words to the floor at default calibration", () => {
+  it("pins the shortest words to their OWN floor at default calibration (UR-88)", () => {
     // Documented so the clamp is a known property, not a surprise: the floor
-    // exists so no word is unreadably fast for a grade-2 reader (D01, D19).
-    expect(fallTimeMs({ word: "a", ease: 1.0 })).toBe(FALL_TIME_MIN_MS);
-    expect(fallTimeMs({ word: "at", ease: 1.0 })).toBe(FALL_TIME_MIN_MS);
-    expect(fallTimeMs({ word: "dry", ease: 1.0 })).toBeGreaterThan(FALL_TIME_MIN_MS);
+    // exists so no word is unreadably fast for the child flying it (D01, D19).
+    // UR-88 made it that child's and that word's, because a flat 2500 ms gave a
+    // two-letter word and an eight-letter one the same minimum.
+    const d = DEFAULT_CALIBRATION.ikiMs;
+    // AND THE RESULT IS THAT THEY ARE NO LONGER PINNED. At FR-8's own default
+    // interval the scaled floor is exactly FR-8's expression at `EASE_MIN`, so
+    // a word the child has not fully mastered clears its own floor rather than
+    // being flattened onto a constant - which is what "short words should
+    // genuinely fly" asks for. The floor is still there, still bounds them,
+    // and no longer decides them.
+    expect(fallTimeMs({ word: "a", ease: 1.0 })).toBeGreaterThan(fallFloorMs(1, d));
+    expect(fallTimeMs({ word: "at", ease: 1.0 })).toBeGreaterThan(fallFloorMs(2, d));
+    expect(fallTimeMs({ word: "dry", ease: 1.0 })).toBeGreaterThan(fallFloorMs(3, d));
+    // Three one-letter words used to be one number; now length shows through.
+    expect(fallTimeMs({ word: "at", ease: 1.0 })).toBeGreaterThan(
+      fallTimeMs({ word: "a", ease: 1.0 }),
+    );
+    // THE OWNER'S ASK, AS A NUMBER: "go" crosses in well under two seconds for
+    // the pilot FR-8's own default describes.
+    expect(fallTimeMs({ word: "go", ease: EASE_MIN })).toBeLessThan(2000);
+    // And the tail is untouched, to the byte, at every length.
+    for (let n = 1; n <= 12; n += 1) {
+      expect(fallFloorMs(n, HEADROOM_SLOW_IKI_MS), `${n} letters`).toBe(FALL_TIME_MIN_MS);
+    }
   });
 
   it("is monotonic in ease at fixed length", () => {
@@ -252,12 +300,16 @@ describe("degenerate input is total, never NaN", () => {
   it("handles the empty word", () => {
     const ms = fallTimeMs({ word: "", ease: 1.0 });
     expect(Number.isFinite(ms)).toBe(true);
-    expect(ms).toBe(FALL_TIME_MIN_MS);
+    // UR-88: bounded by a zero-length word's own floor - still total, still
+    // never NaN, and still a finite number a scene can build a tween from.
+    expect(ms).toBeGreaterThanOrEqual(fallFloorMs(0, DEFAULT_CALIBRATION.ikiMs));
+    expect(ms).toBeLessThanOrEqual(FALL_TIME_MAX_MS);
   });
 
   it("handles a zero inter-key interval without dividing by anything", () => {
     const ms = fallTimeMs({ word: "planet", ease: 1.0, calibration: { ikiMs: 0, fkLatencyMs: 0 } });
-    expect(ms).toBe(FALL_TIME_MIN_MS);
+    expect(ms).toBeGreaterThanOrEqual(fallFloorMs(6, 0));
+    expect(Number.isFinite(ms)).toBe(true);
   });
 });
 
@@ -918,7 +970,6 @@ describe("UR-51 / FR-8: the fall budget scales with the depth the controller ask
     // the one the PRD states.
     let checked = 0;
     for (let live = MAX_LIVE_MIN; live <= MAX_LIVE_MAX; live += 1) {
-      const floor = FALL_TIME_MIN_MS;
       for (const iki of [260, 350, 440, 600]) {
         for (const stop of STOP_IDS) {
           for (const word of stagePoolFor(stop)) {
@@ -928,8 +979,11 @@ describe("UR-51 / FR-8: the fall budget scales with the depth the controller ask
               calibration: { ikiMs: iki, fkLatencyMs: 500 },
               knobs: { maxLive: live },
             });
+            // UR-88: the floor does not scale with the QUEUE (C20) and does
+            // scale with the WORD and the HANDS. The ratchet still cannot walk
+            // under it at any depth.
             expect(ms, `"${word}" @ maxLive ${live} @ iki ${iki}`).toBeGreaterThanOrEqual(
-              floor,
+              fallFloorMs([...word].length, iki),
             );
             checked += 1;
           }
@@ -1403,10 +1457,11 @@ describe("UR-83 / FR-8: a rock's own share of the budget", () => {
               const factor = fallBudgetFactor({ maxLive: live });
               for (const spread of [0, 0.25, 0.5, 0.75, 1]) {
                 const ms = fallTimeMs({ word, ease, calibration, knobs: { maxLive: live }, spread });
-                // C20: the floor is FR-8's literal 2500 at every depth; only
-                // the ceiling carries the queue's factor.
+                // C20: the floor does not carry the queue's factor at any
+                // depth; only the ceiling does. UR-88: and the floor itself is
+                // the word's and the pilot's.
                 expect(ms, `"${word}" at ${live}/${spread}`).toBeGreaterThanOrEqual(
-                  FALL_TIME_MIN_MS,
+                  fallFloorMs([...word].length, calibration.ikiMs),
                 );
                 expect(ms).toBeLessThanOrEqual(FALL_TIME_MAX_MS * factor);
               }
@@ -1481,8 +1536,10 @@ describe("UR-84 / C20: the floor is literal, and the stop sets a pace", () => {
     expect(quickest, `quickest rock at the knob's ceiling: ${Math.round(quickest)} ms`).toBeLessThan(
       5000,
     );
-    expect(quickest, "and FR-8's own floor still binds it").toBeGreaterThanOrEqual(
-      FALL_TIME_MIN_MS,
+    // UR-88: bounded below by the SHORTEST shipped word's own floor for this
+    // pilot rather than by FR-8's flat constant - and still bounded.
+    expect(quickest, "and a floor still binds it").toBeGreaterThanOrEqual(
+      fallFloorMs(2, ACE.ikiMs),
     );
   });
 
@@ -1653,7 +1710,9 @@ describe("UR-84 / C20: the floor is literal, and the stop sets a pace", () => {
                 spread,
                 stop,
               });
-              expect(ms, `"${word}" @ ${stop}/${live}`).toBeGreaterThanOrEqual(FALL_TIME_MIN_MS);
+              expect(ms, `"${word}" @ ${stop}/${live}`).toBeGreaterThanOrEqual(
+                fallFloorMs([...word].length, calibration.ikiMs),
+              );
               expect(ms).toBeLessThanOrEqual(
                 FALL_TIME_MAX_MS * fallBudgetFactor({ maxLive: live }),
               );

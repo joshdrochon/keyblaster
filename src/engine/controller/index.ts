@@ -38,12 +38,15 @@
 
 import {
   DEFAULT_KNOBS,
+  type BudgetKnobs,
   type KnobChange,
   type Knobs,
   type LiveBand,
   applyChange,
+  budgetLiveOf,
   clampKnobs,
   loosenStep,
+  ratchetBudget,
   tightenStep,
 } from "./knobs.js";
 import { bandOf } from "./stopBand.js";
@@ -76,18 +79,28 @@ export {
   applyChange,
   applyKnobs,
   asLengthBias,
+  budgetLiveOf,
   clampKnobs,
   concurrencyTarget,
   knobsDiffCount,
   loosenStep,
+  ratchetBudget,
   tightenStep,
 } from "./knobs.js";
-export type { KnobChange, KnobName, Knobs, LengthBias, LiveBand } from "./knobs.js";
+export type {
+  BudgetKnobs,
+  KnobChange,
+  KnobName,
+  Knobs,
+  LengthBias,
+  LiveBand,
+} from "./knobs.js";
 
 export {
   STOP_BAND_CEILING_LEAD,
   STOP_BAND_FLOOR_RISE,
   bandOf,
+  bandPosition,
   stopBand,
   stopBandForStage,
 } from "./stopBand.js";
@@ -301,7 +314,28 @@ export type HoldReason =
    * outcomes since the last mid-belt move. Only `decideMidStage` produces it;
    * `decideStage` never does, so the stage boundary is unchanged.
    */
-  | "too-soon";
+  | "too-soon"
+  /**
+   * C23: the pilot is flying on RELIEF, so the room they have is the room the
+   * controller just handed them and not room they earned.
+   *
+   * ================== WHY THE THROTTLE NEEDED THIS ==================
+   * `TIGHTEN_MARGIN_ABOVE` is a servo on margin, and margin is measured against
+   * the budget `@engine/fallTime` granted - so widening the budget widens the
+   * margin, and without this gate every millisecond of relief is read back as
+   * evidence that the child can take more and spent on a tighten. Measured: with
+   * the ratchet on and this gate off, the route sweep moves the median pilot's
+   * knob from 3.16 to 3.68 at Uranus, takes the mid-belt move count past
+   * `AC-10.1 / D20 / C21`'s rate limit (7 against 6) and COSTS that pilot a belt
+   * at Pluto that they did not lose before the relief existed. The relief was
+   * being converted straight into difficulty by the loop it was meant to
+   * protect them from.
+   *
+   * It can only ever make the belt safer - it adds a precondition to tightening
+   * and none to loosening - and it clears itself the moment the belt does, since
+   * `createController` opens the next one with the ratchet equal to the knob.
+   */
+  | "on-relief";
 
 export interface StageDecision {
   readonly action: StageAction;
@@ -322,7 +356,19 @@ export interface StageDecision {
 }
 
 export interface ControllerState {
-  readonly knobs: Knobs;
+  /**
+   * The knob pair, plus C23's `budgetLive` ratchet - the depth
+   * `@engine/fallTime.fallBudgetFactor` sizes the budget from.
+   *
+   * IT IS THE SAME OBJECT THE SCENE ALREADY PASSES. `FlightScene.spawnRock`
+   * hands `this.controller.knobs` straight to `fallTimeMs`, and
+   * `tests/unit/flight/knobWiring.test.ts` asserts that it does, so the ratchet
+   * reaches fall time through a wire that already exists rather than through a
+   * new field somebody has to remember to pass - which is this repo's
+   * most-repeated defect (coding-standards rule 2). AC-10.4's knob SET is
+   * untouched; see `BudgetKnobs`.
+   */
+  readonly knobs: BudgetKnobs;
   /**
    * The stop this controller is flying, or null for a caller that has none
    * (UR-83). It is what turns `stageIndexOf` into a band; see `./stopBand.ts`
@@ -363,7 +409,7 @@ export interface ControllerState {
 }
 
 export interface ControllerInit {
-  readonly knobs?: Partial<Knobs>;
+  readonly knobs?: Partial<BudgetKnobs>;
   readonly window?: readonly SpawnOutcome[];
   readonly margins?: MarginWindow;
   /**
@@ -397,8 +443,22 @@ export interface ControllerInit {
 export function createController(init: ControllerInit = {}): ControllerState {
   const stopId = init.stopId ?? null;
   const band = bandOf(stopId);
+  const knobs = clampKnobs({ ...DEFAULT_KNOBS, ...init.knobs }, band);
   return {
-    knobs: clampKnobs({ ...DEFAULT_KNOBS, ...init.knobs }, band),
+    // C23: A BELT OPENS WITH THE RATCHET EQUAL TO THE KNOB unless the caller
+    // hands one over. `clampKnobs` drops `budgetLive`, which is what makes that
+    // true by construction for every restored profile - relief is earned on the
+    // belt it is given on and cannot be carried into the next one. A caller
+    // that passes one (the loosen-step measurement in
+    // `tests/unit/simulation/loosenRelief.test.ts`) gets it back, bounded by the
+    // stop's own ceiling.
+    knobs: ratchetBudget(
+      init.knobs?.budgetLive === undefined
+        ? knobs
+        : { ...knobs, budgetLive: init.knobs.budgetLive },
+      knobs,
+      band,
+    ),
     stopId,
     band,
     window: createWindow(init.window),
@@ -497,7 +557,10 @@ function applyMidStage(state: ControllerState): ControllerState {
   if (decision.change === null) return state;
   return {
     ...state,
-    knobs: applyChange(state.knobs, decision.change, state.band),
+    // C23: the knob moves and the RATCHET does not follow it down. A tighten
+    // raises both; a loosen gives up the board and keeps the budget, which is
+    // the whole of D31's inversion fix. See `BudgetKnobs`.
+    knobs: ratchetBudget(state.knobs, applyChange(state.knobs, decision.change, state.band), state.band),
     stageMidMoveAt: state.stageSpawned,
     stageMidMoves: state.stageMidMoves + 1,
     lastMidDecision: decision,
@@ -579,6 +642,8 @@ export function decideStage(state: ControllerState): StageDecision {
 
   if (rolling > TIGHTEN_ABOVE) {
     if (!mayTighten(rolling, stage)) return hold("d18-guard");
+    // C23: a pilot on relief has not earned more. See `HoldReason` "on-relief".
+    if (budgetLiveOf(state.knobs) > state.knobs.maxLive) return hold("on-relief");
     // UR-51's throttle. Hit rate got the player this far; the margin decides
     // whether there is room for more. Null is refused rather than defaulted:
     // see `HoldReason` "no-margin".
@@ -607,7 +672,11 @@ export function decideStage(state: ControllerState): StageDecision {
 export function endStage(state: ControllerState): ControllerState {
   const decision = decideStage(state);
   return {
-    knobs: applyChange(state.knobs, decision.change, state.band),
+    // C23: the ratchet survives the boundary decision for the same reason it
+    // survives a mid-belt one - a loosen may never take time off the child's
+    // hands. It does NOT survive the belt: `createController` opens the next
+    // one from `clampKnobs`, which drops it.
+    knobs: ratchetBudget(state.knobs, applyChange(state.knobs, decision.change, state.band), state.band),
     stopId: state.stopId,
     band: state.band,
     window: state.window,

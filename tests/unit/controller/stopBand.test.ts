@@ -7,6 +7,7 @@ import {
   STAGE_RAMP_FAST_MS,
   STAGE_RAMP_SLOW_MS,
   bandOf,
+  bandPosition,
   clampBand,
   createController,
   decideStage,
@@ -405,5 +406,35 @@ describe("UR-83: a belt OPENS at one rock and widens over the first 5-10 seconds
         }
       }
     }
+  });
+});
+
+describe("UR-89: position inside the stop's own band", () => {
+  it("is 0 at the floor, 1 at the ceiling, and linear between", () => {
+    // THE SIGNAL `headroomEarned` CANNOT SEE. That axis reads the measured
+    // typing interval and returns 1.0 at FR-8's own default and at everything
+    // faster, so an ace and a median child are the same pilot to it. This
+    // reads the quantity `decideStage` actually decided - where in the stop's
+    // range it put this child - and it separates them cleanly.
+    const pluto = stopBand("pluto");
+    expect(bandPosition("pluto", pluto.floor)).toBe(0);
+    expect(bandPosition("pluto", pluto.ceiling)).toBe(1);
+    expect(bandPosition("pluto", pluto.floor + 1)).toBeCloseTo(0.5, 10);
+    const uranus = stopBand("uranus");
+    expect(bandPosition("uranus", uranus.floor + 1)).toBeCloseTo(0.25, 10);
+  });
+
+  it("is total: a corrupt, absent or out-of-range knob reads as the floor", () => {
+    // The only direction a bad value may move a child's belt is the one that
+    // takes nothing away - the rule `clampKnobs` and `concurrencyTarget` follow.
+    expect(bandPosition("mars")).toBe(0);
+    expect(bandPosition("mars", Number.NaN)).toBe(0);
+    expect(bandPosition("mars", -50)).toBe(0);
+    expect(bandPosition("mars", 999)).toBe(1);
+    expect(bandPosition(null, MAX_LIVE_MIN)).toBe(0);
+    expect(bandPosition(undefined, MAX_LIVE_MAX)).toBe(1);
+    // Earth has no belt (D57) and answers a band rather than throwing, so this
+    // answers a position rather than dividing by a zero-width range.
+    expect(Number.isFinite(bandPosition("earth" as never, 3))).toBe(true);
   });
 });

@@ -1,5 +1,6 @@
 import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
-import { SPACE } from "./theme.js";
+import { THIRD_LINE_TOP } from "./grid.js";
+import { LINE_HEIGHT, SPACE, STEP, TYPE } from "./theme.js";
 
 /**
  * THE TWO HORIZONTAL LINES EVERY MENU SCREEN IS BUILT ON (UR-85).
@@ -246,14 +247,69 @@ const rightEdge = (): number => GAME_WIDTH - SPACE.gutter;
  * takes the HEIGHT because seven rows do. Both are then checked against the
  * frame by `fitPlan`, in every UI language, by tests/unit/ui/layout.test.ts.
  */
+/**
+ * ============ THE SECTION CAPTIONS GET THEIR OWN BAND ============
+ *
+ * WHAT WAS REPORTED. At a 2000 px window neither section heading could be read:
+ * "Beacons · 3 of 7 lit" was drawn behind the Earth row and "Trophies · 5 of 12
+ * earned" behind the First Light card, each showing only as grey type bleeding
+ * through a card's top edge.
+ *
+ * IT WAS NEVER A DEPTH BUG. Measured on the served build at 2000x1125, the
+ * caption's ink ran 206..240.71 while the first control's ring started at 216:
+ * the caption sat at an unnamed y of its own and the column started at the
+ * shared `CONTENT_TOP`, so the caption was drawn INSIDE the first card's
+ * rectangle. Raising its z-order would have put readable grey type on top of a
+ * card and left the screen wrong.
+ *
+ * SO THE HEADING IS ALLOWED FOR IN THE FLOW, the way `buildEmptyState`'s aside
+ * already is. Three facts fix the numbers, and none of them is a taste:
+ *
+ *   CAPTION_LINE   `grid.THIRD_LINE_TOP`. This line already exists for exactly
+ *                  this string - it is where the Director map draws "1 of 7
+ *                  lit" - and 216 is the first line clear of a `TYPE.display`
+ *                  heading, whose ink box ends at 167 in Latin and 184 in
+ *                  Devanagari (measured; theme.ts LINE_HEIGHT).
+ *   CAPTION_BAND   one line of `TYPE.body` at the Devanagari line height. The
+ *                  measured ink is 34.71 px in Latin and 42.71 in Devanagari,
+ *                  so 47 covers the worst script the UI ships with air to
+ *                  spare. A band tuned to English is a band that collides in
+ *                  Hindi, which is the failure `fitPlan` exists to prevent.
+ *   STEP.tight     the air under the caption. `SPACE.gap` (20) is the step
+ *                  between two BLOCKS; a caption and the column it names are
+ *                  one instrument, which is `STEP.tight`'s documented job. It
+ *                  is also the choice that keeps the beacon column off its
+ *                  glyph floor: at 20 the worst-case Devanagari column fits
+ *                  only by shrinking the beacon glyph to `minGlyph` exactly,
+ *                  and a value that passes with nothing to spare fails on the
+ *                  next string somebody writes.
+ *
+ * THIS SCREEN'S CONTENT LINE IS THEREFORE NOT `CONTENT_TOP`, and that is not a
+ * one-off. `CONTENT_TOP` is where content starts under a TWO-line header block;
+ * the Beacon Log has a three-line one, so it gets the same treatment the map
+ * and the beacon screen get for their third line. The other three menus are
+ * untouched and UR-85's shared line still binds them.
+ *
+ * THE COST, STATED. The beacon column's band shrinks by 59 px, so `fitPlan`
+ * spends white space first and the seven rows close from a 10 px gap to 7. That
+ * is the order this module documents - white space, then the glyph, never the
+ * type - and a 3 px tighter list is not the defect an unreadable heading is.
+ */
+const CAPTION_LINE = THIRD_LINE_TOP;
+const CAPTION_BAND = Math.round(TYPE.body * LINE_HEIGHT.devanagari);
+/** Where this screen's columns start: under the caption, not beside it. */
+const LOG_CONTENT_TOP = CAPTION_LINE + CAPTION_BAND + STEP.tight;
+
 export const BEACON_LOG = {
-  /** Section captions ("beacons · 0 of 7 lit"), under the heading. */
-  captionY: 206,
+  /** Section captions ("beacons · 0 of 7 lit"), on the header's third line. */
+  captionY: CAPTION_LINE,
+  /** The lowest a caption's ink reaches. Nothing in a column may cross it. */
+  captionBottom: CAPTION_LINE + CAPTION_BAND,
 
   beacons: {
     x: SPACE.gutter,
     w: 620,
-    top: CONTENT_TOP,
+    top: LOG_CONTENT_TOP,
     rowGap: 10,
     minRowGap: 4,
     glyph: 68,
@@ -267,9 +323,25 @@ export const BEACON_LOG = {
     left: SPACE.gutter + 620 + 40,
     tileW: 340,
     colGap: 24,
-    top: CONTENT_TOP,
+    top: LOG_CONTENT_TOP,
     rowGap: 22,
-    minRowGap: 10,
+    /**
+     * 4, THE SAME FLOOR THE BEACON COLUMN HAS, not 10.
+     *
+     * Two blocks on one screen had two different white-space floors, and the
+     * higher one was the reason the caption band did not fit: with the columns
+     * 59 px lower, the Devanagari "every tile at its worst" case could not
+     * spend enough gap before it reached the glyph, and `fitPlan` was made to
+     * shrink an unearned trophy's mark instead of closing white space.
+     *
+     * That inverts this module's own order - white space first, the glyph
+     * second, the type never - so the floor is the one number that changes.
+     * Nothing real reaches it: the shipped copy flows at the nominal 22 px gap
+     * with 372 px to spare, measured on the served build. It binds only in the
+     * synthetic worst case, which is exactly where spending white space is the
+     * right answer.
+     */
+    minRowGap: 4,
     glyph: 52,
     minGlyph: 34,
     bottom: 1052,

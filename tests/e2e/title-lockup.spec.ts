@@ -325,8 +325,19 @@ async function openTitle(
    * plate that had not moved. Nothing was wrong with the layout; the frame was
    * read while the screen was still opening.
    *
-   * So the wait is for the containers to be at rest: scale 1, alpha 1. That is
-   * the state the screen is in for the whole time a player is looking at it.
+   * AT REST NO LONGER MEANS SCALE 1 (UR-111). The condition above was written
+   * against `scale: { from: 0.985, to: 1 }` - a tween whose RESTING value was
+   * 1, because it shrank the item and put it back. That is the defect UR-111
+   * fixed: a focused control now grows 1.5% and HOLDS it, on this screen and on
+   * every other one, so the focused item's `kb-pop:` container rests at 1.015
+   * for as long as a player is looking at it and a wait for scale 1 waits for
+   * ever. (Measured: this spec timed out at 30 s on the new-pilot lockup.)
+   *
+   * So "at rest" is asked as what it actually means - the transform has STOPPED
+   * CHANGING - by comparing consecutive polls rather than by naming the value
+   * it is supposed to stop at. That is right for the entrance tween, for the
+   * Back.Out overshoot on the pop (which passes THROUGH 1.015 on its way), and
+   * for whatever the next held state turns out to be.
    */
   await page.waitForFunction(
     (bodyPx: number) => {
@@ -345,7 +356,8 @@ async function openTitle(
         list?: unknown[];
       }
       const sizes: number[] = [];
-      let settled = true;
+      const transforms: string[] = [];
+      let opaque = true;
       const walk = (list: unknown[]): void => {
         for (const raw of list) {
           const o = raw as N;
@@ -353,8 +365,11 @@ async function openTitle(
             // Only the containers that hold type: the parallax planes have
             // scales of their own and are nobody's menu item.
             const holdsText = o.list.some((c) => (c as N).type === "Text");
-            if (holdsText && (o.scaleX !== 1 || o.scaleY !== 1 || o.alpha !== 1)) {
-              settled = false;
+            if (holdsText) {
+              transforms.push(`${o.scaleX ?? 1}|${o.scaleY ?? 1}|${o.alpha}`);
+              // Alpha IS named, because the entrance tween ends at exactly 1
+              // and a half-faded item is not a frame worth measuring.
+              if (o.alpha !== 1) opaque = false;
             }
             walk(o.list);
             continue;
@@ -365,8 +380,12 @@ async function openTitle(
         }
       };
       walk(scene.children.list);
+      const now = transforms.join(" ");
+      const w = window as unknown as { __titleSettle?: string };
+      const still = w.__titleSettle === now;
+      w.__titleSettle = now;
       // The primary's 44 px label and the quiet control's body-size one.
-      return settled && sizes.includes(44) && sizes.includes(bodyPx);
+      return still && opaque && sizes.includes(44) && sizes.includes(bodyPx);
     },
     TYPE.body,
     { timeout: 30_000 },

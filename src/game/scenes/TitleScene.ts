@@ -37,8 +37,9 @@ import { drawPlayerLantern, playerLivery } from "./lib/livery.js";
 import { LANGS, type Lang } from "../../engine/types.js";
 import { SHIPPED_LANGS } from "../../engine/i18n/index.js";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
-import { INK, SKY_PLATE, SPACE, STEP, TYPE, chromeCase } from "@game/ui/theme";
+import { DUR, INK, SKY_PLATE, SPACE, STEP, TYPE, chromeCase } from "@game/ui/theme";
 import { paintFocusRing, paintPlate } from "@game/ui/plate";
+import { POP_NAME_PREFIX, focusPopScale, focusPopShift } from "@game/ui/focusPop";
 import { skyText, skyTextSamples, type SceneSnapshot } from "./lib/kit.js";
 import { WORDMARK_X, WORDMARK_Y, titleKeepClear } from "./support/titleLayout.js";
 import {
@@ -201,6 +202,24 @@ const TITLE_WORLD_SPEED = 74;
 interface MenuItem {
   readonly id: "primary" | "settings" | "lang";
   readonly root: Phaser.GameObjects.Container;
+  /**
+   * THE CONTAINER THAT BREATHES, AND WHY IT IS NOT `root` (UR-111).
+   *
+   * `root` is spoken for twice over. The entrance tween owns its `x` and its
+   * `alpha` - every item flies in 26 px from the left on a stagger - and
+   * `update` reads `root.x` and `root.y` EVERY FRAME through `ringBox`, so the
+   * focus ring tracks the item wherever the entrance has got to. A focus swell
+   * written onto `root` would fight the first and be copied by the second: the
+   * ring would swell with the item, which is a ring that is no longer a fixed
+   * reference, and the entrance tween's `to` would be overwritten mid-flight.
+   *
+   * So `root` stays the layout anchor and this container, its only structural
+   * child, carries the scale. The entrance tween and the ring keep reading
+   * `root`; nothing else changes. It is the same split `ui/controls.ts` makes
+   * for the same reason, and the reason the numbers come from `ui/focusPop.ts`
+   * rather than from three separate opinions.
+   */
+  readonly pop: Phaser.GameObjects.Container;
   readonly width: number;
   readonly height: number;
   /**
@@ -238,6 +257,8 @@ export class TitleScene extends Phaser.Scene {
   /** How far the column runs past the floor. 0 unless a stop's sun pushes it. */
   private stackOverflow = 0;
   private focusIndex = 0;
+  /** The live swell per item, so fast focus movement replaces it rather than stacking. */
+  private popTweens = new Map<string, Phaser.Tweens.Tween>();
   private focusRing!: Phaser.GameObjects.Graphics;
   /**
    * THE CHROME ACCENT IS FIXED (UR-49, coding-standards rule 1).
@@ -520,6 +541,19 @@ export class TitleScene extends Phaser.Scene {
     return services(this).t.lang;
   }
 
+  /**
+   * The container an item's drawing goes in, inside its layout root.
+   *
+   * Named `kb-pop:<id>` for the same reason a hit area is named `kb-hit:<id>`:
+   * a probe measuring a served build has to find the object whose scale it is
+   * reading without guessing at the scene graph.
+   */
+  private popContainer(root: Phaser.GameObjects.Container, id: string): Phaser.GameObjects.Container {
+    const pop = this.add.container(0, 0).setName(`${POP_NAME_PREFIX}${id}`);
+    root.add(pop);
+    return pop;
+  }
+
   private buildPrimary(
     label: string,
     subline: string | null,
@@ -529,6 +563,7 @@ export class TitleScene extends Phaser.Scene {
     const width = PRIMARY_W;
     const height = PRIMARY_H;
     const root = this.add.container(x, y);
+    const pop = this.popContainer(root, "primary");
 
     // THE PRIMARY'S SURFACE, ON THE SHARED PLATE (UR-69, standards rule 1).
     //
@@ -559,12 +594,12 @@ export class TitleScene extends Phaser.Scene {
         strokeWidth: 0,
       },
     );
-    root.add(plate);
+    pop.add(plate);
 
     // The label is already ON a surface this screen drew, so it takes no plate
     // of its own - but it is still REGISTERED, with the accent it actually sits
     // on, because "it's on a panel, trust me" is how unreadable text ships.
-    root.add(
+    pop.add(
       skyText(this, width / 2, height / 2, chromeCase(label, typographyOf(this).uppercase), {
         screen: "title",
         id: "title.primary",
@@ -609,6 +644,11 @@ export class TitleScene extends Phaser.Scene {
         depth: 1,
         padY: CHROME_PAD_Y,
       });
+      // THE STATUS LINE STAYS ON `root` AND DOES NOT SWELL (UR-111). It lives
+      // inside the primary's container for placement only; it is not part of
+      // the button. It carries no ring, `height` excludes it, and a line of
+      // copy that grew whenever the button above it took focus would be a
+      // second thing moving for one focus change.
       if (sub.plate !== null) root.add(sub.plate);
       root.add(sub.text);
       this.statusPlateH = sub.text.height + CHROME_PAD_Y * 2;
@@ -617,6 +657,7 @@ export class TitleScene extends Phaser.Scene {
     return {
       id: "primary",
       root,
+      pop,
       width,
       height,
       plateH: height,
@@ -627,6 +668,7 @@ export class TitleScene extends Phaser.Scene {
 
   private buildQuiet(label: string, x: number, y: number): MenuItem {
     const root = this.add.container(x, y);
+    const pop = this.popContainer(root, "settings");
     const item = skyText(this, PLATED_X, 0, chromeCase(label, typographyOf(this).uppercase), {
       screen: "title",
       id: "title.settings",
@@ -636,11 +678,12 @@ export class TitleScene extends Phaser.Scene {
       depth: 1,
       padY: CHROME_PAD_Y,
     });
-    if (item.plate !== null) root.add(item.plate);
-    root.add(item.text);
+    if (item.plate !== null) pop.add(item.plate);
+    pop.add(item.text);
     return {
       id: "settings",
       root,
+      pop,
       // THE PLATE'S RECTANGLE, NOT THE TEXT'S (UR-88).
       //
       // This used to report the TEXT's box, and the focus ring is struck around
@@ -662,6 +705,7 @@ export class TitleScene extends Phaser.Scene {
   /** D45: visible, but quiet. Left/Right moves along it; Enter applies. */
   private buildLangRow(x: number, y: number): MenuItem {
     const root = this.add.container(x, y);
+    const pop = this.popContainer(root, "lang");
     const { t } = services(this);
     this.langIndex = Math.max(0, SHIPPED_LANGS.indexOf(t.lang));
     const padY = STEP.hair;
@@ -679,8 +723,8 @@ export class TitleScene extends Phaser.Scene {
         padY,
       });
       item.text.setName(`lang-${lang}`);
-      if (item.plate !== null) root.add(item.plate);
-      root.add(item.text);
+      if (item.plate !== null) pop.add(item.plate);
+      pop.add(item.text);
       cursor += item.text.width + STEP.unit;
       // MEASURED, not the 34 that was here (UR-68). "हिं" is drawn in a
       // Devanagari face whose line box is 1.56 em against Latin's 1.3, so a
@@ -691,6 +735,7 @@ export class TitleScene extends Phaser.Scene {
     return {
       id: "lang",
       root,
+      pop,
       width: cursor,
       height: inkH,
       plateH: inkH + padY * 2,
@@ -828,17 +873,63 @@ export class TitleScene extends Phaser.Scene {
     );
   }
 
+  /**
+   * ============== SIZE IS A STATE, NOT A FLOURISH (UR-110, UR-111) ==============
+   *
+   * This screen had a THIRD answer to what focus looks like. `controls.ts` grew
+   * a control 1.5% and held it; `lib/kit.ts` did not grow anything; and here
+   * the item scaled `{ from: 0.985, to: 1 }` - it SHRANK a hair and settled
+   * back to exactly the size it already was. At rest, which is the state a
+   * child actually looks at, a focused item on the Title was the same size as
+   * an unfocused one, the same defect UR-110 reported on the other kit wearing
+   * a different config.
+   *
+   * It is now the one shared pop (`ui/focusPop.ts`), held for as long as the
+   * item has focus and taken off at the instant another item takes it.
+   *
+   * THE COLLISION THIS AVOIDS. `item.root.x` is owned by the entrance tween and
+   * read every frame by `drawFocusRing`. Writing the pop onto `root` would
+   * overwrite the entrance tween's target mid-flight AND make the focus ring
+   * swell with the item it is supposed to be a fixed reference for. The pop
+   * goes on `item.pop`, a container INSIDE root, so both of those keep reading
+   * the untouched layout anchor.
+   */
+  private setPop(item: MenuItem, popped: boolean): void {
+    const scale = popped ? focusPopScale(item.width) : 1;
+    // `ringBox` puts the item's box at `root.x` and, for a quiet row, one
+    // `plateTop` ABOVE `root.y`. The swell is centred on THAT box, not on the
+    // container's origin, or a focused row would drift right and down out of
+    // line with the column it is in.
+    const shift = focusPopShift(scale, {
+      left: 0,
+      top: item.id === "primary" ? 0 : -item.plateTop,
+      w: item.width,
+      h: item.height,
+    });
+    this.popTweens.get(item.id)?.remove();
+    this.popTweens.set(
+      item.id,
+      this.tweens.add({
+        targets: item.pop,
+        scaleX: scale,
+        scaleY: scale,
+        x: shift.x,
+        y: shift.y,
+        duration: DUR.focus,
+        ease: EASE.pop,
+      }),
+    );
+  }
+
   private setFocus(index: number): void {
     this.focusIndex = index;
     const item = this.items[index];
     this.drawFocusRing();
+    // Every item is told, and exactly one is told true - so two items can never
+    // both be grown however fast the pointer moves, and an item that loses
+    // focus comes down at the same instant the next one goes up.
+    for (const [i, each] of this.items.entries()) this.setPop(each, i === index);
     if (item === undefined) return;
-    this.tweens.add({
-      targets: item.root,
-      scale: { from: 0.985, to: 1 },
-      duration: 220,
-      ease: EASE.pop,
-    });
     this.publishDebug();
   }
 

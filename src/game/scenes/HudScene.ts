@@ -16,6 +16,7 @@ import { drawPlate } from "@game/ui/plate.js";
 import { typographyOf } from "@game/scenes/lib/typography.js";
 import type { Lang } from "@engine/types.js";
 import { HULL_MARK_COUNT, hullMarkAlpha } from "@engine/hull/index.js";
+import { listenForTrophies } from "@game/ui/trophyToast.js";
 
 /**
  * The HUD (design-brief-v2.md section 6, art-direction section 2 layer L7).
@@ -78,6 +79,23 @@ export class HudScene extends Phaser.Scene {
 
     this.cameras.main.setRoundPixels(true);
     this.scene.bringToTop();
+
+    /**
+     * THE IN-FLIGHT TROPHY CHIP IS RAISED FROM HERE, NOT FROM `FlightScene`.
+     *
+     * `bringToTop()` on the line above is exactly why: scene render order
+     * beats object depth, so a container created on the flight scene at ANY
+     * depth renders under this one. The flight loop only says that a trophy
+     * happened; this scene is the one that can draw it where it will be seen.
+     *
+     * `src/game/ui/trophyToastLayout.ts` decides where and for how long, and
+     * `tests/unit/ui/trophyToast.test.ts` measures it against these very
+     * plates and against the falling-word band.
+     */
+    listenForTrophies(this, () => ({
+      lang: this.copy.lang,
+      accent,
+    }));
 
     const leftRect = hudLeftPlate();
     const left = this.plateRect(leftRect, plate, accent);

@@ -72,16 +72,26 @@ import {
   recordOutcome,
   stageRampMs,
 } from "@engine/controller/index.js";
-import type { Knobs } from "@engine/controller/knobs.js";
+import type { BudgetKnobs, Knobs } from "@engine/controller/knobs.js";
 import { expectedClearMs, observedBiasMs, spawnGapMs } from "@engine/pacing/index.js";
 import { refineCalibration } from "@engine/calibration/index.js";
 import {
+  HULL_PASS_COST,
+  HULL_STRIKE_COST,
   hullAfterShield,
   hullAfterStrike,
   hullForStage,
   isStalled,
   maySpawnCanister,
 } from "@game/flight/shield.js";
+import {
+  liveWordsOf,
+  nestedClearEstimateMs,
+  nestedFallMs,
+  nestedHullCost,
+  nestingAllowed,
+  nestingDrawPasses,
+} from "@engine/nested/index.js";
 
 /**
  * The baseline FALL TIME may use - `FlightScene.fallTimeCalibration`.
@@ -373,7 +383,13 @@ export interface BeltConfig {
   /** Words the stage spawns before it ends (FR-6). */
   spawnCount: number;
   /** Starting knobs; the controller owns them from there (FR-10). */
-  knobs?: Partial<Knobs>;
+  /**
+   * C23: `BudgetKnobs`, so a cell can be flown as the pilot who ARRIVED here by
+   * loosening rather than only as one who has always been at this setting. The
+   * scene's own wire is the same object (`FlightScene.spawnRock` passes
+   * `this.controller.knobs`), so the harness carries what the game carries.
+   */
+  knobs?: Partial<BudgetKnobs>;
   /**
    * Model the shield canister (AC-5.1, AC-5.2, D26) - a damaged hull is handed
    * a rock that gives a mark back when it is blasted. OFF by default, because a
@@ -441,6 +457,17 @@ export interface BeltConfig {
    * a property of the player model and not of the selection engine.
    */
   noRetention?: boolean;
+  /**
+   * D101's two-layer rocks: at Neptune and Pluto some rocks carry a SECOND word
+   * inside a shell, and the pair falls on one trajectory over the sum of both
+   * words' FR-8 budgets (`@engine/nested`).
+   *
+   * ON by default, because it ships. Turning it OFF is the negative control and
+   * it is the whole of the route bar: the claim is that no pilot gains a stall
+   * at either stop against the same route flown with this false, and a claim
+   * like that is worthless without the other half measured on the same seeds.
+   */
+  nested?: boolean;
 }
 
 export interface BeltSpawn extends SpawnRecord {
@@ -455,6 +482,16 @@ export interface BeltSpawn extends SpawnRecord {
   gapAfterMs: number;
   /** How long this rock waited before the player could start it, ms. */
   queuedMs: number;
+  /**
+   * How many WORDS were already live when this rock spawned (C22/C23).
+   *
+   * It is the quantity `@engine/fallTime.fallBudgetFactor` sized the budget
+   * from, recorded so a measurement can compare two knob settings AT THE SAME
+   * BOARD DEPTH. Without it a per-belt mean of `fallMs - queuedMs` compares two
+   * different MIXES of depths and reports the mix rather than the knob -
+   * `tests/unit/simulation/loosenRelief.test.ts` is the test that needs it.
+   */
+  liveAtSpawn: number;
   /** Fall time this rock was granted (@engine/fallTime), ms. */
   fallMs: number;
   /** What the belt estimated it would cost this player, ms. */
@@ -469,6 +506,14 @@ export interface BeltResult {
   hull: number;
   /** Rocks that reached the bottom without costing a mark (D21/D23 pass-by). */
   passedBy: number;
+  /** D101: two-layer rocks this belt spawned. */
+  nestedRocks: number;
+  /** D101: shells the pilot broke open. */
+  shellsCracked: number;
+  /** D101: rocks whose core reached the ship with the shell already off. */
+  coresBreached: number;
+  /** D101: rocks that reached the ship with the shell still on. */
+  shellsBreached: number;
   /** Hull marks this belt was flown with. */
   maxHull: number;
   /** AC-4.3: the hull emptied and the stage stalled before it finished. */
@@ -519,6 +564,13 @@ export interface BeltResult {
 
 interface BeltRock {
   word: string;
+  /**
+   * D101: the word waiting inside this rock's shell, or null. Nulled the moment
+   * the shell is typed, so `core !== null` is exactly "the shell is still on".
+   */
+  core: string | null;
+  /** D101: true once the shell has come off, whatever is left inside. */
+  cracked: boolean;
   spawnedAtMs: number;
   /** Fall time from `@engine/fallTime`: the instant it reaches the breach. */
   deadlineMs: number;
@@ -664,6 +716,11 @@ export function simulateBelt(
   let midLoosens = 0;
   const liveTimeMs: number[] = [];
   let stalled = false;
+  const nestingOn = cfg.nested ?? true;
+  let nestedRocks = 0;
+  let shellsCracked = 0;
+  let coresBreached = 0;
+  let shellsBreached = 0;
 
   /**
    * Move the clock, charging the elapsed interval to the depth the board held
@@ -713,9 +770,20 @@ export function simulateBelt(
     // 1. The player finishes the word they were on. A rock whose deadline lands
     //    on the same instant is still a blast: the fall-time budget is inclusive.
     if (busy !== null && busy.doneAtMs <= nowMs) {
-      const rock = busy.rock;
+      const rock: BeltRock = busy.rock;
       const record = nextBook[rock.word] ?? blankRecord();
-      live = live.filter((r) => r !== rock);
+      /**
+       * D101: A SHELL BREAK IS A COMPLETED WORD AND NOT A CLEARED ROCK.
+       *
+       * The word book learns it, the controller counts it and the spawn record
+       * is closed - all of which are about the WORD. The rock stays on the
+       * board, keeps its column, its angle and its deadline, and the player
+       * stays busy on it: `FlightScene.crackShell` does exactly this, and the
+       * player is modelled as committed because AC-3.2 says the lock is never
+       * dropped.
+       */
+      const cracking = rock.core !== null;
+      if (!cracking) live = live.filter((r) => r !== rock);
       nextBook = {
         ...nextBook,
         [rock.word]: applyEvent(record, {
@@ -727,38 +795,62 @@ export function simulateBelt(
         }),
       };
       learn([...rock.word].length - 1, busy.fkMs);
-      // UR-84: THE MARGIN TRAVELS WITH THE OUTCOME, IN-BELT, exactly as
-      // `FlightScene.onBlast` reports it. It used to be omitted here and fed
-      // only at the stage boundary, which is the `no-margin` fail-safe: the
-      // controller could never tighten mid-belt in this harness however well
-      // the pilot flew, so a harness without this line measures a belt the game
-      // does not fly.
-      controller = noteMidMove(
-        controller,
-        recordOutcome(
+      // D101 + UR-84: one rock, one margin sample and one service sample.
+      // A shell break reports NEITHER - the rock is still on the board, so it
+      // has not cleared and there is no clearance to measure. The scene does
+      // the same in `crackShell`.
+      //
+      // When it IS a clear, the margin travels with the outcome IN-BELT,
+      // exactly as `FlightScene.onBlast` reports it. Feeding it only at the
+      // stage boundary is the `no-margin` fail-safe: the controller could never
+      // tighten mid-belt however well the pilot flew, and the harness would be
+      // measuring a belt the game does not fly.
+      if (!cracking) {
+        controller = noteMidMove(
           controller,
-          "blasted",
-          clearanceMargin({
-            spawnedAtMs: rock.spawnedAtMs,
-            leftAtMs: nowMs,
-            fallMs: rock.deadlineMs - rock.spawnedAtMs,
-          }),
-        ),
-      );
-      if (rock.isCanister) {
+          recordOutcome(
+            controller,
+            "blasted",
+            clearanceMargin({
+              spawnedAtMs: rock.spawnedAtMs,
+              leftAtMs: nowMs,
+              fallMs: rock.deadlineMs - rock.spawnedAtMs,
+            }),
+          ),
+        );
+        // The service sample the scene records: from the moment the player was
+        // free to attend to this rock, to the moment it blew up. Queueing time
+        // is excluded, or the gap would chase its own tail.
+        residuals.push(nowMs - (rock.startedAtMs ?? nowMs) - rock.clearEstimateMs);
+      }
+      if (rock.isCanister && !cracking) {
         hull = hullAfterShield(hull, maxHull);
         canisterLive = false;
       }
-      // The service sample the scene records: from the moment the player was
-      // free to attend to this rock, to the moment it blew up. Queueing time is
-      // excluded, or the gap would chase its own tail.
-      residuals.push(nowMs - (rock.startedAtMs ?? nowMs) - rock.clearEstimateMs);
       const spawn = byWord.get(rock.word + rock.spawnedAtMs);
       if (spawn !== undefined) {
         spawn.clearedAtMs = nowMs;
         spawn.hit = true;
       }
       blasted += 1;
+      if (cracking) {
+        // The rock becomes its core, and the player carries straight on to the
+        // second word with a fresh first-key latency - they could not have been
+        // reading it before it existed.
+        const coreWord = rock.core as string;
+        rock.word = coreWord;
+        rock.core = null;
+        rock.cracked = true;
+        shellsCracked += 1;
+        const coreRecord = nextBook[coreWord] ?? blankRecord();
+        const fk = recognitionMs(player, coreRecord);
+        busy = {
+          rock,
+          doneAtMs: nowMs + fk + typeAfterFirstKeyMs(player, coreWord, rng),
+          fkMs: fk,
+        };
+        continue;
+      }
       busy = null;
       freeSinceMs = nowMs;
       continue;
@@ -793,10 +885,20 @@ export function simulateBelt(
       const spawn = byWord.get(due.word + due.spawnedAtMs);
       if (spawn !== undefined) spawn.clearedAtMs = nowMs;
       breaches += 1;
-      // A practice rock was never pointed at the ship, so reaching the bottom
-      // costs nothing. It is still a miss for the word book and for the
-      // controller above - the child did not type it - which is what keeps this
-      // a change of trajectory rather than a discount.
+      // A practice rock is placed off the ship's lane and sails PAST it rather
+      // than into it - but it still costs the hull `HULL_PASS_COST`, half of a
+      // direct hit (UR-91, C20, `FlightScene.passBy`). The "costs nothing" rule
+      // this harness used to model was superseded when the owner reported its
+      // consequence: a belt can be finished without typing, because once a few
+      // words are missed most of what is falling is practice and practice was
+      // free. It is still a miss for the word book and for the controller above
+      // - the child did not type it - which is what keeps the pass-by a change
+      // of TRAJECTORY rather than a discount.
+      //
+      // MEASURED WHEN THIS WAS WRONG: charging nothing here made every hull
+      // number in `tests/unit/simulation/` optimistic by half a mark per
+      // practice pass-by, which for the slow pilot at Pluto is ~10 marks over a
+      // belt - a harness reporting a hull the shipped scene never had.
       // A word that breached mid-answer still produced keystrokes, and those
       // are exactly the samples the belt most needs from the child who is
       // struggling. Count the keys they got through before the deadline.
@@ -807,8 +909,23 @@ export function simulateBelt(
         learn(Math.max(0, Math.min([...due.word].length - 1, typed)), busy.fkMs);
       }
       const passes = (cfg.practiceRocksPassBy ?? true) && due.isPractice;
+      // D101, AC-26.4: an unbroken shell costs a whole mark - nothing on it was
+      // typed, so it is AC-4.2 exactly - and an exposed core costs half,
+      // because the child removed a layer and it still got through. A nested
+      // rock is never a practice rock, so the two rules never meet.
+      const nestedCost =
+        due.cracked || due.core !== null ? nestedHullCost(due.core !== null) : null;
+      if (due.core !== null) shellsBreached += 1;
+      else if (due.cracked) coresBreached += 1;
       if (passes) passedBy += 1;
-      else hull = hullAfterStrike(hull, maxHull);
+      // `FlightScene.passBy` charges `HULL_PASS_COST` and `FlightScene.strike`
+      // charges the nested cost or `HULL_STRIKE_COST`. Both arms charge here,
+      // because both arms charge there.
+      hull = hullAfterStrike(
+        hull,
+        maxHull,
+        passes ? HULL_PASS_COST : (nestedCost ?? HULL_STRIKE_COST),
+      );
       if (busy !== null && busy.rock === due) {
         busy = null;
         freeSinceMs = nowMs;
@@ -826,7 +943,11 @@ export function simulateBelt(
     const boardEmpty = live.length === 0 && (cfg.emptyBoardFastPath ?? true);
     if (pending() && live.length < liveCap() && (boardEmpty || nowMs >= nextSpawnAtMs)) {
       const outcome = pickNext(selection, {
-        live: live.map((r) => r.word),
+        // D101: both words of a shelled rock are live for AC-2.1's purposes,
+        // because the core's first letter is reserved from spawn. Shared
+        // definition, so this harness cannot prove the invariant on a board the
+        // game does not fly.
+        live: live.flatMap((r) => liveWordsOf({ word: r.word, coreWord: r.core })),
         book: nextBook,
         lastSeenStage,
         rng,
@@ -838,14 +959,53 @@ export function simulateBelt(
         if (boardEmpty) advanceTo(nowMs + 200);
         continue;
       }
-      selection = outcome.state;
       const word = outcome.word;
       const record = nextBook[word] ?? blankRecord();
+      // ================== D101: DOES THIS ONE NEST? ==================
+      // `FlightScene.trySpawn`, restated. The SECOND pick carries the shell in
+      // its live set, so the two layers of one rock cannot collide under
+      // AC-2.1; a core that comes back practice is refused, because a rock with
+      // one practice layer has no sensible answer to the D21/D23 pass-by rule.
+      let selectionNext = outcome.state;
+      let coreWord: string | null = null;
+      if (
+        nestingOn &&
+        cfg.stopId !== undefined &&
+        nestingAllowed({
+          stopId: cfg.stopId,
+          nestedLive: live.filter((r) => r.core !== null).length,
+          wordsLeft: cfg.spawnCount - spawned,
+          anyPractice: outcome.practice,
+        }) &&
+        nestingDrawPasses(cfg.stopId, rng())
+      ) {
+        const picked = pickNext(selectionNext, {
+          live: [
+            ...live.flatMap((r) => liveWordsOf({ word: r.word, coreWord: r.core })),
+            word,
+          ],
+          book: nextBook,
+          lastSeenStage,
+          rng,
+        });
+        if (picked.ok && !picked.practice) {
+          coreWord = picked.word;
+          selectionNext = picked.state;
+        }
+      }
+      selection = selectionNext;
       // UR-83: ONE DRAW, AT SPAWN, FROM THE SEEDED STREAM. The spread is a
       // property of the rock and not of the frame, so a replay of this seed
       // gets the identical belt. `FlightScene.spawnRock` draws its own from a
       // dedicated seeded stream for the same reason.
       const spread = spreadOn ? rng() : undefined;
+      // C22, AS THE BOARD IS ACTUALLY QUEUED: the depth is counted in WORDS,
+      // not in rock objects. See `FlightScene.spawnRock`, which computes the
+      // same number from the same shared `liveWordsOf`.
+      const liveWordCount = live.reduce(
+        (n, r) => n + liveWordsOf({ word: r.word, coreWord: r.core }).length,
+        0,
+      );
       const fall = fallTimeMs({
         word,
         ease: record.ease,
@@ -860,33 +1020,71 @@ export function simulateBelt(
         // this; a harness that left it out would measure a route with no speed
         // progression, which is the thing being changed.
         stop: cfg.stopId,
-        // C22: the board's own depth at this instant. `FlightScene.spawnRock`
-        // passes exactly this (`this.rocks.length`, read before the new rock is
-        // pushed), and a harness that left it out would measure a belt whose
-        // first rock is budgeted for a queue that is not there.
-        liveCount: live.length,
+        // C22: the board's own depth at this instant, IN WORDS.
+        // `FlightScene.spawnRock` passes exactly this (`liveWords().length`,
+        // read before the new rock is pushed), and a harness that left it out
+        // would measure a belt whose first rock is budgeted for a queue that is
+        // not there.
+        liveCount: liveWordCount,
       });
+      // D101: the pair falls at ONE constant rate over BOTH words' budgets, and
+      // the belt is paced off what the WHOLE rock costs.
+      const coreFall =
+        coreWord === null
+          ? 0
+          : fallTimeMs({
+              word: coreWord,
+              ease: (nextBook[coreWord] ?? blankRecord()).ease,
+              spread,
+              calibration: fallCalibration(calibration),
+              knobs: controller.knobs,
+              // UR-84 / C22: `FlightScene.spawnRock` passes both for the core,
+              // for the same reason it passes them for the shell. A harness
+              // that left them out would budget the inner word of a Pluto rock
+              // at Mars pace on an empty board.
+              stop: cfg.stopId,
+              liveCount: liveWordCount,
+            });
+      const totalFall = coreWord === null ? fall : nestedFallMs(fall, coreFall);
+      const shellEstimate = expectedClearMs({
+        length: [...word].length,
+        ease: record.ease,
+        calibration,
+      });
+      const totalEstimate =
+        coreWord === null
+          ? shellEstimate
+          : nestedClearEstimateMs(
+              shellEstimate,
+              expectedClearMs({
+                length: [...coreWord].length,
+                ease: (nextBook[coreWord] ?? blankRecord()).ease,
+                calibration,
+              }),
+            );
       const isCanister =
         (cfg.canisters ?? false) && maySpawnCanister(hull, maxHull, canisterLive) && rng() < 0.5;
       if (isCanister) canisterLive = true;
       const rock: BeltRock = {
         word,
+        core: coreWord,
+        cracked: false,
         spawnedAtMs: nowMs,
-        deadlineMs: nowMs + fall,
+        deadlineMs: nowMs + totalFall,
         startedAtMs: null,
         isCanister,
         isPractice: outcome.practice,
-        clearEstimateMs: expectedClearMs({
-          length: [...word].length,
-          ease: record.ease,
-          calibration,
-        }),
+        clearEstimateMs: totalEstimate,
       };
       live.push(rock);
       maxLiveTrail.push(controller.knobs.maxLive);
       peakLive = Math.max(peakLive, live.length);
       lastSeenStage[word] = cfg.stopIndex;
-      spawned += 1;
+      if (coreWord !== null) {
+        lastSeenStage[coreWord] = cfg.stopIndex;
+        nestedRocks += 1;
+      }
+      spawned += coreWord === null ? 1 : 2;
 
       // The board's own cost, newest rock last - the scene passes exactly this.
       const liveClearMs = live.map((r) => r.clearEstimateMs);
@@ -914,12 +1112,35 @@ export function simulateBelt(
         fromRetention: outcome.source === "retention",
         gapAfterMs: gap,
         queuedMs: 0,
-        fallMs: fall,
+        liveAtSpawn: liveWordCount,
+        fallMs: totalFall,
         estimateMs: rock.clearEstimateMs,
         actualMs: 0,
       };
       spawns.push(spawn);
       byWord.set(word + rock.spawnedAtMs, spawn);
+      // D101: THE CORE IS A SPAWN TOO. A belt is counted in WORDS (FR-6), and
+      // `hitRate` is blasted over spawns - so a two-layer rock that contributes
+      // one record would report a hit rate computed over half the words the
+      // child was actually asked to type.
+      if (coreWord !== null) {
+        const coreSpawn: BeltSpawn = {
+          word: coreWord,
+          spawnedAtMs: nowMs,
+          clearedAtMs: rock.deadlineMs,
+          hit: false,
+          fkLatencyMs: 0,
+          fromRetention: false,
+          gapAfterMs: gap,
+          queuedMs: 0,
+          liveAtSpawn: liveWordCount,
+          fallMs: totalFall,
+          estimateMs: rock.clearEstimateMs,
+          actualMs: 0,
+        };
+        spawns.push(coreSpawn);
+        byWord.set(coreWord + rock.spawnedAtMs, coreSpawn);
+      }
       continue;
     }
 
@@ -960,6 +1181,10 @@ export function simulateBelt(
     hull,
     maxHull,
     passedBy,
+    nestedRocks,
+    shellsCracked,
+    coresBreached,
+    shellsBreached,
     stalled,
     breaches,
     blasted,

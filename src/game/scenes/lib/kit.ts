@@ -1,7 +1,8 @@
 import Phaser from "phaser";
 import { DUR, EASE, FONT_STACK, INK, SKY_PLATE, SPACE, TYPE, chromeCase, letterSpacingPx, lineHeightEm } from "@game/ui/theme";
 import { hexToNum as rgb } from "@game/render/palette";
-import { drawPlate, paintFocusRing, paintPlate, type PlateProps } from "@game/ui/plate";
+import { drawPlate, paintFocusRing, paintPlate, plateRectOf, type PlateProps } from "@game/ui/plate";
+import { POP_NAME_PREFIX, focusPopScale, isPartOf, type PopBox } from "@game/ui/focusPop";
 import { recordSkyText as record } from "./skyTextRegistry";
 import type { Lang } from "@engine/types";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
@@ -319,6 +320,21 @@ export interface FocusTarget {
    * Enter does.
    */
   readonly primary?: boolean;
+  /**
+   * Opt OUT of the focus swell (UR-111). Default true; a control grows while it
+   * is focused and holds it, like every other control in the game.
+   *
+   * The one caller that says false is the Director map's seven PLANETS. A stop
+   * is not a plate with a label on it - it is a disc, a beacon, a glow and a
+   * caption, drawn with the Lantern hovering over it, and UR-92 deliberately
+   * took the ring off it because the ship already says which stop the screen is
+   * about. Swelling a planet 1.5% would be a fourth "you are here" on a screen
+   * that was cut down to one, and only the parts that are PLATES could be found
+   * to swell anyway - the caption would grow and the world it names would not.
+   * The two chips at the top right of the same screen are plates, and they do
+   * grow.
+   */
+  readonly pop?: boolean;
 }
 
 export interface FocusRing {
@@ -362,6 +378,227 @@ export function createFocusRing(scene: Phaser.Scene, depth = 40): FocusRing {
       g.destroy();
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// The focus swell (UR-111)
+// ---------------------------------------------------------------------------
+
+/**
+ * ============== GROWING A CONTROL THAT IS ONLY A RECTANGLE ==============
+ *
+ * `ui/controls.ts` grows a focused control by scaling a container it built
+ * itself: the control IS an object, so there is something to scale. The seven
+ * story screens on this kit are the other shape entirely - each one draws its
+ * own plate and its own label straight onto the scene and then hands
+ * `createKeyboardMenu` a bare `{x, y, w, h}` - so there was no node to scale
+ * and those screens had no focus growth at all. Focus was carried by the ring's
+ * alpha alone, and a child moving between the Title, the map and the briefing
+ * met three different answers to "what does focused look like".
+ *
+ * ================== WHY THE KIT WRAPS, AND THE SCENES DO NOT ==================
+ * The alternative was a `node` field on `FocusTarget` that every screen fills
+ * in. That is seven scene edits for one behaviour, it is seven chances to
+ * forget, and the two screens that most need it (Briefing, Results) are owned
+ * by other lanes. So the kit does what `controls.ts` does - it wraps what it is
+ * given in a container and scales THAT - and finds "what it is given" from the
+ * rectangle, using `plateRectOf` (every plate remembers its box) and
+ * `Text.getBounds()` (every label can be measured). A screen gets the behaviour
+ * by passing a target, which it already does.
+ *
+ * ================== THE TWO-CONTAINER SPLIT IS STILL THE POINT ==================
+ * The wrapper is a NEW container placed at the target's CENTRE, and the parts
+ * are re-based into it. Nothing that already existed is scaled, moved or
+ * re-depthed: the scene's own tweens keep running on the same objects, at the
+ * same local coordinates, and the focus ring and the hit zone keep being struck
+ * around the declared rectangle, which never breathes. Anchoring the container
+ * on the centre rather than the top-left is what makes the growth a SWELL
+ * rather than a drift to the right and down - the same property
+ * `focusPopShift` buys for a kit control whose anchor is fixed by layout.
+ */
+
+/** A control's parts, lifted into one container so they can breathe together. */
+interface Pop {
+  readonly id: string;
+  readonly container: Phaser.GameObjects.Container;
+  readonly scale: number;
+  popped: boolean;
+  tween: Phaser.Tweens.Tween | null;
+  setPopped(popped: boolean): void;
+  unwrap(): void;
+}
+
+/** A part the kit can measure, with its box in the space it is drawn in. */
+interface Part {
+  readonly obj: Phaser.GameObjects.GameObject & {
+    x: number;
+    y: number;
+    depth: number;
+    parentContainer: Phaser.GameObjects.Container | null;
+  };
+  readonly parent: Phaser.GameObjects.Container | null;
+  readonly box: PopBox;
+  readonly order: number;
+}
+
+/**
+ * The world box of one drawn object, or null when it is not a thing this kit
+ * can measure.
+ *
+ * TEXT AND PLATES ONLY, DELIBERATELY. Those two are what a control on these
+ * screens is made of, they are both drawn through this file, and both can say
+ * where they are. A `Zone` is skipped because a hit area is not part of the
+ * drawing; a bare `Graphics` with no plate on it is skipped because it cannot
+ * be measured at all, which is the honest answer for the map's planet discs and
+ * the reason those targets opt out of the swell rather than half-swelling.
+ */
+function partBox(obj: Phaser.GameObjects.GameObject): PopBox | null {
+  if (obj instanceof Phaser.GameObjects.Zone) return null;
+  if (obj instanceof Phaser.GameObjects.Text) {
+    const b = obj.getBounds();
+    return { x: b.x, y: b.y, w: b.width, h: b.height };
+  }
+  const local = plateRectOf(obj);
+  if (local === null) return null;
+  const withTransform = obj as unknown as {
+    getWorldTransformMatrix?: () => Phaser.GameObjects.Components.TransformMatrix;
+  };
+  const m = withTransform.getWorldTransformMatrix?.();
+  if (m === undefined) return { x: local.x, y: local.y, w: local.w, h: local.h };
+  // Two corners, so a parent container that is offset or scaled is followed.
+  // Nothing on these screens rotates, and an axis-aligned box is all the
+  // containment test wants.
+  const tl = m.transformPoint(local.x, local.y, new Phaser.Math.Vector2());
+  const br = m.transformPoint(local.x + local.w, local.y + local.h, new Phaser.Math.Vector2());
+  return { x: tl.x, y: tl.y, w: br.x - tl.x, h: br.y - tl.y };
+}
+
+/** Everything on the screen that is part of the control drawn at `box`. */
+function partsAt(scene: Phaser.Scene, box: PopBox, claimed: Set<unknown>): Part[] {
+  const found: Part[] = [];
+  const walk = (
+    objects: Phaser.GameObjects.GameObject[],
+    parent: Phaser.GameObjects.Container | null,
+  ): void => {
+    objects.forEach((obj, i) => {
+      if (obj instanceof Phaser.GameObjects.Container) {
+        // A container is never itself a part: it is somebody's grouping, and
+        // taking it would take whatever else the screen put in it.
+        walk(obj.list, obj);
+        return;
+      }
+      if (claimed.has(obj)) return;
+      const measured = partBox(obj);
+      if (measured === null || !isPartOf(measured, box)) return;
+      found.push({
+        obj: obj as Part["obj"],
+        parent,
+        box: measured,
+        // Inside a container Phaser renders in LIST order and ignores depth;
+        // at the top level the display list is depth-sorted. One key that is
+        // right either way, so the parts go back down in the order they were
+        // already drawn in.
+        order: parent === null ? (obj as Part["obj"]).depth * 1e6 + i : i,
+      });
+    });
+  };
+  walk(scene.children.list, null);
+  return found;
+}
+
+/**
+ * Lift a control's parts into one container anchored on its centre.
+ *
+ * Returns null when there is nothing to lift, which is a real answer and not a
+ * failure: a target may opt out (`pop: false`), and a control drawn with
+ * something this kit cannot measure has to stay at one size rather than grow in
+ * pieces.
+ */
+function wrapTarget(
+  scene: Phaser.Scene,
+  target: FocusTarget,
+  claimed: Set<unknown>,
+): Pop | null {
+  if (target.pop === false) return null;
+  if (target.w <= 0 || target.h <= 0) return null;
+  const all = partsAt(scene, target, claimed);
+  if (all.length === 0) return null;
+
+  // ONE PARENT PER CONTROL. The plate is the biggest part, so its parent is the
+  // container the control lives in; a stray part from somewhere else in the
+  // scene graph is left where it is rather than dragged across parents, which
+  // would change what it draws over.
+  const biggest = all.reduce((a, b) => (a.box.w * a.box.h >= b.box.w * b.box.h ? a : b));
+  const parent = biggest.parent;
+  const parts = all.filter((p) => p.parent === parent).sort((a, b) => a.order - b.order);
+
+  // The centre, in the coordinate space the parts are positioned in.
+  let cx = target.x + target.w / 2;
+  let cy = target.y + target.h / 2;
+  if (parent !== null) {
+    const local = parent.getWorldTransformMatrix().applyInverse(cx, cy, new Phaser.Math.Vector2());
+    cx = local.x;
+    cy = local.y;
+  }
+
+  const container = scene.add.container(cx, cy).setName(`${POP_NAME_PREFIX}${target.id}`);
+  const home = parts.map((part) => ({ obj: part.obj, parent: part.parent, x: part.obj.x, y: part.obj.y }));
+  if (parent === null) {
+    container.setDepth(Math.max(...parts.map((p) => p.obj.depth)));
+  } else {
+    parent.add(container);
+  }
+  for (const part of parts) {
+    claimed.add(part.obj);
+    container.add(part.obj);
+    part.obj.x -= cx;
+    part.obj.y -= cy;
+  }
+
+  // A LOCKED CONTROL NEVER GROWS (D73), the same rule `ui/controls.ts` holds.
+  // Growth is the loudest promise this kit makes and a locked stop does not
+  // answer Enter.
+  const scale = target.locked === true ? 1 : focusPopScale(target.w);
+  const pop: Pop = {
+    id: target.id,
+    container,
+    scale,
+    popped: false,
+    tween: null,
+    setPopped(next: boolean) {
+      if (pop.popped === next) return;
+      pop.popped = next;
+      const to = next ? scale : 1;
+      // Both directions replace whatever was running. A pointer swept across
+      // four rows fires this eight times; without the handle the old tweens
+      // keep animating and fight the new one, which reads as a control that
+      // judders instead of settling.
+      pop.tween?.remove();
+      pop.tween = scene.tweens.add({
+        targets: container,
+        scaleX: to,
+        scaleY: to,
+        duration: DUR.focus,
+        ease: EASE.pop,
+      });
+    },
+    unwrap() {
+      pop.tween?.remove();
+      pop.tween = null;
+      for (const slot of home) {
+        claimed.delete(slot.obj);
+        // A part destroyed by the scene has already left the container; asking
+        // for it back would resurrect nothing and throw on the way.
+        if (slot.obj.parentContainer !== container) continue;
+        slot.obj.x = slot.x;
+        slot.obj.y = slot.y;
+        if (slot.parent === null) scene.children.add(slot.obj);
+        else slot.parent.add(slot.obj);
+      }
+      container.destroy();
+    },
+  };
+  return pop;
 }
 
 export type MenuAxis = "horizontal" | "vertical";
@@ -442,6 +679,16 @@ export function createKeyboardMenu(
   let list = [...targets];
   let index = openingIndex(list, options.startIndex);
   let zones: Phaser.GameObjects.Zone[] = [];
+  /**
+   * One slot per target, in list order, holding the container that breathes -
+   * or null where there was nothing to lift (`wrapTarget`). Parallel to `list`
+   * on purpose: `focus` has an index, not an id, and a Map keyed by id would
+   * quietly do the wrong thing on the one screen that repeats an id across a
+   * rebuild.
+   */
+  let pops: (Pop | null)[] = [];
+  /** Objects already lifted, so two overlapping targets cannot claim one plate. */
+  const claimed = new Set<unknown>();
 
   const step = (delta: number): void => {
     if (list.length === 0) return;
@@ -462,6 +709,11 @@ export function createKeyboardMenu(
     index = Math.min(Math.max(i, 0), list.length - 1);
     const target = list[index];
     if (target !== undefined) ring.moveTo(target);
+    // RULE 5 OF THE FOCUS MODEL (`ui/controls.ts`): size is a STATE. Exactly
+    // one control is grown, by construction - every slot is told, and only one
+    // is told true - so the pointer leaving a control does nothing to it and
+    // only another control taking focus brings it back down.
+    pops.forEach((pop, i2) => pop?.setPopped(i2 === index));
     scene.events.emit("kb-focus", index, target);
   }
 
@@ -472,11 +724,58 @@ export function createKeyboardMenu(
    * ring says is clickable and what is clickable are one rectangle rather than
    * two that can drift apart.
    */
+  /**
+   * Lift every target's drawing into its own container, from scratch.
+   *
+   * Rebuilt rather than reconciled whenever the targets are, because a screen
+   * that calls `setTargets` has usually REDRAWN itself (results, when the
+   * opt-in question is answered) and the old containers are holding objects
+   * that no longer exist.
+   */
+  function buildPops(): void {
+    for (const pop of pops) pop?.unwrap();
+    pops = list.map((target) => wrapTarget(scene, target, claimed));
+  }
+
+  /**
+   * ONE RECTANGLE, ONE HIT ZONE (UR-111).
+   *
+   * The Briefing drew TWO ways out of itself on the same 224x48 rectangle: a
+   * `kb-hit:briefing-back` zone owned by `drawBackChip`, and a `kb-hit:back`
+   * zone the menu builds for the `back` target the scene also declares. Both
+   * called `goBack`, so nothing was broken to a player - but the pointer e2e's
+   * whole claim is that a screen's hit areas ARE its focusable set, and a
+   * screen with a spare hit area is a screen where that claim has stopped being
+   * checkable. It also meant two hand cursors stacked on one chip.
+   *
+   * The menu's zone is the one that survives, because it is the one wired to
+   * focus: `drawBackChip`'s zone only ever answered a click. A chip on a screen
+   * with no menu (Pre-flight) is not touched - it is that screen's only pointer
+   * route out, and removing it would take the way out with it.
+   */
+  function dropDuplicateZone(target: FocusTarget): void {
+    for (const obj of [...scene.children.list]) {
+      if (!(obj instanceof Phaser.GameObjects.Zone)) continue;
+      if (!obj.name.startsWith(HIT_ZONE_PREFIX)) continue;
+      if (obj.name === `${HIT_ZONE_PREFIX}${target.id}`) continue;
+      if (
+        Math.abs(obj.x - target.x) > 0.5 ||
+        Math.abs(obj.y - target.y) > 0.5 ||
+        Math.abs(obj.width - target.w) > 0.5 ||
+        Math.abs(obj.height - target.h) > 0.5
+      ) {
+        continue;
+      }
+      obj.destroy();
+    }
+  }
+
   function bindPointers(): void {
     for (const zone of zones) zone.destroy();
     zones = [];
     for (const [i, target] of list.entries()) {
       if (target.w <= 0 || target.h <= 0) continue;
+      dropDuplicateZone(target);
       const zone = scene.add
         .zone(target.x, target.y, target.w, target.h)
         .setOrigin(0, 0)
@@ -533,6 +832,7 @@ export function createKeyboardMenu(
 
   scene.input.keyboard?.on("keydown", onKey);
   bindPointers();
+  buildPops();
   focus(index);
 
   return {
@@ -558,6 +858,7 @@ export function createKeyboardMenu(
     setTargets(next: readonly FocusTarget[], focusId?: string) {
       list = [...next];
       bindPointers();
+      buildPops();
       const named = focusId === undefined ? -1 : list.findIndex((t) => t.id === focusId);
       focus(named >= 0 ? named : openingIndex(list, undefined));
     },
@@ -565,6 +866,11 @@ export function createKeyboardMenu(
       scene.input.keyboard?.off("keydown", onKey);
       for (const zone of zones) zone.destroy();
       zones = [];
+      // The parts go back where the scene left them before the containers go,
+      // so a screen that outlives its menu - or a test that measures the scene
+      // graph afterwards - sees what it drew rather than an empty display list.
+      for (const pop of pops) pop?.unwrap();
+      pops = [];
     },
   };
 }
@@ -648,6 +954,38 @@ export interface BackChipOptions {
   readonly onPress: () => void;
   /** `HIT_ZONE_PREFIX` + this. The pointer e2e enumerates these names. */
   readonly hitId: string;
+  /**
+   * THE POINTER REACHING THE CHIP MAKES IT THE FOCUSED CONTROL (UR-111).
+   *
+   * This chip was the only control in the game bound to `pointerdown` and
+   * nothing else. `ui/focus.ts` states the invariant it broke in its own words:
+   * "to be clickable you must be in the focus list" - hovering every other
+   * control in this game moves focus to it, and hovering this one did nothing
+   * at all, so the way out of two screens was the one thing a child could click
+   * without the screen ever admitting it was there.
+   *
+   * It is a callback rather than a `FocusList` because the chip does not own
+   * the screen's focus - the screen does. A scene with a menu passes
+   * `menu.focus` bound to this chip's index (`backChipTarget` below builds the
+   * matching target); a scene without one passes nothing, and gets exactly the
+   * behaviour it had. That second case is Pre-flight, and it is a gap in the
+   * screen rather than in the chip: Pre-flight has no focus list and no focus
+   * ring, so there is nothing for a hover to move.
+   */
+  readonly onFocus?: () => void;
+}
+
+/**
+ * The chip as a `FocusTarget`, so a screen wires it into its menu in one line
+ * instead of restating `backChipRect()` beside the call that drew it.
+ *
+ * The Briefing restates it today, which is how it came to own two hit areas on
+ * one rectangle (`dropDuplicateZone`). A screen that asks for the target here
+ * cannot drift from the drawing, because both read `backChipRect`.
+ */
+export function backChipTarget(id: string, onPress: () => void): FocusTarget {
+  const rect = backChipRect();
+  return { id, x: rect.x, y: rect.y, w: rect.w, h: rect.h, activate: onPress };
 }
 
 /**
@@ -679,6 +1017,12 @@ export function drawBackChip(
     .setName(`${HIT_ZONE_PREFIX}${options.hitId}`)
     .setDepth(options.depth + 2)
     .setInteractive({ useHandCursor: true })
-    .on("pointerdown", options.onPress);
+    // Hover focuses, press focuses then activates - the same two rules every
+    // other control in this game follows (`ui/focus.ts`, `ui/controls.ts`).
+    .on("pointerover", () => options.onFocus?.())
+    .on("pointerdown", () => {
+      options.onFocus?.();
+      options.onPress();
+    });
   return [face, text, zone];
 }

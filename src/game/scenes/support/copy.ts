@@ -49,10 +49,31 @@ import { hasStageBundle, stageBundle } from "../lib/content";
  */
 const LANE_EN = {
   // Warp break (screen 7, D30, FR-16)
-  "warp.beltClear": "the belt is clear. everything is still out here.",
-  "warp.chargeLabel": "warp drive",
+  "warp.beltClear": "The belt is clear. everything is still out here.",
+  /**
+   * ============ A LABEL, SO TITLE CASE - AN ESCALATION THE OWNER CLOSED ============
+   *
+   * UR-81's rule already said labels are Title Case, and this is a label, so
+   * "Warp Drive" was always the literal reading. The lane that wrote the rule
+   * left this one string lower case on purpose and recorded why in
+   * `gauntlet/escalations.md` (item 2): the owner's own report about the bolt
+   * spelled it lower case, and recasing one label invites recasing the table.
+   * Its lean was "leave it - if the owner wants Title Case on labels it should
+   * be one sweep with the whole list in front of them."
+   *
+   * The owner has now asked for it capitalised. That closes the escalation for
+   * THIS string only: "continue", "fly it again" and "stage report" are
+   * untouched, so the table-wide sweep is still open and still theirs to call.
+   *
+   * THE CASE IS HERE BECAUSE THIS IS WHERE IT RENDERS FROM. `ui/text.uiText`
+   * puts every chrome string through `theme.chromeCase`, which since UR-81
+   * returns the string unchanged unless D41's increased-legibility setting is
+   * on. So the table's case is the case on screen, and a capitalised literal at
+   * the `WarpScene` call site would have put English capitals on Spanish words.
+   */
+  "warp.chargeLabel": "Warp Drive",
   "warp.chargePercent": "{percent}%",
-  "warp.charged": "warp drive charged. hold on.",
+  "warp.charged": "Warp drive charged. hold on.",
   "warp.speaker": "Shadow",
   /**
    * ============ SENTENCE CASE, WHICH MEANS ONE CAPITAL ============
@@ -75,35 +96,46 @@ const LANE_EN = {
   "warp.composed": "Shadow wrote this one from your words, just now",
 
   // Beacon placement (screen 8, D15, FR-17)
-  "beacon.calibrating": "beacon calibrating. it will find the sky in a moment.",
-  "beacon.continue": "continue",
-  "beacon.hint": "enter to continue",
+  "beacon.calibrating": "Beacon calibrating. it will find the sky in a moment.",
+  "beacon.continue": "Continue",
+  "beacon.hint": "Enter to continue",
 
   // Results (screen 9, D50)
-  "results.heading": "stage report",
-  "results.wpmLabel": "words per minute",
-  "results.accuracyLabel": "accuracy",
-  "results.deltaUp": "up {amount} from {stop}",
-  "results.deltaDown": "down {amount} from {stop}",
-  "results.deltaSame": "the same as {stop}",
-  "results.fasterHeading": "faster than before",
+  "results.heading": "Stage Report",
+  "results.wpmLabel": "Words Per Minute",
+  "results.accuracyLabel": "Accuracy",
+  "results.deltaUp": "Up {amount} from {stop}",
+  "results.deltaDown": "Down {amount} from {stop}",
+  "results.deltaSame": "The same as {stop}",
+  "results.fasterHeading": "Faster Than Before",
   "results.fasterMarker": "{word}",
-  "results.retentionHeading": "words from earlier stops",
+  "results.retentionHeading": "Words From Earlier Stops",
   "results.retentionQuicker":
     "{count} came back. {percent}% on the first try, {ms} ms quicker than the first time you met them.",
   "results.retentionSteady":
     "{count} came back. {percent}% on the first try, holding steady since the first time you met them.",
   "results.retentionPlain": "{count} came back. {percent}% on the first try.",
-  "results.personalBest": "your best here: {wpm} wpm",
-  "results.newPersonalBest": "that is your best run here.",
-  "results.replay": "fly it again",
-  "results.boardHeading": "pilots near you",
-  "results.boardYou": "you",
-  "results.boardEmpty": "no other pilots nearby yet.",
+  /**
+   * NO EMPTY STATE, BY DECISION. This heading is only ever drawn when at least
+   * one trophy was earned on the belt just flown; `ResultsScene.trophiesPiece`
+   * returns an empty piece otherwise and the panel closes up around it. A
+   * "Trophies Earned: none" line on the screen a child reaches by finishing a
+   * stage is a scoreboard of what they did not do, which is the one thing D31
+   * says nothing here may be.
+   */
+  "results.trophiesHeading": "Trophies Earned",
+  /** The names themselves come from `ui/catalog.TROPHIES` via `ui/strings`. */
+  "results.trophiesList": "{names}",
+  "results.personalBest": "Your best here: {wpm} wpm",
+  "results.newPersonalBest": "That is your best run here.",
+  "results.replay": "Fly It Again",
+  "results.boardHeading": "Pilots Near You",
+  "results.boardYou": "You",
+  "results.boardEmpty": "No other pilots nearby yet.",
   "results.boardPrompt":
-    "want to see the pilots flying near your speed? you can turn this off any time.",
-  "results.boardPromptYes": "show nearby pilots",
-  "results.boardPromptNo": "not now",
+    "Want to see the pilots flying near your speed? you can turn this off any time.",
+  "results.boardPromptYes": "Show Nearby Pilots",
+  "results.boardPromptNo": "Not Now",
   // ONE VERB FOR MOVING, ACROSS THE WHOLE APP (UR-101). This said "tab to
   // move" while every other screen says arrows - two names for one action on
   // screens a child moves between. Both keys work here and everywhere (the kit
@@ -118,10 +150,10 @@ const LANE_EN = {
   "results.hint": "Arrows to move · enter to choose",
 
   // Ending card (screen 12)
-  "ending.heading": "the map is drawn",
+  "ending.heading": "The Map Is Drawn",
   "ending.shadowLine":
     "Every ship that comes after us will see these. You drew the map.",
-  "ending.continue": "see the stage report",
+  "ending.continue": "See the Stage Report",
 } as const;
 
 /**
@@ -146,9 +178,9 @@ export const LANE_STRING_KEYS = Object.keys(LANE_EN) as LaneStringKey[];
  */
 const LANE_ES: Partial<Record<LaneStringKey, string>> = {
   "warp.beltClear": "el cinturón está despejado. aquí todo está quieto.",
-  "warp.chargeLabel": "motor de salto",
+  "warp.chargeLabel": "Motor de salto",
   "warp.chargePercent": "{percent}%",
-  "warp.charged": "motor de salto cargado. agárrate.",
+  "warp.charged": "Motor de salto cargado. agárrate.",
   // A NAME IS A NAME IN EVERY LANGUAGE. The Hindi lane table is empty and falls
   // through to English, so these two lines are the whole of the Spanish sweep.
   "warp.speaker": "Shadow",
@@ -173,6 +205,8 @@ const LANE_ES: Partial<Record<LaneStringKey, string>> = {
   "results.retentionSteady":
     "volvieron {count}. {percent}% a la primera, igual de rápido que la primera vez.",
   "results.retentionPlain": "volvieron {count}. {percent}% a la primera.",
+  "results.trophiesHeading": "Trofeos conseguidos",
+  "results.trophiesList": "{names}",
   "results.personalBest": "tu mejor marca aquí: {wpm} ppm",
   "results.newPersonalBest": "es tu mejor vuelo aquí.",
   "results.replay": "volar otra vez",

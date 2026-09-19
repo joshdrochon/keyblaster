@@ -239,6 +239,19 @@ section is the acceptance criteria they were missing, so the trace holds (D61).
 - AC-25.2 Six poses exist (idle, pointing, cheering, shy/worried, asleep, saluting) and the sheet's bottom-row colorways are NOT used - Shadow has one look (D91). → U (pose table) + V.
 - AC-25.3 No Shadow line, scripted or generated, ever contains the word "wrong" (D31, story note 6). → U (line-table scan + coach output filter).
 
+**FR-26 Two-layer rocks at the last two stops (D101).**
+
+Some asteroids at Neptune and Pluto are genuinely bigger than the rest and carry
+a second word inside a shell. Typing the shell's word breaks the shell only,
+revealing a smaller rock with its own word which must also be typed.
+
+- AC-26.1 A two-layer rock spawns only at Neptune and Pluto, never at an earlier stop, and at most one is live at a time. Typing the shell's word removes the shell and leaves the same rock falling with a different word; typing that word destroys it. → U (`tests/unit/nested/nested.test.ts`) + E (`tests/e2e/nested-rocks.spec.ts`, which plays one with real keystrokes).
+- AC-26.2 The shell is larger than every ordinary rock at every word length, and the core inside it is smaller than its shell. → U (size sweep over the whole length range against `render/asteroid.MAX_SIZE_PX`).
+- AC-26.3 The pair falls at one constant rate over the SUM of both words' FR-8 budgets, so each layer keeps the budget it would have had alone and neither is unanswerable by construction. → U (fall-time arithmetic) + M (40 seeds x 6 belts x 4 pilots: no pilot gains a stall at either stop against the same route with the feature off, `tests/unit/simulation/nestedRoute.test.ts`).
+- AC-26.4 A rock reaching the ship with its shell intact costs a whole hull mark (AC-4.2 unchanged); one reaching it with the core exposed costs half (`HULL_PASS_COST`). A two-layer rock never costs more than the two ordinary rocks it replaces (D31). → U.
+- AC-26.5 Each layer scores as its own completed word, and destroying the core also pays `base(shell + core) - base(shell) - base(core)` at the core's multiplier, so the whole rock pays exactly what one word of the combined length would. The bonus is paid only if both layers are destroyed. → U.
+- AC-26.6 The core's word is chosen at the shell's spawn and its first letter is reserved for the shell's whole life, so a revealed core never shares a first letter with any live word (AC-2.1 at the reveal); and the core's plate is cleared against the live board by the same column rule as the shell's, so it can never cover another word (AC-22.8). → U (`tests/unit/nested/liveLetters.test.ts` with a negative control; `tests/unit/spawn/nestedKeepOut.test.ts`; the 3456-board sweep in `tests/unit/flight/plateSeparation.test.ts`).
+
 ---
 
 ## 4. Data model (summary; full types in architecture.md)

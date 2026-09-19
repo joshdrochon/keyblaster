@@ -98,6 +98,20 @@ export class WordPlate extends Phaser.GameObjects.Container {
   private readonly style: WordPlateStyle;
   private readonly word: string;
   private readonly letters: Phaser.GameObjects.Text[] = [];
+  /**
+   * THE SHAKE LIVES HERE, NOT IN `x`.
+   *
+   * `FlightScene.updateRocks` calls `setPosition` on this plate EVERY FRAME -
+   * the plate is not a child of the rock's container, so it is carried by hand.
+   * A shake written straight into `x` was therefore overwritten within one
+   * frame of starting, and AC-3.2's feedback has never once reached the screen
+   * despite `shake()` being implemented and under test: the test asserted the
+   * tween was created, which it was.
+   *
+   * Keeping the displacement separate means the carrier owns the position and
+   * the shake owns the offset, and neither can erase the other.
+   */
+  private shakeOffsetX_ = 0;
   private readonly backing: Phaser.GameObjects.Graphics;
   private readonly underline: Phaser.GameObjects.Graphics;
   private readonly size: PlateSize;
@@ -259,7 +273,6 @@ export class WordPlate extends Phaser.GameObjects.Container {
    */
   shake(amplitudePx: number, durationMs: number): void {
     if (this.style.reducedMotion) return; // D41 / AC-19.3
-    const homeX = this.x;
     this.scene.tweens.addCounter({
       from: amplitudePx,
       to: 0,
@@ -268,12 +281,34 @@ export class WordPlate extends Phaser.GameObjects.Container {
       onUpdate: (tween) => {
         const amp = tween.getValue() ?? 0;
         const t = tween.progress * Math.PI * 8;
-        this.x = homeX + Math.sin(t) * amp;
+        this.setShakeOffsetX(Math.sin(t) * amp);
       },
       onComplete: () => {
-        this.x = homeX;
+        this.setShakeOffsetX(0);
       },
     });
+  }
+
+  /** The live horizontal displacement of the shake, in pixels. */
+  get shakeOffsetX(): number {
+    return this.shakeOffsetX_;
+  }
+
+  /**
+   * Move by the offset rather than to it, so a carrier that rewrites `x` every
+   * frame and a shake that runs across many frames cannot fight.
+   */
+  private setShakeOffsetX(offsetPx: number): void {
+    this.x += offsetPx - this.shakeOffsetX_;
+    this.shakeOffsetX_ = offsetPx;
+  }
+
+  /**
+   * `setPosition` is what the carrier calls; it must not wipe a shake in
+   * progress, so the offset is re-applied on top of the position asked for.
+   */
+  override setPosition(x?: number, y?: number, z?: number, w?: number): this {
+    return super.setPosition((x ?? 0) + this.shakeOffsetX_, y, z, w);
   }
 
   /**

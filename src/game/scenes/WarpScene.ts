@@ -196,6 +196,7 @@ import {
   completedWordRange,
   badgeRow,
   boltBesideLabel,
+  chargeLabelX,
   coachRows,
   destinationRow,
   sentenceRow,
@@ -1034,9 +1035,16 @@ export class WarpScene extends Phaser.Scene {
     );
 
     const labelRow = instrumentLabelRow();
+    // THE WORDS START RIGHT OF THE BOLT, NOT ON THE ROW'S OWN EDGE.
+    //
+    // `chargeLabelX()` is `labelRow.x + BOLT_LEAD_PX`, and the bolt below is
+    // then placed off this text's measured bounds so its LEFT edge lands back
+    // on `labelRow.x`. The lockup's left edge is the mark; the words are the
+    // second object in it. The row itself is unmoved - the percentage is still
+    // right-anchored to `labelRow.x + labelRow.w` below.
     const chargeLabel = skyText(
       this,
-      labelRow.x,
+      chargeLabelX(),
       labelRow.y,
       this.lane.copy.text("warp.chargeLabel"),
       {
@@ -2420,6 +2428,11 @@ export class WarpScene extends Phaser.Scene {
           sentenceLines: this.sentenceLines,
           shadow: rect(this.shadow.root.getBounds()),
           chargeLabel: rect(this.chargeLabelText.getBounds()),
+          // THE STRING, not just its box. The case a player sees is the table's
+          // case put through `theme.chromeCase`, and only the drawn object
+          // knows what came out the far end of that - a spec that read the
+          // table would pass on a scene that hardcoded its own literal.
+          chargeLabelText: this.chargeLabelText.text,
           bolt: { ...this.boltBox },
           ring: {
             alpha: this.ring.graphics.alpha,

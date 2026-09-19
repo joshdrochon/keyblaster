@@ -225,6 +225,68 @@ export function bandOf(stop: StopId | null | undefined): LiveBand {
 export const STOP_PACE_DROP = 0.12;
 
 /**
+ * Where inside this stop's band the knob is sitting, 0..1 (UR-89).
+ *
+ * 0 is the stop's floor - the board the stop imposes on everybody - and 1 is
+ * its ceiling, which only a pilot the controller has climbed all the way can
+ * reach. A one-setting band (none ship today, but `clampBand` can produce one)
+ * reads 0, the direction that takes nothing away.
+ *
+ * ================== WHY IT EXISTS, AND WHAT IT MEASURED ==================
+ * `headroomEarned` reads the MEASURED TYPING INTERVAL and returns exactly 1.0 at
+ * FR-8's own default (350 ms) and at everything faster, so an ace (p25 margin
+ * 0.37, hit rate 0.998) and a median child (0.17, 0.93) are the same pilot to
+ * it. Band position separates them cleanly and on the quantity the controller
+ * itself decided - measured over the route sweep, 120 seeds, the real
+ * controller carried stop to stop:
+ *
+ *     pilot     position at pluto (5..7)   at uranus (3..7)
+ *     ace              1.00                     0.95
+ *     fast             0.92                     0.82
+ *     median           0.04                     0.17
+ *     slow             0.00                     0.07
+ *     grade2           0.05                     0.15
+ *
+ * ================== AND WHY NO PACE LEVER SHIPS ON IT YET ==================
+ * It was built as a gate on `@engine/fallTime.stopPaceFactor` - extra pace for
+ * a pilot the CLIMB has reached, none for a pilot the stop's floor put where
+ * they are - and swept, 40 and 120 seeds, five pilots, both nesting arms:
+ *
+ *     drop/lead   ace on-hand   fast      median    median stalls   climb
+ *     0.12/0      (shipped)                          0/240          intact
+ *     0.12/0.40   -13..-40%    -5..-35%   ~0%        2/240          broken
+ *     0.15/0.35   -25..-35%    -12..-28%  -8..+8%    9/240          broken
+ *     0.18/0.30   -22..-38%    -13..-31%  -3..-11%   26/240         broken
+ *     0.25/0.25   -26..-37%    -25..-30%  0..-15%   104/240         broken
+ *
+ * "Climb broken" is the finding, and it is a property of the CONTROLLER rather
+ * than of this number: `TIGHTEN_MARGIN_ABOVE` gates a tighten on the margin
+ * quartile, so any lever that spends margin is answered by the controller
+ * declining to tighten - the board gets shallower, the margin comes back, and
+ * the pilot settles at the same comfort at a lower knob. Measured at 0.15/0.35,
+ * `UR-84: the ~100% pilot reaches the stop's CEILING inside the first belt`
+ * falls from 90%+ of routes to 5%, and `UR-51: two pilots of DIFFERENT skill
+ * now END THE ROUTE ON DIFFERENT BELTS` from 27 of 40 routes to 4. The owner's
+ * "you absolutely should see seven rocks on Pluto" is that property.
+ *
+ * Lowering `TIGHTEN_MARGIN_ABOVE` to 0.22 to let the climb continue under the
+ * pace was swept too and is worse: it is the SUPPORTED TAIL that climbs first,
+ * and a deeper board GRANTS more on-hand time (`fallBudgetFactor`), so the
+ * grade-2 pilot gains 24-49% of it and the separation collapses to 3 of 40.
+ *
+ * So the pace lever and the margin setpoint have to move together, and that is
+ * a coupled change with its own sweep. This function is the half that is
+ * measured and correct; gauntlet/escalations.md carries the decision.
+ */
+export function bandPosition(stop: StopId | null | undefined, maxLive?: number): number {
+  const band = bandOf(stop);
+  const span = band.ceiling - band.floor;
+  if (span <= 0) return 0;
+  const live = Number.isFinite(maxLive) ? Math.floor(maxLive as number) : band.floor;
+  return Math.min(1, Math.max(0, (live - band.floor) / span));
+}
+
+/**
  * The fraction of the budget this stage takes away, before ability is read.
  *
  * Linear in the stage index over the six BELT stops, so Mars is exactly 0 - the

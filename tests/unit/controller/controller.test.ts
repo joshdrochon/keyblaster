@@ -18,6 +18,7 @@ import {
   WINDOW_SIZE,
   applyChange,
   asLengthBias,
+  budgetLiveOf,
   clampKnobs,
   clearanceMargin,
   concurrencyTarget,
@@ -547,7 +548,14 @@ describe("knob bounds clamp under sustained pressure", () => {
       expect(s.knobs.maxLive).toBeGreaterThanOrEqual(MAX_LIVE_MIN);
       expect(s.knobs.lengthBias).toBeGreaterThanOrEqual(LENGTH_BIAS_MIN);
     }
-    expect(s.knobs).toEqual(knobs(MAX_LIVE_MIN, LENGTH_BIAS_MIN));
+    // C23: THE KNOB BOTTOMS OUT AND THE BUDGET DOES NOT COME DOWN WITH IT.
+    // This pilot opened at `MAX_LIVE_MAX` and was loosened all the way to the
+    // floor, so every rock they are now handed is budgeted for the 7-deep board
+    // they used to fly while the board itself is 2 deep. That is the whole of
+    // D31's inversion fix stated as a value: before it, each of those loosens
+    // took MORE fall time off the child than it gave back in queue.
+    expect(s.knobs).toEqual({ ...knobs(MAX_LIVE_MIN, LENGTH_BIAS_MIN), budgetLive: MAX_LIVE_MAX });
+    expect(budgetLiveOf(s.knobs)).toBe(MAX_LIVE_MAX);
     expect(s.lastDecision?.holdReason).toBe("at-loosen-floor");
   });
 
@@ -903,5 +911,67 @@ describe("UR-51 / margin: the throttle, and the floor that is not one", () => {
     expect(roomy.maxLive, "a pilot with room climbs").toBe(MAX_LIVE_MAX);
     expect(tight.maxLive, "a pilot without it does not").toBe(MAX_LIVE_MIN);
     expect(roomy.maxLive - tight.maxLive).toBe(MAX_LIVE_MAX - MAX_LIVE_MIN);
+  });
+});
+
+describe("C23: the budget ratchet, and the tighten it has to refuse", () => {
+  it("C23: a loosen keeps the budget and gives up only the board", () => {
+    // THE DEFECT, AS A VALUE. `maxLive` bought two things with one number -
+    // `@engine/pacing.standingDepth` builds the board and
+    // `@engine/fallTime.fallBudgetFactor` caps the budget that pays for
+    // standing in it - so a loosen removed the queue AND the budget, and the
+    // budget is the bigger of the two for any pilot with margin. Measured,
+    // median pilot at Neptune, the knob pinned for the belt: maxLive 5 -> 4
+    // took fall time from 11585 ms to 9462 ms while the queue only shrank
+    // 1607 ms, i.e. 516 ms OFF the child's hands on a move meant to help them.
+    let s = createController({ knobs: { maxLive: 6, lengthBias: LENGTH_BIAS_MIN } });
+    expect(budgetLiveOf(s.knobs)).toBe(6);
+    expect(s.knobs.budgetLive).toBeUndefined(); // absent until it means something
+    s = endStage(play(s, 0, 20));
+    expect(s.knobs.maxLive, "the board came down").toBe(5);
+    expect(budgetLiveOf(s.knobs), "and the budget did not").toBe(6);
+    expect(concurrencyTarget(budgetLiveOf(s.knobs))).toBe(concurrencyTarget(6));
+  });
+
+  it("C23: and it is bounded by the stop's own ceiling, never above it", () => {
+    // Relief may not hand out a budget the stop's busiest legal board would
+    // not have paid. Mars tops out at 4 (`stopBand`), so a Mars belt cannot
+    // carry Pluto's budget however badly it goes.
+    let s = createController({ knobs: { maxLive: 4, lengthBias: LENGTH_BIAS_MIN }, stopId: "mars" });
+    for (let i = 0; i < 6; i += 1) s = endStage(play(s, 0, 20));
+    expect(s.knobs.maxLive).toBe(s.band.floor);
+    expect(budgetLiveOf(s.knobs)).toBeLessThanOrEqual(s.band.ceiling);
+  });
+
+  it("C23: a pilot flying on relief cannot tighten - the servo may not eat its own gift", () => {
+    // `TIGHTEN_MARGIN_ABOVE` is a servo on margin, and margin is measured
+    // against the budget `@engine/fallTime` granted. So without this gate every
+    // millisecond of ratcheted budget reads back as evidence the child can take
+    // more, and the relief is spent on a tighten.
+    //
+    // WATCHED FAILING, with the real numbers: drop the "on-relief" arm from
+    // `decideStage` and the route sweep moves the median pilot's Uranus knob
+    // from 3.16 to 3.68, breaks `AC-10.1 / D20 / C21`'s mid-belt rate limit
+    // (7 moves against 6) and costs that pilot a Pluto belt they did not lose
+    // before the relief existed.
+    let s = createController({ knobs: { maxLive: 5, lengthBias: LENGTH_BIAS_MIN } });
+    s = endStage(play(s, 0, 20)); // loosen: 5 -> 4, ratchet holds at 5
+    expect(budgetLiveOf(s.knobs)).toBeGreaterThan(s.knobs.maxLive);
+    // Now fly a stretch that would otherwise tighten: well above 0.90 on both
+    // rates, and a margin quartile well above the gate.
+    const comfortable = play(s, 20, 0, 0.9);
+    const decision = decideStage(comfortable);
+    expect(decision.action).toBe("hold");
+    expect(decision.holdReason).toBe("on-relief");
+    expect(decision.marginFloor).toBeGreaterThan(TIGHTEN_MARGIN_ABOVE);
+    // And the same evidence DOES tighten a pilot who is not on relief, which is
+    // what says the gate is the thing refusing rather than the thresholds.
+    const notOnRelief = play(
+      createController({ knobs: { maxLive: 4, lengthBias: LENGTH_BIAS_MIN } }),
+      20,
+      0,
+      0.9,
+    );
+    expect(decideStage(notOnRelief).action).toBe("tighten");
   });
 });

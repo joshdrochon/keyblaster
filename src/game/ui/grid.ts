@@ -171,6 +171,71 @@ export function backCorner(w: number, h: number): Rect {
   return { x: ARTBOARD_RIGHT - w, y: BACK_CORNER_BOTTOM - h, w, h };
 }
 
+// ---------------------------------------------------------------------------
+// THE ONE PLACE A PRIMARY ACTION BUTTON SITS
+// ---------------------------------------------------------------------------
+
+/**
+ * THE FORWARD ACTION'S SIZE AND LINE, FOR EVERY SCREEN THAT HAS ONE.
+ *
+ * ================== WHAT WAS REPORTED ==================
+ * The project owner walked the product and reported the forward action as a
+ * control that lands somewhere different on every page - the same report that
+ * produced `backCorner` for the way OUT, now made about the way ON.
+ * Measured on the served build, the five screens with a single forward action:
+ *
+ *   Earth activation   centred, 420 x 88 at y 939.6      (GAME_WIDTH / 2)
+ *   Beacon placement   LEFT GUTTER, 420 x 64 at y 966    (x = 96)
+ *   Briefing           centred, 488 x 50 at y 998        (DESIGN_WIDTH / 2)
+ *   Ending             centred, 560 x 76 at y 900
+ *   Results            a PAIR, 420 x 64 at x 616 / 1076, y clamped 740..908
+ *
+ * Five screens, four widths, four heights, four y values and two different
+ * horizontal anchors. Nothing is wrong on any one of them; the product is
+ * wrong between them, which is the `ui/grid.ts` defect exactly.
+ *
+ * ================== WHY EARTH'S NUMBERS AND NOT ANOTHER SCREEN'S ==========
+ * Taken from Earth activation's launch button, which is the control the
+ * report named as the one the others should match. It is also the only one of the five that is
+ * centred on the world AND clear of both foot-line corners: the hint plate's
+ * band starts at `HINT_TOP` on the left gutter and `backCorner` owns the right,
+ * and a 420 px button centred on a 1920 px artboard spans 750..1170, which
+ * touches neither.
+ *
+ * `y` is `Math.round(GAME_HEIGHT * 0.87)`: the same fraction Earth already
+ * drew at, rounded, because 939.6 is not a position a second screen can be
+ * asked to match. `GAME_HEIGHT` is pinned (D99, `sceneKeys`), so this is 940.
+ *
+ * ================== WHY IT TAKES A WIDTH ==================
+ * `DESIGN_WIDTH` by default, `GAME_WIDTH` on request, and the two are the SAME
+ * NUMBER at every window 16:9 or narrower. Past 16:9 they differ, and which one
+ * is right is a property of the SCREEN, not of the button:
+ * `grid-conformance.spec.ts` declares each screen's anchor model, and a fixed
+ * composition (Beacon, Briefing, Results, Ending) measures against the artboard
+ * while a centred one (Earth activation) reflows with the world. A button that
+ * picked one for everybody would put the element at odds with its own screen,
+ * which is the single defect that spec exists to catch.
+ */
+export const ACTION_BUTTON = {
+  w: 420,
+  h: 88,
+  /** Earth activation's `GAME_HEIGHT * 0.87`, rounded. */
+  y: Math.round(GAME_HEIGHT * 0.87),
+} as const;
+
+/** The forward action's rectangle, centred on the width its screen is anchored to. */
+export function actionButton(width: number = DESIGN_WIDTH): Rect {
+  return {
+    x: Math.round(width / 2 - ACTION_BUTTON.w / 2),
+    y: ACTION_BUTTON.y,
+    w: ACTION_BUTTON.w,
+    h: ACTION_BUTTON.h,
+  };
+}
+
+/** The lowest edge of the forward action. Nothing may be drawn below it. */
+export const ACTION_BUTTON_BOTTOM = ACTION_BUTTON.y + ACTION_BUTTON.h;
+
 /** Vertical air between two stacked blocks. */
 export const BLOCK_GAP = 40;
 

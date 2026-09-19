@@ -37,6 +37,11 @@ export function accuracyPercent(bestAccuracy: number): number {
 }
 
 export function mapBoardLine(entry: StopProgress, stop: StopId, t: MapBoardText): string {
+  // Earth is the launchpad and has no belt (D57), so there is no run it is
+  // waiting for. "No run yet" reads as something missing, which is why it was
+  // wrong there and right on a belt stop the child simply has not flown.
+  // An empty line rather than a placeholder: nothing is pending.
+  if (!isBeltStop(stop)) return "";
   if (!hasPersonalBest(entry, stop)) return t.text("map.noRunYet");
   return (
     `${t.text("map.personalBest")}  ·  ` +

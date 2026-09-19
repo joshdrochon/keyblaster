@@ -130,7 +130,12 @@ function blockHeight(
 function rowsFor(lang: Lang, stop: string): Rows[] | null {
   const b = bundle(lang, stop);
   if (b === null) return null;
-  const SENTENCE_PX = 36;
+  // UR-91: the briefing's reading type stepped one rung down the declared
+  // scale, `TYPE.prose` 36 -> `TYPE.body` 30. Named rather than repeated as a
+  // literal, so the model and the scene cannot drift apart again - this was a
+  // hard 36 next to a `BriefingScene` that drew `TYPE.prose`, and the two only
+  // agreed by coincidence.
+  const SENTENCE_PX = TYPE.body;
   const head = headerColumnWidth();
   const rows: Rows[] = [
     {
@@ -371,15 +376,52 @@ describe("UR-58: Shadow delivers the briefing from the page's top-right corner",
     expect(headerColumnWidth()).toBe(columnWidth() - SHADOW_NOTCH.w - SHADOW_NOTCH.gap);
   });
 
-  it("NEGATIVE CONTROL: at the size he used to be drawn, he would not fit", () => {
-    // If this ever passes, the corner has grown and the case above has stopped
-    // measuring anything. 0.78 puts his box at 160 x 185 ending at y 301, past
-    // the 276 where `hi/neptune` starts its first sentence.
-    const asBefore = shadowBox({ x: SHADOW_AT.x, y: SHADOW_AT.y, scale: 0.78 });
+  it("NEGATIVE CONTROL: there is a size at which he would not fit, and it is bigger than his", () => {
+    /**
+     * WHY THIS NO LONGER NAMES 0.78, AND WHAT THAT MEASURED.
+     *
+     * It used to read: his box at scale 0.78 is 160 x 185 and ends at y 301,
+     * past the y 276 where `hi/neptune` starts its first sentence. UR-91
+     * stepped the body type down one rung (`TYPE.prose` 36 -> `TYPE.body` 30)
+     * and this went red - `expected 280.22400000000005 to be greater than 319`
+     * - because a shorter column lets `briefingLayout` open its gaps, and the
+     * tightest first sentence in the product moved DOWN from y 276 to y 319.
+     *
+     * That is a real result and it is worth stating plainly: the corner has
+     * 43 px more headroom than it had, so the "a little smaller to fit" trade
+     * UR-58 made could now be partly given back. Whether Shadow SHOULD grow is
+     * a drawing decision and is logged in gauntlet/escalations.md rather than
+     * taken here.
+     *
+     * The control itself is now derived rather than pinned, which is what stops
+     * it needing a new magic number every time the type scale moves. The claim
+     * it makes is unchanged and is the one that matters: a scale exists at
+     * which he collides with the first sentence, and the shipped scale is
+     * comfortably under it. If he ever grows past that, this goes red.
+     */
     const tightest = briefingLayout(rowsFor("hi", "neptune") as Rows[]);
     const firstSentence = tightest.rows.find((r) => r.id === "sentence-0");
     expect(firstSentence).toBeDefined();
-    expect(asBefore.y + asBefore.h).toBeGreaterThan((firstSentence as { y: number }).y);
+    const sentenceY = (firstSentence as { y: number }).y;
+
+    const collides = (scale: number): boolean => {
+      const box = shadowBox({ x: SHADOW_AT.x, y: SHADOW_AT.y, scale });
+      return box.y + box.h > sentenceY;
+    };
+
+    // The smallest scale, to a hundredth, at which he would run into the copy.
+    let breaks = Number.NaN;
+    for (let scale = SHADOW_SCALE; scale <= 3; scale += 0.01) {
+      if (collides(scale)) {
+        breaks = scale;
+        break;
+      }
+    }
+    expect(breaks, "a colliding scale exists at all").not.toBeNaN();
+    // The shipped size is on the safe side of it - the positive case above is
+    // therefore measuring a live constraint, not a vacuous one.
+    expect(collides(SHADOW_SCALE)).toBe(false);
+    expect(SHADOW_SCALE).toBeLessThan(breaks);
   });
 
   it("clears the action band and stays inside the frame", () => {

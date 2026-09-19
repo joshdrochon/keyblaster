@@ -117,7 +117,18 @@ describe("Director map personal best, on the scale the store actually holds", ()
       atMs: 1_700_000_000_000,
       stars: 3,
     });
-    expect(mapBoardLine(progressFor(progress, "earth"), "earth", T)).toBe("map.noRunYet");
+    expect(hasPersonalBest(progressFor(progress, "earth"), "earth")).toBe(false);
+  });
+
+  it("and says NOTHING there rather than 'no run yet' — nothing is pending", () => {
+    // The launchpad is not a belt the child has failed to fly; it is not a
+    // belt. A placeholder reads as something missing, so Earth gets a blank.
+    const progress = markStopCleared(STOP_IDS.map(blankStopProgress), "earth", {
+      atMs: 1_700_000_000_000,
+      stars: 3,
+    });
+    expect(mapBoardLine(progressFor(progress, "earth"), "earth", T)).toBe("");
+    expect(mapBoardLine(blankStopProgress("earth"), "earth", T)).toBe("");
   });
 
   it("an uncleared stop shows no rates", () => {

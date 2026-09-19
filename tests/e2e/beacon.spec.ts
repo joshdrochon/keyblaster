@@ -69,7 +69,24 @@ async function openBeacon(page: Page, stop = "mars", date = PLAY_DATE): Promise<
 
 // ---------------------------------------------------------------------------
 
-test("AC-17.0 the beacon prints the D81 coordinate format plus one pulsar-fix line", async ({
+/**
+ * AC-17.0 HAS TWO HALVES AND THEY NOW HAVE DIFFERENT ANSWERS (collision C23).
+ *
+ * The criterion is 'Display format: "lam 214.6 deg  beta -1.2 deg  r 1.52 AU"
+ * + one pulsar-fix line (D81)'. The coordinate half is still drawn and still
+ * asserted here. The pulsar half is DELIBERATELY NO LONGER DRAWN: the project
+ * owner cut it from the card as four signed timing residuals no child in the
+ * audience can read, and that is a collision with FR-17, AC-17.0, D15 and D81
+ * rather than a tidy-up, logged as C23 in `docs/decision-log.md`.
+ *
+ * So what this spec asserts changed shape rather than going away. The engine
+ * must STILL produce a correctly formatted pulsar fix - that is the part
+ * `@engine/ephemeris` is tested against JPL Horizons for - and the SCREEN must
+ * not print it. A spec that simply dropped the assertion would let the engine
+ * half rot silently, which is the failure mode this project has already had
+ * twice (trophies with no writer, a toast with no caller).
+ */
+test("AC-17.0 the beacon prints the D81 coordinate format, and no longer the pulsar fix", async ({
   page,
 }) => {
   await openBeacon(page);
@@ -77,8 +94,11 @@ test("AC-17.0 the beacon prints the D81 coordinate format plus one pulsar-fix li
 
   expect(s.ok).toBe(true);
   expect(s.coordsLine).toMatch(D81_COORDS);
-  expect(s.pulsarVisible).toBe(true);
+  // The engine still computes it, in the D81 format...
   expect(s.pulsarLine.startsWith("pulsar fix")).toBe(true);
+  // ...and the card does not draw it (C23).
+  expect(s.pulsarVisible).toBe(false);
+  expect((await texts(page, "beacon")).join(" ")).not.toContain("pulsar fix");
   // One flavour line, from the stage bundle (story-draft-v1.md).
   expect(s.flavourLine.length).toBeGreaterThan(0);
   expect(s.poisoned).toBe(false);

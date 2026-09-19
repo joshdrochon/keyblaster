@@ -133,11 +133,54 @@ export function plateRadius(rect: Rect, props: PlateProps = {}): number {
  * so those do not have to choose between one Graphics per plate and a second
  * implementation.
  */
+/**
+ * EVERY PLATE REMEMBERS THE RECTANGLE IT WAS PAINTED ON (UR-111).
+ *
+ * ================== WHY A GRAPHICS NEEDS THIS AT ALL ==================
+ * A Phaser `Text` can be measured - `getBounds()` is the box it occupies. A
+ * `Graphics` cannot: it has no width, no height and no bounds, only a list of
+ * fill commands. So a plate is invisible to anything that wants to ask "which
+ * objects make up the control at this rectangle", which is exactly the question
+ * `lib/kit.createKeyboardMenu` has to answer to grow a focused control: the
+ * seven story screens hand it a bare rectangle and draw their own plates and
+ * labels, and without this there is no way back from the rectangle to the
+ * drawing.
+ *
+ * A WeakMap and not a field on the object, so nothing is retained after a scene
+ * shuts down and no Phaser type is widened. A Graphics painted several times
+ * (the Title's primary is a body plus a facet; the HUD draws a whole row of
+ * readouts into one) accumulates the UNION of its rects, which is the box the
+ * drawing actually occupies and is what a caller asking "where is this" means.
+ */
+const PLATE_RECTS = new WeakMap<object, Rect>();
+
+/** The union box of every plate painted into `g`, or null if none was. */
+export function plateRectOf(g: object): Rect | null {
+  return PLATE_RECTS.get(g) ?? null;
+}
+
+function rememberPlateRect(g: object, rect: Rect): void {
+  const prev = PLATE_RECTS.get(g);
+  if (prev === undefined) {
+    PLATE_RECTS.set(g, { x: rect.x, y: rect.y, w: rect.w, h: rect.h });
+    return;
+  }
+  const x = Math.min(prev.x, rect.x);
+  const y = Math.min(prev.y, rect.y);
+  PLATE_RECTS.set(g, {
+    x,
+    y,
+    w: Math.max(prev.x + prev.w, rect.x + rect.w) - x,
+    h: Math.max(prev.y + prev.h, rect.y + rect.h) - y,
+  });
+}
+
 export function paintPlate(
   g: Phaser.GameObjects.Graphics,
   rect: Rect,
   props: PlateProps = {},
 ): void {
+  rememberPlateRect(g, rect);
   const radius = plateRadius(rect, props);
   const fill = props.fill ?? INK.panel;
   // A BRACKETED PLATE DEFAULTS TO THE CHROME GOLD, a plain one to the panel

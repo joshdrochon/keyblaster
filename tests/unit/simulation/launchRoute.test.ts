@@ -32,6 +32,8 @@ import {
 import { DEFAULT_FLIGHT_CONFIG, stagePoolFor } from "@game/flight/stage.js";
 import {
   FALL_TIME_MIN_MS,
+  FALL_TIME_MIN_IKI_MS,
+  fallFloorMs,
   HEADROOM_SLOW_IKI_MS,
   stopPaceFactor,
 } from "@engine/fallTime/index.js";
@@ -806,6 +808,35 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
             spawnCount: WORDS,
             calibration,
             knobs: opened,
+            /**
+             * ================== D101 IS PINNED OFF IN THIS BLOCK ==============
+             *
+             * NOT because two-layer rocks are unshipped - they ship at Neptune
+             * and Pluto - but because THE FLOOR CONTROL IN THIS BLOCK CANNOT
+             * FLY THEM. `freezeKnob` deliberately passes `stopId: undefined` so
+             * the per-stop band cannot move the pinned knob, and `stopId` is
+             * also what tells the belt which stop it is nesting at. So with
+             * nesting left on, `climb()` would compare a route that nests
+             * against a floor that structurally cannot, and every difference
+             * between them would be credited to the KNOB - which is the one
+             * thing this block exists to measure.
+             *
+             * MEASURED, and this is why it matters rather than being tidiness.
+             * With nesting left on and the floor unchanged, the two assertions
+             * below read:
+             *
+             *   fast meanLive 3.09 against grade2 + 0.5 (was above 3.39)
+             *   fast marginP25 0.409 against 0.377 at the pinned floor
+             *
+             * Both move in the SAFE direction - a two-layer rock is one object
+             * carrying two words, so the board holds fewer rocks, and the pair's
+             * budget is spent with no queueing gap between the layers, so a
+             * fast pilot ends with more of it spare. Neither is a stall and
+             * neither is hidden: D101's effect on these exact quantities, with
+             * both arms nesting, is `tests/unit/simulation/nestedRoute.test.ts`,
+             * and the stall bar is asserted there against this file's zero.
+             */
+            nested: false,
           },
           player,
           {},
@@ -1426,11 +1457,30 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
     // than or equal to 5500`), because the belt pools tripled in size and
     // gained shorter words. Both readings are true of different content, and
     // neither is a statement about the clamp.
+    //
+    // UR-88 MOVED THIS BOUND, AND THE REASON IS WORTH STATING. The clamp floor
+    // is now a function of the WORD and of the game's BELIEF about the hands
+    // (`fallFloorMs`), because a flat 2500 ms handed a two-letter word and an
+    // eight-letter word the same minimum - the owner asked for "go" to cross in
+    // under two seconds and a constant forbids it. `headroomEarned` exempts the
+    // supported tail from the whole reduction, but it reads the BELIEF, and a
+    // cold profile's belief is FR-8's own default for everybody (D18). So on
+    // their FIRST belts, before `refineCalibration` has watched them, a grade-2
+    // child's quickest MASTERED short word now falls in 2023 ms rather than
+    // 2500 - measured, this line, at Mars.
+    //
+    // THAT IS BOUNDED AND IT IS NOT FREE TIME TAKEN AWAY. The floor only ever
+    // binds a rock whose budget was already under it, and at `MAX_LIVE_MIN` the
+    // scaled floor is FR-8's own expression at `EASE_MIN` - so it binds only on
+    // a word this child has already mastered, never on a cold read, and the
+    // stall count for this pilot below is the survivability claim. Once the
+    // belief has refined to their real interval the floor is FR-8's literal
+    // 2500 ms again, at every length, to the byte.
     for (const step of rows.grade2!) {
       expect(
         step.fastestFallMs,
-        `grade2 at ${step.stop}: FR-8's own MIN still bounds them`,
-      ).toBeGreaterThanOrEqual(FALL_TIME_MIN_MS);
+        `grade2 at ${step.stop}: quickest rock ${step.fastestFallMs} ms`,
+      ).toBeGreaterThanOrEqual(fallFloorMs(2, DEFAULT_CALIBRATION.ikiMs));
     }
     // And the ace pilot's own before/after, at the stop where their knob did
     // NOT move (Pluto: the cap, before and after), so nothing is attributed to
@@ -1441,10 +1491,21 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
     const aceRow = rows.ace!;
     const pluto = aceRow[aceRow.length - 1]!;
     expect(pluto.fastestFallMs, "ace's quickest rock at Pluto").toBeLessThan(8000);
-    // And FR-8's own literal floor still binds everything, at every stop.
-    for (const [, steps] of Object.entries(rows)) {
+    // And A floor still binds everything, at every stop, for every pilot -
+    // UR-88 made it the WORD's and the HANDS' rather than a flat constant (see
+    // the grade-2 arm above for the whole reading), so the bound stated here is
+    // the shortest shipped word's own floor at the belief a cold profile opens
+    // on. Nothing on this route is ever handed a rock with no floor at all.
+    for (const [name, steps] of Object.entries(rows)) {
       for (const step of steps) {
-        expect(step.fastestFallMs, `${step.stop}`).toBeGreaterThanOrEqual(FALL_TIME_MIN_MS);
+        expect(
+          step.fastestFallMs,
+          `${name} at ${step.stop}: quickest rock ${step.fastestFallMs} ms`,
+          // The shortest shipped word at the FASTEST interval fall time may be
+          // computed from (`FALL_TIME_MIN_IKI_MS`) - the floor scales with the
+          // hands, so a faster pilot's floor is lower and the bound has to be
+          // the lowest the route can produce rather than the default pilot's.
+        ).toBeGreaterThanOrEqual(fallFloorMs(2, FALL_TIME_MIN_IKI_MS));
       }
     }
   });

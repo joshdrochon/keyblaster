@@ -16,8 +16,16 @@ import {
   type SceneSnapshot,
   type Snapshotable,
 } from "./lib/kit";
+import {
+  SHADOW_SCALE,
+  shadowOrigin,
+  speechBox,
+  speechRowBoxes,
+  speechWrapWidth,
+} from "./support/earthLayout";
 import { createWordPrompt, type WordPrompt } from "./lib/typedWord";
 import { stageBundle } from "./lib/content";
+import { createLaneText } from "./support/copy";
 import { goTo, persistStopCleared, resolveInit, type ResolvedInit, type StoryInit } from "./lib/init";
 import { markStopCleared } from "@engine/progress/index.js";
 import { audioFrom } from "@game/audio/wiring";
@@ -223,30 +231,72 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
     this.statusPlate = this.lastHeaderPlate;
 
     // --- Shadow and his line ---------------------------------------------
-    this.shadow = drawShadow(this, 300, GAME_HEIGHT * 0.63, "pointing", {
-      scale: 1.05,
+    //
+    // ============ THE LINE IS HIS, AND IT IS NOT ON THE LAMP ============
+    //
+    // WHAT WAS HERE. A 760 x 156 plate at `GAME_WIDTH / 2 - 380`, i.e.
+    // 580..1340 x 540..696 at the artboard, with the line set 36/32 inside it.
+    // The lamp housing is 912..1008 x 461..539 and the mast runs to 827, so the
+    // plate covered the lamp and the top of the tower - the one object this
+    // screen exists to show a child - and it did so in BOTH states, dark and
+    // lit. It also read as a caption: nothing on it said Shadow was speaking,
+    // although he is drawn 280 px to its left.
+    //
+    // It is a dialogue box now, in Shadow's own column, sitting on his head,
+    // with the speaker label the warp break already uses over the line. Its
+    // right edge stops one gutter short of the mast. The geometry is in
+    // `support/earthLayout.ts` so `tests/unit/scenes/earthSpeech.test.ts` can
+    // measure it: this file imports Phaser, which is how a plate could sit on
+    // the lamp through a green suite in the first place.
+    //
+    // HE IS PLACED FROM THE CENTRE TOO. `300` was a literal on a screen whose
+    // own header note says every object here is placed from `GAME_WIDTH / 2`;
+    // `grid-conformance.spec.ts` never caught it because a Phaser `Graphics`
+    // has no text for it to measure. `shadowOrigin` draws him at 300 on a
+    // 1920 world and keeps him under his own box on every other one.
+    const stand = shadowOrigin(GAME_WIDTH);
+    this.shadow = drawShadow(this, stand.x, stand.y, "pointing", {
+      scale: SHADOW_SCALE,
       reducedMotion: ctx.reducedMotion,
       depth: 12,
     });
 
-    const lineW = 760;
-    // CENTRED, like every other object on this screen (UR-19). It was a literal
-    // 440, which is `(1920 - 760) / 2` - correct at the artboard width and
-    // nowhere else. Measured at a 2561-wide world: eight of this screen's nine
-    // texts moved +321 with the centre and this one did not, so Shadow's line
-    // drifted out from under the beacon it belongs to. One screen, two
-    // anchoring models, which is the defect `grid-conformance.spec.ts` exists
-    // to catch - and it caught this one rather than a human noticing.
-    const lineX = GAME_WIDTH / 2 - lineW / 2;
-    const lineY = GAME_HEIGHT * 0.63 - 140;
-    // Opaque, like every other card: see `lib/kit.plate`.
-    plate(this, lineX, lineY, lineW, 156).setDepth(11);
-    label(this, lineX + 36, lineY + 32, bundle.preflightLine, {
+    // MEASURED, THEN PLACED. The box is sized to its content (one line in
+    // English and Spanish, two in Hindi at this wrap), so the line has to be
+    // built before the plate under it can be cut. `setPosition` afterwards
+    // rather than a second Text object.
+    const speechLine = label(this, 0, 0, bundle.preflightLine, {
       size: TYPE.body,
       color: INK.text,
-      wrapWidth: lineW - 72,
+      wrapWidth: speechWrapWidth(),
       lang: this.story.lang,
     }).setDepth(12);
+    const box = speechBox(GAME_WIDTH, speechLine.getWrappedText().length);
+    const [speakerRow, lineRow] = speechRowBoxes(
+      GAME_WIDTH,
+      speechLine.getWrappedText().length,
+    ) as [typeof box, typeof box];
+    // Opaque, like every other card: see `lib/kit.plate`. The stroke is the
+    // coach card's, so the two places Shadow speaks are drawn the same way.
+    plate(this, box.x, box.y, box.w, box.h, {
+      fill: INK.panel,
+      stroke: INK.line,
+      alpha: 1,
+    }).setDepth(11);
+    // WHO IS SPEAKING (the warp break's `warp.speaker`, AC-33's speaker row).
+    // The same key rather than a second one: it is the string "Shadow" in all
+    // three languages and there is one Shadow (D91). A second key would be a
+    // translation task for a word already translated.
+    // `createLaneText`, not `story.text`: "Shadow" lives in the lane table
+    // (`support/copy.ts`), which is the resolver that knows it in all three
+    // languages. The shared one does not, by design.
+    const laneText = createLaneText({ lang: this.story.lang, shipName: this.story.shipName });
+    label(this, speakerRow.x, speakerRow.y, laneText.text("warp.speaker"), {
+      size: TYPE.caption,
+      color: pal.accent,
+      lang: this.story.lang,
+    }).setDepth(12);
+    speechLine.setPosition(lineRow.x, lineRow.y);
     // SHADOW SAYS IT (D63, AC-21.6). The label above is built first and is the
     // source of truth; the voice is handed the SAME string, never a second copy
     // of the copy, so a player with no audio reads exactly what a player with

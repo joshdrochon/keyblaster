@@ -6,6 +6,7 @@ import { DUR, EASE, INK, SPACE, TYPE, rowHeight } from "./theme.js";
 import { plate, strokePlate } from "./chrome.js";
 import { hexToNum } from "@game/render/palette";
 import { plateWidth, uiText } from "./text.js";
+import { FOCUS_POP, POP_NAME_PREFIX, focusPopScale, focusPopShift } from "./focusPop.js";
 
 /**
  * The control kit: button, list row, gallery tile, text field.
@@ -51,7 +52,70 @@ export interface Box {
   h: number;
 }
 
+/**
+ * ================== THE FOCUS MODEL, IN ONE PLACE (UR-110) ==================
+ *
+ * This game is a Phaser canvas with no DOM in it, and it is keyboard-first
+ * (D37, AC-18.1). "Hover" and "focus" are therefore two words for ONE state,
+ * and the rules below are the whole of it. They are written here because this
+ * is where the shared behaviour lives; `ui/focus.ts` owns which control is
+ * focused, and this file owns what being focused LOOKS like.
+ *
+ *   1. EXACTLY ONE CONTROL IS ACTIVE ON A SCREEN, ALWAYS.
+ *      `FocusList.paint` sets `setFocused(i === index)` on every item, so one
+ *      control is true and the rest are false, by construction. There is no
+ *      second "hovered" flag anywhere, and there must never be one.
+ *
+ *   2. HOVERING A CONTROL MOVES FOCUS TO IT.
+ *      `bindPointer` sends `pointerover` straight to `handlers.focus()`. So
+ *      the question "what if the pointer is on A while the keyboard is on B"
+ *      cannot arise: the moment the pointer reaches A, A *is* the focused
+ *      control and B is not. Two competing highlights would mean two answers
+ *      to "you are here" and two things for the screen-reader mirror to
+ *      disagree about (ui/focus.ts says the same for the same reason).
+ *
+ *   3. THE POINTER LEAVING A CONTROL DOES NOTHING.
+ *      There is no `pointerout` handler in this game, deliberately. Focus is a
+ *      state that is HELD until something takes it, not a spotlight that
+ *      follows the mouse. A child who moves the mouse aside to look at the
+ *      screen has not stopped being about to press Enter on that button.
+ *
+ *   4. ONLY TWO THINGS TAKE FOCUS AWAY: another control on the same screen
+ *      taking it (by hover, arrow key, Tab or click), or the screen going away
+ *      (Escape, a scene change, a modal opening - `setPointerEnabled(false)`).
+ *      Nothing else. Not time, not the pointer, not a click on the background.
+ *
+ *   5. SIZE IS A STATE, NOT A FLOURISH.
+ *      A focused control is bigger for as long as it is focused, and returns
+ *      to its base size at the instant rule 4 fires. This is what UR-110 fixed:
+ *      the pop used to be `yoyo: true`, so it grew and shrank straight back
+ *      and the RESTING size of a focused control was the same as every other
+ *      control's. Locked controls never grow - growth promises an Enter that
+ *      a locked control does not answer (D73).
+ */
+
+/**
+ * How big "grown" is, and the arithmetic that keeps the swell centred.
+ *
+ * BOTH LIVE IN `ui/focusPop.ts` NOW (UR-111), because this file is only one of
+ * the three menus in the game: `scenes/lib/kit.ts` drives the seven story
+ * screens and `TitleScene` rolls its own list, and until they shared these
+ * numbers a focused control meant three different sizes depending on which
+ * screen a child was looking at. Re-exported here so the ten call sites that
+ * already import `FOCUS_POP` from the control kit keep working, and so this
+ * file still reads as the place the focus model is documented.
+ */
+export { FOCUS_POP } from "./focusPop.js";
+
 export abstract class Control implements Focusable {
+  /**
+   * The pop container is named `kb-pop:<id>`, for the same reason every hit
+   * area is named `kb-hit:<id>` (ui/focus.ts): a probe - an e2e, or a hand
+   * measurement of a served build - has to be able to find the object whose
+   * scale it is measuring without guessing at the scene graph's shape.
+   */
+  static readonly POP_NAME_PREFIX = POP_NAME_PREFIX;
+
   readonly id: string;
   locked = false;
   adjustable = false;
@@ -65,10 +129,28 @@ export abstract class Control implements Focusable {
 
   protected focused = false;
   protected readonly g: Phaser.GameObjects.Graphics;
+  /**
+   * TWO CONTAINERS, AND THE SPLIT IS THE POINT.
+   *
+   * `root` is the LAYOUT anchor. Scenes position it (`node.setPosition`) and
+   * `ringBounds` reports it, and it is never scaled - six scenes stack their
+   * rows off `ringBounds().h`, so a pop that fed back into it would reflow the
+   * screen under the child every time focus moved.
+   *
+   * `container` is what breathes. Every subclass adds its children to it, so
+   * they all pop together, and it is offset inside `root` so the growth is
+   * about the control's CENTRE. A single scaled container would anchor at its
+   * own top-left, putting all of the growth on the right and bottom - which is
+   * invisible in a 280 ms flourish and, held, is a focused row visibly out of
+   * line with the rows above it.
+   */
+  private readonly root: Phaser.GameObjects.Container;
   protected readonly container: Phaser.GameObjects.Container;
   protected boxW = 0;
   protected boxH = 0;
   private pointerZone: Phaser.GameObjects.Zone | null = null;
+  /** The live pop, so fast focus movement replaces it instead of stacking. */
+  private popTween: Phaser.Tweens.Tween | null = null;
 
   constructor(
     protected readonly scene: Phaser.Scene,
@@ -79,40 +161,79 @@ export abstract class Control implements Focusable {
     depth: number,
   ) {
     this.id = id;
-    this.container = scene.add.container(x, y).setDepth(depth);
+    this.root = scene.add.container(x, y).setDepth(depth);
+    this.container = scene.add
+      .container(0, 0)
+      .setName(`${Control.POP_NAME_PREFIX}${id}`);
+    this.root.add(this.container);
     this.g = scene.add.graphics();
     this.container.add(this.g);
   }
 
   get node(): Phaser.GameObjects.Container {
-    return this.container;
+    return this.root;
   }
 
-  /** World-space box the focus ring should wrap. */
+  /**
+   * The LAYOUT box: where this control sits and how much room it takes in the
+   * stack. Deliberately not the drawn box - see `root` above. The focus ring
+   * is struck around this, and a held pop swells the plate into that ring
+   * rather than through it (`FOCUS_POP.maxGrowPx`).
+   */
   ringBounds(): Box {
     return {
-      x: this.container.x,
-      y: this.container.y,
+      x: this.root.x,
+      y: this.root.y,
       w: this.boxW,
       h: this.boxH,
     };
+  }
+
+  /**
+   * How much bigger this control is when focused, as a scale factor.
+   *
+   * Derived from the control's OWN width so the growth in pixels is bounded
+   * the same way on a 220 px chip and a 900 px settings row. See `FOCUS_POP`.
+   */
+  private popScale(): number {
+    return focusPopScale(this.boxW);
+  }
+
+  /**
+   * Rule 5 of the focus model above: grown while focused, base size otherwise.
+   *
+   * Both directions are a tween, and both replace whatever was running. A
+   * pointer swept across four rows fires this eight times; without the handle
+   * the old tweens keep animating and fight the new one, which reads as a
+   * control that judders instead of settling.
+   */
+  private setPopped(popped: boolean): void {
+    const scale = popped ? this.popScale() : 1;
+    // Half the growth goes to each side, which is what makes it a swell rather
+    // than a drift. At scale 1 these are both 0 and the container sits exactly
+    // on its root. The arithmetic is `ui/focusPop.ts`'s, shared with the story
+    // screens' kit and the Title, so one control cannot swell differently from
+    // another (UR-111).
+    const shift = focusPopShift(scale, { left: 0, top: 0, w: this.boxW, h: this.boxH });
+    this.popTween?.remove();
+    this.popTween = this.scene.tweens.add({
+      targets: this.container,
+      scaleX: scale,
+      scaleY: scale,
+      x: shift.x,
+      y: shift.y,
+      duration: DUR.focus,
+      ease: EASE.pop,
+    });
   }
 
   setFocused(focused: boolean): void {
     if (this.focused === focused) return;
     this.focused = focused;
     this.redraw();
-    if (focused && !this.locked) {
-      // A 1.5% scale pop on Back.Out. Small enough to never reflow the row,
-      // big enough that the eye lands on the right control.
-      this.scene.tweens.add({
-        targets: this.container,
-        scale: 1.015,
-        duration: DUR.focus,
-        ease: EASE.pop,
-        yoyo: true,
-      });
-    }
+    // A LOCKED CONTROL NEVER GROWS. It is focusable and readable (D73) but it
+    // does not answer Enter, and size is the loudest promise this kit makes.
+    this.setPopped(focused && !this.locked);
   }
 
   activate(): void {}
@@ -151,7 +272,7 @@ export abstract class Control implements Focusable {
       // it lines up with a focusable control, rather than clicking at hard-coded
       // pixel coordinates that go stale the moment a layout changes.
       .setName(`${HIT_ZONE_PREFIX}${this.id}`)
-      .setDepth(this.container.depth + 1)
+      .setDepth(this.root.depth + 1)
       .setInteractive({ useHandCursor: !this.locked });
 
     zone.on("pointerover", () => handlers.focus());
@@ -201,7 +322,11 @@ export abstract class Control implements Focusable {
   destroy(): void {
     this.pointerZone?.destroy();
     this.pointerZone = null;
-    this.container.destroy();
+    this.popTween?.remove();
+    this.popTween = null;
+    // `root` owns the pop container, which owns every child, so this is the
+    // one destroy the kit needs.
+    this.root.destroy();
   }
 
   protected abstract redraw(): void;

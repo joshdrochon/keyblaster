@@ -207,6 +207,186 @@ export function concurrencyTarget(maxLive: number): number {
   );
 }
 
+// ---------------------------------------------------------------------------
+// THE BUDGET RATCHET (C23, D31)
+// ---------------------------------------------------------------------------
+
+/**
+ * The knob pair plus the DEPTH THE FALL BUDGET IS SIZED FROM.
+ *
+ * ================== WHY THE TWO HAD TO COME APART ==================
+ * `maxLive` was buying two things with one number. `@engine/pacing.standingDepth`
+ * builds the board the knob asks for and `@engine/fallTime.fallBudgetFactor`
+ * caps the budget that pays for standing in it, and both read
+ * `concurrencyTarget(maxLive)`. So a LOOSEN removed the queue and the budget
+ * that paid for it in the same step - and the second is bigger than the first
+ * for every pilot with any margin at all, because the queue a rock gives up is
+ * one step of depth x the pilot's SERVICE time while the budget it gives up is
+ * one step of depth x FR-8's whole FALL budget, and FR-8's budget exceeds the
+ * service time by exactly the margin the controller is trying to protect.
+ *
+ * Measured, median pilot at Neptune, 40 seeds, the knob pinned for the belt:
+ *
+ *     maxLive   fall     queued   on hand
+ *     5        11585      4312      7272
+ *     4         9462      2705      6756    <- the LOOSEN, and it costs 516 ms
+ *
+ * D31's relief was pointing the wrong way, at every pilot, every stop and every
+ * band position. `tests/unit/simulation/loosenRelief.test.ts` is the bar.
+ *
+ * ================== IT IS NOT A THIRD KNOB (AC-10.4) ==================
+ * `Knobs` is untouched and `KNOB_NAMES` is still exactly {maxLive, lengthBias}.
+ * This is a RATCHET OVER the primary knob, carried on the controller's own
+ * state for the length of a belt, in the same spirit as `keystrokeHeadroom` and
+ * `concurrencyTarget` being functions of the knob rather than knobs. It is not
+ * persisted: `clampKnobs` drops it and `@engine/persistence/schema` writes the
+ * two fields by name, so a belt opens with `budgetLive` equal to the knob and
+ * a restored profile cannot carry relief it did not earn on the belt it is on.
+ *
+ * ================== AND IT IS A FLOOR, NEVER A CEILING ==================
+ * `budgetLiveOf` takes the MAXIMUM of the two, so a value below the knob reads
+ * as the knob. Nothing here can make a belt harder than the knob already made
+ * it, and a caller that never sets it flies `concurrencyTarget(maxLive)` byte
+ * for byte - which is every caller in the game that has not been given relief.
+ */
+export interface BudgetKnobs extends Knobs {
+  /**
+   * The `maxLive` the fall budget is sized from: the highest the knob has been
+   * this belt, plus any relief D31 granted below the band's floor. Absent means
+   * "the knob", i.e. the pre-C23 rule exactly.
+   */
+  readonly budgetLive?: number;
+}
+
+/**
+ * The depth the fall budget is sized from, given a knob pair that may carry a
+ * ratchet.
+ *
+ * Total, and the totality is the safety: a non-finite knob reads as
+ * `MAX_LIVE_MIN` (the same rule `concurrencyTarget` and `clampKnobs` follow, so
+ * a restored profile can never stop a child's game), a non-finite or absent
+ * ratchet reads as the knob, and the result is the larger of the two clamped
+ * into FR-10's range.
+ */
+export function budgetLiveOf(
+  knobs?: { readonly maxLive?: number; readonly budgetLive?: number } | null,
+): number {
+  const raw = knobs?.maxLive;
+  const live = Number.isFinite(raw) ? Math.floor(raw as number) : MAX_LIVE_MIN;
+  const held = knobs?.budgetLive;
+  const ratchet = Number.isFinite(held) ? Math.floor(held as number) : live;
+  return Math.min(MAX_LIVE_MAX, Math.max(MAX_LIVE_MIN, Math.max(live, ratchet)));
+}
+
+/**
+ * Carry the ratchet across a knob move: the budget depth never falls.
+ *
+ * A TIGHTEN raises it, because the board really is deeper and the rocks at the
+ * back of it really do need the budget. A LOOSEN leaves it where it was, which
+ * is the whole of C23 - the child gives up the queue and keeps the time.
+ *
+ * `ceiling` bounds the ratchet at the stop's own busiest board
+ * (`./stopBand.ts`), so relief can never grant a rock more than it would have
+ * had at the top of the band it is flying in. Mars cannot hand out Pluto's
+ * budget however badly the belt is going.
+ */
+export function ratchetBudget(
+  before: BudgetKnobs,
+  after: Knobs,
+  band: LiveBand = GLOBAL_LIVE_BAND,
+): BudgetKnobs {
+  const b = clampBand(band);
+  const held = Math.min(b.ceiling, budgetLiveOf(before));
+  return withBudgetLive(after, Math.max(held, after.maxLive));
+}
+
+/**
+ * Attach the ratchet, AND OMIT IT ENTIRELY WHEN IT IS THE KNOB.
+ *
+ * ================== WHY THE ABSENCE MATTERS (AC-10.4) ==================
+ * `tests/unit/controller/controller.test.ts` reads AC-10.4 off the runtime
+ * object - `Object.keys(createController().knobs).sort()` must be exactly
+ * `["lengthBias", "maxLive"]` - and it is right to: an AC about a knob SET that
+ * only checked a constant would not notice a third field being added to the
+ * thing the scene actually flies. So a pilot who has been given no relief
+ * carries no field, and the knob pair a fresh controller hands out is the same
+ * two-key object it has always been, byte for byte, down to its key list.
+ *
+ * The field appears only once the ratchet is genuinely ABOVE the knob, i.e.
+ * only on the loosen path, which is the only place it means anything.
+ */
+function withBudgetLive(knobs: Knobs, budgetLive: number): BudgetKnobs {
+  return budgetLive > knobs.maxLive ? { ...knobs, budgetLive } : { ...knobs };
+}
+
+/**
+ * One step of relief for a pilot the knob can no longer help (D31).
+ *
+ * ================== THE CASE THIS EXISTS FOR ==================
+ * `loosenStep` returns null once `lengthBias` is at its floor and `maxLive` is
+ * at the STOP's floor, and `decideStage` reports it as `at-loosen-floor`. Until
+ * C23 that hold was the end of the road: the controller had decided the belt
+ * was landing on the child, and it had nothing left to give. Measured, that is
+ * exactly where the route's last failing cell lives - the median pilot at
+ * Pluto, whose knob is pinned at the band floor of 5 for the whole belt and
+ * whose hit rate inside a stalling belt reads 0.774, well under `LOOSEN_BELOW`.
+ *
+ * So when the knob has no room left, the BUDGET takes the step instead: the
+ * board stays exactly as deep as the stop's floor says it must be, and the
+ * rocks standing in it are granted the budget they would have had at a busier
+ * setting. It is the same trade a loosen already makes, made in the one channel
+ * that still has travel.
+ *
+ * ================== WHY IT CANNOT RUN AWAY ==================
+ *   - it is bounded by the stop's own CEILING, so the most a belt can ever
+ *     grant is the budget its busiest legal board would have paid.
+ *   - it only fires on `at-loosen-floor`, i.e. when the controller has already
+ *     decided to loosen on `LOOSEN_BELOW` or `LOOSEN_MARGIN_BELOW`. A pilot who
+ *     never triggers a loosen never sees one millisecond of it - swept, the ace
+ *     and fast pilots never reach either trigger at any stop on the route.
+ *   - it is rate-limited by `MIDSTAGE_LOOSEN_SAMPLE` like any other mid-belt
+ *     move, and it resets with the belt.
+ *
+ * Returns the knobs unchanged when there is no travel left, so the caller can
+ * tell "gave relief" from "had none to give" by identity.
+ */
+/**
+ * ================== WHAT WAS TRIED BELOW THE KNOB'S FLOOR, AND REJECTED =====
+ * `loosenStep` returns null once `lengthBias` is at its floor and `maxLive` is
+ * at the STOP's floor, and `decideStage` reports that as `at-loosen-floor`: the
+ * controller has decided the belt is landing on the child and has nothing left
+ * to give. That is exactly where the route's last stalling cell lives - the
+ * median pilot at Pluto, knob pinned at the band floor of 5 for the whole belt,
+ * hit rate 0.774 inside the belts that empty the hull.
+ *
+ * So a further step was built and measured: when the knob has no room left, walk
+ * `budgetLive` one setting ABOVE it and let the budget take the step the knob
+ * cannot. It works, and it costs too much. Route sweep, 120 seeds x 6 belts x 5
+ * pilots, both nesting arms, the real controller carried stop to stop:
+ *
+ *     lever                         stalls   what else moved
+ *     shipped ratchet only             5     nothing
+ *     + one step below the floor       0     grade-2's hit rate at Neptune
+ *                                            0.915 -> 0.959, back OVER D17's
+ *                                            0.90 band ceiling; UR-51's skill
+ *                                            separation 27/40 routes -> 19/40,
+ *                                            with grade-2 ending ABOVE fast on
+ *                                            some seeds; grade-2 opens Pluto at
+ *                                            its floor on 23 of 40 routes
+ *                                            against the 38 on record.
+ *     + walked to the band ceiling     0     grade-2 Neptune 0.961, same
+ *                                            separation loss, more of it.
+ *
+ * The relief leaks. Margins are read against the budget `@engine/fallTime`
+ * granted, and the margin window is carried stop to stop (D53), so a belt flown
+ * on relief hands the NEXT belt evidence that the child has room. Gating the
+ * tighten while the ratchet is up (`HoldReason` "on-relief") stops the leak
+ * inside a belt and not across one. The owner's standing report is that the game
+ * is too easy; a lever that moves the supported-tail pilot back above D17's band
+ * is the wrong trade, and it is logged in gauntlet/escalations.md rather than
+ * shipped.
+ */
+
 /** A single knob move. AC-10.1: at most one of these per stage, ever. */
 export interface KnobChange {
   readonly knob: KnobName;

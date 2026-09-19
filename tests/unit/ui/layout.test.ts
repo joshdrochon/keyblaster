@@ -222,6 +222,91 @@ describe("the beacon log fits the 1920x1080 frame", () => {
     }
   });
 
+  /**
+   * THE SECTION CAPTIONS HAVE THEIR OWN BAND.
+   *
+   * WHAT WAS REPORTED. At 2000 px the project owner could not read either
+   * section heading: "Beacons · 3 of 7 lit" was drawn behind the Earth row and
+   * "Trophies · 5 of 12 earned" behind the First Light card, each visible only
+   * as grey text bleeding through a card's top edge.
+   *
+   * IT IS NOT A DEPTH BUG. Measured on the served build at 2000x1125, the
+   * caption's ink ran 206..240.71 and the first control's ring started at 216 -
+   * the caption and the column were anchored to the same content line, so the
+   * caption was drawn INSIDE the first card's rectangle. A z-order fix would
+   * have put readable grey type on top of a card and called it done.
+   *
+   * So the claim is geometric and made in both scripts: the caption's INK BOX,
+   * modelled the same way the trophy tiles' lines are (`line`, above), must not
+   * share area with the first control beneath it. Devanagari is the case that
+   * binds - its ink box is 1.2x Latin's (theme.ts LINE_HEIGHT) - and a band
+   * tuned to English alone is a band that collides in Hindi.
+   */
+  it("the section captions clear the first control under them, in both scripts", () => {
+    /** One line of `TYPE.body` caption ink, the test's own model of it. */
+    const captionInk = (lang: "en" | "hi"): number => {
+      const em = lang === "hi" ? 1.56 : 1.3;
+      return Math.round(30 * 1.05) + Math.round(30 * (em - 1));
+    };
+    /** The measured first row / first tile on the served build. */
+    const FIRST_BEACON_H = 96;
+    const FIRST_TROPHY_H = 104;
+
+    for (const lang of ["en", "hi"] as const) {
+      const ink = captionInk(lang);
+      const columns = [
+        {
+          name: "beacons",
+          caption: {
+            x: BEACON_LOG.beacons.x,
+            y: BEACON_LOG.captionY,
+            w: BEACON_LOG.beacons.w,
+            h: ink,
+          },
+          first: {
+            x: BEACON_LOG.beacons.x,
+            y: BEACON_LOG.beacons.top,
+            w: BEACON_LOG.beacons.w,
+            h: FIRST_BEACON_H,
+          },
+        },
+        {
+          name: "trophies",
+          caption: {
+            x: BEACON_LOG.trophies.left,
+            y: BEACON_LOG.captionY,
+            w: BEACON_LOG.trophies.tileW,
+            h: ink,
+          },
+          first: {
+            x: BEACON_LOG.trophies.left,
+            y: BEACON_LOG.trophies.top,
+            w: BEACON_LOG.trophies.tileW,
+            h: FIRST_TROPHY_H,
+          },
+        },
+      ];
+
+      for (const col of columns) {
+        const captionBottom = col.caption.y + col.caption.h;
+        const clearance = col.first.y - captionBottom;
+        expect(
+          rectsOverlap(col.caption, col.first),
+          `${lang}: the ${col.name} caption (${col.caption.y}..${captionBottom}) ` +
+            `is drawn inside the first control under it (top ${col.first.y}), ` +
+            `overlapping it by ${-clearance} px`,
+        ).toBe(false);
+        // Touching is not enough: a caption flush against a card's top edge
+        // still reads as bleeding through it.
+        expect(
+          clearance,
+          `${lang}: the ${col.name} caption bottom is ${captionBottom} and the ` +
+            `first control starts at ${col.first.y} - ${clearance} px of band`,
+        ).toBeGreaterThanOrEqual(8);
+      }
+    }
+  });
+
   it("the empty-state aside is clear of both columns", () => {
     const aside = BEACON_LOG.aside;
     const column = flowColumn(new Array(7).fill(106), {

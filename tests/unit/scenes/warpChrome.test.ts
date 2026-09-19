@@ -184,12 +184,78 @@ describe("Shadow is a name and the instruction is a sentence", () => {
 
   it("the rest of the screen's own copy already starts with a capital", () => {
     // The sibling sweep the report asked for. Every string this screen draws,
-    // from the two tables that supply it. `warp.chargeLabel` is a LABEL and is
-    // deliberately not in this list - see gauntlet/escalations.md.
-    for (const key of ["warp.speaker", "warp.hint", "warp.composed"] as const) {
+    // from the two tables that supply it. `warp.chargeLabel` joined the list
+    // when the owner settled the escalation - see the block below.
+    for (const key of [
+      "warp.speaker",
+      "warp.hint",
+      "warp.composed",
+      "warp.chargeLabel",
+    ] as const) {
       const first = en.text(key)[0] ?? "";
       expect(first, `${key} starts lower case`).toBe(first.toLocaleUpperCase());
     }
+  });
+});
+
+/**
+ * "Warp Drive" IS A LABEL, AND LABELS ARE TITLE CASE.
+ *
+ * ================== AN ESCALATION THE OWNER CLOSED ==================
+ * UR-81's rule already gave Title Case to labels, and `warp.chargeLabel` is a
+ * label, so "Warp Drive" was the literal reading of a rule this repo had
+ * already adopted. The lane that wrote that rule left this one string alone and
+ * recorded why in `gauntlet/escalations.md` ("2. 'warp drive' IS STILL LOWER
+ * CASE, and that is a deliberate non-change"): the owner's own report about the
+ * bolt spelled it lower case, and recasing one label invites recasing the whole
+ * table. Its lean was "leave it; if the owner wants Title Case on labels it
+ * should be one sweep with the whole list in front of them."
+ *
+ * The owner has now asked for this label capitalised. That closes the
+ * escalation for THIS string and for no other: "continue", "fly it again" and
+ * "stage report" are untouched, so the table-wide sweep the escalation asked
+ * for is still open and still the owner's to call.
+ *
+ * ================== WHERE THE CASE COMES FROM ==================
+ * The TABLE, not the call site. `ui/text.uiText` puts every chrome string
+ * through `theme.chromeCase`, and since UR-81 that function returns the string
+ * unchanged unless D41's increased-legibility setting is on - so the case a
+ * translator writes is the case on screen, and hardcoding "Warp Drive" in
+ * `WarpScene.ts` would have put English capitals on the Spanish string too.
+ *
+ * ================== WATCHED FAILING (rule 4) ==================
+ * Real printed values from the red run, with the table's old strings in place:
+ *   capitalises the warp drive's label, which is a label and not a sentence
+ *     expected 'warp drive' to be 'Warp Drive'
+ *   capitalises it in Spanish too, and in Hindi by fallthrough
+ *     expected 'motor de salto' to be 'Motor de salto'
+ *   leaves no lower-case "warp drive" in the lane's copy
+ *     expected [ 'warp.charged' ] to deeply equal []
+ */
+describe("the warp drive's label is Title Case", () => {
+  const en = createLaneText({ lang: "en", shipName: "Lantern" });
+  const es = createLaneText({ lang: "es", shipName: "Lantern" });
+  const hi = createLaneText({ lang: "hi", shipName: "Lantern" });
+
+  it("capitalises the warp drive's label, which is a label and not a sentence", () => {
+    expect(en.text("warp.chargeLabel")).toBe("Warp Drive");
+  });
+
+  it("capitalises it in Spanish too, and in Hindi by fallthrough", () => {
+    // SPANISH IS SENTENCE CASE AND THAT IS NOT AN INCONSISTENCY. Spanish does
+    // not Title Case a common-noun phrase, so "Motor de Salto" would be English
+    // typography wearing Spanish words. The rule the table follows is "the
+    // label carries a capital", and in Spanish that is one capital.
+    expect(es.text("warp.chargeLabel")).toBe("Motor de salto");
+    expect(hi.text("warp.chargeLabel")).toBe("Warp Drive");
+  });
+
+  it("leaves no lower-case \"warp drive\" in the lane's copy", () => {
+    // The sweep, as an assertion rather than as a grep somebody ran once.
+    const offenders = Object.entries(LANE_COPY_EN)
+      .filter(([, value]) => /\bwarp drive\b/.test(value))
+      .map(([key]) => key);
+    expect(offenders).toEqual([]);
   });
 });
 

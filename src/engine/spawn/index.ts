@@ -52,6 +52,42 @@ export interface LaneSpec {
   readonly plate?: PlateTrack;
   /** Every plate already falling. Ignored unless `plate` is given too. */
   readonly livePlates?: readonly LivePlateTrack[];
+  /**
+   * THE SECOND PLATE THIS ROCK WILL CARRY, if it is a two-layer rock (D101).
+   *
+   * ================== WHY THE PROOF HAD TO GROW ==================
+   * AC-22.8 is proved at SPAWN, by interval arithmetic over a trajectory that
+   * is fixed the instant the rock is made. A nested rock breaks its shell part
+   * way down and reveals a smaller rock carrying a different word, and that
+   * word's plate is a NEW plate entering a board the rule had already cleared.
+   * Nothing about the original proof covers it: the core's plate is a different
+   * WIDTH (a different word) and hangs at a different OFFSET (a smaller rock
+   * hangs its plate closer), so "the shell was legal" says nothing about it.
+   *
+   * ================== WHY IT IS STILL ANSWERABLE AT SPAWN ==================
+   * Because the core does not get a trajectory of its own. It inherits the
+   * shell's column, the shell's angle (`travelPx`) and the shell's fall line
+   * exactly - `@engine/nested.nestedFallMs` grants the PAIR one constant-rate
+   * descent over both words' budgets, so the only thing that changes at the
+   * break is which silhouette and which plate are drawn. The core's whole
+   * trajectory is therefore known the instant the shell's column is chosen,
+   * and both plates can be cleared against the same live board at the same
+   * instant.
+   *
+   * ================== WHAT IS PROVED, AND IT IS THE STRONGER CLAIM ==========
+   * The core's track is given the FULL window - spawn to breach line - rather
+   * than the window after the break, because the break time is the child's and
+   * is not known here. So the column is legal for the core whenever the shell
+   * comes off, including not at all. That is conservative in the direction that
+   * keeps the guarantee, and the cost is one extra keep-out band per live plate
+   * this rock comes level with, paid only by nested rocks.
+   *
+   * ABSENT IS AN ORDINARY ROCK. With this omitted every span this module
+   * returns is byte-for-byte what it returned before the feature existed, which
+   * is what keeps `tests/unit/spawn/plateKeepOut.test.ts` and the 3456-board
+   * sweep measuring the same thing they measured.
+   */
+  readonly corePlate?: PlateTrack;
   /** Sway amplitude either side of a column. Defaults to `ROCK_DRIFT_PX`. */
   readonly driftPx?: number;
 }
@@ -167,10 +203,20 @@ function cleanSpans(spec: LaneSpec, avoidShipLane: boolean): ColumnChoice | null
   const play = playableSpan(spec);
   const allowed = avoidShipLane ? offLaneSpans(spec) : [play];
   if (allowed.length === 0) return null;
-  const blocks =
+  // D101: a two-layer rock puts TWO plates down the same column over the same
+  // fall, so the columns it may take are the ones legal for BOTH of them. The
+  // bands are unioned rather than intersected - a column blocked for either
+  // plate is blocked for the rock - which is the only combination that keeps
+  // AC-22.8 an exact guarantee rather than a guarantee about whichever half
+  // happened to be drawn when a frame was sampled.
+  const incoming =
     spec.plate === undefined
       ? []
-      : plateKeepOuts(spec.plate, spec.livePlates ?? [], spec.driftPx);
+      : spec.corePlate === undefined
+        ? [spec.plate]
+        : [spec.plate, spec.corePlate];
+  const live = spec.livePlates ?? [];
+  const blocks = incoming.flatMap((track) => plateKeepOuts(track, live, spec.driftPx));
   const spans = blocks.length === 0 ? allowed : subtractSpans(allowed, blocks);
   return { allowed, blocks, spans };
 }

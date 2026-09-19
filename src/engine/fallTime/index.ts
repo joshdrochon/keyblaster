@@ -1,9 +1,11 @@
-import { DEFAULT_CALIBRATION, type Calibration, type StopId } from "../types.js";
+import { DEFAULT_CALIBRATION, EASE_MIN, type Calibration, type StopId } from "../types.js";
 import { stopPaceDrop } from "../controller/stopBand.js";
 import {
   MAX_LIVE_MAX,
   MAX_LIVE_MIN,
+  budgetLiveOf,
   concurrencyTarget,
+  type BudgetKnobs,
   type Knobs,
 } from "../controller/knobs.js";
 
@@ -269,7 +271,15 @@ export function fallTimeIkiMs(ikiMs: number): number {
     : DEFAULT_CALIBRATION.ikiMs;
 }
 
-/** Clamp bounds, ms (PRD FR-8: MIN 2.5 s, MAX 14 s). */
+/**
+ * Clamp bounds, ms (PRD FR-8: MIN 2.5 s, MAX 14 s).
+ *
+ * UR-88: `FALL_TIME_MIN_MS` is now the CEILING OF THE FLOOR rather than the
+ * floor itself - `fallFloorMs` is what a rock is actually clamped against, and
+ * it is bounded above by this, so no word at any speed is handed a longer
+ * minimum than FR-8's literal 2.5 s and a pilot at `HEADROOM_SLOW_IKI_MS` reads
+ * exactly this at every length.
+ */
 export const FALL_TIME_MIN_MS = 2500;
 export const FALL_TIME_MAX_MS = 14000;
 
@@ -629,10 +639,16 @@ export function recognitionReaderBaseMs(ikiMs: number): number {
  * which is the direction that gives a child more time.
  */
 export function fallBudgetFactor(
-  knobs?: Pick<Knobs, "maxLive">,
+  knobs?: Pick<BudgetKnobs, "maxLive" | "budgetLive">,
   liveCount?: number,
 ): number {
-  const cap = concurrencyTarget(knobs?.maxLive ?? MAX_LIVE_MIN);
+  // C23: the CAP IS THE RATCHET'S, NOT THE KNOB'S, and that one word is the
+  // whole of D31's inversion fix. `budgetLiveOf` is the knob for every caller
+  // that has never been given relief - absent, or equal to the knob, reads as
+  // the knob - so this is `concurrencyTarget(maxLive)` byte for byte everywhere
+  // except on the loosen path, and on the loosen path it is the budget the
+  // child already had. See `@engine/controller/knobs.BudgetKnobs`.
+  const cap = concurrencyTarget(budgetLiveOf(knobs));
   if (liveCount === undefined || !Number.isFinite(liveCount)) return cap;
   return Math.min(cap, Math.max(1, Math.floor(liveCount) + 1));
 }
@@ -713,8 +729,11 @@ export function stopPaceFactor(stop?: StopId | null, ikiMs?: number): number {
  *     untouched.
  *   - the FLOOR asks "is this rock physically reachable by a child at all?".
  *     That is a question about the CHILD, and a child does not read faster
- *     because three other rocks are on the board. FR-8 states it as a literal
- *     2.5 s and it is a literal 2.5 s.
+ *     because three other rocks are on the board. So it does not carry the
+ *     queue's factor - and UR-88 then made it carry the two things it IS about,
+ *     the word's length and the child's measured hands (`fallFloorMs`), because
+ *     a flat 2.5 s handed a two-letter word and an eight-letter word the same
+ *     minimum and so protected neither in proportion to the job.
  *
  * AND IT CANNOT REACH THE TAIL, swept rather than argued. The floor only ever
  * binds a rock whose raw budget is already under 2500 ms. A pilot at
@@ -729,10 +748,78 @@ export function stopPaceFactor(stop?: StopId | null, ikiMs?: number): number {
  * At `MAX_LIVE_MIN` the factor is 1, so the bounds are FR-8's literal 2.5 s and
  * 14 s, exactly as before.
  */
-export const clampFallTime = (ms: number, factor = 1): number => {
+export const clampFallTime = (ms: number, factor = 1, floorMs = FALL_TIME_MIN_MS): number => {
   const f = Number.isFinite(factor) ? Math.max(1, factor) : 1;
-  return Math.min(FALL_TIME_MAX_MS * f, Math.max(FALL_TIME_MIN_MS, ms));
+  // UR-88: the floor is the word's, not a constant's - and it is bounded ABOVE
+  // by FR-8's literal 2500 ms, so a corrupt or absent value can only ever land
+  // on the number that shipped. `fallFloorMs` is what `fallTimeMs` passes; the
+  // default keeps every other caller and every `toBe` sweep byte for byte.
+  const floor = Number.isFinite(floorMs)
+    ? Math.min(FALL_TIME_MIN_MS, Math.max(0, floorMs))
+    : FALL_TIME_MIN_MS;
+  return Math.min(FALL_TIME_MAX_MS * f, Math.max(floor, ms));
 };
+
+/**
+ * The shortest fall this WORD may be granted for THESE hands, in ms (UR-88).
+ *
+ * ================== THE REPORT ==================
+ * "Short words should genuinely fly by - 'go' should cross in under two
+ * seconds." It could not, and not because of any budget term: `FALL_TIME_MIN_MS`
+ * is a flat 2500 ms, so a two-letter word a competent adult types in 700 ms and
+ * an eight-letter word they type in 2800 ms were handed the same minimum. A
+ * floor that does not scale with the job is not protecting anybody in
+ * proportion to it, and it is the same defect class this file has now fixed
+ * twice: `RECOGNITION_BASE_MS` before UR-72 and `KEYSTROKE_BUDGET_FACTOR`
+ * before UR-51, one imagined child's number applied flat to every child.
+ *
+ * ================== WHERE THE VALUE COMES FROM ==================
+ * It is DERIVED, not judged. C20 states the floor's job exactly - "is this rock
+ * physically reachable by a child at all?" - and that is a question about the
+ * CHILD and about THIS WORD. So the answer is FR-8's own expression evaluated at
+ * `EASE_MIN`, the ease of a word this child has mastered:
+ *
+ *     floor = len x iki x KEYSTROKE_BUDGET_FACTOR + RECOGNITION_BASE_MS x EASE_MIN
+ *
+ * A rock granted that much is reachable by definition: it is exactly the budget
+ * FR-8 would hand the same child for the same word once they knew it perfectly.
+ * Nothing here invents a new model of a reader. At FR-8's own default interval:
+ *
+ *     letters   2      3      4      5      6+
+ *     floor    1350   1875   2400   2500   2500    (ms)
+ *
+ * so "go" falls in 1350 ms and everything from five letters up keeps the floor
+ * it shipped with.
+ *
+ * ================== THE THREE PROPERTIES THAT MAKE IT SAFE =================
+ *   1. IT ONLY EVER LOWERS. `clampFallTime` bounds it above by FR-8's literal
+ *      2500 ms, so no word at any speed is handed a LONGER minimum than today.
+ *      This is a hardening change and cannot be anything else.
+ *   2. THE SUPPORTED TAIL IS UNTOUCHED, BY ARITHMETIC. The whole reduction is
+ *      scaled by `headroomEarned`, which is 0 at `HEADROOM_SLOW_IKI_MS` - so a
+ *      pilot measured at 600 ms between keys reads 2500 ms for every word at
+ *      every stop, the same byte, not a simulation result. It is the same axis
+ *      `keystrokeHeadroom`, `recognitionBaseMs`, `fallSpreadFactor` and
+ *      `stopPaceFactor` already ratchet on, so the five cannot disagree about
+ *      who is slow.
+ *   3. IT IS A FLOOR AND NOT A BUDGET. It is applied in `clampFallTime`, after
+ *      every term in this file, so it can only ever RAISE a fall time that came
+ *      out below it. Lowering it cannot shorten a rock whose budget was already
+ *      longer - it can only stop the clamp from lengthening one.
+ *
+ * Total: a non-finite length or interval reads as FR-8's literal floor, the
+ * direction that gives a child more time.
+ */
+export function fallFloorMs(length: number, ikiMs: number): number {
+  const len = Number.isFinite(length) ? Math.max(0, Math.floor(length)) : Number.NaN;
+  const iki = Number.isFinite(ikiMs) ? ikiMs : Number.NaN;
+  if (!Number.isFinite(len) || !Number.isFinite(iki)) return FALL_TIME_MIN_MS;
+  const mastered =
+    keystrokeBudgetMs(len, iki, KEYSTROKE_BUDGET_FACTOR) +
+    recognitionBudgetMs(EASE_MIN, RECOGNITION_BASE_MS);
+  const earned = headroomEarned(iki);
+  return FALL_TIME_MIN_MS - earned * Math.max(0, FALL_TIME_MIN_MS - mastered);
+}
 
 export interface FallTimeInput {
   /** The word as it will be typed; only its length is used. */
@@ -746,7 +833,7 @@ export interface FallTimeInput {
    * the queue this rock may have to wait in (`fallBudgetFactor`). Absent means
    * `MAX_LIVE_MIN`, i.e. FR-8's budget exactly as written.
    */
-  readonly knobs?: Pick<Knobs, "maxLive">;
+  readonly knobs?: Pick<BudgetKnobs, "maxLive" | "budgetLive">;
   /**
    * This rock's own 0..1 draw from the belt's seeded rng (UR-83), taken once at
    * spawn. Absent means no spread at all, i.e. FR-8's budget exactly as
@@ -785,6 +872,8 @@ export function fallTimeMs({
   return clampFallTime(
     rawFallTimeMs({ word, ease, calibration, knobs, spread, stop, liveCount }),
     fallBudgetFactor(knobs, liveCount),
+    // UR-88: the floor is this word's and these hands', not a constant's.
+    fallFloorMs(word.length, calibration?.ikiMs ?? DEFAULT_CALIBRATION.ikiMs),
   );
 }
 
@@ -818,7 +907,12 @@ export function rawFallTimeMs({
 export function isClamped(input: FallTimeInput): boolean {
   const factor = fallBudgetFactor(input.knobs, input.liveCount);
   const raw = rawFallTimeMs(input);
-  // The floor is unscaled (C20) and the ceiling is not, so this asks the same
-  // two questions `clampFallTime` answers rather than a third one.
-  return raw < FALL_TIME_MIN_MS || raw > FALL_TIME_MAX_MS * factor;
+  // The floor is unscaled (C20) and is the WORD's (UR-88); the ceiling scales
+  // with the queue. This asks the same two questions `clampFallTime` answers
+  // rather than a third one.
+  const floor = fallFloorMs(
+    input.word.length,
+    input.calibration?.ikiMs ?? DEFAULT_CALIBRATION.ikiMs,
+  );
+  return raw < floor || raw > FALL_TIME_MAX_MS * factor;
 }

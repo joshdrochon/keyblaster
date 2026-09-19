@@ -44,6 +44,7 @@ import { NullAudioContext } from "./nullContext.js";
 import { AMBIENT_CROSSFADE_MS } from "./ambient.js";
 import type { AudioGraph, BusId } from "./graph.js";
 import { SFX_EVENTS, type SfxEventId, type SfxPlayOptions, type SfxPlayResult } from "./sfx.js";
+import { TransmissionTicker, playTransmissionTick } from "./transmission.js";
 import {
   speakCoachNote,
   type CoachNoteDisplay,
@@ -227,6 +228,19 @@ export interface WiringSnapshot {
    * is the defect a player had to ask about.
    */
   readonly chirps: number;
+  /**
+   * Type-on ticks the briefing's reveal fired (UR-91), and how it was reached.
+   *
+   * Next to `chirps` for the same reason that one is next to `spoken`: nothing
+   * else can see this happen. `playTransmissionTick` builds nodes on the voice
+   * bus and touches no history, so a reveal that silently stopped making a
+   * sound would look identical to one that never had one - which is exactly the
+   * failure mode UR-25 reported about the chirp.
+   */
+  readonly transmissionTicks: number;
+  readonly transmissionVia: readonly string[];
+  /** True while the reveal's AC-21.4 duck is held open. False between pages. */
+  readonly transmitting: boolean;
   /** Stops whose ambient bed the running game started or faded to, in order. */
   readonly ambientStops: readonly string[];
   readonly ambientCrossfades: number;
@@ -324,6 +338,35 @@ export interface AudioService {
   ): CoachNoteSpeechResult;
   /** Stop anything Shadow is saying (a scene tearing down mid-line). */
   cancelVoice(): void;
+  /**
+   * SHADOW STARTS TRANSMITTING (UR-91). The briefing's typed reveal.
+   *
+   * THIS IS SHADOW SPEAKING, so it opens the AC-21.4 duck - the music and the
+   * ambient bed drop 6 dB for the whole page, exactly as they do for a line he
+   * says out loud. The alternative reading, "it is only a texture, leave the
+   * mix alone", loses the argument on the screen itself: what is being revealed
+   * IS his line, the page is the only place it is delivered, and a child who
+   * has reduced motion on hears the spoken version with the duck. Two ways of
+   * delivering one utterance should not mix differently.
+   *
+   * ONE DUCK PER PAGE, NOT ONE PER TICK. `SidechainDucker` counts depth, so
+   * forty-six overlapping ducks would need forty-six releases to unwind and the
+   * music would come back a quarter of a minute after the briefing ended.
+   */
+  beginTransmission(via: string): void;
+  /**
+   * One frame of the reveal. `elapsedMs` is time since it started - the same
+   * clock the character count is read from. Rate-limited inside
+   * (`TICK_MIN_GAP_MS`); returns true when a tick actually sounded.
+   */
+  transmissionTick(elapsedMs: number): boolean;
+  /**
+   * The page finished, or the player skipped it, or the scene shut down. Closes
+   * the duck. IDEMPOTENT, because all three of those can happen on one frame -
+   * a keypress that completes the reveal also ends the scene's reveal state,
+   * and `shutdown` will call this again behind it.
+   */
+  endTransmission(): void;
   /** Reset the D75 pitched layer at the start of a stage. */
   resetTone(): void;
   /** Everything the running game did, for the evidence artifact. */
@@ -419,6 +462,12 @@ export function installAudio(options: InstallAudioOptions): AudioService {
   let advancedMs = 0;
   let transitions = 0;
   let coachNoteOrder: readonly string[] = [];
+  // UR-91. The reveal's own state: one duck held open across the page, and a
+  // rate limiter that is pure arithmetic so a unit test can drive it.
+  const ticker = new TransmissionTicker();
+  const transmissionVia: string[] = [];
+  let transmitting = false;
+  let transmissionTicks = 0;
   let volumes = {
     music: clamp(options.volumes?.music ?? graph.buses.music.gain.value, 0, 1),
     sfx: clamp(options.volumes?.sfx ?? graph.buses.sfx.gain.value, 0, 1),
@@ -619,6 +668,32 @@ export function installAudio(options: InstallAudioOptions): AudioService {
       graph.voice.cancel();
     },
 
+    beginTransmission(via: string): void {
+      // Idempotent on the open side too: a scene that re-arms a reveal without
+      // ending the last one must not stack a second duck.
+      if (!transmitting) {
+        transmitting = true;
+        graph.ducker.duck(true);
+      }
+      ticker.reset();
+      if (!transmissionVia.includes(via)) transmissionVia.push(via);
+    },
+
+    transmissionTick(elapsedMs: number): boolean {
+      if (!transmitting) return false;
+      const index = ticker.due(elapsedMs);
+      if (index === null) return false;
+      playTransmissionTick(graph.ctx, graph.buses.voice, index);
+      transmissionTicks += 1;
+      return true;
+    },
+
+    endTransmission(): void {
+      if (!transmitting) return;
+      transmitting = false;
+      graph.ducker.duck(false);
+    },
+
     /**
      * UR-101.4: THIS COUNTS NOW, AND IT DID NOT BEFORE.
      *
@@ -661,6 +736,9 @@ export function installAudio(options: InstallAudioOptions): AudioService {
         toneSteps,
         toneResets,
         chirps: graph.chirpCount,
+        transmissionTicks,
+        transmissionVia: [...transmissionVia],
+        transmitting,
         ambientStops: [...ambientStops],
         ambientCrossfades,
         musicIndices: [...musicIndices].sort((a, b) => a - b),
@@ -690,6 +768,9 @@ export function installAudio(options: InstallAudioOptions): AudioService {
     dispose(): void {
       detach();
       graph.voice.cancel();
+      // A duck left open by a scene that was torn down mid-reveal is a game
+      // that plays the rest of its music 6 dB quiet forever.
+      service.endTransmission();
     },
   };
 

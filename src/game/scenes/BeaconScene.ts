@@ -3,7 +3,18 @@ import Phaser from "phaser";
 import { beaconReadout, type BeaconResult } from "@engine/ephemeris";
 import type { StopId } from "@engine/types";
 import { SCENE_KEYS } from "@game/sceneKeys";
-import { GUTTER, contentRight, headerText } from "@game/ui/grid";
+import { headerText } from "@game/ui/grid";
+import {
+  SHADOW_SCALE,
+  button as actionRect,
+  card,
+  coordsWrapWidth,
+  flavourWrapWidth,
+  MAST_GROUND_Y,
+  MAST_X,
+  rows as cardRows,
+  shadowOrigin,
+} from "./support/beaconLayout";
 import { layer } from "@game/render/layers";
 import { buildParallax, EASE, type Parallax } from "@game/render/parallax";
 import { hexToNum } from "@game/render/palette";
@@ -58,9 +69,15 @@ import { audioFrom } from "@game/audio/wiring";
  * this file at all.
  */
 
-/** On the product's gutter, right edge on the right gutter (`ui/grid.ts`). */
-const READOUT = { x: GUTTER, y: 664, w: 1728, h: 268 } as const;
-const BUTTON = { x: GUTTER, y: 966, w: 420, h: 64 } as const;
+/**
+ * WHERE EVERYTHING ON THIS SCREEN IS: `support/beaconLayout.ts`.
+ *
+ * It used to be four literals in this file - a 1728x268 card at y 664, a
+ * 420x64 button on the LEFT gutter, three row offsets of 44/116/172, and
+ * `drawShadow(this, 300, 470, ..., { scale: 0.9 })`. This file imports Phaser,
+ * so not one of them could be measured by a node test; they are now derived,
+ * and `tests/unit/scenes/beaconLayout.test.ts` measures them.
+ */
 
 export interface BeaconInit extends StoryInit {
   /**
@@ -83,8 +100,10 @@ export class BeaconScene extends Phaser.Scene {
 
   private readout!: BeaconResult;
   private coordsLabel!: Phaser.GameObjects.Text;
-  private pulsarLabel!: Phaser.GameObjects.Text;
   private flavourLabel!: Phaser.GameObjects.Text;
+  /** Measured wrap, not reserved: the card is sized to what is in it. */
+  private flavourLines = 1;
+  private coordsLines = 1;
   private mast!: Phaser.GameObjects.Container;
   private lit = false;
   /** Latched on a render pass; see `latchOnRender`. Never sampled. */
@@ -125,22 +144,36 @@ export class BeaconScene extends Phaser.Scene {
     hud.add(this.buildReadout());
     this.buildBeacon();
 
-    this.shadow = drawShadow(this, 300, 470, "saluting", {
-      scale: 0.9,
+    // SHADOW IS INSIDE THE CARD NOW, on the warp break's coach treatment: his
+    // column on the left, the speaker caption and his line beside it. He was
+    // standing loose on the sky at the literal (300, 470) - 200 px to the LEFT
+    // of the box he was talking over, at a scale (0.9) nothing else in the
+    // product uses.
+    //
+    // ADDED TO THE HUD CONTAINER, not depth-sorted against it. A container
+    // renders its children in list order and IGNORES their depth, so a figure
+    // left on the scene's display list at the same depth as the container is
+    // ordered by whichever Phaser happened to sort first. `StallScene` puts him
+    // in its card for the same reason.
+    const stand = shadowOrigin(this.flavourLines, this.coordsLines);
+    this.shadow = drawShadow(this, stand.x, stand.y, "saluting", {
+      scale: SHADOW_SCALE,
       reducedMotion: this.lane.reducedMotion,
-      depth: layer("shipFx").depth,
+      depth: layer("hud").depth,
     });
+    hud.add(this.shadow.root);
 
     this.ring = createFocusRing(this, layer("hud").depth + 1);
+    const btn = actionRect();
     const target: FocusTarget = {
       id: "beacon-continue",
       // The only choice on this screen, and it is the forward one. Marked
       // primary so it STAYS the default if a second control is ever added.
       primary: true,
-      x: BUTTON.x,
-      y: BUTTON.y,
-      w: BUTTON.w,
-      h: BUTTON.h,
+      x: btn.x,
+      y: btn.y,
+      w: btn.w,
+      h: btn.h,
       activate: () => this.advance(),
     };
     hud.add(this.buildButton());
@@ -304,62 +337,108 @@ export class BeaconScene extends Phaser.Scene {
   }
 
   /**
-   * AC-17.0. Two lines printed exactly as the engine formatted them, plus the
-   * stop's flavour sentence. With no coordinates the first line becomes the
-   * calibrating sentence and the second is simply absent; the plate keeps its
-   * size, its position and its colour, and nothing announces a failure.
+   * ONE COORDINATE ROW, A SPEAKER CAPTION, AND SHADOW'S LINE (AC-17.0).
+   *
+   * ================== THE ROW THAT WAS CUT ==================
+   * The engine hands this screen two strings and the card printed both:
+   *
+   *   coordsLine   "lam 62.5 deg  beta -0.2 deg  r 19.44 AU"
+   *   pulsarLine   "pulsar fix  J0030+0451 +5752.2 s . J0218+4232 +8316.5 s
+   *                 . J0437-4715 +3597.0 s . B1821-24 -8126.9 s"
+   *
+   * They are not two versions of one fact. `coordsLine` is a POSITION - where
+   * the beacon is, in three numbers a child can read as a place. `pulsarLine`
+   * is a CLOCK: timing residuals against four millisecond pulsars, which is
+   * genuinely how a craft with no view of Earth fixes itself (NASA SEXTANT,
+   * D15) and is also four signed numbers to one decimal place, in a row, on
+   * the screen a seven-year-old reaches by finishing a belt. It was the better
+   * physics and the worse copy, and it was spending a whole row of the only
+   * box on the screen to say something nobody in the audience can parse.
+   *
+   * THE ENGINE STILL COMPUTES IT. `beaconReadout` is untouched,
+   * `formatPulsarFix` is untouched, and both are still under
+   * `tests/unit/ephemeris/`. The string is still on the snapshot, so the e2e
+   * and the DOM mirror keep it. What changed is that the CARD does not print
+   * it. See collision C23 in `docs/decision-log.md`: FR-17, AC-17.0, D15 and
+   * D81 all name the pulsar-fix line as part of this screen, and cutting it
+   * from the display is a collision with all four rather than a tidy-up.
+   *
+   * ================== AND THE FAILURE BRANCH ==================
+   * With no coordinates the first row becomes the calibrating sentence, which
+   * can wrap; `coordsLines` is measured rather than assumed, so the card grows
+   * for it instead of printing through its own foot. The plate keeps its size,
+   * its position and its colour, and nothing announces a failure.
    */
   private buildReadout(): Phaser.GameObjects.GameObject[] {
     const pal = this.lane.palette;
-    const made: Phaser.GameObjects.GameObject[] = [];
     const ok = this.readout.ok;
 
+    // MEASURE, THEN PLACE. The card is sized to what is in it (the Earth
+    // beacon screen's rule), so both lines are built at the origin, asked how
+    // many rows they wrapped to, and only then is the plate cut and the rows
+    // laid out. A reserved worst case is right on the warp break, where the
+    // coach note ARRIVES later and AC-33 forbids the card moving when it does;
+    // nothing on this screen is deferred.
+    this.coordsLabel = label(
+      this,
+      0,
+      0,
+      ok ? this.readout.coordsLine : this.lane.copy.text("beacon.calibrating"),
+      // TYPE.heading, NOT 42. A census of the served build found nine font
+      // sizes app-wide and 42 was reached by exactly ONE call site, this one,
+      // two pixels from the heading token every other screen uses.
+      {
+        size: TYPE.heading,
+        color: INK.text,
+        lang: this.lane.lang,
+        wrapWidth: coordsWrapWidth(),
+      },
+    );
+    this.flavourLabel = label(this, 0, 0, this.headline().flavour, {
+      size: TYPE.body,
+      color: INK.text,
+      wrapWidth: flavourWrapWidth(),
+      lang: this.lane.lang,
+    });
+    this.coordsLines = Math.max(1, this.coordsLabel.getWrappedText().length);
+    this.flavourLines = Math.max(1, this.flavourLabel.getWrappedText().length);
+
+    const box = card(this.flavourLines, this.coordsLines);
+    const [coordsRow, speakerRow, flavourRow] = cardRows(
+      this.flavourLines,
+      this.coordsLines,
+    ).map((r) => r.rect);
+
+    const made: Phaser.GameObjects.GameObject[] = [];
+    // `objects` is plate-then-text: these go into a Container, which renders in
+    // list order and ignores depth, so the plate has to be added first.
     made.push(
-      plate(this, READOUT.x, READOUT.y, READOUT.w, READOUT.h, {
+      plate(this, box.x, box.y, box.w, box.h, {
         fill: INK.panel,
         stroke: INK.line,
       }),
     );
 
-    this.coordsLabel = label(
-      this,
-      READOUT.x + 48,
-      READOUT.y + 44,
-      ok ? this.readout.coordsLine : this.lane.copy.text("beacon.calibrating"),
-      // TYPE.heading, NOT 42. A census of the served build found nine font
-      // sizes app-wide - 20, 24, 30, 36, 42, 44, 52, 72, 128 - and 42 was
-      // reached by exactly ONE call site, this one, two pixels from the
-      // heading token every other screen uses. Two sizes two pixels apart are
-      // not a type scale with a fine distinction in it; they are a literal that
-      // missed the token. The row below it starts 72 px down and a 44 px line
-      // in Devanagari is 69, so the collapse costs nothing.
-      { size: TYPE.heading, color: INK.text, lang: this.lane.lang, wrapWidth: READOUT.w - 96 },
+    this.coordsLabel.setPosition(
+      (coordsRow ?? box).x,
+      (coordsRow ?? box).y,
     );
     made.push(this.coordsLabel);
 
-    this.pulsarLabel = label(
-      this,
-      READOUT.x + 48,
-      READOUT.y + 116,
-      ok ? this.readout.pulsarLine : "",
-      { size: TYPE.label, color: pal.accent, alpha: 0.9, lang: this.lane.lang },
+    // THE SPEAKER CAPTION, IDENTICAL TO THE WARP BREAK'S AND EARTH'S. Same
+    // key, same size, same ink. Two screens already name who is talking above
+    // the line he says; a third way of doing it is a third thing to learn.
+    made.push(
+      label(
+        this,
+        (speakerRow ?? box).x,
+        (speakerRow ?? box).y,
+        this.lane.copy.text("warp.speaker"),
+        { size: TYPE.caption, color: pal.accent, lang: this.lane.lang },
+      ),
     );
-    this.pulsarLabel.setVisible(ok);
-    made.push(this.pulsarLabel);
 
-    this.flavourLabel = label(
-      this,
-      READOUT.x + 48,
-      READOUT.y + 172,
-      this.headline().flavour,
-      {
-        size: TYPE.body,
-        color: INK.text,
-        alpha: 0.78,
-        wrapWidth: READOUT.w - 96,
-        lang: this.lane.lang,
-      },
-    );
+    this.flavourLabel.setPosition((flavourRow ?? box).x, (flavourRow ?? box).y);
     made.push(this.flavourLabel);
     return made;
   }
@@ -369,8 +448,8 @@ export class BeaconScene extends Phaser.Scene {
     const pal = this.lane.palette;
     const accent = hexToNum(pal.accent);
     const deep = hexToNum(pal.colors[pal.colors.length - 1] ?? "#0E1116");
-    const groundY = 560;
-    const c = this.add.container(1420, groundY - 560);
+    const groundY = MAST_GROUND_Y;
+    const c = this.add.container(MAST_X, groundY - 560);
 
     const g = this.add.graphics();
     g.fillStyle(deep, 1);
@@ -433,8 +512,19 @@ export class BeaconScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * THE FORWARD ACTION, ON THE PRODUCT'S LINE AND NOT THIS SCREEN'S.
+   *
+   * It was 420x64 on the LEFT GUTTER at y 966. The project owner reported the
+   * action button as a control that lands somewhere different on every page,
+   * naming Earth activation's launch button as the one the rest should match,
+   * and `ui/grid.actionButton()` is now that position
+   * for every screen with a single forward action. See its note for the census
+   * of the five that disagreed.
+   */
   private buildButton(): Phaser.GameObjects.GameObject[] {
     const pal = this.lane.palette;
+    const BUTTON = actionRect();
     const made: Phaser.GameObjects.GameObject[] = [];
     made.push(
       plate(this, BUTTON.x, BUTTON.y, BUTTON.w, BUTTON.h, {
@@ -516,7 +606,11 @@ export class BeaconScene extends Phaser.Scene {
 
   snapshot(): SceneSnapshot {
     const coords = this.coordsLabel.text;
-    const pulsar = this.pulsarLabel.text;
+    // FROM THE ENGINE, NOT FROM A LABEL. The card no longer prints the
+    // pulsar-fix line (C23), but `beaconReadout` still computes it and the
+    // e2e still checks the D81 format, so the snapshot reports what the engine
+    // produced rather than what happens to be on screen.
+    const pulsar = this.readout.ok ? this.readout.pulsarLine : "";
     return {
       scene: SCENE_KEYS.beacon,
       stopId: this.stopId,
@@ -527,7 +621,8 @@ export class BeaconScene extends Phaser.Scene {
       reason: this.readout.ok ? null : this.readout.reason,
       coordsLine: coords,
       pulsarLine: pulsar,
-      pulsarVisible: this.pulsarLabel.visible,
+      /** C23: computed, never drawn. */
+      pulsarVisible: false,
       flavourLine: this.flavourLabel.text,
       /**
        * AC-17.0's own guard. Nothing rendered may contain "NaN", "Infinity" or

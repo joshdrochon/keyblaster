@@ -138,8 +138,11 @@ describe("the board's shape holds", () => {
     // The PRD's own counts. If an AC is added to the PRD and the board does not
     // grow, the parser has silently stopped matching a line shape.
     // 108 + D99's three (AC-11.4/.5/.6, the launch ceremony, UR-28) + D100's
-    // two (AC-11.7/.8, the prompt assist, UR-31).
-    expect(tickets.filter((t: { kind: string }) => t.kind === "ac")).toHaveLength(113);
+    // two (AC-11.7/.8, the prompt assist, UR-31) + D101's six (AC-26.1..26.6,
+    // two-layer rocks). The board grew because the PRD grew, which is the
+    // direction this guard is happy about - it exists to catch the parser
+    // going quiet, not to freeze the PRD.
+    expect(tickets.filter((t: { kind: string }) => t.kind === "ac")).toHaveLength(119);
     expect(tickets.filter((t: { kind: string }) => t.kind === "rubric")).toHaveLength(33);
   });
 

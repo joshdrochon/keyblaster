@@ -363,6 +363,17 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       id: n.stopId,
       ...nodeRingBox(i, n.caption),
       locked: n.locked,
+      // A PLANET DOES NOT SWELL (UR-111). Every other focusable control in the
+      // game grows 1.5% while it holds focus and holds it there; a stop opts
+      // out, for the same reason UR-92 took the ring off it. The Lantern is
+      // already hovering over the focused stop and the panel below already
+      // names it, and a third "you are here" is what that ticket removed. A
+      // stop is also not a plate with a label on it - it is a disc, a beacon
+      // and a glow, none of which the kit can measure - so the honest choices
+      // here are "the whole thing grows" or "nothing does", and a caption that
+      // swelled while the world it names stayed put would be neither.
+      // The two chips this screen also offers ARE plates, and they do grow.
+      pop: false,
       activate: () => this.travel(n),
     }));
     targets.push(...this.buildChips());

@@ -7,6 +7,8 @@ import {
   type WordExposure,
 } from "@engine/scoring";
 import { awardTrophies, newTrophies, type StageAward } from "@engine/awards";
+import { TROPHIES } from "@game/ui/catalog";
+import { createMenuTranslator } from "@game/ui/i18n";
 import { applyUnlocks, newUnlocks } from "@engine/unlocks/index.js";
 import { WORST_CASE_SKY, compositeOver } from "@engine/contrast/index.js";
 import {
@@ -394,6 +396,7 @@ export class ResultsScene extends Phaser.Scene {
       this.personalBestPiece(),
       this.fasterPiece(),
       this.retentionPiece(),
+      this.trophiesPiece(),
     ];
     for (const piece of this.reportPieces) {
       for (const part of piece.parts) hud.add(part.obj);
@@ -880,6 +883,95 @@ export class ResultsScene extends Phaser.Scene {
     );
     return {
       id: "retention",
+      height: body.dy + (body.obj as Phaser.GameObjects.Text).height,
+      parts: [heading, body],
+    };
+  }
+
+  /**
+   * WHAT THIS BELT JUST EARNED (D80, AC-6d.1c).
+   *
+   * ================== WHY IT IS HERE AT ALL ==================
+   * Twelve trophies were defined, the Beacon Log drew all twelve, and until
+   * `@engine/awards` landed not one could ever be earned because nothing in
+   * `src/` wrote to `profile.trophies`. That is fixed - `persistTrophies`
+   * above is the writer - but the child still had no way to find out. The
+   * award was silent, and the only place it showed up was a collection screen
+   * they had to go and open. A thing that is never announced is, to a
+   * seven-year-old, a thing that did not happen.
+   *
+   * ================== WHY IT IS NOT AN EMPTY STATE ==================
+   * The section is ABSENT when nothing was earned, not present and empty. A
+   * "Trophies Earned: none" row turns the stage report into a list of what the
+   * child did not do, on the screen they reach by succeeding - which is D31's
+   * one rule with the nouns changed. Most belts earn nothing, so most reports
+   * simply do not have this section, and the panel is sized from its content
+   * (`resultsLayout.fitPanel`) so it closes up rather than leaving a hole.
+   *
+   * ================== WHERE THE ROOM CAME FROM, MEASURED ==================
+   * Mostly from slack that was already there. The report panel is a measured
+   * STACK - every piece reports its own height and `resultsLayout` FLOWS them
+   * rather than fitting them into a fixed box - so a sixth piece is absorbed
+   * three ways, in this order:
+   *
+   *   1. On a SHORT report the panel does not change size at all. Measured on
+   *      the served build, a Mars run with stats/hull/personal-best/trophies:
+   *      the panel is {96, 231, 1063x430} with the section and {96, 231,
+   *      1063x430} without it - `REPORT_MIN_H` is 430 and the content was
+   *      under it either way.
+   *   2. On a FULL report the air between blocks tightens. With all five other
+   *      pieces present, a 66 px section costs the panel 39 px of height; the
+   *      other 27 come out of the inter-block gap, which goes 27 -> 20.
+   *   3. Only past that does the panel grow and take the buttons down with it,
+   *      bounded by `BUTTON_Y_MAX`.
+   *
+   * NO SECTION IS SHRUNK in any of the three, which is the part that matters
+   * and the part `resultsTrophies.test.ts` asserts block by block. The two
+   * rows this adds are the same heading-plus-line shape the retention block
+   * already uses, so the panel reads as one more section rather than as a
+   * different kind of thing.
+   *
+   * ================== IT IS INFORMATIONAL, NOT A CEREMONY (D74) ==================
+   * Names only. No count, no "3 of 12", no rarity, no order by value, no
+   * comparison with anybody. `persistTrophies`' own note argues from
+   * Deci/Koestner/Ryan (1999) that a results screen which announces an award
+   * becomes a reward ceremony; a quiet line that says which ones, in the same
+   * ink as the retention line beside it, is the smallest thing that answers
+   * "did that count?" without becoming one. See collision C24.
+   */
+  private trophiesPiece(): Piece {
+    const earned = this.earnedTrophies;
+    if (earned.length === 0) return EMPTY_PIECE("trophies");
+
+    const t = createMenuTranslator(this.lane.lang, this.lane.shipName);
+    const order = new Map(TROPHIES.map((def, i) => [def.id, i]));
+    const names = [...earned]
+      // The catalogue's order, which is the order AC-6d.1c lists them in and
+      // the order the Beacon Log draws them in. NOT the order they happened to
+      // be satisfied in, which is an implementation detail of `newTrophies`.
+      .sort((a, b) => (order.get(a) ?? 99) - (order.get(b) ?? 99))
+      .map((id) => {
+        const def = TROPHIES.find((d) => d.id === id);
+        return def === undefined ? id : t.t(def.nameKey);
+      });
+    this.mark("trophies");
+
+    const heading = this.ink(
+      "results.trophies.heading",
+      0,
+      0,
+      this.lane.copy.text("results.trophiesHeading"),
+      { size: TYPE.label, color: this.lane.palette.accent },
+    );
+    const body = this.ink(
+      "results.trophies.line",
+      0,
+      (heading.obj as Phaser.GameObjects.Text).height + 8,
+      this.lane.copy.text("results.trophiesList", { names: names.join("  ·  ") }),
+      { size: TYPE.caption, color: INK.text, wrapWidth: REPORT_CONTENT_W },
+    );
+    return {
+      id: "trophies",
       height: body.dy + (body.obj as Phaser.GameObjects.Text).height,
       parts: [heading, body],
     };

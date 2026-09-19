@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import { bootScene, settle } from "./support/lane";
+// Read from the layout modules, never restated: a spec that types 136 and 156
+// out by hand stops measuring the grid the moment the grid moves.
+import { INSTRUMENT } from "../../src/game/scenes/support/warpLayout";
+import { PLATE_RHYTHM } from "../../src/game/ui/plateLayout";
+import { STEP } from "../../src/game/ui/theme";
 
 /**
  * THE WARP BREAK'S CHROME, IN A REAL BROWSER.
@@ -34,6 +39,7 @@ interface WarpBoxes {
   sentenceInk: { top: number; bottom: number; h: number } | null;
   sentenceLines: number;
   chargeLabel: { x: number; y: number; w: number; h: number };
+  chargeLabelText: string;
   bolt: { x: number; y: number; w: number; h: number };
   ring: { alpha: number; visible: boolean; active: boolean };
   panelAlpha: number;
@@ -297,37 +303,66 @@ test.describe("what the warp break's chrome says, and where its bolt is", () => 
   test.setTimeout(180_000);
 
   /**
-   * THE BOLT, AND THE LABEL THAT DID NOT MOVE.
+   * THE BOLT IS THE LOCKUP'S LEFT EDGE, AND IT IS ON THE LINE.
    *
-   *                  before   after
-   *   label left      136      136     (the shared grid line, unchanged)
-   *   label right     250      250
-   *   bolt            255      118
+   *                  in the track   beside, hanging   on the line
+   *   bolt left           -               118             136
+   *   label left         136              136             156
+   *   label right        250              250             270
    *
-   * With D41's increased letter spacing on, the label is 27 px wider and the
-   * bolt is at 118 either way - which is the point of placing it off the
-   * label's LEFT edge rather than off a measured right edge.
+   * 136 is `INSTRUMENT.x + PLATE_RHYTHM.instrument.padX` - the grid line this
+   * screen shares with the rest of the game. The middle column is what the
+   * owner reported: the mark hung 18 px off that line into the plate's padding
+   * while the "w" sat on it, so the first ink on the row was the object that
+   * was NOT aligned. The words now step one vertical unit right and the mark
+   * takes the line.
    *
-   * WATCHED FAILING, with `label.x + label.w + BOLT_GAP_PX` restored:
-   *   puts the charge bolt before the words, not after them
-   *     the bolt is at 255..268 and "warp drive" starts at 136:
-   *     expected 268 to be less than or equal to 136
+   * With D41's increased letter spacing on, the label is 27 px wider and both
+   * of these numbers are unchanged - which is the point of placing the mark off
+   * the label's LEFT edge rather than off a measured right edge.
+   *
+   * WATCHED FAILING, against the hanging geometry:
+   *   the bolt's left edge is at 118, not on the instrument's inner line 136:
+   *   expected 118 to be 136
    */
-  test("puts the charge bolt before the words, not after them", async ({ page }) => {
+  test("puts the charge bolt on the line, and the words after it", async ({ page }) => {
     await bootScene(page, "Warp", "warp", "&stop=mars");
     await settle(page);
     const b = await boxes(page);
     const where =
       `the bolt is at ${Math.round(b.bolt.x)}..${Math.round(b.bolt.x + b.bolt.w)} ` +
-      `and "warp drive" starts at ${Math.round(b.chargeLabel.x)}`;
+      `and "Warp Drive" starts at ${Math.round(b.chargeLabel.x)}`;
+    // THE MARK OPENS THE LINE, and its left edge is the instrument's inner
+    // line - the x the label used to start at.
+    expect(Math.round(b.bolt.x), where).toBe(INSTRUMENT.x + PLATE_RHYTHM.instrument.padX);
+    // And the words start to the RIGHT of it, one whole vertical unit in.
     expect(b.bolt.x + b.bolt.w, where).toBeLessThanOrEqual(b.chargeLabel.x);
-    // The gap is the same 5 px UR-78 set, on the side the mark is now on.
-    expect(Math.round(b.chargeLabel.x - (b.bolt.x + b.bolt.w))).toBe(5);
+    expect(Math.round(b.chargeLabel.x - b.bolt.x)).toBe(STEP.unit);
+    // The gap is the vertical unit less the mark's own width. Derived, not
+    // chosen - `support/warpLayout.BOLT_GAP_PX` says why.
+    expect(Math.round(b.chargeLabel.x - (b.bolt.x + b.bolt.w))).toBe(7);
     // Vertically centred on the label's line, unchanged by the move.
     expect(b.bolt.y + b.bolt.h / 2).toBeCloseTo(
       b.chargeLabel.y + b.chargeLabel.h / 2,
       1,
     );
+  });
+
+  /**
+   * THE LABEL'S CASE, READ OFF THE SCREEN.
+   *
+   * `warpChrome.test.ts` asserts the table; this asserts the string the player
+   * is actually shown, which is the half a table cannot promise - `ui/text`
+   * puts chrome through `theme.chromeCase`, and under D41's increased-
+   * legibility setting that still upper-cases everything.
+   *
+   * WATCHED FAILING, with the table's old string:
+   *   expected 'warp drive' to be 'Warp Drive'
+   */
+  test("draws the warp drive's label in Title Case", async ({ page }) => {
+    await bootScene(page, "Warp", "warp", "&stop=mars");
+    await settle(page);
+    expect((await boxes(page)).chargeLabelText).toBe("Warp Drive");
   });
 
   /**
