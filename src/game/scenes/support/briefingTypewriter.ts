@@ -1,18 +1,4 @@
 /**
- * How long after the reveal arms that input cannot skip it.
- *
- * A child opens a briefing by pressing Enter on the map, and `create` runs
- * inside that same input turn - so without this the opening keystroke was also
- * the skip, and the page was fully revealed before the first frame. Measured:
- * one Enter took `revealed` from 0 to 312 instantly.
- *
- * 200 ms is longer than any key repeat or trailing event from the navigation
- * and far shorter than the reveal itself (about 1.8 s at the ceiling), so a
- * child who actually wants the page now still gets it on their next keystroke.
- */
-export const REVEAL_SKIP_GRACE_MS = 200;
-
-/**
  * THE BRIEFING TYPES ITSELF OUT (UR-59, screen 4).
  *
  * The page used to be drawn complete on `create`. It reveals character by

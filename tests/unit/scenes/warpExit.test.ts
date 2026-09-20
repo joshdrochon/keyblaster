@@ -35,10 +35,16 @@ describe("UR-78: the warp break says what to do and then gets out of the way", (
     // WATCHED FAILING, with the old string restored:
     //   expected 'Belt cleared. Type this to charge the warp drive.' to contain
     //   'Asteroid belt cleared'
+    //
+    // IT CHARGES A BEACON NOW, NOT A DRIVE. The belt is AT the stop, so there
+    // is nowhere to drive to; the sentence charges the beacon the very next
+    // scene plants. Watched failing again when the fiction was recast:
+    //   expected 'Asteroid belt cleared. Type the sentence below to charge the
+    //   warp drive.' to contain 'charge the beacon'
     const line = TABLES.en["warp.beltCleared"];
     expect(line).toContain("Asteroid belt cleared");
     expect(line).toContain("Type the sentence below");
-    expect(line).toContain("charge the warp drive");
+    expect(line).toContain("charge the beacon");
   });
 
   it("does not draw the screen's own name at the player", () => {
@@ -51,8 +57,10 @@ describe("UR-78: the warp break says what to do and then gets out of the way", (
         "already looking at it",
     ).toBe(false);
     // The string itself is KEPT so restoring the tab stays a layout change
-    // rather than a translation job.
-    expect(TABLES.en["warp.heading"]).toBe("Warp Break");
+    // rather than a translation job - and it is kept IN STEP with the screen,
+    // so the one string nobody draws cannot be where the old fiction survives.
+    //   expected 'Warp Break' to be 'Charging The Beacon'
+    expect(TABLES.en["warp.heading"]).toBe("Charging The Beacon");
   });
 
   it("draws the charge bolt once, in the gold the percentage is drawn in", () => {

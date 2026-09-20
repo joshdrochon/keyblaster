@@ -15,7 +15,7 @@ import { coachRequestFor, retryCandidatesFor } from "./support/composeRequest";
 import { createCoachClient } from "@game/coach/transport";
 import { blastedWords, type BlastHistory } from "@game/flight/blastHistory";
 import { FLIGHT_EVENTS, type WarpSpeedPayload } from "@game/flight/stage";
-import { STOP_IDS, type StopId } from "@engine/types";
+import { type StopId } from "@engine/types";
 import { SCENE_KEYS } from "@game/sceneKeys";
 import { LAYERS, layer, type LayerId } from "@game/render/layers";
 import { particleSpec } from "@game/render/particles";
@@ -331,6 +331,18 @@ export class WarpScene extends Phaser.Scene {
 
   private multiplier = 0;
   private warping = false;
+  /**
+   * True while the overlaid panel is sliding in.
+   *
+   * The focus ring rides that entrance (see `slideIn`), and `onKey` re-pops the
+   * ring on Tab or Enter - with the SAME rectangle every time, because this
+   * screen has exactly one focus target. A pop mid-entrance would replace the
+   * entrance's alpha with `createFocusRing`'s own 0.55 -> 1, which is the
+   * reported defect back again on a keystroke: a lit outline around a card that
+   * has not arrived. The pop is skipped while this is true and nothing is lost,
+   * because the ring is already exactly where it would be moved to.
+   */
+  private entering = false;
   /** D30: laid over a live Flight rather than replacing it. */
   private overlay = false;
   /** Everything that slides in, so the slide is one tween on one object. */
@@ -432,6 +444,30 @@ export class WarpScene extends Phaser.Scene {
     this.debrisMoved = false;
     this.debrisSignature = "";
     this.overlay = data?.overlay === true;
+    /**
+     * ============ PHASER BUILDS THIS SCENE ONCE (UR-59's lesson, again) ============
+     *
+     * A class-field initialiser runs when the INSTANCE is constructed, which is
+     * once per page load, not once per visit - `create` is re-run on the same
+     * object. Everything a visit owns therefore has to be cleared here, and
+     * these two were not:
+     *
+     *   `lantern`  `create` only ASSIGNS it on the standalone path (the overlay
+     *              path draws no ship, because the one on screen is Flight's).
+     *              `SHUTDOWN` destroys the rig but left the field pointing at
+     *              it, so a standalone mount followed by an overlaid one kept a
+     *              DESTROYED `LanternRig`: `snapshot().ship.drawn` reported
+     *              true with no ship on screen, `shipLivery` reported a hull
+     *              that was not drawn, and `clearAndLaunch` tweened a dead
+     *              container on the way out.
+     *   `meterEaseFrames`  a high-water count of frames the fill was redrawn
+     *              mid-move. AC-22.5's claim is "zero means it stepped", and a
+     *              count carried in from the previous visit makes that reading
+     *              false in the direction that hides the defect.
+     */
+    this.lantern = null;
+    this.meterEaseFrames = 0;
+    this.entering = false;
     this.meterShown = 0;
     this.meterTween = null;
     this.chargeStage = 0;
@@ -581,26 +617,72 @@ export class WarpScene extends Phaser.Scene {
    * lose. Under reduced motion it is a fade, because a panel arriving is
    * framing motion (AC-19.3) but a panel APPEARING with no transition at all
    * reads as a glitch.
+   *
+   * ============ THE RING ARRIVES WITH THE CARD IT IS AROUND ============
+   *
+   * THE DEFECT, AS REPORTED: "the yellow outline appears before its box." It is
+   * the focus ring, and it was not a timing tweak away from correct - it was
+   * never given this entrance at all.
+   *
+   * `createFocusRing` paints the ring and plays its own 0.55 -> 1 arrival the
+   * moment `moveTo` is called, at the card's FINAL rectangle. The ring is
+   * created OUTSIDE `panelRoot` on purpose - that is what makes it draw over
+   * the card rather than under it (`buildSentencePanel` explains why the ring
+   * IS this card's gold line) - and `panelRoot` is the only thing `slideIn`
+   * touched. So on every overlaid break the outline was fully lit at the
+   * card's resting position while the card itself was still transparent and
+   * 150 px lower, and the two met when the slide finished. Measured in the
+   * served build, sampled every animation frame from the overlay's first:
+   *
+   *            ring.alpha   panelRoot.alpha
+   *   +17 ms      0.590          0.000
+   *   +117 ms     1.000          0.111
+   *   +317 ms     1.000          0.604
+   *
+   * The fix is the same shape as `clearAndLaunch`'s, which is the other end of
+   * this screen's life: the ring is given the panel's entrance - its alpha, its
+   * offset, its duration and its ease - so the outline and its box are one
+   * object's worth of motion in both directions. Parenting the ring INTO
+   * `panelRoot` was the alternative and was rejected: `boxes()` reports
+   * `ring.graphics.alpha`, which inside a container is a local alpha that no
+   * longer says what is on screen, and `warp-chrome.spec.ts` asserts the exit
+   * with exactly that number.
    */
   private slideIn(): void {
     if (!this.overlay) return;
+    const ring = this.ring.graphics;
     if (this.lane.reducedMotion) {
       this.panelRoot.setAlpha(0);
+      ring.setAlpha(0);
+      this.entering = true;
       this.tweens.add({
-        targets: this.panelRoot,
+        targets: [this.panelRoot, ring],
         alpha: 1,
         duration: DUR.panel,
         ease: EASE.arrive,
+        onComplete: () => {
+          this.entering = false;
+        },
       });
       return;
     }
     this.panelRoot.setAlpha(0);
     this.panelRoot.setY(150);
+    // The ring's own arrival tween is replaced rather than raced: it was armed
+    // by `moveTo` a line before this and would otherwise drag the alpha back up
+    // under the entrance.
+    this.tweens.killTweensOf(ring);
+    ring.setAlpha(0);
+    ring.setY(150);
+    this.entering = true;
     this.tweens.add({
-      targets: this.panelRoot,
+      targets: [this.panelRoot, ring],
       y: 0,
       alpha: 1,
       duration: 460,
+      onComplete: () => {
+        this.entering = false;
+      },
       // Arrive and settle. Never Back.Out here: the panel carries the sentence
       // the player is about to type, and text that overshoots is text that is
       // briefly unreadable.
@@ -775,27 +857,32 @@ export class WarpScene extends Phaser.Scene {
       }),
     );
 
-    // UR-70's DESTINATION BADGE: the planet at the other end of this warp,
-    // drawn in the card's top right. Vector, from the DESTINATION's palette
-    // (D83, AC-22.7) - `render/planetBadge.ts`. The badge square is the shared
-    // plate's (`plateLayout.badgeBox`), which is why it cannot collide with the
-    // bracket arms or hang over the card's padding.
+    // UR-70's BADGE: the planet whose beacon is being charged, drawn in the
+    // card's top right. Vector, from that stop's palette (D83, AC-22.7) -
+    // `render/planetBadge.ts`. The badge square is the shared plate's
+    // (`plateLayout.badgeBox`), which is why it cannot collide with the bracket
+    // arms or hang over the card's padding.
+    //
+    // IT IS THE CURRENT STOP, AND IT IS NO LONGER OPTIONAL. The badge used to
+    // take `STOP_IDS[indexOf(current) + 1]` - the stop AFTER this one - so it
+    // drew Pluto's ice over a sentence that charged Neptune's beacon, and at
+    // Pluto itself the expression was `undefined` and the card had no badge at
+    // all. `beaconStopId` always answers, so the last stop of the game gains
+    // the picture every other stop had.
     const badge = badgeRow();
-    const destinationId = this.nextStopId();
-    if (destinationId !== null) {
-      const g = this.add.graphics();
-      paintPlanetBadge(
-        g,
-        badge,
-        planetBadgeSpec(destinationId),
-        planetBadgeInk(destinationId, INK.panel),
-      );
-      made.push(g);
-    }
+    const beaconId = this.beaconStopId();
+    const badgeGraphics = this.add.graphics();
+    paintPlanetBadge(
+      badgeGraphics,
+      badge,
+      planetBadgeSpec(beaconId),
+      planetBadgeInk(beaconId, INK.panel),
+    );
+    made.push(badgeGraphics);
     // The instruction is on the header line now ("warp.beltCleared"), where it
     // sits next to what just happened. This slot carries the OTHER half the
-    // player was missing - where the drive is taking them - so the screen names
-    // the destination before the jump rather than only after it.
+    // player was missing - WHOSE beacon this charge is filling - so the meter
+    // has an owner before it is full rather than only after it.
     // UR-70. The row is the shared rhythm's, not `PANEL.y + 24` - see
     // `support/warpLayout.ts`, which now derives the card's height from its
     // rows rather than the other way round.
@@ -1167,41 +1254,49 @@ export class WarpScene extends Phaser.Scene {
   /**
    * The line under the meter once it is full.
    *
-   * `stopId` is the belt that was just cleared, so the place the player is
-   * about to warp TO is the next one on the route. Pluto is the last stop and
-   * has no next, which is a different sentence rather than a missing word - a
-   * screen that says "next stop: undefined" is worse than one that says
-   * nothing.
+   * It hands the charge to the next screen by name: the meter's output is the
+   * beacon `BeaconScene` is about to plant, so the line says PLANT IT and says
+   * where. There is no last-stop branch any more - see `beaconStopId`.
    */
   private chargedCopy(): string {
-    const next = this.nextStop();
-    if (next === null) return this.lane.copy.text("warp.chargedLast");
-    return this.lane.copy.text("warp.chargedNext", { stop: next });
+    return this.lane.copy.text("warp.chargedNext", { stop: this.beaconStopName() });
   }
 
-  /** The line above the sentence: where this typing is taking the player. */
+  /** The line above the sentence: whose beacon this typing is charging. */
   private destinationCopy(): string {
-    const next = this.nextStop();
-    if (next === null) return this.lane.copy.text("warp.prompt");
-    return this.lane.copy.text("warp.nextStop", { stop: next });
+    return this.lane.copy.text("warp.nextStop", { stop: this.beaconStopName() });
   }
 
-  /** The stop AFTER the belt that was just cleared, or null at the last one. */
-  private nextStop(): string | null {
-    const next = this.nextStopId();
-    return next === null ? null : this.lane.copy.stopName(next);
+  /** The same stop as a translated display name. */
+  private beaconStopName(): string {
+    return this.lane.copy.stopName(this.beaconStopId());
   }
 
   /**
-   * The same stop as an ID rather than as a name.
+   * ============ THE BEACON BEING CHARGED IS THE STOP UNDER THE SHIP ============
    *
-   * The badge needs the ID and the line needs the NAME, and they are different
-   * things: `copy.stopName` is translated, so a badge keyed off it would look
-   * up "Saturne" in a palette table keyed by "saturn" and quietly draw nothing
-   * in French.
+   * This was `STOP_IDS[STOP_IDS.indexOf(this.stopId) + 1]` - the stop AFTER the
+   * belt just cleared - because the screen used to be a warp drive and a drive
+   * goes somewhere. It does not: the belt is AT the stop, so clearing Mars'
+   * belt means the pilot is already at Mars. The screen charges the beacon
+   * `BeaconScene` plants in the very next cut, and `cutToBeacon` forwards
+   * `this.stopId` to it, so THIS is the id both screens agree on. The old
+   * expression put "Destination: Pluto" on the screen immediately before
+   * Neptune's beacon went into the ground.
+   *
+   * IT CANNOT BE NULL, AND THAT REMOVES TWO BRANCHES. The old one ran off the
+   * end of the route at Pluto, so the last stop in the game showed no
+   * destination row and no badge; `warp.prompt` and `warp.chargedLast` existed
+   * only to cover that hole. Pluto now reads exactly like every other stop -
+   * "Charging: Pluto Beacon", then "Beacon charged. Plant it at Pluto." - which
+   * is true, because Pluto's beacon is the one that finishes the map.
+   *
+   * ID, NOT NAME, and they are different things: `copy.stopName` is translated,
+   * so a badge keyed off it would look up "Saturne" in a palette table keyed by
+   * "saturn" and quietly draw nothing in French.
    */
-  private nextStopId(): StopId | null {
-    return STOP_IDS[STOP_IDS.indexOf(this.stopId) + 1] ?? null;
+  private beaconStopId(): StopId {
+    return this.stopId;
   }
 
   /**
@@ -1674,7 +1769,11 @@ export class WarpScene extends Phaser.Scene {
     if (this.warping) return;
     if (event.key === "Tab" || event.key === "Enter") {
       event.preventDefault();
-      this.ring.moveTo({ id: "warp-sentence", x: PANEL.x, y: PANEL.y, w: PANEL.w, h: PANEL.h });
+      // Not while the card is still arriving: see `entering`. The target is
+      // the one this screen already has, so skipping the pop moves nothing.
+      if (!this.entering) {
+        this.ring.moveTo({ id: "warp-sentence", x: PANEL.x, y: PANEL.y, w: PANEL.w, h: PANEL.h });
+      }
       return;
     }
     if (event.key.length !== 1) return;
@@ -2191,6 +2290,16 @@ export class WarpScene extends Phaser.Scene {
     return {
       scene: SCENE_KEYS.warp,
       stopId: this.stopId,
+      /**
+       * The stop whose beacon this charge fills - the row above the sentence
+       * and the badge in the card's corner are both drawn from it.
+       *
+       * Reported so a spec can assert the two agree with EACH OTHER and with
+       * the stop `cutToBeacon` forwards, which is the whole of the defect: the
+       * screen used to name the stop after this one while the next scene
+       * planted this one's beacon, and nothing compared them.
+       */
+      beaconStopId: this.beaconStopId(),
       // UR-48. The hull this screen draws. The standalone path drew the file
       // constants whoever was flying; the overlay path draws no ship at all and
       // reports null, because the one on screen is Flight's and Flight's was

@@ -48,19 +48,51 @@ export const EN = {
   "flight.hull": "Hull",
   "flight.wpm": "{wpm} words per minute",
 
-  "warp.heading": "Warp Break",
-  "warp.prompt": "Type the sentence to charge the warp drive.",
+  /**
+   * ============ THE SCREEN CHARGES A BEACON. IT IS NOT A WARP DRIVE. ============
+   *
+   * The belt is AT the destination. Clearing Mars' belt means the pilot has
+   * already arrived, with Mars-coloured rocks around them, so a drive that
+   * carries them somewhere afterwards is a journey to a place they are standing
+   * in. Worse, the screen named the stop AFTER this one while the very next
+   * scene planted THIS one's beacon - the one line that pointed forward pointed
+   * at the wrong planet.
+   *
+   * The beat is right and only its meaning was wrong. The words the child
+   * blasted charge the BEACON, the charged line hands it to the scene that
+   * plants it, and the meter's output becomes a physical object one screen
+   * later instead of a flourish.
+   *
+   * THE KEYS ARE NOT RENAMED. `warp.*` is the namespace three languages, nine
+   * tests and two scenes already spell; renaming it is a wide mechanical diff
+   * with nothing in it for a player. What a player READS is what changed.
+   */
+  "warp.heading": "Charging The Beacon",
+  "warp.prompt": "Type the sentence to charge the beacon.",
   /*
    * D30. The break is the most important five seconds in the game and it used
    * to say neither of the two things a player needs to know. These three do:
-   * the belt is GONE, this typing is what charges the drive, and the drive
-   * being full means you are ABOUT TO TRAVEL, to a named place.
+   * the belt is GONE, this typing is what charges the beacon, and the beacon
+   * being full means you are ABOUT TO PLANT IT, at a named place.
    */
   "warp.beltCleared":
-    "Asteroid belt cleared. Type the sentence below to charge the warp drive.",
-  "warp.nextStop": "Destination: {stop}.",
-  "warp.chargedNext": "Warp drive charged. Next stop: {stop}.",
-  "warp.chargedLast": "Warp drive charged. The last jump. Hold on.",
+    "Asteroid belt cleared. Type the sentence below to charge the beacon.",
+  /**
+   * The line above the sentence: WHOSE beacon this is. A label, so Title Case,
+   * and `{stop}` is the stop the child is standing at - the one the next scene
+   * plants - never the one after it.
+   */
+  "warp.nextStop": "Charging: {stop} Beacon",
+  /** At 100%: what the charge is FOR, and where it is about to go. */
+  "warp.chargedNext": "Beacon charged. Plant it at {stop}.",
+  /**
+   * KEPT, UNUSED, like `warp.heading` was kept when its tab came off the
+   * screen. It existed because `nextStopId` returned null at Pluto; the beacon
+   * being charged is the CURRENT stop, which always exists, so nothing can
+   * reach this any more. Deleting it would make restoring a last-stop beat a
+   * translation job rather than one line of scene code.
+   */
+  "warp.chargedLast": "Beacon charged. The last one. Plant it.",
 
   "beacon.placed": "Beacon placed at {stop}.",
 
@@ -115,12 +147,15 @@ export const ES: Record<StringKey, string> = {
   "flight.hull": "casco",
   "flight.wpm": "{wpm} palabras por minuto",
 
-  "warp.heading": "pausa de salto",
-  "warp.prompt": "Escribe la frase para cargar el motor de salto.",
-  "warp.beltCleared": "Cinturón limpio. Escribe para cargar el motor de salto.",
-  "warp.nextStop": "Destino: {stop}.",
-  "warp.chargedNext": "Motor de salto cargado. Próxima parada: {stop}.",
-  "warp.chargedLast": "Motor de salto cargado. El último salto. Agárrate.",
+  "warp.heading": "Cargando la baliza",
+  "warp.prompt": "Escribe la frase para cargar la baliza.",
+  "warp.beltCleared":
+    "Cinturón de asteroides limpio. Escribe la frase de abajo para cargar la baliza.",
+  // Español no pone mayúscula en cada palabra de un sintagma común, así que la
+  // regla aquí es "la etiqueta lleva una mayúscula", y eso es una.
+  "warp.nextStop": "Cargando: baliza de {stop}",
+  "warp.chargedNext": "Baliza cargada. Plántala en {stop}.",
+  "warp.chargedLast": "Baliza cargada. La última. Plántala.",
 
   "beacon.placed": "Baliza colocada en {stop}.",
 
@@ -169,12 +204,15 @@ export const HI: Record<StringKey, string> = {
   "flight.hull": "कवच",
   "flight.wpm": "{wpm} शब्द प्रति मिनट",
 
-  "warp.heading": "वार्प विराम",
-  "warp.prompt": "वार्प इंजन भरने के लिए वाक्य लिखो।",
-  "warp.beltCleared": "पट्टी साफ़ हो गई। वार्प इंजन भरने के लिए यह लिखो।",
-  "warp.nextStop": "गंतव्य: {stop}।",
-  "warp.chargedNext": "वार्प इंजन भर गया। अगला पड़ाव: {stop}।",
-  "warp.chargedLast": "वार्प इंजन भर गया। आख़िरी छलांग। सँभल जाओ।",
+  // "बीकन" is the word every other Hindi string in this table already uses for
+  // a beacon ("beacon.placed", "title.beaconLog"), and "लगाओ" is the verb that
+  // screen uses for planting one, so the two halves of the beat match.
+  "warp.heading": "बीकन भर रहे हैं",
+  "warp.prompt": "बीकन भरने के लिए वाक्य लिखो।",
+  "warp.beltCleared": "क्षुद्रग्रह पट्टी साफ़ हो गई। बीकन भरने के लिए नीचे का वाक्य लिखो।",
+  "warp.nextStop": "भर रहे हैं: {stop} का बीकन",
+  "warp.chargedNext": "बीकन भर गया। इसे {stop} पर लगाओ।",
+  "warp.chargedLast": "बीकन भर गया। आख़िरी वाला। इसे लगाओ।",
 
   "beacon.placed": "{stop} पर बीकन लगा।",
 

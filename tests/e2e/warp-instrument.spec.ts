@@ -260,19 +260,26 @@ test.describe("UR-63: the Lantern is on the warp screen", () => {
   });
 });
 
-test.describe("UR-62: the warp drive reads as one instrument", () => {
+test.describe("UR-62: the charge meter reads as one instrument", () => {
   for (const stop of STOPS) {
     test(`label, readout and track share one box at ${stop}`, async ({ page }) => {
       test.setTimeout(60_000);
       await openWarp(page, stop);
 
       // Both ends of the instrument's one line are on the screen. The
-      // percentage is the readout; "warp drive" names what is being read.
+      // percentage is the readout; the label names what is being read.
+      //
+      // IT NAMES A BEACON NOW, not a warp drive - the belt is AT the stop, so
+      // there is nowhere to drive to, and the charge fills the beacon the next
+      // scene plants. Watched failing on the recast, in the served build:
+      //   Error: mars: nothing names the drive
+      //   expect(received).toBe(expected)
+      //   Received: false        ("Beacon Charge" is what is on screen)
       const visible = await texts(page, "warp");
       expect(visible.some((t) => t.includes("%")), `${stop}: no readout`).toBe(true);
       expect(
-        visible.some((t) => t.trim().length > 0 && /drive|salto|इंजन/u.test(t)),
-        `${stop}: nothing names the drive`,
+        visible.some((t) => t.trim().length > 0 && /Beacon Charge|baliza|बीकन/u.test(t)),
+        `${stop}: nothing names the charge`,
       ).toBe(true);
 
       // The whole instrument, cropped, as the evidence a human can look at.
@@ -293,10 +300,12 @@ const INSTRUMENT_RECT: Rect = { x: 96, y: 536, w: 1728, h: 124 };
  * TWO STOPS, AND WHY THAT IS THE WHOLE SET (rule 5). The row's GEOMETRY is
  * stop-independent - `instrumentChargedRow` has no stop in it, and
  * `warpLayout.test.ts` sweeps its containment once for that reason. The only
- * thing that varies by stop is which of two strings is drawn there:
- * `warp.chargedNext` names the next stop, and `warp.chargedLast` exists because
- * Pluto has no next one. Mars and Pluto are those two branches; the other five
- * stops are Mars with a different planet name in the same slot.
+ * thing that varies by stop is the planet name `warp.chargedNext` puts in the
+ * slot. Mars and Pluto are here because Pluto used to be the OTHER branch: the
+ * beacon being charged was the stop AFTER this one, which ran off the end of
+ * the route there and drew `warp.chargedLast`, a line that named nowhere. The
+ * beacon is the CURRENT stop now, so Pluto reads like every other stop and the
+ * pair guards that it stayed that way.
  */
 for (const stop of ["mars", "pluto"] as const) {
   test(`the charged line is the instrument's third row at ${stop}`, async ({ page }) => {

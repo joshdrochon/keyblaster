@@ -24,7 +24,6 @@ import {
   charsRevealedAt,
   msPerChar,
   revealPerBlock,
-  REVEAL_SKIP_GRACE_MS,
 } from "./support/briefingTypewriter";
 import { audioFrom } from "@game/audio/wiring";
 import { drawControlSurface } from "@game/ui/controlSurface";
@@ -120,8 +119,6 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
   /** The blocks the reveal walks through, in the order it walks them (UR-59). */
   private typed: TypedBlock[] = [];
   private revealFrom = 0;
-  /** Input before this instant is the keystroke that arrived here, not a skip. */
-  private revealSkippableFrom = 0;
   private revealChars = 0;
   private revealed = 0;
   private revealing = false;
@@ -560,24 +557,35 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
      * child who has seen Neptune four times presses the key they always press
      * and the reveal costs them nothing.
      */
-    // THE KEY THAT OPENED THIS SCREEN MUST NOT ALSO CLOSE IT.
+    // INPUT THAT BEGAN BEFORE THIS SCREEN EXISTED CANNOT ACT ON IT.
     //
-    // A child opens a briefing by pressing Enter on the map. `create` runs
-    // inside that same input turn, so the listener below was registered in
-    // time to receive the very keystroke that navigated here - measured, one
-    // Enter took `revealed` from 0 to 312 and `revealing` to false before a
-    // single frame had drawn. The reveal was armed correctly every time and
-    // completed instantly every time, which is why it appeared to work once
-    // (the first stop is reached from the Earth ceremony, with no key down)
-    // and never again.
+    // That is the rule, and it needs two mechanisms rather than a duration.
     //
-    // A short grace window is the whole fix: input during it is ignored, so
-    // the opening keystroke cannot land, and a child who genuinely wants to
-    // skip presses a key a fraction of a second later and still skips.
-    this.revealSkippableFrom = this.revealFrom + REVEAL_SKIP_GRACE_MS;
-    this.input.keyboard?.on("keydown", this.finishReveal, this);
-    this.input.on(Phaser.Input.Events.POINTER_DOWN, this.finishReveal, this);
+    // 1. BIND ON THE NEXT FRAME. A child opens a briefing by pressing Enter on
+    //    the map, and `create` runs inside that same input turn - before any
+    //    frame renders. A listener registered here received the very keystroke
+    //    that navigated here: measured, one Enter took `revealed` from 0 to
+    //    312 and `revealing` to false before a single frame had drawn. Binding
+    //    one frame later means the arrival event has already been delivered to
+    //    a screen that had no listener, so it cannot be caught at all. This is
+    //    by construction rather than by timing.
+    //
+    // 2. IGNORE `repeat` (in `finishReveal`). A HELD key is one press. Enter
+    //    auto-repeats at roughly 500 ms, which is outside any grace window
+    //    worth having and which no duration could have distinguished from a
+    //    deliberate second press. The browser's own `repeat` flag does.
+    //
+    // An earlier fix used a 200 ms grace window. It closed (1) and could never
+    // close (2), which is why the reveal still died on the way into a stop.
+    const bind = (): void => {
+      this.input.keyboard?.on("keydown", this.finishReveal, this);
+      this.input.on(Phaser.Input.Events.POINTER_DOWN, this.finishReveal, this);
+    };
+    // `once(POST_UPDATE)` rather than a timer: it is the first frame, whatever
+    // the frame rate, and it cannot fire on a scene that never renders.
+    this.events.once(Phaser.Scenes.Events.POST_UPDATE, bind);
     this.completeReveal = () => {
+      this.events.off(Phaser.Scenes.Events.POST_UPDATE, bind);
       this.input.keyboard?.off("keydown", this.finishReveal, this);
       this.input.off(Phaser.Input.Events.POINTER_DOWN, this.finishReveal, this);
     };
@@ -595,11 +603,21 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
   }
 
   /** Put the whole page on screen, exactly as it would have been drawn. */
-  private finishReveal = (): void => {
+  private finishReveal = (event?: KeyboardEvent): void => {
     if (!this.revealing) return;
-    // See `revealSkippableFrom`: the keystroke that opened this screen arrives
-    // before the grace window ends and is not a request to skip.
-    if (this.game.loop.time < this.revealSkippableFrom) return;
+    // A KEY HELD DOWN IS ONE PRESS, NOT MANY.
+    //
+    // The grace window below stops the keystroke that OPENED this screen from
+    // also closing it, but it cannot stop the same physical press arriving
+    // again: a held Enter auto-repeats at roughly 500 ms, which is comfortably
+    // outside any grace window worth having, and the child never lifted their
+    // finger. That is why the reveal still died on the way into a stop even
+    // after the window existed - press Enter on the map and hold it a beat,
+    // and the repeat skipped the page.
+    //
+    // `repeat` is the browser telling us this is the same press, so it is a
+    // better signal than any duration could be.
+    if (event?.repeat === true) return;
     this.revealing = false;
     this.revealed = this.revealChars;
     for (const block of this.typed) {

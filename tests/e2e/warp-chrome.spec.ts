@@ -358,11 +358,18 @@ test.describe("what the warp break's chrome says, and where its bolt is", () => 
    *
    * WATCHED FAILING, with the table's old string:
    *   expected 'warp drive' to be 'Warp Drive'
+   *
+   * AND IT NAMES A BEACON NOW. The belt is AT the stop, so nothing drives
+   * anywhere; the meter charges the beacon the next scene plants. Watched
+   * failing again on the recast, in the served build:
+   *   Error: expect(received).toBe(expected)
+   *   Expected: "Warp Drive"
+   *   Received: "Beacon Charge"
    */
-  test("draws the warp drive's label in Title Case", async ({ page }) => {
+  test("draws the charge meter's label in Title Case", async ({ page }) => {
     await bootScene(page, "Warp", "warp", "&stop=mars");
     await settle(page);
-    expect((await boxes(page)).chargeLabelText).toBe("Warp Drive");
+    expect((await boxes(page)).chargeLabelText).toBe("Beacon Charge");
   });
 
   /**

@@ -82,6 +82,8 @@
  */
 
 import Phaser from "phaser";
+import { type StopId } from "@engine/types.js";
+import { sunScaleForStop } from "./sunScale.js";
 import {
   DEBRIS_SPEC,
   LANE_GUARD as LANE_GUARD_FRACTION,
@@ -269,6 +271,8 @@ const LANE_GUARD = LANE_GUARD_FRACTION;
 function sunRadius(pal: StopPalette): number {
   return isBrightStop(pal) ? 86 : 48;
 }
+
+
 
 /**
  * UR-08: THE KEEP-OUT COLUMN IS GONE, and it had already gone before the report.
@@ -676,15 +680,28 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   // --- L1 celestial -------------------------------------------------------
   if (decorate.has("celestial")) {
     const c = layerOf("celestial").container;
-    // Starfield first, so the planet occludes it. Wrapped like everything else:
-    // it used to be drawn once across -H..H, which is not periodic, so the stars
-    // were themselves a source of the seam jolt.
-    for (const dy of [0, -H]) c.add(celestialBody(scene, pal, W, H, dy));
+    // NO DECORATIVE PLANET IN THE SKY, by the owner's call.
+    //
+    // `celestialBody` drew one large body on EVERY stop, from that stop's
+    // palette. Standing on Pluto at 35.61 AU with a big blue planet filling the
+    // sky is not a thing that can happen: nothing is near Pluto, and the only
+    // blue planet on the route is Neptune, which is about 5 AU away and would
+    // be a point of light. It read as a second sun with no explanation, and it
+    // was the same body at Mars, Saturn and Pluto alike.
+    //
+    // The function is KEPT rather than deleted: `support/preflightLayout.ts`
+    // derives the pre-flight window's disc size from its source, and that is a
+    // real rule about how a distant body is drawn, not a leftover.
+    //
+    // The starfield that used to be drawn behind it is unaffected - it lives on
+    // its own layer, not here.
     // WORLD-BAR item 4: the source itself, in frame. The planet alone is not
     // it - a large dark disc reads as an object the light falls on, which is
     // exactly what it is, and leaves the frame with no visible source for the
     // rims on every silhouette below.
-    for (const dy of [0, -H]) c.add(sunDisc(scene, pal, W, H, dy));
+    // `pal.id` IS the stop, so every caller gets this for free.
+    const sunScale = sunScaleForStop(pal.id as StopId);
+    for (const dy of [0, -H]) c.add(sunDisc(scene, pal, W, H, dy, sunScale));
   }
 
   // --- L2/L3 silhouette planes -------------------------------------------
@@ -1298,12 +1315,13 @@ function sunDisc(
   w: number,
   h: number,
   dy: number,
+  sunScale = 1,
 ): Phaser.GameObjects.Graphics {
   const at = lightPositionOf(pal);
   const cx = w * at.x;
   const cy = dy + h * at.y;
   const bright = isBrightStop(pal);
-  const r = sunRadius(pal);
+  const r = sunRadius(pal) * sunScale;
   const skyTop = skyStops(pal)[0];
   const core = mixHex(skyTop, "#FFFFFF", bright ? 0.9 : 0.74);
   const halo = mixHex(skyTop, "#FFFFFF", bright ? 0.62 : 0.5);

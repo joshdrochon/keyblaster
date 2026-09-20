@@ -36,7 +36,7 @@ const LOCAL_EN: LocalTable = {
   "hud.combo": "combo", // i18n-ignore: string table
   "hud.score": "score", // i18n-ignore: string table
   "stall.title": "The engines went quiet.", // i18n-ignore: string table
-  "stall.line": "We drifted a little, pilot. Every word you flew is still aboard — let's take this belt again.", // i18n-ignore: string table
+  "stall.line": "We drifted a little, pilot. Every word you flew is still aboard, so let's take this belt again.", // i18n-ignore: string table
   "stall.restart": "Fly this stage again", // i18n-ignore: string table
 };
 
@@ -54,7 +54,7 @@ const LOCAL_HI: LocalTable = {
   "hud.combo": "लगातार", // i18n-ignore: string table
   "hud.score": "अंक", // i18n-ignore: string table
   "stall.title": "इंजन शांत हो गए।", // i18n-ignore: string table
-  "stall.line": "हम थोड़ा बहक गए, पायलट। तुम्हारे सारे शब्द अब भी हमारे पास हैं — चलो यह पट्टी फिर से पार करें।", // i18n-ignore: string table
+  "stall.line": "हम थोड़ा बहक गए, पायलट। तुम्हारे सारे शब्द अब भी हमारे पास हैं, तो चलो यह पट्टी फिर से पार करें।", // i18n-ignore: string table
   "stall.restart": "यह चरण फिर से उड़ाओ", // i18n-ignore: string table
 };
 

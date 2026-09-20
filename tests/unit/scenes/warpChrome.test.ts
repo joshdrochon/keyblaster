@@ -199,7 +199,7 @@ describe("Shadow is a name and the instruction is a sentence", () => {
 });
 
 /**
- * "Warp Drive" IS A LABEL, AND LABELS ARE TITLE CASE.
+ * THE METER'S LABEL IS A LABEL, AND LABELS ARE TITLE CASE.
  *
  * ================== AN ESCALATION THE OWNER CLOSED ==================
  * UR-81's rule already gave Title Case to labels, and `warp.chargeLabel` is a
@@ -232,13 +232,17 @@ describe("Shadow is a name and the instruction is a sentence", () => {
  *   leaves no lower-case "warp drive" in the lane's copy
  *     expected [ 'warp.charged' ] to deeply equal []
  */
-describe("the warp drive's label is Title Case", () => {
+describe("the charge meter's label is Title Case", () => {
   const en = createLaneText({ lang: "en", shipName: "Lantern" });
   const es = createLaneText({ lang: "es", shipName: "Lantern" });
   const hi = createLaneText({ lang: "hi", shipName: "Lantern" });
 
-  it("capitalises the warp drive's label, which is a label and not a sentence", () => {
-    expect(en.text("warp.chargeLabel")).toBe("Warp Drive");
+  it("capitalises the meter's label, which is a label and not a sentence", () => {
+    // WHAT IT NAMES ALSO CHANGED. It read "Warp Drive", and the belt is AT the
+    // stop - there is nowhere to drive to. The meter charges the BEACON the
+    // next scene plants. Watched failing on the recast:
+    //   expected 'Warp Drive' to be 'Beacon Charge'
+    expect(en.text("warp.chargeLabel")).toBe("Beacon Charge");
   });
 
   it("capitalises it in Spanish too, and in Hindi by fallthrough", () => {
@@ -246,14 +250,17 @@ describe("the warp drive's label is Title Case", () => {
     // not Title Case a common-noun phrase, so "Motor de Salto" would be English
     // typography wearing Spanish words. The rule the table follows is "the
     // label carries a capital", and in Spanish that is one capital.
-    expect(es.text("warp.chargeLabel")).toBe("Motor de salto");
-    expect(hi.text("warp.chargeLabel")).toBe("Warp Drive");
+    //   expected 'Motor de salto' to be 'Carga de baliza'
+    expect(es.text("warp.chargeLabel")).toBe("Carga de baliza");
+    expect(hi.text("warp.chargeLabel")).toBe("Beacon Charge");
   });
 
-  it("leaves no lower-case \"warp drive\" in the lane's copy", () => {
-    // The sweep, as an assertion rather than as a grep somebody ran once.
+  it("leaves no warp drive at all in the lane's copy, in any case", () => {
+    // The sweep, as an assertion rather than as a grep somebody ran once. It
+    // used to look for a lower-case "warp drive"; the recast makes the stronger
+    // check the true one, so it asks for the word itself.
     const offenders = Object.entries(LANE_COPY_EN)
-      .filter(([, value]) => /\bwarp drive\b/.test(value))
+      .filter(([, value]) => /\bwarp\b/i.test(value))
       .map(([key]) => key);
     expect(offenders).toEqual([]);
   });

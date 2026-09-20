@@ -54,16 +54,18 @@ const LANE_EN = {
    * ============ A LABEL, SO TITLE CASE - AN ESCALATION THE OWNER CLOSED ============
    *
    * UR-81's rule already said labels are Title Case, and this is a label, so
-   * "Warp Drive" was always the literal reading. The lane that wrote the rule
-   * left this one string lower case on purpose and recorded why in
-   * `gauntlet/escalations.md` (item 2): the owner's own report about the bolt
-   * spelled it lower case, and recasing one label invites recasing the table.
-   * Its lean was "leave it - if the owner wants Title Case on labels it should
-   * be one sweep with the whole list in front of them."
+   * the capitals here are the literal reading of it. The lane that wrote the
+   * rule left this one string lower case on purpose and recorded why in
+   * `gauntlet/escalations.md` (item 2); the owner has since asked for it
+   * capitalised, which closes the escalation for THIS string only. "continue",
+   * "fly it again" and "stage report" are untouched, so the table-wide sweep is
+   * still open and still theirs to call.
    *
-   * The owner has now asked for it capitalised. That closes the escalation for
-   * THIS string only: "continue", "fly it again" and "stage report" are
-   * untouched, so the table-wide sweep is still open and still theirs to call.
+   * WHAT IT NAMES CHANGED TONIGHT. It read "Warp Drive", and the screen after a
+   * belt does not drive anywhere: the belt is AT the stop, so the pilot has
+   * already arrived. The meter charges the BEACON the very next scene plants,
+   * so the label names that and the instrument, the row above the sentence and
+   * the line at 100% now all say one thing.
    *
    * THE CASE IS HERE BECAUSE THIS IS WHERE IT RENDERS FROM. `ui/text.uiText`
    * puts every chrome string through `theme.chromeCase`, which since UR-81
@@ -71,9 +73,14 @@ const LANE_EN = {
    * on. So the table's case is the case on screen, and a capitalised literal at
    * the `WarpScene` call site would have put English capitals on Spanish words.
    */
-  "warp.chargeLabel": "Warp Drive",
+  "warp.chargeLabel": "Beacon Charge",
   "warp.chargePercent": "{percent}%",
-  "warp.charged": "Warp drive charged. hold on.",
+  /**
+   * NOT DRAWN FROM HERE - the charged line comes from `warp.chargedNext`, which
+   * names the stop. This key is the `skyText` id's twin and is kept in step so
+   * the table cannot be the one place the old fiction survives.
+   */
+  "warp.charged": "Beacon charged. hold on.",
   "warp.speaker": "Shadow",
   /**
    * ============ SENTENCE CASE, WHICH MEANS ONE CAPITAL ============
@@ -178,9 +185,9 @@ export const LANE_STRING_KEYS = Object.keys(LANE_EN) as LaneStringKey[];
  */
 const LANE_ES: Partial<Record<LaneStringKey, string>> = {
   "warp.beltClear": "el cinturón está despejado. aquí todo está quieto.",
-  "warp.chargeLabel": "Motor de salto",
+  "warp.chargeLabel": "Carga de baliza",
   "warp.chargePercent": "{percent}%",
-  "warp.charged": "Motor de salto cargado. agárrate.",
+  "warp.charged": "Baliza cargada. agárrate.",
   // A NAME IS A NAME IN EVERY LANGUAGE. The Hindi lane table is empty and falls
   // through to English, so these two lines are the whole of the Spanish sweep.
   "warp.speaker": "Shadow",

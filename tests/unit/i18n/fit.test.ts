@@ -100,7 +100,17 @@ describe("the design brief's +25% budget against the real translations", () => {
     // SENTENCE by roughly the brief's +25%; it expands a short LABEL by 50-90%.
     // So lengthening the English copy fixed a budget violation instead of
     // causing one - which is the whole point this list is making.
-    "warp.heading", // Warp break -> Pausa de salto, +40%
+    //
+    // "warp.heading" came off the list the same way and for the same reason.
+    // It was "Warp break" (10) -> "Pausa de salto" (14), +40%. The screen was
+    // recast as charging a beacon, so it is "Charging The Beacon" (19) ->
+    // "Cargando la baliza" (18) - Spanish is SHORTER than the English here,
+    // because the source string stopped being a two-word label.
+    //
+    // WATCHED FAILING, with the old heading in the table:
+    //   the set of Spanish strings exceeding +25% is exactly the known list
+    //     expected [ 'map.locked', ...(3) ] to deeply equal
+    //     [ 'map.locked', ...(4) ]      (- "warp.heading")
   ];
 
   it("the set of Spanish strings exceeding +25% is exactly the known list", () => {
