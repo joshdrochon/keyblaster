@@ -296,6 +296,106 @@ export function drawPlate(
   return g;
 }
 
+// ---------------------------------------------------------------------------
+// The forward action (UR-112)
+// ---------------------------------------------------------------------------
+
+/**
+ * ========== ONE BUTTON, AND THE ACCENT IS NOT PART OF IT ==========
+ *
+ * ================== WHAT WAS REPORTED ==================
+ * The project owner: "The Continue button on the Beacon-placed screen has the
+ * right yellow outline, but 'Fly It Again' and 'Continue' on the stage report
+ * do not. Something is definitely off when it comes to consistency."
+ *
+ * ================== WHAT IT WAS ==================
+ * Both screens draw the SAME ring - `createFocusRing(this, layer("hud").depth
+ * + 1)`, measured on a served build at depth 8, alpha 1, visible, correctly
+ * positioned on both. What differed was the surface under it. Beacon's button
+ * is `INK.panelRaised` with `INK.line`; the stage report's primary was filled
+ * with `this.lane.palette.accent` and stroked with that accent mixed toward
+ * white. `INK.accent` on the Earth accent is a contrast ratio of 1.00 - the
+ * ring was drawn and could not be seen.
+ *
+ * ================== THE RULE ==================
+ * THE ACCENT IS THE FOCUS LANGUAGE. A CONTROL DOES NOT PAINT ITSELF IN IT.
+ *
+ * The same rule fixes the profile picker's "doubled ring", which was a control
+ * drawing the accent as its BORDER (two gold lines) rather than as its fill
+ * (no visible line). One rule, two symptoms, and it is `coding-standards.md`
+ * rule 1 restated for the one element that most needs it.
+ *
+ * ================== WHAT IS A PROP ==================
+ * `primary` is the emphasis, and it is the only one. Not a colour: a screen
+ * that could pass a fill is a screen that can pass the stop accent, which is
+ * the defect. The hierarchy is a LIFT inside one family - the same move
+ * `INK.panel -> INK.panelRaised` makes everywhere else in the kit - so it
+ * survives at every stop and in the colourblind palette without being re-tuned.
+ */
+export const ACTION_INK = {
+  /**
+   * THE FORWARD ACTION'S SURFACE, AND IT IS BEACON'S.
+   *
+   * The owner named the beacon-placed screen's Continue as the one that is
+   * RIGHT, and this is what it draws: `INK.panelRaised` with the quiet
+   * `INK.line` edge. Measured, it is also the only treatment that works - the
+   * gold ring clears 11.35:1 on it, a white label 16.69:1, and a stop-accent
+   * label 5.55:1 at its worst stop (Neptune).
+   */
+  primaryFill: INK.panelRaised,
+  primaryEdge: INK.line,
+  /** One step down, the same step `INK.panel -> INK.panelRaised` is everywhere. */
+  secondaryFill: INK.panel,
+  secondaryEdge: INK.line,
+  /**
+   * Both emphases carry the SAME label ink. Dimming one is how the stage
+   * report's pair came to read as disabled captions in the first place
+   * (`tests/unit/scenes/resultsInk.test.ts`).
+   */
+  label: INK.text,
+} as const;
+
+export interface ActionButtonProps {
+  /** True for the forward action. False for replay, "not now", a second choice. */
+  readonly primary?: boolean;
+  readonly radius?: number;
+}
+
+/**
+ * Paint a screen's action button into an existing Graphics.
+ *
+ * ========== WHY THE TWO EMPHASES ARE ONLY ONE STEP APART ==========
+ * They are 1.08:1, which `resultsInk.test.ts` rightly calls no edge at all -
+ * and that is deliberate, because on this screen the difference between the
+ * two actions is NOT carried by the plate. It is carried by the focus ring,
+ * which opens on the forward action (AC-18.1, `default-focus.spec.ts`) and is
+ * now legible because nothing under it is wearing the accent. The screen says
+ * which one you meant in the app's ONE selection language rather than in a
+ * colour that hid the ring.
+ *
+ * The alternative - a louder primary - was measured and rejected twice. A
+ * lifted fill (#4C6285) drops a stop-accent label to 2.20:1 at Mars; a bright
+ * edge (#8FA6C4) sits 6 px inside the gold ring at 1.62:1 against it, which is
+ * the "hollow double line" the picker was just fixed for.
+ */
+export function paintActionButton(
+  g: Phaser.GameObjects.Graphics,
+  rect: Rect,
+  props: ActionButtonProps = {},
+): void {
+  const primary = props.primary === true;
+  paintPlate(g, rect, {
+    fill: primary ? ACTION_INK.primaryFill : ACTION_INK.secondaryFill,
+    alpha: 1,
+    stroke: primary ? ACTION_INK.primaryEdge : ACTION_INK.secondaryEdge,
+    strokeAlpha: 1,
+    strokeWidth: 2,
+    rhythm: "button",
+    ...(props.radius === undefined ? {} : { radius: props.radius }),
+  });
+}
+
+
 /**
  * The focus ring: the same rounded rect, outside the control.
  *

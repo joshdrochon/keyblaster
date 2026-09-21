@@ -19,10 +19,13 @@ import {
   type KeyboardMenu,
   type SceneSnapshot,
 } from "./lib/kit";
+import { drawSpeechCard } from "@game/ui/speechCard";
+import { audioFrom } from "@game/audio/wiring";
 import {
   ENDING_INK,
   ENDING_PLATE,
   ENDING_TYPE,
+  SHADOW_AT,
   advanceEmFor,
   endingLayout,
   type EndingLayout,
@@ -74,14 +77,16 @@ import {
  * 3. SEVEN GREY NAMES ON A GREY SKY, sitting on the terrain silhouette. The
  *    route has its own plate now and the band was lifted into clear sky.
  *
- * 4. A 1380x170 CLOSING PANEL HOLDING ONE LINE, about 110 px of it dead black,
- *    and three blocks sharing neither a left edge nor a centre. The panel is
- *    now cut to the number of lines its own copy wraps to (`wrapLineCount`, off
- *    a measured glyph advance) and grows UPWARD, so the gap to the button never
- *    moves; and the headline, the route band, the panel and the button all
- *    share one centre line at x=960. Shadow stands in the left gutter the
- *    centred panel leaves, which is why the panel is narrower than the band
- *    rather than sharing its left edge.
+ * 4. A 1380x170 CLOSING PANEL HOLDING ONE LINE, about 110 px of it dead black.
+ *    The card is cut to the number of lines its own copy wraps to
+ *    (`wrapLineCount`, off a measured glyph advance).
+ *
+ * 5. SHADOW'S WORDS IN THE MIDDLE OF THE SCREEN WHILE SHADOW STOOD BOTTOM-LEFT
+ *    (UR-148). The card sits on her head now, left-aligned to her column, and
+ *    it is `ui/speechCard`'s card rather than a plate rolled by hand here - so
+ *    the ending, Earth activation and the pilot picker share one outline and
+ *    one speaker row. The headline, the route band and the button still share
+ *    the frame's centre line; the card is anchored to the figure instead.
  *
  * The two stray grey triangles under "Mars" are notches in the parallax
  * silhouette. This scene draws no triangles at all; they belong to the render
@@ -90,7 +95,6 @@ import {
 
 const BEACON_INTERVAL_MS = 220;
 const ZOOM_MS = 1800;
-const SHADOW_AT = { x: 280, y: 760 } as const;
 
 interface Lamp {
   readonly halo: Phaser.GameObjects.Graphics;
@@ -150,9 +154,8 @@ export class EndingScene extends Phaser.Scene {
       labelSize: ENDING_TYPE.stopName,
       bodySize: ENDING_TYPE.shadowLine,
       lineHeightEm: lineHeightEm(this.lane.lang),
-      // The panel is cut to the number of lines this language's closing line
-      // wraps to, so Spanish gets two lines of panel and English gets one
-      // instead of both getting a constant 170 px with dead black under it.
+      // The card is cut to the lines THIS language's line wraps to: one in
+      // English, two in Spanish and Hindi.
       advanceEm: advanceEmFor(this.lane.lang),
     });
 
@@ -177,7 +180,7 @@ export class EndingScene extends Phaser.Scene {
     hud.add(this.buildButton());
     hud.add(this.buildHeader());
 
-    this.ring = createFocusRing(this, layer("hud").depth + 1);
+    this.ring = createFocusRing(this, layer("hud").depth + 1, this.lane.reducedMotion);
     const b = this.layout.button;
     const target: FocusTarget = {
       id: "ending-continue",
@@ -341,36 +344,50 @@ export class EndingScene extends Phaser.Scene {
   }
 
   /**
-   * Shadow salutes, and says the line the ending exists for.
+   * Shadow salutes, and says the line the ending exists for - out loud (D63).
    *
-   * NO PANEL WITHOUT A LINE. The rect comes from the layout, which returns null
+   * NO CARD WITHOUT A LINE. The rect comes from the layout, which returns null
    * when the copy resolves to nothing, so the empty black box cannot be drawn
    * even if a copy key goes missing.
    */
   private buildClosingLine(): Phaser.GameObjects.GameObject[] {
     this.shadow = drawShadow(this, SHADOW_AT.x, SHADOW_AT.y, "saluting", {
-      scale: 0.95,
+      scale: SHADOW_AT.scale,
       reducedMotion: this.lane.reducedMotion,
       depth: layer("hud").depth,
     });
 
     const made: Phaser.GameObjects.GameObject[] = [];
     const panel = this.layout.panel;
+    const speaker = this.layout.panelSpeaker;
     const slot = this.layout.panelText;
-    if (panel === null || slot === null) return made;
+    if (panel === null || speaker === null || slot === null) return made;
 
+    const line = this.lane.copy.text("ending.shadowLine");
     made.push(
-      plate(this, panel.x, panel.y, panel.w, panel.h, {
-        fill: ENDING_PLATE.panel,
-        stroke: ENDING_PLATE.stroke,
-        alpha: ENDING_PLATE.alpha,
+      drawSpeechCard(this, panel, this.layout.panelLines, layer("hud").depth + 1).plate,
+    );
+
+    // `warp.speaker`, not a second key: it is the string "Shadow" in all three
+    // languages and there is one Shadow (D91) - EarthActivationScene's call.
+    this.platedInto(
+      made,
+      skyText(this, speaker.x, speaker.y, this.lane.copy.text("warp.speaker"), {
+        screen: "ending",
+        id: "ending.speaker",
+        size: ENDING_TYPE.speaker,
+        color: ENDING_INK.speaker,
+        lang: this.lane.lang,
+        depth: layer("hud").depth + 2,
+        plated: true,
+        plateFill: ENDING_PLATE.panel,
       }),
     );
 
     // Shadow's closing line, verbatim from story-draft-v1.md.
     this.shadowLine = this.platedInto(
       made,
-      skyText(this, slot.x, slot.y, this.lane.copy.text("ending.shadowLine"), {
+      skyText(this, slot.x, slot.y, line, {
         screen: "ending",
         id: "ending.shadowLine",
         size: ENDING_TYPE.shadowLine,
@@ -382,6 +399,15 @@ export class EndingScene extends Phaser.Scene {
         plateFill: ENDING_PLATE.panel,
       }),
     );
+
+    // SHE SAYS IT (D63, D98). The voice is handed the SAME string the label
+    // above was built from, and the id is the copy key `render-voice.mjs`
+    // renders from the lane table - see `tests/unit/audio/spokenLines.test.ts`.
+    audioFrom(this.registry)?.speak({
+      id: "ending.shadowLine",
+      text: line,
+      kind: "scripted",
+    });
     return made;
   }
 

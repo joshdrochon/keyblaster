@@ -135,6 +135,7 @@
   "activationWord": null,
   "warpSentence": "Saturn wears rings made of ice and rock.",
   "beaconHeadline": "Saturn Beacon",
-  "beaconState": "placed",
-  "beaconFlavor": "Threaded the rings. The next ship won't have to."
+  "beaconState": "lit",
+  "beaconFlavor": "Threaded the rings. The next ship won't have to.",
+  "beaconSpoken": "Saturn Beacon, lit. Threaded the rings. The next ship won't have to."
 }

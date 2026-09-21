@@ -1,9 +1,10 @@
 import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
-import { SKY_PLATE, SPACE, STEP, TYPE } from "@game/ui/theme";
+import { INK, LINE_HEIGHT, SKY_PLATE, SPACE, STEP, TYPE } from "@game/ui/theme";
 import { layer } from "@game/render/layers";
+import { paletteAt } from "@game/render/palette";
+import { contrastRatio } from "@engine/contrast/index.js";
 import {
   GUTTER,
-  HEADER_LINES,
   HEADING_TOP,
   HINT_TOP,
   contentRight,
@@ -15,7 +16,8 @@ import {
   LANTERN_DESIGN_HEIGHT,
   lanternDesignBox,
 } from "@game/render/lanternGeometry";
-import { STOP_IDS } from "@engine/types";
+import { STOP_IDS, type StopId } from "@engine/types";
+import type { StopView } from "@engine/progress/index.js";
 
 /**
  * THE DIRECTOR MAP'S GEOMETRY, with no Phaser in it.
@@ -271,23 +273,245 @@ export const captionBoxDeclared = (): { halfW: number; bottom: number } => ({
 });
 
 // ---------------------------------------------------------------------------
-// The header block
+// The mission badge (replaced the three header plates)
 // ---------------------------------------------------------------------------
 
-/** The bottom of the map's THIRD header line's plate. `padY: 8`, as drawn. */
-export const MAP_HEADER_PAD_Y = 8;
-export const headerBottom = (): number =>
-  (HEADER_LINES[2] ?? HEADING_TOP) + Math.round(TYPE.caption * 1.56) + MAP_HEADER_PAD_Y * 2;
+/**
+ * ONE BADGE WHERE THREE PLATES WERE.
+ *
+ * ================== WHAT WAS REPORTED ==================
+ * The top-left of this screen was three stacked sky plates - "Route to Pluto",
+ * "Seven stops, one lit path" and "6 of 7 beacons lit" - and the owner reported
+ * it as TOO BUSY. Three objects, three plates, three edges, all saying one
+ * thing: which route this is and how far along it the child is.
+ *
+ * It is one status badge now: a mission line, a goal line, and a segmented bar
+ * with one segment per beacon.
+ *
+ *   OLD  three plates spanning y 84..263, with air between them
+ *   NEW  one card, y 84..236
+ *
+ * ================== WHAT THE BADGE IS NOT ==================
+ * ITS BORDER IS `INK.line`, NEVER THE ACCENT. The reference mock draws a glow
+ * border in the stop gold; that is the treatment that made the Title's buttons
+ * read as double-ringed, and the rule that fixed three separate bugs is that
+ * THE ACCENT IS THE FOCUS LANGUAGE - a control does not paint itself in it.
+ * `BADGE_PLATE` is the whole surface, declared here, so a scene cannot reach
+ * past it and a test can assert the ink without a browser.
+ *
+ * IT IS OPAQUE, like the board at the foot of the screen and for the same
+ * reason (`lib/kit.plate`): a card this size shows the sky behind it as a
+ * SHAPE rather than as a tint.
+ *
+ * IT STARTS ON THE GUTTER. Its plate corner is `(GUTTER, HEADING_TOP)` and its
+ * ink column is `headingText()` - the same two numbers the three plates landed
+ * on, which is what keeps `grid-conformance`'s header origin met and keeps the
+ * badge, the board and the hint on ONE left edge (UR-54).
+ */
+export const BADGE_PLATE = {
+  fill: SKY_PLATE.fill,
+  /** Opaque: this is a card, not a sheet of glass over one line of type. */
+  alpha: 1,
+  /** NOT `INK.accent`. See above. */
+  stroke: INK.line,
+  strokeAlpha: 0.9,
+  radius: SPACE.radius,
+} as const;
+
+// A card's insets, not the heading plate's: this is a card.
+export const BADGE_PAD_X = STEP.pad;
+export const BADGE_PAD_Y = STEP.unit;
 
 /**
- * An UPPER BOUND on how far right the header block's plates reach.
+ * The badge's three rows, top to bottom.
  *
- * Declared, for the same reason the caption height is. It only has to be an
- * over-estimate: over-covering costs a little sky, under-covering costs the
- * defect. 620 is comfortably wider than "route to Pluto" at `TYPE.heading` in
- * any of the three shipped languages.
+ * The mission line keeps `TYPE.heading`. It is the screen's TITLE as well as
+ * the badge's first row, and four other screens (Warp, Beacon, Results,
+ * Pre-flight) draw theirs at 44 on the same grid line - shrinking this one
+ * would make the hub's title smaller than every screen it leads to, which is a
+ * product-wide type decision rather than a header cleanup. The compactness
+ * comes from collapsing three plates into one card, not from the title.
  */
-export const HEADER_W = 620;
+export const BADGE_MISSION_SIZE = TYPE.heading;
+/** The goal line, the count beside it, and the bar's row. One step down. */
+export const BADGE_LINE_SIZE = TYPE.caption;
+
+/**
+ * A drawn line's height, DECLARED at the Devanagari multiplier.
+ *
+ * The same rule `CAPTION_LINE_H` follows: the plate is painted before the type
+ * is measured, so a row declared at the Latin height would be overflowed by
+ * Hindi - whose ink box is 1.23x Latin's (`theme.LINE_HEIGHT`) - and the goal
+ * line would be drawn through the mission line above it.
+ */
+export const badgeLineH = (size: number): number =>
+  Math.round(size * LINE_HEIGHT.devanagari);
+
+/** Mission to goal: the smallest step, because they are one block. */
+export const BADGE_ROW_GAP = STEP.hair;
+/** Goal to bar: one step more, because the bar is a different kind of thing. */
+export const BADGE_BAR_GAP = STEP.tight;
+
+/**
+ * THE SEGMENTED BAR, AND WHERE ITS TREATMENT COMES FROM.
+ *
+ * The owner asked for the pre-flight ceremony's system bars to be reused
+ * rather than a second bar invented. Those are 8 px tall with a 4 px radius, a
+ * track in `INK.line` and a fill in the stop's accent (`PreflightScene.paintRow`)
+ * - and they are a SMOOTH fill, not segmented, which is the one thing this bar
+ * cannot copy: the unit here is a beacon and a child has to be able to count
+ * seven of them. So the height, the radius and the fill-on-track idea are the
+ * pre-flight bar's; the division into seven is this screen's.
+ *
+ * ONE SEGMENT PER STOP, derived from `STOP_IDS` rather than from a literal 7,
+ * so a route that gains a stop gains a segment instead of lying.
+ *
+ * A SEGMENT IS A PILL, WHICH IS HOW IT REACHES THE SHARED COMPONENT.
+ * `plate.paintPlate` with `corner: "pill"` rounds to half the shorter side, so
+ * an 8 px segment is drawn at a 4 px radius - the pre-flight bar's radius,
+ * arrived at by construction rather than retyped. It also keeps this screen off
+ * `arch/platePainters.test.ts`'s allowlist: the Title's accent rule and the
+ * briefing's ribbon left that list by becoming pills, and a third entry reading
+ * "a mark, not a surface" would be the component not being used.
+ */
+export const BAR_H = 8;
+export const SEG_GAP = STEP.hair;
+export const SEG_W = 52;
+export const barWidth = (): number =>
+  SEG_W * STOP_IDS.length + SEG_GAP * (STOP_IDS.length - 1);
+
+/**
+ * The badge's width: the bar's, plus the padding either side.
+ *
+ * DERIVED FROM THE BAR because the bar is the one row whose width is a
+ * declaration rather than a measurement - the two text rows are as wide as
+ * their translations. 412 px of ink holds "Mission: Pluto" at 44 px (~320 px
+ * drawn) with room to spare, and `map.spec.ts` measures the DRAWN rows against
+ * this box in the browser rather than trusting that sentence.
+ */
+export const BADGE_W = barWidth() + BADGE_PAD_X * 2;
+
+export const badgeInkLeft = (): number => GUTTER + BADGE_PAD_X;
+export const badgeInkRight = (): number => GUTTER + BADGE_W - BADGE_PAD_X;
+
+/** Row 1: the mission line's ink top. `grid.headingText()`, by construction. */
+export const badgeMissionY = (): number => HEADING_TOP + BADGE_PAD_Y;
+/** Row 2: the goal line, and the count that flows after it. */
+export const badgeGoalY = (): number =>
+  badgeMissionY() + badgeLineH(BADGE_MISSION_SIZE) + BADGE_ROW_GAP;
+/** Row 3: the bar. */
+export const badgeBarY = (): number =>
+  badgeGoalY() + badgeLineH(BADGE_LINE_SIZE) + BADGE_BAR_GAP;
+
+export const badgeBox = (): PanelBox => ({
+  x: GUTTER,
+  y: HEADING_TOP,
+  w: BADGE_W,
+  h: badgeBarY() + BAR_H + BADGE_PAD_Y - HEADING_TOP,
+});
+
+/**
+ * The gap between the goal line and the count that follows it on its row.
+ *
+ * `STEP.unit` EXACTLY, and it is load-bearing twice over. It is the product's
+ * vertical unit used as a horizontal one, which is what the scale is for - and
+ * it is also `alignment.RUN_GAP`, so the label, the sentence and the count
+ * coalesce into ONE laid-out run and the row is judged on the run's left edge
+ * (118) rather than on three. A count right-anchored on the badge's own right
+ * edge would be a fourth off-model element on this screen, which
+ * `left-edge-conformance.spec.ts` budgets at three.
+ */
+export const BADGE_COUNT_GAP = STEP.unit;
+/** Between the "Goal:" label and the sentence it introduces: inside one line. */
+export const BADGE_LABEL_GAP = STEP.hair;
+
+export interface BarSegment {
+  readonly stopId: StopId;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+  /** Is this stop's beacon lit? Read from the route, never counted twice. */
+  readonly lit: boolean;
+}
+
+/**
+ * The seven segments, left to right, in the route's own order (`STOP_IDS`).
+ *
+ * IT TAKES THE ROUTE VIEW, so the bar and the discs cannot disagree. The header
+ * used to count `isCharted` while the labels read `unlockedStops`, and the
+ * capture that came back said "7 of 7 beacons lit" over seven stops labelled
+ * "Locked" (see `DirectorMapScene.create`). One derivation, passed in.
+ *
+ * Matched BY STOP ID rather than by index: `routeView` returns `STOP_IDS`'
+ * order today, and a bar that silently depends on that is a bar that lights the
+ * wrong beacon the day it does not.
+ */
+export function barSegments(view: readonly StopView[] = []): BarSegment[] {
+  const y = badgeBarY();
+  return STOP_IDS.map((stopId, i) => ({
+    stopId,
+    x: badgeInkLeft() + i * (SEG_W + SEG_GAP),
+    y,
+    w: SEG_W,
+    h: BAR_H,
+    lit: view.find((v) => v.stopId === stopId)?.charted ?? false,
+  }));
+}
+
+/**
+ * A GRAPHIC HAS TO BE VISIBLE TO MEAN ANYTHING: 3:1, WCAG 2.1's non-text bar.
+ *
+ * Text on this screen is held to 4.5:1 (AC-22.8) and a segment is not text, but
+ * a segment nobody can see is a beacon the bar does not report.
+ */
+export const SEGMENT_MIN_RATIO = 3;
+
+/**
+ * THE INK A LIT SEGMENT IS PAINTED IN: THE STOP'S OWN COLOUR.
+ *
+ * Earth gold, Mars rust, Saturn's planet gold. Measured on the badge's own
+ * fill, every stop clears the bar comfortably in BOTH palettes - the lowest is
+ * Mars at 6.71:1 in normal mode and Neptune at 10.97:1 in colourblind mode - so
+ * the tint holds up and the bar reads as this route rather than as a generic
+ * meter.
+ *
+ * ================== IT IS `accent`, AND THAT IS LOAD-BEARING ==================
+ * `paletteAt(...).accent` is the PLATE accent, legible on `#0E1116` by
+ * construction. `worldAccent` is the one separated from the sky by luminance,
+ * and on the two near-white stops it is a near-black: Saturn's and Pluto's are
+ * `#111318`, which is 1.02:1 on this card. `render/palette.ts` carries the
+ * whole story - the typed letter was invisible in colourblind mode for exactly
+ * this reason - and the floor below is what stops this bar repeating it.
+ *
+ * A first cut of this function returned one flat ink in colourblind mode, on
+ * the belief that the variant collapsed the accents. It does not: the seven
+ * colourblind accents are seven distinct, legible colours, so a colourblind
+ * child keeps the tint too. The measurement is in `mapBadge.test.ts`.
+ */
+export function segmentInk(stopId: StopId, colorblind: boolean): string {
+  const accent = paletteAt(stopId, colorblind).accent;
+  return contrastRatio(accent, BADGE_PLATE.fill) >= SEGMENT_MIN_RATIO
+    ? accent
+    : INK.lit;
+}
+
+/**
+ * The unlit segment's ink, and why it is an OUTLINE.
+ *
+ * Straight off the empty star this screen already draws (`DirectorMapScene.
+ * drawStars`): filled means earned, outlined means not yet, and the outline is
+ * `INK.textDim` - the dimmer of two LEGIBLE inks - rather than `INK.locked`,
+ * which disappears into the surface at under 2:1. "Three stars a child cannot
+ * count is a rating that does not exist" was written about that glyph; seven
+ * segments a child cannot count is the same defect with a different shape.
+ */
+export const SEGMENT_UNLIT_INK = INK.textDim;
+export const SEGMENT_UNLIT_ALPHA = 0.75;
+export const SEGMENT_UNLIT_WIDTH = 2;
+
+/** The bottom of the badge - i.e. of everything this screen's header draws. */
+export const headerBottom = (): number => badgeBox().y + badgeBox().h;
 
 // ---------------------------------------------------------------------------
 // The Lantern (UR-53)
@@ -459,7 +683,9 @@ export const SHADOW_HALF_W = SHADOW_R * 1.45 * SHADOW_SCALE;
 export const SHADOW_HALF_H = SHADOW_R * 1.35 * SHADOW_SCALE;
 export const shadowAt = (): { x: number; y: number } => ({
   x: GAME_WIDTH - 150,
-  y: GAME_HEIGHT - 190,
+  // Her feet on the status board's foot line. This was `GAME_HEIGHT - 190`,
+  // which put her 9 px below it - enough to read as not quite lined up.
+  y: PANEL_BOTTOM - SHADOW_HALF_H,
 });
 export function shadowBox(): PanelBox {
   const at = shadowAt();
@@ -494,11 +720,15 @@ export const SHADOW_BAY_GAP = 24;
  */
 export const panelRight = (): number => shadowBox().x - SHADOW_BAY_GAP;
 
+export const PANEL_Y = 700;
+export const PANEL_H = 250;
+export const PANEL_BOTTOM = PANEL_Y + PANEL_H;
+
 export const panelBox = (): PanelBox => ({
   x: GUTTER,
-  y: 700,
+  y: PANEL_Y,
   w: panelRight() - GUTTER,
-  h: 250,
+  h: PANEL_H,
 });
 
 /**
@@ -608,10 +838,13 @@ export function mapKeepClear(): readonly KeepClearShape[] {
 
   // The chrome: four opaque plates, so NO PAD on any of them (see above). Only
   // the widths are estimates, and they are estimates upward.
-  k.rect(GUTTER, HEADING_TOP, HEADER_W, headerBottom() - HEADING_TOP, 0);
+  const badge = badgeBox();
+  k.rect(badge.x, badge.y, badge.w, badge.h, 0);
   k.rect(panel.x, panel.y, panel.w, panel.h, 0);
   k.rect(chipX(0), CHIP.y, CHIP.w * 2 + CHIP.gap, CHIP.h, 0);
-  k.rect(GUTTER, HINT_TOP, HINT_W, GAME_HEIGHT - HINT_TOP, 0);
+  k.rect(GUTTER, HINT_TOP, HINT_W, GAME_HEIGHT - HINT_TOP, KEEP_CLEAR_PAD);
+  const figure = shadowBox();
+  k.rect(figure.x, figure.y, figure.w, figure.h, KEEP_CLEAR_PAD);
 
   return k.zones();
 }

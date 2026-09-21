@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
-import { MAX_NAME_LENGTH } from "@engine/persistence";
+import { MAX_NAME_LENGTH, MIN_NAME_LENGTH } from "@engine/persistence";
 import { CONTENT_TOP, HEADING_EYEBROW_TOP, HEADING_TOP, MenuScene } from "@game/ui/MenuScene";
 import {
   type Control,
@@ -10,6 +10,7 @@ import {
 } from "@game/ui/controls";
 import { drawAvatar, drawShip } from "@game/ui/chrome";
 import { SHADOW_HEIGHT, drawShadow } from "@game/render/shadow";
+import { SHADOW_DRAWN_HEIGHT, shadowOrigin } from "./support/pickerLayout";
 import { AVATARS, SHIPS, SKINS, shipDef } from "@game/ui/catalog";
 import { unlocksForNewPilot } from "@engine/unlocks/index.js";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
@@ -100,6 +101,13 @@ export class ProfileCreateScene extends MenuScene {
 
   private stepNodes: Phaser.GameObjects.GameObject[] = [];
   private stepControls: Control[] = [];
+  /**
+   * The forward button, held so typing can lock and unlock it (UR-146).
+   *
+   * Nulled in `build` as well as here: Phaser re-runs `create` on the same
+   * instance, so a handle from the previous visit points at a destroyed object.
+   */
+  private forward: MenuButton | null = null;
 
   constructor() {
     super({ key: SCENE_KEYS.profileCreate });
@@ -112,9 +120,37 @@ export class ProfileCreateScene extends MenuScene {
       shipId: SHIPS[0]?.id ?? "ship-1",
       shipName: this.t.t("profile.shipNameDefault"),
     });
+    /**
+     * SHADOW STANDS IN THE SAME CORNER HE STANDS IN NEXT DOOR (UR-118).
+     *
+     * ================== THE DEFECT ==================
+     * The owner, walking from the pilot picker into this screen: Shadow moves,
+     * and changes size. He did both, and this file is why - it placed him at
+     * the literals `GAME_WIDTH - 230, GAME_HEIGHT - 300` at a scale of 210,
+     * while `support/pickerLayout` DERIVES his corner on the screen before:
+     * footprint's right edge on the gutter, footprint's bottom on
+     * `grid.BACK_CORNER_BOTTOM`, at 220 or 260. Three sizes and two placement
+     * models across two screens of one flow.
+     *
+     * `pickerLayout.shadowOrigin`'s own note names this failure in advance:
+     * `drawShadow` takes the point his BODY is centred on, not the edge of the
+     * drawing, so putting a literal on a grid line puts the DRAWING somewhere
+     * else - "which is how the literal `620` came to look centred in the sky".
+     * This screen still had that literal.
+     *
+     * ================== WHY THE PICKER'S LIST SIZE ==================
+     * `SHADOW_DRAWN_HEIGHT.list` (220), not `.empty` (260). The empty state is
+     * a screen with nothing else on it, where he carries the whole frame; this
+     * screen has a heading, a field, a gallery and a button, and it is the one
+     * the pilot picker's LIST state hands over to. Matching the state the
+     * player just came from is what makes the hand-off read as one place.
+     */
+    const shadowScale = SHADOW_DRAWN_HEIGHT.list / SHADOW_HEIGHT;
+    const shadowAt = shadowOrigin(GAME_WIDTH, shadowScale);
+    this.forward = null;
     this.shadows.push(
-      drawShadow(this, GAME_WIDTH - 230, GAME_HEIGHT - 300, "pointing", {
-        scale: 210 / SHADOW_HEIGHT,
+      drawShadow(this, shadowAt.x, shadowAt.y, "pointing", {
+        scale: shadowScale,
         reducedMotion: this.reducedMotion,
         facing: -1,
         depth: this.depth - 2,
@@ -224,6 +260,7 @@ export class ProfileCreateScene extends MenuScene {
         placeholder: this.t.t("profile.pilotName"),
         onChange: (value) => {
           this.draft.pilotName = value;
+          this.syncForward();
         },
       },
     );
@@ -421,7 +458,7 @@ export class ProfileCreateScene extends MenuScene {
    */
   private forwardButton(y: number): MenuButton {
     const commits = nextCreateStep(this.draft.step) === "commit";
-    return new MenuButton(
+    const button = new MenuButton(
       this,
       this.uiStyle,
       commits ? "create.launch" : `create.next.${this.draft.step}`,
@@ -441,6 +478,40 @@ export class ProfileCreateScene extends MenuScene {
             onPress: () => this.advance(),
           },
     );
+    this.forward = button;
+    this.syncForward();
+    return button;
+  }
+
+  /**
+   * ================== NO PILOT WITHOUT A NAME (UR-146) ==================
+   *
+   * `createProfile` passes `name: this.draft.pilotName.trim()` and the schema
+   * turns a blank one into `DEFAULT_PROFILE_NAME` - "Pilot". That fallback is
+   * deliberate and the comment beside it says why: this game never tells a
+   * child they did it not-right. But the FORWARD BUTTON OPENS FOCUSED, so one
+   * press of Enter on a screen nobody has typed into commits a pilot called
+   * "Pilot" - which is what the owner kept finding seconds after clearing
+   * storage, and read as the game seeding a profile by itself.
+   *
+   * The button is LOCKED until there is a name, which says the same thing
+   * without a word of scolding: the control that is not ready does not look
+   * ready. `Control.locked` is the existing vocabulary for exactly this - a
+   * locked control is dim, keeps its label, and refuses Enter (D73), and the
+   * focus ring still moves onto it so nothing becomes unreachable (AC-18.1).
+   *
+   * The schema's fallback is UNTOUCHED. It is still correct for every other
+   * caller and for a profile restored from an older save.
+   */
+  private syncForward(): void {
+    const button = this.forward;
+    if (button === null) return;
+    // Only the beat that collects the name gates on it.
+    if (this.currentStep() !== "pilot") {
+      button.locked = false;
+      return;
+    }
+    button.locked = this.draft.pilotName.trim().length < MIN_NAME_LENGTH;
   }
 
   private advance(): void {

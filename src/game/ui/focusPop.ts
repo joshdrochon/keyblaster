@@ -1,4 +1,4 @@
-import { SPACE } from "./theme.js";
+import { DUR, EASE, SPACE } from "./theme.js";
 
 /**
  * ============== THE FOCUS POP, IN ONE PLACE (UR-110, UR-111) ==============
@@ -41,6 +41,121 @@ export const FOCUS_POP = {
   ratio: 0.015,
   maxGrowPx: SPACE.focusRingOffset - SPACE.focusRingWidth / 2,
 } as const;
+
+/**
+ * ============== THE FOCUSED OUTLINE'S BREATH (UR-112) ==============
+ *
+ * ================== WHAT WAS REPORTED ==================
+ * The project owner's brother, first time at the profile picker, took several
+ * seconds to work out that he could press Enter. Every static cue was already
+ * there - the ring, the raised plate, the held 1.5% swell - and none of them
+ * said "this one, now" loudly enough to a child who has not yet learned that
+ * this game is a list with a caret in it.
+ *
+ * ================== WHY A BREATH AND NOT A BRIGHTER RING ==================
+ * A brighter ring is louder at rest and says nothing more. MOVEMENT is what the
+ * eye finds without being told where to look, and the smallest honest amount of
+ * it is an outline that breathes. `minAlpha` is 0.82 and the half cycle is
+ * 1400 ms deliberately: this is a menu, not an alarm, and anything faster or
+ * deeper reads as a warning light rather than as a cursor.
+ *
+ * ================== WHY IT LIVES HERE ==================
+ * Same reason `FOCUS_POP` does. There are two focus rings in this game -
+ * `ui/chrome.FocusRing` (the five menu screens) and `scenes/lib/kit`'s (the
+ * seven story screens, including the Director map's Beacon Log and Settings
+ * chips, which are the treatment the owner named as the standard) - and a
+ * number defined twice is two answers to "what does focused look like", which
+ * is the exact defect UR-111 spent its time removing. One spec, two callers.
+ *
+ * ================== CALM MOTION IS NOT LESS SELECTION (D41, AC-19.3) ==========
+ * `focusPulse` returns NULL under reduced motion, and the caller then leaves
+ * the outline at FULL strength rather than at the low end of the breath. The
+ * player who plays with calm motion on keeps every static cue there is - a
+ * solid ring at alpha 1, the raised plate and the held swell - and loses only
+ * the movement. The pulse is never the only thing saying what is selected.
+ */
+export const FOCUS_PULSE = {
+  /** The dimmest the outline goes. A breath, not a blink. */
+  minAlpha: 0.82,
+  /** One half cycle, ms. Slow enough to read as breathing. */
+  halfCycleMs: 1400,
+} as const;
+
+/**
+ * A tween config, as plain data, so this module stays free of Phaser and can be
+ * asserted in a node test.
+ */
+export interface FocusPulseSpec {
+  readonly alpha: { readonly from: number; readonly to: number };
+  readonly duration: number;
+  readonly ease: string;
+  readonly yoyo: true;
+  readonly repeat: -1;
+}
+
+/**
+ * How a focused outline breathes, or NULL when the player has asked for calm
+ * motion and it must not breathe at all.
+ *
+ * Null rather than a zero-amplitude tween: a caller that has to branch is a
+ * caller that cannot forget to leave the outline at full alpha, and a tween
+ * that runs forever with nothing to show is a frame cost for no picture.
+ */
+export function focusPulse(reducedMotion: boolean): FocusPulseSpec | null {
+  if (reducedMotion) return null;
+  return {
+    alpha: { from: 1, to: FOCUS_PULSE.minAlpha },
+    duration: FOCUS_PULSE.halfCycleMs,
+    ease: EASE.drift,
+    yoyo: true,
+    repeat: -1,
+  };
+}
+
+/** How long a ring's arrival fade runs before the breath takes over. */
+export const FOCUS_ARRIVE_MS = DUR.focus;
+
+/**
+ * How dim a ring starts its arrival fade.
+ *
+ * NOT ZERO, AND THAT IS THE WHOLE POINT. `chrome.FocusRing` faded from 0, so
+ * moving between two buttons on the same screen blinked the ring fully out and
+ * back - a screen with no focus on it for a frame, which is the one thing
+ * AC-18.1 forbids. 0.55 keeps the ring present the whole way across and reads
+ * as the state brightening onto the new control rather than as a flicker.
+ */
+export const FOCUS_ARRIVE_FROM = 0.55;
+
+/** A tween config, as plain data, for the same reason `FocusPulseSpec` is. */
+export interface FocusArriveSpec {
+  readonly alpha: { readonly from: number; readonly to: number };
+  readonly duration: number;
+  readonly ease: string;
+}
+
+/**
+ * How a focused outline arrives on the control it has just moved to.
+ *
+ * ONE ANSWER FOR FOUR RINGS (UR-113). This game drew the focus ring in four
+ * places and three of them disagreed: `scenes/lib/kit` faded 0.55 -> 1 on
+ * `EASE.pop`, `ui/chrome` faded 0 -> 1 on `EASE.arrive`, `TitleScene` never
+ * touched alpha at all, and `StallScene` started one breath at create time
+ * that kept running while the ring snapped between its two buttons. A child
+ * moving between the home screen, Settings and the beacon screen met three
+ * different answers to "what does focus look like", and on the home screen -
+ * the first screen anybody sees - it met none.
+ *
+ * Unconditional, unlike `focusPulse`. This is an ARRIVAL cue, 140 ms long,
+ * not an idle animation: calm motion suppresses the breath (D41, AC-19.3) and
+ * keeps the thing that says where focus just went.
+ */
+export function focusArrive(): FocusArriveSpec {
+  return {
+    alpha: { from: FOCUS_ARRIVE_FROM, to: 1 },
+    duration: FOCUS_ARRIVE_MS,
+    ease: EASE.pop,
+  };
+}
 
 /**
  * Every container this game scales for focus is named `kb-pop:<id>`, for the

@@ -44,6 +44,7 @@ import {
   type DrawLatch,
   type LaneInit,
 } from "./support/laneInit";
+import { paintActionButton } from "@game/ui/plate";
 import { audioFrom } from "@game/audio/wiring";
 
 /**
@@ -163,7 +164,7 @@ export class BeaconScene extends Phaser.Scene {
     });
     hud.add(this.shadow.root);
 
-    this.ring = createFocusRing(this, layer("hud").depth + 1);
+    this.ring = createFocusRing(this, layer("hud").depth + 1, this.lane.reducedMotion);
     const btn = actionRect();
     const target: FocusTarget = {
       id: "beacon-continue",
@@ -265,11 +266,20 @@ export class BeaconScene extends Phaser.Scene {
     const audio = audioFrom(this.registry);
     if (audio === null) return;
     const { headline, state, flavour } = this.headline();
-    const lines: readonly [string, string][] = [
-      [`${this.stopId}.beaconHeadline`, headline],
-      [`${this.stopId}.beaconState`, state],
-      [`${this.stopId}.beaconFlavor`, flavour],
-    ];
+    // A stop with a written spoken line says THAT, and nothing else. Reading
+    // the headline, the status chip and the flavour in turn is a machine
+    // reading a form: "Mars Beacon. Placed. Rust and rivers."
+    const spoken = hasStageBundle(this.stopId)
+      ? (stageBundle(this.stopId).beaconSpoken ?? "")
+      : "";
+    const lines: readonly [string, string][] =
+      spoken.trim().length > 0
+        ? [[`${this.stopId}.beaconSpoken`, spoken]]
+        : [
+            [`${this.stopId}.beaconHeadline`, headline],
+            [`${this.stopId}.beaconState`, state],
+            [`${this.stopId}.beaconFlavor`, flavour],
+          ];
     for (const [id, text] of lines) {
       if (text.trim().length === 0) continue;
       audio.speak({ id, text, kind: "scripted" });
@@ -526,12 +536,18 @@ export class BeaconScene extends Phaser.Scene {
     const pal = this.lane.palette;
     const BUTTON = actionRect();
     const made: Phaser.GameObjects.GameObject[] = [];
-    made.push(
-      plate(this, BUTTON.x, BUTTON.y, BUTTON.w, BUTTON.h, {
-        fill: INK.panelRaised,
-        stroke: INK.line,
-      }),
-    );
+    // THE SHARED ACTION BUTTON (UR-112, `ui/plate.paintActionButton`).
+    //
+    // NOT A REPAINT. This is the control the owner named as the one that is
+    // RIGHT - "the Continue button on the Beacon-placed screen has the right
+    // yellow outline" - and `ACTION_INK.primaryFill` / `primaryEdge` are its
+    // own `INK.panelRaised` / `INK.line`, so nothing here changes colour. What
+    // changes is that the stage report now draws from the same two tokens
+    // instead of from the stop accent, and a guard stops them drifting apart
+    // again (`tests/unit/ui/actionButton.test.ts`).
+    const buttonPlate = this.add.graphics();
+    paintActionButton(buttonPlate, BUTTON, { primary: true });
+    made.push(buttonPlate);
     const text = label(
       this,
       BUTTON.x + BUTTON.w / 2,

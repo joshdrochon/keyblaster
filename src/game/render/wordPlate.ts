@@ -41,7 +41,10 @@ export {
   contrastRatio,
   meetsPlateContrast,
   displayWord,
-  cellWidthPx,
+  plateGlyphs,
+  letterAdvancesPx,
+  letterCentresPx,
+  textRunWidthPx,
   plateSize,
   plateOffsetY,
   plateHalfHeightPx,
@@ -53,8 +56,9 @@ import {
   PLATE_RADIUS_PX,
   type WordPlateStyle,
   type PlateSize,
-  cellWidthPx,
-  displayWord,
+  letterAdvancesPx,
+  letterCentresPx,
+  plateGlyphs,
   hexToInt,
   plateSize,
 } from "./wordPlateGeometry.js";
@@ -85,6 +89,17 @@ import {
  * `tests/unit/render/wordPlateOpacity.test.ts` asserts the drawn value.
  */
 export const PLATE_FILL_ALPHA = 1;
+
+/**
+ * The underline cue's width, as a fraction of the advance of the letter it
+ * marks. 0.68 is the proportion the fixed-cell version drew (`cell * 0.34`
+ * either side) and is kept so the cue's weight is unchanged on an average
+ * letter; what changes is that it now tracks the letter instead of the grid.
+ */
+export const UNDERLINE_SPAN = 0.68;
+
+/** No cue narrower than this, so `i`, `l` and `j` still show one. */
+export const UNDERLINE_MIN_HALF_PX = 3;
 
 // ---------------------------------------------------------------------------
 // The plate
@@ -137,11 +152,22 @@ export class WordPlate extends Phaser.GameObjects.Container {
     this.underline = scene.add.graphics();
     this.add(this.underline);
 
-    const text = displayWord(word, style.uppercase);
-    const cell = cellWidthPx(style);
-    const startX = -this.size.width / 2 + PLATE_PAD_X_PX + cell / 2;
-    [...text].forEach((ch, i) => {
-      const letter = scene.add.text(startX + i * cell, 0, ch, {
+    // THE LETTERS SIT ON THEIR OWN ADVANCES, NOT ON A FIXED CELL.
+    //
+    // `startX + i * cell` is what was here, and it is why "jump" drew with `mp`
+    // overlapping: one cell width for `m` (24.49 px of advance) and for `l`
+    // (6.52 px). `letterCentresPx` packs each glyph's real advance box and puts
+    // exactly `letterSpacingPx` between boxes, so every gap on every plate is
+    // the same number and no two glyphs can touch. See `wordPlateGeometry.ts`.
+    //
+    // The per-letter `Text` objects stay - the typed cue is per character and a
+    // single Text cannot carry per-character colour (see the header). What
+    // changed is only where each one is put.
+    const glyphs = plateGlyphs(word, style);
+    const centres = letterCentresPx(word, style);
+    const runLeft = -this.size.width / 2 + PLATE_PAD_X_PX;
+    glyphs.forEach((ch, i) => {
+      const letter = scene.add.text(runLeft + (centres[i] ?? 0), 0, ch, {
         fontFamily: style.fontFamily,
         fontSize: `${style.fontSizePx}px`,
         color: style.plateText,
@@ -163,6 +189,29 @@ export class WordPlate extends Phaser.GameObjects.Container {
   /** The word this plate carries, for a harness that has to match plate to rock. */
   get wordText(): string {
     return this.word;
+  }
+
+  /**
+   * WHERE EACH LETTER ACTUALLY IS AND HOW WIDE PHASER ACTUALLY DREW IT.
+   *
+   * `x` is the letter's centre in plate space (the `Text` is `setOrigin(0.5)`),
+   * `width` is the `Text`'s own measured width, and `reservedWidth` is what
+   * `wordPlateGeometry` reserved for it when it chose that `x`.
+   *
+   * The three together are the only way to check the thing that actually went
+   * wrong here from OUTSIDE the arithmetic: the old layout was internally
+   * consistent and still drew letters on top of each other, because the width
+   * it reserved had nothing to do with the width it drew. A unit test cannot
+   * see that - there is no font in node - so this is the surface an e2e reads,
+   * and `tests/e2e/plate-spacing.spec.ts` is what reads it.
+   */
+  get letterBoxes(): readonly { x: number; width: number; reservedWidth: number }[] {
+    const reserved = letterAdvancesPx(this.word, this.style);
+    return this.letters.map((letter, i) => ({
+      x: letter.x,
+      width: letter.width,
+      reservedWidth: reserved[i] ?? 0,
+    }));
   }
 
   /**
@@ -222,15 +271,16 @@ export class WordPlate extends Phaser.GameObjects.Container {
       this.underlinePulse = null;
       return;
     }
-    const cell = cellWidthPx(this.style);
+    // THE CUE IS AS WIDE AS THE LETTER IT POINTS AT. On the fixed cell it was
+    // 0.68 of one cell whatever the glyph, so the rule under `l` was three
+    // times the letter's own width and the rule under `m` covered half of it.
+    // `UNDERLINE_SPAN` keeps the same 0.68 proportion, now of the real advance,
+    // and the floor stops a hairline glyph getting a cue too small to see.
+    const advance = letterAdvancesPx(this.word, this.style)[this.typedCount_] ?? 0;
+    const half = Math.max(UNDERLINE_MIN_HALF_PX, (advance * UNDERLINE_SPAN) / 2);
     const y = this.style.fontSizePx * 0.56;
     this.underline.lineStyle(2, hexToInt(this.style.accent), 0.75);
-    this.underline.lineBetween(
-      next.x - cell * 0.34,
-      y,
-      next.x + cell * 0.34,
-      y,
-    );
+    this.underline.lineBetween(next.x - half, y, next.x + half, y);
     if (this.underlinePulse === null && !this.style.reducedMotion) {
       this.underlinePulse = this.scene.tweens.add({
         targets: this.underline,

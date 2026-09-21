@@ -83,7 +83,7 @@
 
 import Phaser from "phaser";
 import { type StopId } from "@engine/types.js";
-import { sunScaleForStop } from "./sunScale.js";
+import { sunGeometry, sunRadius, sunWarmthForStop } from "./sunScale.js";
 import {
   DEBRIS_SPEC,
   LANE_GUARD as LANE_GUARD_FRACTION,
@@ -128,7 +128,7 @@ import {
   wrapXY,
   wrapY,
 } from "./tiles.js";
-import type { KeepClearShape } from "./keepClear.js";
+import { KEEP_CLEAR_PAD, type KeepClearShape } from "./keepClear.js";
 import {
   buildStarField,
   starsMayTravel,
@@ -268,9 +268,84 @@ const LANE_GUARD = LANE_GUARD_FRACTION;
  * `sunRadius`, and the space forms are told where it is so they can be placed
  * away from it.
  */
-function sunRadius(pal: StopPalette): number {
-  return isBrightStop(pal) ? 86 : 48;
+/**
+ * ================== THE SUN WAS SIZED BY THE WRONG THING (UR-119) ==================
+ *
+ * `sunRadius` was `isBrightStop(pal) ? 86 : 48`, and `sunScale.ts` right next
+ * to it carries a careful 1.00 -> 0.34 curve over the route. A 79% step
+ * decided by the SKY'S BRIGHTNESS swamped that curve completely, so the drawn
+ * radius was not monotonic in distance at all:
+ *
+ *     earth 48.0   mars 76.5   jupiter 67.1   saturn 57.6
+ *     uranus 48.2  neptune 21.6  pluto 29.2
+ *
+ * The owner caught both inversions from the screen: Neptune's sun is SMALLER
+ * than Pluto's though Pluto is three times further out, and the sun GROWS on
+ * the way from Earth to Mars. `sunScale.ts`'s own note says the disc should be
+ * "smaller at every stop"; nothing was enforcing it because the brightness
+ * step was applied afterwards.
+ *
+ * One base now, and the route curve is the only thing that moves it.
+ */
+/**
+ * A WHITE SUN ON A WHITE SKY (UR-119, the other half).
+ *
+ * `core` was `mixHex(skyTop, "#FFFFFF", bright ? 0.9 : 0.74)`. On a stop whose
+ * sky is already pale, ninety per cent of the way to white IS the sky.
+ * Measured deltaE (CIE76, `flight/stage.deltaE` - the project's own bar is 10)
+ * of the disc against its own sky top, before -> after:
+ *
+ *     earth    71.3 -> 71.3     mars     30.9 -> 35.3
+ *     jupiter  18.0 -> 48.0     saturn   26.8 -> 39.7
+ *     uranus   15.9 -> 72.0     neptune  71.9 -> 71.9
+ *     pluto     4.1 -> 65.9
+ *
+ * Pluto at 4.1 was below the bar by a factor of two: `#FEFEFE` on `#F2F4F8`.
+ * The owner reported the sun as MISSING on Mars, Jupiter and Saturn - which
+ * have the three largest discs in the game. The two that already read, Earth
+ * and Neptune, are exactly the two dark-sky stops, and both are untouched.
+ *
+ * DELTA-E AND NOT A CONTRAST RATIO, deliberately. By luminance ratio the warm
+ * disc barely moves (Mars 1.50 -> 1.22) and by that number the fix looks like
+ * a regression. It is not: the separation being bought here is CHROMA, which a
+ * luminance ratio cannot see, and deltaE is the measure this project already
+ * uses for "are these two colours telling apart".
+ *
+ * ================== WHY WARM AND NOT BRIGHTER ==================
+ * There is nowhere brighter to go. The disc is already near white and the sky
+ * is near white, and a light source cannot out-value a background that is
+ * already at the top of the range. Real skies solve this with luminance we do
+ * not have, so this solves it with CHROMA: on a pale sky the disc goes warm
+ * and slightly deeper, which reads as the sun rather than as a hole. On a dark
+ * sky nothing changes - white on near-black already has 9.75:1, and warming it
+ * would only take contrast away.
+ */
+const SUN_WARM = "#F6A93B";
+
+/** The disc's fill: white on a dark sky, warm on a pale one. */
+function sunCore(pal: StopPalette): string {
+  const skyTop = skyStops(pal)[0];
+  return isBrightStop(pal)
+    ? mixHex(skyTop, SUN_WARM, sunWarmthForStop(pal.id as StopId))
+    : mixHex(skyTop, "#FFFFFF", 0.74);
 }
+
+/**
+ * What the crisp lip is mixed toward - away from the sky, never toward it.
+ *
+ * UR-162: the lip carries the stop's warmth too. Held at full saturation while
+ * the core cooled, it out-saturated the disc and read as a gold ring round it.
+ */
+function sunLip(pal: StopPalette): string {
+  const skyTop = skyStops(pal)[0];
+  return isBrightStop(pal)
+    ? mixHex(skyTop, SUN_WARM, Math.min(1, sunWarmthForStop(pal.id as StopId) * 1.35))
+    : "#FFFFFF";
+}
+
+
+/** The halo reaches 3.1r; this is where the disc stops reading as one. */
+const SUN_KEEP_CLEAR_R = 1.6;
 
 
 
@@ -306,6 +381,32 @@ export interface ParallaxOptions {
   readonly decorate?: readonly LayerId[];
   /** Deterministic content, so a pixel-diff test compares like with like. */
   readonly seed?: number;
+  /**
+   * THE HORIZONTAL BAND THE LIGHT IS ALLOWED TO LIVE IN, world px (UR-120).
+   *
+   * For a screen that MASKS this stack to a window. `lightPositionOf` sweeps
+   * the sun across the whole frame as the route progresses - x 0.259 at Earth
+   * to 0.741 at Pluto - which is right when the frame IS the view, and wrong
+   * when the view is a 812 px aperture at x 1012. On Briefing and Pre-flight
+   * that put Earth, Mars, Jupiter and Saturn's sun behind the briefing card,
+   * outside the glass: the owner reported "I see no sun in the window", and
+   * the four they could not see are exactly the four whose x lands left of
+   * the aperture.
+   *
+   * Absent means the full frame, which is what Flight and the Title want.
+   */
+  readonly lightBand?: { readonly x: number; readonly w: number };
+  /** Layers held still even at a non-zero `worldSpeed` (UR-152). */
+  readonly pin?: readonly LayerId[];
+  /**
+   * Does this stack's palette say where the PLAYER is? Default true.
+   *
+   * False for a screen that borrows a stop's colours without being at it - the
+   * ambient bed and the letterbox both read the published stop (UR-171).
+   */
+  readonly publishStop?: boolean;
+  /** Nudge the light, in fractions of the frame. Title only (UR-153). */
+  readonly lightNudge?: { readonly x: number; readonly y: number };
   /**
    * WORLD-BAR items 6 and 8. On by default, because they are what stops the
    * frame reading as flat; a screen that wants the bare stack (a menu that
@@ -573,7 +674,11 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   ensureTextures(scene);
 
   const pal = options.palette;
-  scene.game.registry.set(WORLD_STOP_KEY, pal.id);
+  // UR-171: a MENU is not a place. `MenuScene` paints in Earth's palette for
+  // want of one of its own, and publishing that switched the ambient bed to
+  // Earth's - which then outlived the menu, because resuming a paused Flight
+  // does not rebuild its parallax and so never republishes the real stop.
+  if (options.publishStop !== false) scene.game.registry.set(WORLD_STOP_KEY, pal.id);
   const W = options.width ?? scene.scale.width;
   const H = options.height ?? scene.scale.height;
   const decorate = new Set(options.decorate ?? DEFAULT_DECORATE);
@@ -584,6 +689,7 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   let reducedMotion = options.reducedMotion ?? false;
   let worldSpeed = options.worldSpeed ?? 0;
   const crossDrift = options.crossDrift ?? true;
+  const pinned = new Set<LayerId>(options.pin ?? []);
   let elapsedMs = 0;
 
   // WORLD-BAR items 1-3, in one line: four fills spanning near-sky to the near
@@ -596,7 +702,22 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
   const objectInk = foregroundObjectInk(pal);
   const sky = skyStops(pal)[1];
   const light = lightAngleOf(pal);
-  const keepClear = options.keepClear;
+  // UR-160: only this file knows where the disc landed.
+  const sunZone = decorate.has("celestial")
+    ? sunGeometry(pal, W, H, options.lightBand, options.lightNudge)
+    : undefined;
+  const keepClear: readonly KeepClearShape[] | undefined =
+    sunZone === undefined
+      ? options.keepClear
+      : [
+          ...(options.keepClear ?? []),
+          {
+            kind: "circle" as const,
+            cx: sunZone.cx,
+            cy: sunZone.cy,
+            r: sunZone.r * SUN_KEEP_CLEAR_R + KEEP_CLEAR_PAD,
+          },
+        ];
 
   /**
    * EVERY PARALLAX LAYER IS NAMED, AND THE NAME SAYS "DECOR" (UR-69).
@@ -700,8 +821,8 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
     // exactly what it is, and leaves the frame with no visible source for the
     // rims on every silhouette below.
     // `pal.id` IS the stop, so every caller gets this for free.
-    const sunScale = sunScaleForStop(pal.id as StopId);
-    for (const dy of [0, -H]) c.add(sunDisc(scene, pal, W, H, dy, sunScale));
+    for (const dy of [0, -H])
+      c.add(sunDisc(scene, pal, W, H, dy, options.lightBand, options.lightNudge));
   }
 
   // --- L2/L3 silhouette planes -------------------------------------------
@@ -885,7 +1006,10 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
     // and 4-9 px of opaque saturated colour is the most speck-like thing in the
     // frame, so they hold still with the motes rather than sliding alone.
     nearLight.add(
-      drawOps(scene, lightOps(accentTile(W, H, mixHex(pal.worldAccent, "#FFFFFF", 0.2), rand))),
+      drawOps(
+        scene,
+        lightOps(accentTile(W, H, mixHex(pal.worldAccent, "#FFFFFF", 0.2), rand, keepClear)),
+      ),
     );
     addDrift(
       "nearField",
@@ -1025,7 +1149,7 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
       const sway = cameraSwayPx(elapsedMs, reducedMotion);
       for (const l of layers) {
         const spec = l.spec;
-        if (PINNED.has(spec.id)) continue;
+        if (PINNED.has(spec.id) || pinned.has(spec.id)) continue;
         if (SCROLLS.has(spec.id)) {
           l.offsetY = mod(l.offsetY + spec.speed * worldSpeed * (dt / 1000), H);
         }
@@ -1315,16 +1439,14 @@ function sunDisc(
   w: number,
   h: number,
   dy: number,
-  sunScale = 1,
+  lightBand?: { readonly x: number; readonly w: number },
+  nudge?: { readonly x: number; readonly y: number },
 ): Phaser.GameObjects.Graphics {
-  const at = lightPositionOf(pal);
-  const cx = w * at.x;
-  const cy = dy + h * at.y;
-  const bright = isBrightStop(pal);
-  const r = sunRadius(pal) * sunScale;
+  const { cx, cy, r } = sunGeometry(pal, w, h, lightBand, nudge);
+  const cyw = cy + dy;
   const skyTop = skyStops(pal)[0];
-  const core = mixHex(skyTop, "#FFFFFF", bright ? 0.9 : 0.74);
-  const halo = mixHex(skyTop, "#FFFFFF", bright ? 0.62 : 0.5);
+  const core = sunCore(pal);
+  const halo = mixHex(skyTop, core, 0.62);
 
   const g = scene.add.graphics();
   // THE SOFT RADIAL GLOW art-direction section 2 asks for, and which a
@@ -1343,13 +1465,20 @@ function sunDisc(
   for (let i = rings - 1; i >= 0; i--) {
     const t = i / (rings - 1);
     g.lineStyle(r * 0.14, hexToNum(halo), 0.075 * (1 - t) ** 1.5);
-    g.strokeCircle(cx, cy, r * (1.03 + t * 2.1));
+    g.strokeCircle(cx, cyw, r * (1.03 + t * 2.1));
   }
   g.fillStyle(hexToNum(core), 1);
-  g.fillCircle(cx, cy, r);
+  g.fillCircle(cx, cyw, r);
   // A crisp lip, so the boundary is a disc edge and not the end of a fade.
-  g.lineStyle(2.5, hexToNum(mixHex(core, "#FFFFFF", 0.7)), 0.9);
-  g.strokeCircle(cx, cy, r - 1.25);
+  // Mixed AWAY from the sky rather than toward white: on a pale sky a whiter
+  // lip is the sky, which is how the edge went missing in the first place.
+  // UR-162: no lip on a bright stop. The warm core already clears its sky by
+  // deltaE 32-52, so the stroke buys nothing and reads as a ring drawn round
+  // the sun. The dark stops keep it - white on near-black needs the edge.
+  if (!isBrightStop(pal)) {
+    g.lineStyle(2.5, hexToNum(mixHex(core, sunLip(pal), 0.7)), 0.9);
+    g.strokeCircle(cx, cyw, r - 1.25);
+  }
   return g;
 }
 

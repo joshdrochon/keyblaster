@@ -1,5 +1,5 @@
 {
-  "renderedAt": "2026-09-18T01:43:25.515Z",
+  "renderedAt": "2026-09-21T22:34:35.227Z",
   "model": "eleven_flash_v2_5",
   "voiceId": "J1UkN5Wmr20DZIiLKXHI",
   "lang": "en",
@@ -7,266 +7,452 @@
     {
       "id": "earth.preflightLine",
       "file": "earth.preflightLine.mp3",
-      "chars": 49,
-      "bytes": 51453
+      "chars": 62,
+      "bytes": 55214,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "a1c7d0737caceb21"
     },
     {
       "id": "earth.beaconHeadline",
       "file": "earth.beaconHeadline.mp3",
       "chars": 12,
-      "bytes": 15090
+      "bytes": 29301,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "b48e90eabce48b23"
     },
     {
       "id": "earth.beaconState",
       "file": "earth.beaconState.mp3",
       "chars": 6,
-      "bytes": 13836
+      "bytes": 18016,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "f6fc84c9f21c2490"
     },
     {
       "id": "earth.beaconFlavor",
       "file": "earth.beaconFlavor.mp3",
       "chars": 29,
-      "bytes": 28465
+      "bytes": 34316,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "9498869135a4157a"
     },
     {
       "id": "mars.preflightLine",
       "file": "mars.preflightLine.mp3",
       "chars": 115,
-      "bytes": 104951
+      "bytes": 148001,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "23941ea9976cc2a2"
     },
     {
       "id": "mars.beaconHeadline",
       "file": "mars.beaconHeadline.mp3",
       "chars": 11,
-      "bytes": 16762
+      "bytes": 21777,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "2a47e3ba81693d5a"
     },
     {
       "id": "mars.beaconState",
       "file": "mars.beaconState.mp3",
-      "chars": 6,
-      "bytes": 12164
+      "chars": 3,
+      "bytes": 8403,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "a3c7f8cabebcea52"
     },
     {
       "id": "mars.beaconFlavor",
       "file": "mars.beaconFlavor.mp3",
-      "chars": 50,
-      "bytes": 47691
+      "chars": 76,
+      "bytes": 85725,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "36e1fb233732c3cd"
+    },
+    {
+      "id": "mars.beaconSpoken",
+      "file": "mars.beaconSpoken.mp3",
+      "chars": 75,
+      "bytes": 89487,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "c0b1d13779b284ac"
     },
     {
       "id": "jupiter.preflightLine",
       "file": "jupiter.preflightLine.mp3",
       "chars": 95,
-      "bytes": 100772
+      "bytes": 104951,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "9dc171beefcd24a5"
     },
     {
       "id": "jupiter.beaconHeadline",
       "file": "jupiter.beaconHeadline.mp3",
       "chars": 14,
-      "bytes": 18016
+      "bytes": 20524,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "7fd61838cbe8547b"
     },
     {
       "id": "jupiter.beaconState",
       "file": "jupiter.beaconState.mp3",
-      "chars": 6,
-      "bytes": 12164
+      "chars": 3,
+      "bytes": 8403,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "a3c7f8cabebcea52"
     },
     {
       "id": "jupiter.beaconFlavor",
       "file": "jupiter.beaconFlavor.mp3",
       "chars": 53,
-      "bytes": 47273
+      "bytes": 58976,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "8762a2f678f23cec"
+    },
+    {
+      "id": "jupiter.beaconSpoken",
+      "file": "jupiter.beaconSpoken.mp3",
+      "chars": 74,
+      "bytes": 74022,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "051ab29cc8aca516"
     },
     {
       "id": "saturn.preflightLine",
       "file": "saturn.preflightLine.mp3",
       "chars": 90,
-      "bytes": 91577
+      "bytes": 111221,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "af12096fb181a2ea"
     },
     {
       "id": "saturn.beaconHeadline",
       "file": "saturn.beaconHeadline.mp3",
       "chars": 13,
-      "bytes": 17598
+      "bytes": 22613,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "a192e9ef862dcd80"
     },
     {
       "id": "saturn.beaconState",
       "file": "saturn.beaconState.mp3",
-      "chars": 6,
-      "bytes": 12164
+      "chars": 3,
+      "bytes": 8403,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "a3c7f8cabebcea52"
     },
     {
       "id": "saturn.beaconFlavor",
       "file": "saturn.beaconFlavor.mp3",
       "chars": 48,
-      "bytes": 43511
+      "bytes": 57722,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "806a1dcbe438c78e"
+    },
+    {
+      "id": "saturn.beaconSpoken",
+      "file": "saturn.beaconSpoken.mp3",
+      "chars": 68,
+      "bytes": 69425,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "b38b5185abbfc605"
     },
     {
       "id": "uranus.preflightLine",
       "file": "uranus.preflightLine.mp3",
       "chars": 76,
-      "bytes": 74022
+      "bytes": 76948,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "3cfd7df37647bfef"
     },
     {
       "id": "uranus.beaconHeadline",
       "file": "uranus.beaconHeadline.mp3",
       "chars": 13,
-      "bytes": 18852
+      "bytes": 21777,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "8c9ced8ac4dece79"
     },
     {
       "id": "uranus.beaconState",
       "file": "uranus.beaconState.mp3",
-      "chars": 6,
-      "bytes": 12164
+      "chars": 3,
+      "bytes": 9239,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "a3c7f8cabebcea52"
     },
     {
       "id": "uranus.beaconFlavor",
       "file": "uranus.beaconFlavor.mp3",
       "chars": 30,
-      "bytes": 27629
+      "bytes": 29301,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "e05808957f5815d7"
+    },
+    {
+      "id": "uranus.beaconSpoken",
+      "file": "uranus.beaconSpoken.mp3",
+      "chars": 50,
+      "bytes": 60648,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "c056d479f1b71751"
     },
     {
       "id": "neptune.preflightLine",
       "file": "neptune.preflightLine.mp3",
       "chars": 59,
-      "bytes": 60648
+      "bytes": 69425,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "31ce747d82870b5c"
     },
     {
       "id": "neptune.beaconHeadline",
       "file": "neptune.beaconHeadline.mp3",
       "chars": 14,
-      "bytes": 18016
+      "bytes": 24703,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "802576f8cda1a149"
     },
     {
       "id": "neptune.beaconState",
       "file": "neptune.beaconState.mp3",
-      "chars": 6,
-      "bytes": 12164
+      "chars": 3,
+      "bytes": 8403,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "a3c7f8cabebcea52"
     },
     {
       "id": "neptune.beaconFlavor",
       "file": "neptune.beaconFlavor.mp3",
       "chars": 48,
-      "bytes": 48527
+      "bytes": 60648,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "75516f55b820f5a7"
+    },
+    {
+      "id": "neptune.beaconSpoken",
+      "file": "neptune.beaconSpoken.mp3",
+      "chars": 69,
+      "bytes": 76948,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "59b8b0c3b54635ef"
     },
     {
       "id": "pluto.preflightLine",
       "file": "pluto.preflightLine.mp3",
       "chars": 70,
-      "bytes": 79874
+      "bytes": 67335,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "7bb621712490ec33"
     },
     {
       "id": "pluto.beaconHeadline",
       "file": "pluto.beaconHeadline.mp3",
       "chars": 12,
-      "bytes": 16762
+      "bytes": 23449,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "a198a3428a6054c2"
     },
     {
       "id": "pluto.beaconState",
       "file": "pluto.beaconState.mp3",
-      "chars": 6,
-      "bytes": 12164
+      "chars": 3,
+      "bytes": 8403,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "a3c7f8cabebcea52"
     },
     {
       "id": "pluto.beaconFlavor",
       "file": "pluto.beaconFlavor.mp3",
       "chars": 67,
-      "bytes": 66499
+      "bytes": 79038,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "5225d749cc07ded8"
+    },
+    {
+      "id": "pluto.beaconSpoken",
+      "file": "pluto.beaconSpoken.mp3",
+      "chars": 86,
+      "bytes": 84889,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "7737b6b9961add90"
+    },
+    {
+      "id": "ui.pick.greeting",
+      "file": "ui.pick.greeting.mp3",
+      "chars": 73,
+      "bytes": 67753,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "ffc9991c35db93a9"
+    },
+    {
+      "id": "flight.canisterHint",
+      "file": "flight.canisterHint.mp3",
+      "chars": 41,
+      "bytes": 37660,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "cccbb1a95f3cd179"
+    },
+    {
+      "id": "flight.nestedHint",
+      "file": "flight.nestedHint.mp3",
+      "chars": 62,
+      "bytes": 58140,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "f08d0b990323536d"
+    },
+    {
+      "id": "ending.shadowLine",
+      "file": "ending.shadowLine.mp3",
+      "chars": 64,
+      "bytes": 56050,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "00fc3eba303ee6b0"
+    },
+    {
+      "id": "briefing.shipReadySpoken",
+      "file": "briefing.shipReadySpoken.mp3",
+      "chars": 43,
+      "bytes": 34316,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "4dcde2cea9808f2a"
     },
     {
       "id": "preflight.line.opening",
       "file": "preflight.line.opening.mp3",
       "chars": 32,
-      "bytes": 29301
+      "bytes": 29301,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "b025842053852223",
+      "model": "eleven_flash_v2_5",
+      "stability": 0.92
     },
     {
       "id": "preflight.line.hull",
       "file": "preflight.line.hull.mp3",
       "chars": 12,
-      "bytes": 15926
+      "bytes": 15926,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "e0fcca618e76fe09",
+      "model": "eleven_flash_v2_5",
+      "stability": 0.92
     },
     {
       "id": "preflight.line.systems",
       "file": "preflight.line.systems.mp3",
       "chars": 15,
-      "bytes": 18016
+      "bytes": 18852,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "cf2795749e1b0636",
+      "model": "eleven_flash_v2_5",
+      "stability": 0.92
     },
     {
       "id": "preflight.line.engines",
       "file": "preflight.line.engines.mp3",
       "chars": 14,
-      "bytes": 18016
+      "bytes": 18852,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "19e861ad7a15ef67",
+      "model": "eleven_flash_v2_5",
+      "stability": 0.92
     },
     {
       "id": "preflight.line.done",
       "file": "preflight.line.done.mp3",
       "chars": 20,
-      "bytes": 20942
+      "bytes": 20524,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "d8655ac96749a895",
+      "model": "eleven_flash_v2_5",
+      "stability": 0.92
     },
     {
       "id": "preflight.line.returning",
       "file": "preflight.line.returning.mp3",
       "chars": 48,
-      "bytes": 39750
+      "bytes": 40586,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "6f3f6f314206e569"
     },
     {
       "id": "coach.fallback.en.base",
       "file": "coach.fallback.en.base.mp3",
       "chars": 70,
-      "bytes": 60648
+      "bytes": 67335,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "24e364120c00ddff"
     },
     {
       "id": "coach.fallback.en.earth",
       "file": "coach.fallback.en.earth.mp3",
       "chars": 67,
-      "bytes": 65663
+      "bytes": 79874,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "abb45c67c8361500"
     },
     {
       "id": "coach.fallback.en.mars",
       "file": "coach.fallback.en.mars.mp3",
       "chars": 70,
-      "bytes": 64409
+      "bytes": 71097,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "6de596be30ad9120"
     },
     {
       "id": "coach.fallback.en.jupiter",
       "file": "coach.fallback.en.jupiter.mp3",
       "chars": 60,
-      "bytes": 55214
+      "bytes": 61902,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "f24ecc61d02e39a4"
     },
     {
       "id": "coach.fallback.en.saturn",
       "file": "coach.fallback.en.saturn.mp3",
       "chars": 64,
-      "bytes": 60648
+      "bytes": 69425,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "4801bdbcdcff3ac6"
     },
     {
       "id": "coach.fallback.en.uranus",
       "file": "coach.fallback.en.uranus.mp3",
       "chars": 68,
-      "bytes": 67335
+      "bytes": 69425,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "11804f7bbff33147"
     },
     {
       "id": "coach.fallback.en.neptune",
       "file": "coach.fallback.en.neptune.mp3",
       "chars": 62,
-      "bytes": 58976
+      "bytes": 64827,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "a85bb5e8ffe6e206"
     },
     {
       "id": "coach.fallback.en.pluto",
       "file": "coach.fallback.en.pluto.mp3",
       "chars": 64,
-      "bytes": 59812
+      "bytes": 65663,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "5f089974bacdf1c0"
     },
     {
       "id": "coach.mock.clean.0",
       "file": "coach.mock.clean.0.mp3",
       "chars": 57,
-      "bytes": 55214
+      "bytes": 60648,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "3d423c6f949fe60d"
     },
     {
       "id": "coach.mock.clean.1",
       "file": "coach.mock.clean.1.mp3",
       "chars": 52,
-      "bytes": 47691
+      "bytes": 64409,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "99f1ae8e3d6c68c6"
     }
   ]
 }

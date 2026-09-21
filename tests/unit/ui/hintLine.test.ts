@@ -151,11 +151,24 @@ describe("one renderer draws the hint line, on every screen that has one", () =>
     expect(files.length).toBeGreaterThan(10);
     expect(files).toContain("WarpScene.ts");
     expect(files).toContain("PauseScene.ts");
-    // And the two screens that were ABSENT from the line are declared on it,
-    // which is what makes case 1 above bite for them.
-    for (const file of ["WarpScene.ts", "PauseScene.ts"]) {
-      expect(rowFor(file)?.placement, file).toBe("grid");
-    }
+    // Pause was ABSENT from the line and is declared on it, which is what
+    // makes case 1 above bite for it.
+    expect(rowFor("PauseScene.ts")?.placement).toBe("grid");
+    // THE WARP BREAK IS "none" NOW, AND THAT IS A STRONGER CLAIM ABOUT IT, not
+    // a case narrowed to pass. It was on the grid line so that the screen was
+    // not the one of nine declaring a placement it did not keep; both of its
+    // instructions are inside Shadow's card now (`warp.coachIntro`), so the
+    // line has nothing of its own left to say and a copy of the card's
+    // sentence at the foot of the frame would be UR-56's defect. The case
+    // above - "no screen that declared it has no hint draws one anyway" -
+    // sweeps this file and now covers the Warp break, which is a check the
+    // "grid" row could not get.
+    //
+    // WATCHED FAILING, with `drawHint` put back in `WarpScene.create`:
+    //   WarpScene.ts is "none" and draws a hint: expected [ Array(1) ] to
+    //   deeply equal []
+    expect(rowFor("WarpScene.ts")?.placement).toBe("none");
+    expect(rowFor("WarpScene.ts")?.hintKey).toBeNull();
   });
 });
 

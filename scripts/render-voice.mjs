@@ -47,7 +47,7 @@ const STOPS = ["earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto
  * directions. BEFORE ADDING A FIELD HERE, ADD THE SPEAK SITE AND THE TEST. A
  * render with no call site is money spent on silence.
  */
-const SPOKEN_FIELDS = ["preflightLine", "beaconHeadline", "beaconState", "beaconFlavor"];
+const SPOKEN_FIELDS = ["preflightLine", "beaconHeadline", "beaconState", "beaconFlavor", "beaconSpoken"];
 
 /**
  * UI strings Shadow speaks, by their `SceneStringKey` (src/content/en/ui.json).
@@ -62,7 +62,41 @@ const SPOKEN_FIELDS = ["preflightLine", "beaconHeadline", "beaconState", "beacon
  * between this script and `browserVoiceClips` and a translation of it here
  * would be a silent miss at runtime.
  */
+/**
+ * Lines Shadow SPEAKS that live in the MENU table (`src/game/ui/strings.ts`)
+ * rather than in `content/en/ui.json`.
+ *
+ * The two tables are different things and the menu one was invisible here: the
+ * menu translator merges `engine/i18n/strings` with `ui/strings`, and neither
+ * is content. The first menu line Shadow ever speaks is the greeting on an
+ * empty hangar (UR-142), and D98 makes an unrendered spoken line a BUILD
+ * failure - so the script has to be able to see it, not just the test.
+ *
+ * Read by regex because the table is TypeScript, and `resolveJsonModule` is off
+ * (see the header of `ui/strings.ts` for why the table is not JSON). The shape
+ * is `"key": "value", // i18n-ignore`, optionally wrapped onto the next line.
+ */
+const SPOKEN_MENU_KEYS = ["ui.pick.greeting"];
+
+/**
+ * Lines Shadow speaks from the FLIGHT table (`src/game/flight/copy.ts`) - the
+ * third string table, after content and the menu. UR-146's canister hint is the
+ * first, and D98 makes an unrendered spoken line a build failure, so this had
+ * to land in the same change. Regex for the same reason `SPOKEN_MENU_KEYS` is;
+ * `LOCAL_EN` is declared first, so the first match is the English row.
+ */
+const SPOKEN_FLIGHT_KEYS = ["flight.canisterHint", "flight.nestedHint"];
+
+/**
+ * Lines Shadow speaks from the STORY LANE table
+ * (`src/game/scenes/support/copy.ts`) - the fourth string table, and invisible
+ * here until UR-148 put a voice on the ending card. Same precedent, same regex:
+ * `LANE_EN` is declared first, so the first match is the English row.
+ */
+const SPOKEN_LANE_KEYS = ["ending.shadowLine"];
+
 const SPOKEN_UI_KEYS = [
+  "briefing.shipReadySpoken",
   "preflight.line.opening",
   "preflight.line.hull",
   "preflight.line.systems",
@@ -190,6 +224,54 @@ async function collectLines() {
 
   // The pre-flight ritual's lines, which live in ui.json rather than in a stage
   // bundle because they are the same at every stop. See SPOKEN_UI_KEYS.
+  // The menu table, for the lines that live there rather than in content.
+  const menuPath = join(REPO, "src/game/ui/strings.ts");
+  if (existsSync(menuPath)) {
+    const table = readFileSync(menuPath, "utf8");
+    for (const key of SPOKEN_MENU_KEYS) {
+      const re = new RegExp(`"${key.replace(/\./g, "\\.")}":\\s*\n?\\s*"((?:[^"\\\\]|\\\\.)*)"`);
+      const raw = table.match(re)?.[1];
+      if (typeof raw !== "string" || raw.trim().length === 0) {
+        console.error(`[voice] ${key} is not in ${menuPath}; nothing to render`);
+        continue;
+      }
+      const text = raw.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+      lines.push({ id: key, stop: "ui", field: key, text: text.trim() });
+    }
+  }
+
+  // The flight table. See SPOKEN_FLIGHT_KEYS.
+  const flightPath = join(REPO, "src/game/flight/copy.ts");
+  if (existsSync(flightPath)) {
+    const table = readFileSync(flightPath, "utf8");
+    for (const key of SPOKEN_FLIGHT_KEYS) {
+      const re = new RegExp(`"${key.replace(/\./g, "\\.")}":\\s*\n?\\s*"((?:[^"\\\\]|\\\\.)*)"`);
+      const raw = table.match(re)?.[1];
+      if (typeof raw !== "string" || raw.trim().length === 0) {
+        console.error(`[voice] ${key} is not in ${flightPath}; nothing to render`);
+        continue;
+      }
+      const text = raw.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+      lines.push({ id: key, stop: "flight", field: key, text: text.trim() });
+    }
+  }
+
+  // The story lane's table. See SPOKEN_LANE_KEYS.
+  const lanePath = join(REPO, "src/game/scenes/support/copy.ts");
+  if (existsSync(lanePath)) {
+    const table = readFileSync(lanePath, "utf8");
+    for (const key of SPOKEN_LANE_KEYS) {
+      const re = new RegExp(`"${key.replace(/\./g, "\\.")}":\\s*\n?\\s*"((?:[^"\\\\]|\\\\.)*)"`);
+      const raw = table.match(re)?.[1];
+      if (typeof raw !== "string" || raw.trim().length === 0) {
+        console.error(`[voice] ${key} is not in ${lanePath}; nothing to render`);
+        continue;
+      }
+      const text = raw.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+      lines.push({ id: key, stop: "lane", field: key, text: text.trim() });
+    }
+  }
+
   const uiPath = join(REPO, "src/content/en/ui.json");
   if (existsSync(uiPath)) {
     const ui = JSON.parse(readFileSync(uiPath, "utf8"));
@@ -304,6 +386,40 @@ if (UNRENDERABLE.length > 0) {
     console.log(`  ${JSON.stringify(item.shape)}`);
     console.log(`      ${item.reason}`);
   }
+}
+
+/**
+ * What this run would actually PAY for. The catalogue total above is not the
+ * bill - `needsRender` skips unchanged clips - and reading it as one is how the
+ * set was destroyed twice (D102). Printed before anything is sent, on the dry
+ * run and the live one. If it names anything but the line you meant, stop.
+ */
+function renderPlan() {
+  const previousRows = existingManifest();
+  const plan = [];
+  for (const line of lines) {
+    const why = needsRender({
+      line,
+      priorRow: previousRows.get(line.id),
+      fileExists: existsSync(join(OUT, `${line.id}.mp3`)),
+      voiceId: VOICE_ID,
+      force: flag("force"),
+    });
+    if (why !== null) plan.push({ line, why });
+  }
+  return plan;
+}
+
+const PLAN = renderPlan();
+const planUsd = PLAN.reduce((n, p) => n + p.line.text.length * USD_PER_CHAR, 0);
+console.log(
+  `\nWOULD RENDER ${PLAN.length} of ${lines.length} lines ` +
+    `· ${PLAN.reduce((n, p) => n + p.line.text.length, 0)} characters ` +
+    `· est. $${planUsd.toFixed(4)}` +
+    (VOICE_ID ? "" : "  (no --voice given; every line reads as a voice change)"),
+);
+for (const p of PLAN) {
+  console.log(`  ${p.line.id.padEnd(26)} ${p.why}`);
 }
 
 if (!LIVE) {

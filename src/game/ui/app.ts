@@ -63,6 +63,32 @@ export interface App {
    * value, store, serialize, second store, read back.
    */
   equipShip(shipId: string): string | null;
+  /**
+   * CHANGE THE PILOT'S MARK, AND KEEP IT (UR-124; D43, AC-19.1).
+   *
+   * ================== THE DEFECT ==================
+   * `profile.avatar` had exactly one writer in the whole build -
+   * `ProfileCreateScene`, at the moment the profile is made - and one reader,
+   * `ProfilePickerScene`, which draws it on the pilot's card. So a child who
+   * picked the comet on the first screen they ever saw was a comet for the life
+   * of the save, with nowhere in the product to change their mind. That is the
+   * same shape as the hull defect `equipShip` exists for: a chosen thing with
+   * no second input.
+   *
+   * ================== WHY IT FLUSHES ==================
+   * `store.updateProfile`'s write is debounced by 250 ms, and this is a change
+   * a child makes and then immediately closes the tab on - same reasoning as
+   * `applySettings` and `equipShip`, both of which flush for the same reason.
+   * `tests/unit/scenes/settingsAvatar.test.ts` runs the whole round trip -
+   * write, serialize, second store, read back - rather than asserting the
+   * in-memory value, because the in-memory value is the half that was never
+   * broken.
+   *
+   * Returns the avatar actually worn afterwards, read back off the store rather
+   * than echoed from the argument. Null when there is no profile, which is
+   * every standalone harness mount of a screen.
+   */
+  setAvatar(avatarId: string): string | null;
   /** One calm line about the load, or null (AC-18.4). Returned once per page. */
   takeNoticeText(): string | null;
 }
@@ -86,9 +112,14 @@ export function appFor(scene: Phaser.Scene): App {
       const profile = store.activeProfile();
       const lang = profile?.settings.uiLang ?? bundle.t.lang;
       const shipName = profile?.shipName ?? "";
-      const key = `${lang}|${shipName}`;
+      // THE PILOT'S OWN NAME IS PART OF THE CACHE KEY. Without it, switching
+      // profiles would keep the previous pilot's name in every string that
+      // carries `{pilotName}` until the language or the ship name happened to
+      // change too - the same class of staleness the ship name is keyed for.
+      const pilotName = profile?.name ?? "";
+      const key = `${lang}|${shipName}|${pilotName}`;
       if (cached?.key !== key) {
-        cached = { key, translator: createMenuTranslator(lang, shipName) };
+        cached = { key, translator: createMenuTranslator(lang, shipName, pilotName) };
       }
       return cached.translator;
     },
@@ -159,6 +190,20 @@ export function appFor(scene: Phaser.Scene): App {
       const updated = store.updateProfile(profile.id, () => next);
       store.flush();
       return updated?.shipId ?? profile.shipId;
+    },
+
+    setAvatar(avatarId): string | null {
+      const profile = store.activeProfile();
+      if (!profile) return null;
+      // Guarded on identity, the way `repairLanguagePair` is: choosing the mark
+      // you are already wearing must not schedule a write.
+      if (profile.avatar === avatarId) return profile.avatar;
+      const updated = store.updateProfile(profile.id, (p: Profile) => ({
+        ...p,
+        avatar: avatarId,
+      }));
+      store.flush();
+      return updated?.avatar ?? profile.avatar;
     },
 
     takeNoticeText(): string | null {

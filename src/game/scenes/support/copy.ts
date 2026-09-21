@@ -49,7 +49,7 @@ import { hasStageBundle, stageBundle } from "../lib/content";
  */
 const LANE_EN = {
   // Warp break (screen 7, D30, FR-16)
-  "warp.beltClear": "The belt is clear. everything is still out here.",
+  "warp.beltClear": "The belt is clear. Everything is still out here.",
   /**
    * ============ A LABEL, SO TITLE CASE - AN ESCALATION THE OWNER CLOSED ============
    *
@@ -80,7 +80,7 @@ const LANE_EN = {
    * names the stop. This key is the `skyText` id's twin and is kept in step so
    * the table cannot be the one place the old fiction survives.
    */
-  "warp.charged": "Beacon charged. hold on.",
+  "warp.charged": "Beacon charged. Hold on.",
   "warp.speaker": "Shadow",
   /**
    * ============ SENTENCE CASE, WHICH MEANS ONE CAPITAL ============
@@ -90,20 +90,41 @@ const LANE_EN = {
    * letter and changes nothing else - NOT Title Case, which is for labels and
    * buttons, and not a capital on the second clause either.
    *
-   * That last part is the house convention and not a preference: `ui/strings.ts`
-   * already ships "Only earth is lit. six more are waiting for us." and
-   * "Remove {name}? their beacons go too." Making this line the one that
-   * capitalises both of its sentences would be inventing a third rule on the
-   * screen the sweep was opened for.
+   * ============ UR-146 SUPERSEDES THE SECOND HALF OF THIS ============
+   *
+   * UR-81 went on to say that the clause AFTER the full stop stays lowercase,
+   * and called that the house convention rather than a preference, citing
+   * `ui/strings.ts` shipping "Only earth is lit. six more are waiting for us."
+   * and "Remove {name}? their beacons go too."
+   *
+   * The project owner has since read both of those on screen and called them
+   * wrong: a full stop or a question mark ENDS a sentence, so the next one
+   * starts with a capital - that is what "sentence case for sentences" means.
+   * The convention had no entry in `docs/decision-log.md`; its entire evidence
+   * was the two strings just named, and both have been corrected, so there is
+   * nothing left for it to be a convention OF.
+   *
+   * What survives from UR-81 is the part that was about this line: it is a
+   * SENTENCE and therefore sentence case, NOT Title Case, which is for labels
+   * and buttons. `tests/unit/ui/hint.test.ts` holds both halves now.
+   *
+   * ============ KEPT, UNUSED - NOTHING DRAWS THIS ANY MORE ============
+   *
+   * The Warp break is `placement: "none"` in `ui/hint.ts` now: what this line
+   * taught is inside Shadow's card, in `warp.coachIntro`, and a grid line
+   * repeating it would be UR-56's defect written across two elements rather
+   * than two. Kept rather than deleted, like `briefing.hint` and `beacon.hint`,
+   * so that putting a hint back on this screen is a layout change and not a
+   * translation job. The case rules above still hold it to the house style.
    */
-  "warp.hint": "Type the sentence. a slip just asks for the same letter again.",
+  "warp.hint": "Type the sentence. A slip just asks for the same letter again.",
   // E-AI-1. Shown ONLY when a live model composed this sentence from the words
   // this child just practised and it passed all six gates. Blank otherwise -
   // the whole point is that a judge can tell the two apart.
   "warp.composed": "Shadow wrote this one from your words, just now",
 
   // Beacon placement (screen 8, D15, FR-17)
-  "beacon.calibrating": "Beacon calibrating. it will find the sky in a moment.",
+  "beacon.calibrating": "Beacon calibrating. It will find the sky in a moment.",
   "beacon.continue": "Continue",
   "beacon.hint": "Enter to continue",
 
@@ -136,13 +157,6 @@ const LANE_EN = {
   "results.personalBest": "Your best here: {wpm} wpm",
   "results.newPersonalBest": "That is your best run here.",
   "results.replay": "Fly It Again",
-  "results.boardHeading": "Pilots Near You",
-  "results.boardYou": "You",
-  "results.boardEmpty": "No other pilots nearby yet.",
-  "results.boardPrompt":
-    "Want to see the pilots flying near your speed? you can turn this off any time.",
-  "results.boardPromptYes": "Show Nearby Pilots",
-  "results.boardPromptNo": "Not Now",
   // ONE VERB FOR MOVING, ACROSS THE WHOLE APP (UR-101). This said "tab to
   // move" while every other screen says arrows - two names for one action on
   // screens a child moves between. Both keys work here and everywhere (the kit
@@ -154,7 +168,7 @@ const LANE_EN = {
   // back would mean back into a belt that is already over. The shared
   // `ui.common.hintKeys` promises escape, so this screen cannot use it - a hint
   // that names a key which does nothing is worse than no hint.
-  "results.hint": "Arrows to move · enter to choose",
+  "results.hint": "Arrow Keys to Move · Enter to Choose",
 
   // Ending card (screen 12)
   "ending.heading": "The Map Is Drawn",
@@ -184,17 +198,17 @@ export const LANE_STRING_KEYS = Object.keys(LANE_EN) as LaneStringKey[];
  * `scenes/lib/strings.ts` uses.
  */
 const LANE_ES: Partial<Record<LaneStringKey, string>> = {
-  "warp.beltClear": "el cinturón está despejado. aquí todo está quieto.",
+  "warp.beltClear": "El cinturón está despejado. Aquí todo está quieto.",
   "warp.chargeLabel": "Carga de baliza",
   "warp.chargePercent": "{percent}%",
-  "warp.charged": "Baliza cargada. agárrate.",
+  "warp.charged": "Baliza cargada. Agárrate.",
   // A NAME IS A NAME IN EVERY LANGUAGE. The Hindi lane table is empty and falls
   // through to English, so these two lines are the whole of the Spanish sweep.
   "warp.speaker": "Shadow",
-  "warp.hint": "Escribe la frase. un desliz solo pide la misma letra otra vez.",
+  "warp.hint": "Escribe la frase. Un desliz solo pide la misma letra otra vez.",
   "warp.composed": "Shadow escribió esta con tus palabras, ahora mismo",
 
-  "beacon.calibrating": "la baliza se está calibrando. enseguida encuentra el cielo.",
+  "beacon.calibrating": "La baliza se está calibrando. Enseguida encuentra el cielo.",
   "beacon.continue": "continuar",
   "beacon.hint": "enter para continuar",
 
@@ -217,14 +231,13 @@ const LANE_ES: Partial<Record<LaneStringKey, string>> = {
   "results.personalBest": "tu mejor marca aquí: {wpm} ppm",
   "results.newPersonalBest": "es tu mejor vuelo aquí.",
   "results.replay": "volar otra vez",
-  "results.boardHeading": "pilotos cerca de ti",
-  "results.boardYou": "tú",
-  "results.boardEmpty": "todavía no hay otros pilotos cerca.",
-  "results.boardPrompt":
-    "¿quieres ver a los pilotos que vuelan a tu velocidad? puedes desactivarlo cuando quieras.",
-  "results.boardPromptYes": "ver pilotos cercanos",
-  "results.boardPromptNo": "ahora no",
-  "results.hint": "tab para moverte, enter para elegir",
+  // UR-144: THE SPANISH STILL SAID "tab", AND IT SAID IT WITH A COMMA.
+  // UR-101 moved the English off `tab` onto the arrows every other screen
+  // names, and stopped there - so a Spanish-reading child was told to press a
+  // key the English-reading child beside them was not. The separator is the
+  // `·` every other hint in the product uses; a comma made this the one hint
+  // line punctuated differently from all of them.
+  "results.hint": "teclas de flecha para moverte · enter para elegir",
 
   "ending.heading": "el mapa está trazado",
   "ending.shadowLine":
@@ -252,15 +265,17 @@ export interface LaneText {
 export interface LaneTextOptions {
   readonly lang: Lang;
   readonly shipName: string;
+  /** C27, bound exactly as `shipName` is. */
+  readonly pilotName?: string;
 }
 
 export function createLaneText(options: LaneTextOptions): LaneText {
-  const { lang, shipName } = options;
-  const base = createSceneText({ lang, shipName });
+  const { lang, shipName, pilotName = "" } = options;
+  const base = createSceneText({ lang, shipName, pilotName });
   const own = LANE_TABLES[lang] ?? {};
   const english = LANE_EN;
 
-  const defaults: InterpolationParams = { shipName };
+  const defaults: InterpolationParams = { shipName, pilotName };
 
   return {
     lang,

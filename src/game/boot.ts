@@ -38,6 +38,7 @@ import { hexToNum, paletteFor } from "./render/palette.js";
 import { WORLD_STOP_KEY } from "./render/parallax.js";
 import { INK } from "./ui/theme.js";
 import { LANTERN_SHOT_KEY, LanternShotScene } from "./render/lanternShot.js";
+import { installCanvasGlyphMeasurer } from "./render/measureGlyphAdvances.js";
 import { createTranslator, isShipped, type Translator } from "../engine/i18n/index.js";
 import {
   DEFAULT_SHIP_NAME,
@@ -792,6 +793,14 @@ export interface BootOptions {
 }
 
 export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> {
+  // THE WORD PLATE HAS TO KNOW HOW WIDE A LETTER REALLY IS, and it has to know
+  // BEFORE anything renders: `FlightScene` asks `plateSize` for a word's plate
+  // while choosing the rock's spawn column, which is decided before the plate
+  // exists. This is the one line that points the pure geometry at the real
+  // face; without it the layout falls back to a shipped table and is
+  // approximately, rather than exactly, right. See `render/glyphAdvance.ts`.
+  installCanvasGlyphMeasurer();
+
   const params = new URLSearchParams(options.search ?? window.location.search);
 
   const store = createProfileStore({
@@ -820,7 +829,10 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
       // Misses are still loud: they are logged AND collected, and the Title
       // e2e asserts the list is empty.
       mode: "prod",
-      defaults: { shipName: store.activeProfile()?.shipName ?? DEFAULT_SHIP_NAME },
+      defaults: {
+        shipName: store.activeProfile()?.shipName ?? DEFAULT_SHIP_NAME,
+        pilotName: store.activeProfile()?.name ?? "",
+      },
       onMissing: (key, missLang) => {
         const line = `${missLang}:${key}`;
         misses.push(line);
@@ -1028,7 +1040,12 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
   // own list. All three call `uiSoundBlip` from ui/focus.ts, so installing the
   // hook once here makes every menu in the game audible, including any built
   // after this line runs.
-  setUiSound(() => audioService?.uiNav());
+  // UR-133: a knob detent is `uiNav` at a pitch, not a twelfth SFX event.
+  setUiSound((kind, amount) =>
+    kind === "detent"
+      ? audioService?.uiDetent(amount ?? 0)
+      : audioService?.uiNav(),
+  );
   wireAudioToFrames(game, audioService, context, backdrop);
 
   const registered = new Set<string>();

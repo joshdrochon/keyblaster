@@ -6,9 +6,25 @@ import {
   cameraSwayPx,
   layer,
 } from "@game/render/layers.js";
-import { particleSpec, shardWaves } from "@game/render/particles.js";
+import {
+  blastShakePx,
+  blastShardCount,
+  particleSpec,
+  shardWaves,
+} from "@game/render/particles.js";
+import {
+  bloomDurationMs,
+  bloomHalfHeightPx,
+  bloomText,
+  bloomToScale,
+  celebrationFor,
+  COMBO_BLOOM,
+  NO_CELEBRATION,
+  type MultiplierCelebration,
+} from "@game/flight/celebration";
 import { buildParallax, type Parallax } from "@game/render/parallax.js";
 import { TEX } from "@game/render/textures.js";
+import { INK } from "@game/ui/theme.js";
 import { paletteAt as stopPaletteAt } from "@game/render/palette.js";
 import { PauseScene } from "./PauseScene.js";
 import {
@@ -93,6 +109,7 @@ import { DEFAULT_CALIBRATION, STOP_IDS, type Calibration, type StopId } from "@e
 import {
   DEFAULT_FLIGHT_CONFIG,
   FLIGHT_EVENTS,
+  PASS_BY_EXIT_MS,
   PLATE_LAYER_DEPTH,
   SPAWN_MARGIN_PX,
   hitStopMs,
@@ -104,11 +121,18 @@ import {
   flightConfigFrom,
   mulberry32,
   paletteFor,
+  passByExitPx,
   retentionPoolFor,
   rockSpinPerSec,
   stagePoolFor,
 } from "@game/flight/stage.js";
-import { type FlightCopy, createFlightCopy } from "@game/flight/copy.js";
+import {
+  CANISTER_HINT_KEY,
+  NESTED_HINT_KEY,
+  hintLead,
+  type FlightCopy,
+  createFlightCopy,
+} from "@game/flight/copy.js";
 import {
   type BlastHistory,
   emptyHistory,
@@ -126,9 +150,20 @@ import {
   hullForStage,
   hullLampLevel,
   isStalled,
+  CANISTER_SPAWN_CHANCE,
   maySpawnCanister,
+  shouldHintCanister,
   startingHull,
 } from "@game/flight/shield.js";
+import { shouldWarnNested } from "@engine/nested/index.js";
+
+/**
+ * UR-148's once-per-run flag, on the Phaser registry rather than the scene: the
+ * scene is re-created on every belt and the warning is about a MECHANIC, not a
+ * belt. Namespaced like `kb.audio`, which is the registry's other tenant.
+ */
+const NESTED_HINT_REGISTRY_KEY = "kb.flight.nestedHintSaid";
+import { estimateSpeechMs } from "@game/audio/voice.js";
 import {
   SCORCH_CORE_H,
   SCORCH_CORE_W,
@@ -152,6 +187,7 @@ import { refineCalibration } from "@engine/calibration/index.js";
 import {
   activeProfile,
   persistStageBook,
+  goTo,
   persistStageKnobs,
   refineStoredCalibration,
   storedBook,
@@ -280,6 +316,27 @@ const SHIP_HALF_WIDTH_PX = 46;
 
 /** What `render/lantern.ts` is drawn at on the flight screen. Derived, never picked. */
 const SHIP_SCALE = SHIP_HALF_WIDTH_PX / LANTERN_DESIGN_HALF_WIDTH;
+
+/**
+ * How long the shot is on screen (UR-116).
+ *
+ * 80 ms was under five frames at 60 fps, and `Expo.Out` spends most of its
+ * travel in the first third of those - so the beam was at full width for
+ * roughly one frame and the player saw a flicker rather than a shot. 110 ms is
+ * still a snap, and it is the same order as the muzzle flash it leaves from
+ * (`render/lantern` MUZZLE_MS 150), so the two read as one event.
+ */
+const BEAM_MS = 110;
+
+/**
+ * The three strokes, widest to thinnest, at full strength.
+ *
+ * One stroke cannot be both a hot core and a soft bloom, which is what made
+ * the old beam read as a drawn line. The numbers are a falloff, not a taste:
+ * each pass is roughly a third of the one outside it, so the additive stack
+ * lands brightest in the middle without a visible step.
+ */
+const BEAM_W = { bloom: 26, body: 9, core: 3 } as const;
 
 
 /**
@@ -424,6 +481,10 @@ export interface FlightDebugState {
   /** UR-33: scene-clock moment the world starts moving again. */
   readonly hitStopUntilMs: number;
   readonly knobChanges: number;
+  /** UR-146: has the canister hint been said on this belt yet? */
+  readonly canisterHintSaid: boolean;
+  /** UR-148: has the two-layer warning been said on this RUN yet? */
+  readonly nestedHintSaid: boolean;
   /** The gap the belt is currently holding between rocks, ms (@engine/pacing). */
   readonly spawnGapMs: number;
   /**
@@ -471,6 +532,8 @@ export interface FlightDebugState {
     readonly travelPx: number;
     /** UR-83: the budget this rock was granted, spread included, ms. */
     readonly fallMs: number;
+    /** UR-146: what the belt expects this rock to cost to clear. */
+    readonly clearEstimateMs: number;
     /** AC-2.3: must be 0 for every rock, however fast its rock turns. */
     readonly plateRotation: number;
     readonly typedCount: number;
@@ -486,6 +549,22 @@ export interface FlightDebugState {
     /** True if this rock's column would bring it down onto the Lantern. */
     readonly onShipLane: boolean;
     readonly debrisType: string;
+    /**
+     * THE LETTERS AS DRAWN, so a spec can check the spacing the child sees.
+     *
+     * `x` is the letter's centre in plate space, `width` is what Phaser
+     * measured the glyph at, `reservedWidth` is what the layout reserved for it.
+     * The plate used to lay letters on a fixed 0.62-em cell while drawing them
+     * in a proportional face, so `width` and `reservedWidth` disagreed by up to
+     * 7 px and adjacent glyphs overlapped. Nothing in node can see that - there
+     * is no font there - so the two numbers are surfaced side by side and
+     * `tests/e2e/plate-spacing.spec.ts` compares them on a real board.
+     */
+    readonly letters: readonly {
+      readonly x: number;
+      readonly width: number;
+      readonly reservedWidth: number;
+    }[];
   }[];
   readonly layerOffsets: Readonly<Record<string, number>>;
   readonly skySample: { readonly x: number; readonly y: number };
@@ -533,7 +612,7 @@ export class FlightScene extends Phaser.Scene {
    * 58 (see `@engine/hull`'s header for the arithmetic). Every place that used
    * to read `MAX_HULL` reads this, including the two `hullHits` figures the
    * results screen turns into stars - if one of them kept the constant, a
-   * nine-mark stage would report six hits it never took.
+   * six-mark stage would report three hits it never took.
    */
   private maxHull = hullForStage(DEFAULT_FLIGHT_CONFIG.stageWordCount);
   /**
@@ -602,6 +681,8 @@ export class FlightScene extends Phaser.Scene {
    */
   private clearResiduals: number[] = [];
   private canisterId: string | null = null;
+  /** UR-146: once per belt. `init` is the per-attempt reset (AC-4.3). */
+  private canisterHintSaid = false;
   private stageStartMs = 0;
   private stalled = false;
   private stageComplete = false;
@@ -719,6 +800,7 @@ export class FlightScene extends Phaser.Scene {
     this.lastResolveAtMs = 0;
     this.clearResiduals = [];
     this.canisterId = null;
+    this.canisterHintSaid = false;
     this.stalled = false;
     this.stallStartedAtMs = null;
     this.stageComplete = false;
@@ -817,11 +899,13 @@ export class FlightScene extends Phaser.Scene {
 
     this.scene.launch(SCENE_KEYS.hud, { snapshot: this.snapshot() });
     this.game.events.on(FLIGHT_EVENTS.restart, this.onRestartRequested, this);
+    this.game.events.on(FLIGHT_EVENTS.quit, this.onQuitRequested, this);
     // D30: the warp break rides on top of this scene and accelerates THIS
     // world. See `checkStageEnd`.
     this.game.events.on(FLIGHT_EVENTS.warpSpeed, this.onWarpSpeed, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.game.events.off(FLIGHT_EVENTS.restart, this.onRestartRequested, this);
+      this.game.events.off(FLIGHT_EVENTS.quit, this.onQuitRequested, this);
       this.game.events.off(FLIGHT_EVENTS.warpSpeed, this.onWarpSpeed, this);
       if (this.cfg.debug) delete window.__kbFlight;
     });
@@ -1001,11 +1085,11 @@ export class FlightScene extends Phaser.Scene {
      * THE BURNS AND THE MARKS ARE TWO LAYERS, AND THAT IS NOT TIDINESS.
      *
      * Each scorch is an opaque burn field plus a bright rim and a hard dark
-     * gash. With every mark in one layer, the NINTH mark's field would paint
-     * over the eighth's gash, so a hit could REMOVE dark pixels from the hull -
-     * and `tests/e2e/hull-feedback.spec.ts` asks that every hit adds them.
-     * Fields underneath and gashes on top makes each mark's own edge survive
-     * every mark after it, which is also what makes nine marks read as nine
+     * gash. With every mark in one layer, a later mark's field would paint
+     * over an earlier one's gash, so a hit could REMOVE dark pixels from the
+     * hull - and `tests/e2e/hull-feedback.spec.ts` asks that every hit adds
+     * them. Fields underneath and gashes on top makes each mark's own edge
+     * survive every mark after it, which is what makes a scorched hull read as
      * marks rather than as one wash.
      */
     this.scorchLayer = this.add.container(0, 0);
@@ -1015,6 +1099,9 @@ export class FlightScene extends Phaser.Scene {
     this.shipBody.add(this.scorchLayer);
 
     this.beam = this.add.graphics();
+    // ADDITIVE, like the rig's own light shaft (`render/lantern.paintShaft`).
+    // Light on a dark sky that is composited normally reads as paint.
+    this.beam.setBlendMode(Phaser.BlendModes.ADD);
 
     const root = this.add.container(shipX, shipY, [this.shipBody]);
     this.shipLayer.add([this.beam, root]);
@@ -1283,6 +1370,8 @@ export class FlightScene extends Phaser.Scene {
       this.applyLock({ type: "tick", nowMs: time });
       this.updatePark(time);
       this.aimEmitter();
+      this.maybeHintCanister(time);
+      this.maybeWarnNested(time);
       this.checkStageEnd();
     }
 
@@ -1373,6 +1462,86 @@ export class FlightScene extends Phaser.Scene {
     const span = this.parked.firesAtMs - this.parked.startedAtMs;
     const progress = span <= 0 ? 1 : (now - this.parked.startedAtMs) / span;
     rock.plate.setChargeProgress(progress);
+  }
+
+  /**
+   * UR-146. The decision is `shouldHintCanister` in `@engine/hull`, under the
+   * coverage gate; everything here is lookup. Reduced motion is deliberately
+   * not consulted - D41 lets a cue lose movement, never the information.
+   */
+  private maybeHintCanister(now: number): void {
+    if (this.canisterHintSaid) return;
+    const id = this.canisterId;
+    if (id === null) return;
+    const rock = this.rocks.find((r) => r.id === id);
+    if (rock === undefined || rock.resolved) return;
+
+    const text = this.copy.t(CANISTER_HINT_KEY);
+    const say = shouldHintCanister({
+      hull: this.hull,
+      maxHull: this.maxHull,
+      saidThisBelt: this.canisterHintSaid,
+      leadMs: estimateSpeechMs(hintLead(text)),
+      canister: {
+        centreY: rock.container.y,
+        sizePx: rock.sizePx,
+        viewportHeight: this.scale.height,
+        // The rock's own timeline, the one `updateRocks` falls it on.
+        msToBreach: rock.spawnedAtMs + rock.fallMs - now,
+      },
+    });
+    if (!say) return;
+
+    // Claimed before the bus call: a throw between the two would say it twice.
+    this.canisterHintSaid = true;
+    audioFrom(this.registry)?.speak({
+      id: CANISTER_HINT_KEY,
+      text,
+      kind: "scripted",
+    });
+  }
+
+  /**
+   * UR-148. The same mechanism as the canister hint: the decision is
+   * `shouldWarnNested` in `@engine/nested`, and everything here is lookup.
+   *
+   * ONCE PER RUN, NOT PER BELT AND NOT PERSISTED. Per belt would say it again
+   * on every Neptune and Pluto belt, which is four or five times for one
+   * mechanic; persisting it needs a profile schema field and a writer, and this
+   * project already has persisted state with no writer in it. The Phaser
+   * registry is the run: it survives a restart after a stall and the trip to
+   * Pluto, and a fresh page is a fresh run, which is the behaviour the owner's
+   * "first time they see one" describes for everyone except a returning child.
+   */
+  private maybeWarnNested(now: number): void {
+    const saidThisRun = this.registry.get(NESTED_HINT_REGISTRY_KEY) === true;
+    if (saidThisRun) return;
+    // `core !== null` is the SHELL STILL INTACT (`crackShell` nulls it), which
+    // is the only state the sentence is true in.
+    const rock = this.rocks.find((r) => !r.resolved && r.core !== null);
+    if (rock === undefined) return;
+
+    const text = this.copy.t(NESTED_HINT_KEY);
+    const say = shouldWarnNested({
+      stopId: this.cfg.stopId,
+      saidThisRun,
+      leadMs: estimateSpeechMs(hintLead(text)),
+      nested: {
+        centreY: rock.container.y,
+        sizePx: rock.sizePx,
+        viewportHeight: this.scale.height,
+        msToBreach: rock.spawnedAtMs + rock.fallMs - now,
+      },
+    });
+    if (!say) return;
+
+    // Claimed before the bus call: a throw between the two would say it twice.
+    this.registry.set(NESTED_HINT_REGISTRY_KEY, true);
+    audioFrom(this.registry)?.speak({
+      id: NESTED_HINT_KEY,
+      text,
+      kind: "scripted",
+    });
   }
 
   /**
@@ -1892,7 +2061,7 @@ export class FlightScene extends Phaser.Scene {
     const isCanister =
       this.canisterId === null &&
       maySpawnCanister(this.hull, this.maxHull, this.canisterId !== null) &&
-      this.rng() < 0.5;
+      this.rng() < CANISTER_SPAWN_CHANCE;
 
     const id = `rock-${this.nextRockIndex}`;
     this.nextRockIndex += 1;
@@ -2279,7 +2448,20 @@ export class FlightScene extends Phaser.Scene {
      */
     const cracking = rock !== undefined && rock.core !== null;
 
+    /**
+     * UR-117: WHAT THIS HIT EARNED, MEASURED ACROSS THE REDUCER.
+     *
+     * The multiplier BEFORE and the multiplier AFTER, compared. Not derived
+     * from the combo count, which is a different number the moment the streak
+     * passes ten (`MAX_MULTIPLIER` pins the multiplier at 10 while the combo
+     * keeps climbing) - a combo-count rule would re-fire the x10 chime and the
+     * big explosion on every word of a long streak, which is the exact noise
+     * the rationing exists to prevent. `flight/celebration.ts` owns the rule
+     * and this is the only place in the scene that decides anything about it.
+     */
+    const multiplierBefore = this.combo.multiplier;
     this.combo = comboReducer(this.combo, "hit");
+    const celebration = celebrationFor(multiplierBefore, this.combo.multiplier);
     // The peak, kept because the live chain is about to be resettable and a
     // chain is the one thing about a stage that nothing persists.
     this.bestCombo = Math.max(this.bestCombo, this.combo.combo);
@@ -2362,8 +2544,8 @@ export class FlightScene extends Phaser.Scene {
         this.cue("shield");
       }
       this.fireBeam(rock);
-      if (cracking) this.crackShell(rock, points, nowMs);
-      else this.fractureRock(rock, points);
+      if (cracking) this.crackShell(rock, points, nowMs, celebration);
+      else this.fractureRock(rock, points, celebration);
       // UR-33. Here rather than in `fractureRock`, because `fractureRock` is
       // the explosion and this is the beat BEFORE it lands - and because the
       // only caller that should ever hold the world is a rock the player
@@ -2385,24 +2567,77 @@ export class FlightScene extends Phaser.Scene {
       this.hitStopUntilMs = hold <= 0 ? 0 : performance.now() + hold;
     }
     this.cue("blast", rock?.debris.id);
+    /**
+     * UR-117: AFTER THE BLAST, AND ONLY AT x3, x5 AND x10.
+     *
+     * After, because the chime is the bell on top of the blast the player just
+     * triggered, and a bell that arrives first reads as a separate event. The
+     * cue table pitches it above the blast's own band so the two do not mask
+     * each other on the frame they share.
+     *
+     * The bloom is NOT here: it fires on every step, it is silent, and it
+     * belongs to the rock, so it is drawn by the explosion that removed it.
+     */
+    if (celebration.chime) this.cue("comboUp");
     this.publishHud(true);
   }
 
-  /** Art-direction section 8: beam 80 ms, shards on Expo.Out, plate dissolves. */
+  /**
+   * Art-direction section 8: the beam, shards on Expo.Out, plate dissolves.
+   *
+   * ================== THE DEFECT (UR-116) ==================
+   * The owner played this and called the shot subtle, and said the beam looked
+   * like it came out of nothing. Both were literally true of the drawing:
+   *
+   *   - ONE STROKE. `lineStyle(2 + 8v, accent, 0.25 + 0.6v)` and a single
+   *     `lineBetween`. A laser is not a line; it is a hot centre inside a
+   *     soft bloom, and a single stroke can only be one of those.
+   *   - NORMAL BLEND. The rig's own standing shaft is `BlendModes.ADD`, which
+   *     is what makes light on a dark sky read as LIGHT rather than as paint.
+   *     This graphics object never set a blend mode, so the brightest thing in
+   *     the game was composited like a plate.
+   *   - NOTHING AT THE LENS. The rig opened its iris and the scene started a
+   *     line in mid air. The owner also spotted that the TITLE screen's ship
+   *     looks different - it does, and this is why: `drawLantern` gives the
+   *     standing shaft two tapered layers, an additive blend and a breathing
+   *     lens glow, and Flight (which sets `beam: false` because its beam is
+   *     gameplay in the stop's accent) reimplemented none of it.
+   *
+   * ================== WHAT IT DRAWS NOW ==================
+   * The rig's vocabulary, in the stop's colour: a wide soft bloom, a mid body,
+   * and a thin hot core, all additive. The core is `accentSoft` rather than
+   * pure white - the lamp's own `lensHot` is the same idea - so the beam still
+   * belongs to the stop it is fired at instead of turning white at Saturn.
+   *
+   * The flash belongs to the RIG (`lantern.flash`), not to this scene: the lens
+   * is the rig's object and the title screen's ship has the same lens. A second
+   * muzzle drawn here would be the fourth beam implementation in the file.
+   */
   private fireBeam(rock: LiveRock): void {
     const origin = this.emitterWorldPoint();
     const target = { x: rock.container.x, y: rock.container.y };
     this.beam.clear();
     this.lantern.setIris(1);
+    // THE PULSE AT THE BASE. Fired with the beam, not after it: the flash is
+    // the beam's origin, so a player who sees them as two events sees a bug.
+    this.lantern.flash(1);
+    const soft = hexToInt(this.palette.accent);
+    const hot = hexToInt(INK.accentSoft);
     this.tweens.addCounter({
       from: 1,
       to: 0,
-      duration: 80,
+      duration: BEAM_MS,
       ease: "Expo.Out",
       onUpdate: (tween) => {
         const v = tween.getValue() ?? 0;
         this.beam.clear();
-        this.beam.lineStyle(2 + 8 * v, hexToInt(this.palette.accent), 0.25 + 0.6 * v);
+        // Widest and faintest first, so the passes stack into a falloff
+        // rather than overprinting one flat band.
+        this.beam.lineStyle(BEAM_W.bloom * v, soft, 0.1 + 0.16 * v);
+        this.beam.lineBetween(origin.x, origin.y, target.x, target.y);
+        this.beam.lineStyle(2 + BEAM_W.body * v, soft, 0.22 + 0.5 * v);
+        this.beam.lineBetween(origin.x, origin.y, target.x, target.y);
+        this.beam.lineStyle(1 + BEAM_W.core * v, hot, 0.4 + 0.55 * v);
         this.beam.lineBetween(origin.x, origin.y, target.x, target.y);
       },
       onComplete: () => {
@@ -2433,7 +2668,11 @@ export class FlightScene extends Phaser.Scene {
    * D28 is untouched by all of it: this is the player DESTROYING something, and
    * the strike on the hull below stays a scuff with no flash and no red.
    */
-  private fractureRock(rock: LiveRock, points: number): void {
+  private fractureRock(
+    rock: LiveRock,
+    points: number,
+    celebration: MultiplierCelebration = NO_CELEBRATION,
+  ): void {
     rock.resolved = true;
     this.rocks = this.rocks.filter((r) => r.id !== rock.id);
 
@@ -2488,7 +2727,17 @@ export class FlightScene extends Phaser.Scene {
      * trace in a child's browser.
      */
     const tint = hexToInt(fill);
-    for (const wave of shardWaves(shardSpec.quantity)) {
+    /**
+     * UR-117: A MILESTONE ROCK COMES APART HARDER - the same burst, scaled.
+     *
+     * `blastShardCount` is the only thing that changes, and `render/particles`
+     * has the argument for why it is the population rather than the schedule:
+     * the onset distribution IS the crumble sound's (UR-48), so compressing it
+     * would make the picture finish shedding while the ear is still hearing
+     * rock fall. Half again as much material through the same 18-440 ms window
+     * is a higher arrival rate with every fragment still inside the sound.
+     */
+    for (const wave of shardWaves(blastShardCount(celebration.milestone, shardSpec.quantity))) {
       const emit = (): void => {
         if (!this.scene.isActive()) return;
         this.shards.setParticleTint(tint);
@@ -2500,7 +2749,15 @@ export class FlightScene extends Phaser.Scene {
 
     this.blastFlash(x, y, rock.sizePx);
     this.shockwave(x, y, rock.sizePx);
-    this.shakeBy(3 + Math.min(10, this.combo.combo) * 0.6, 160);
+    // The shake already rises with the combo; a milestone multiplies what it
+    // was going to be rather than adding a second one. `shakeBy` drops it
+    // entirely under reduced motion, for this caller as for every other.
+    this.shakeBy(blastShakePx(this.combo.combo, celebration.milestone), 160);
+
+    // Every multiplier step, milestone or not (UR-117). Before the plate
+    // dissolves and before the `+points` floater, so the number the hit earned
+    // is the first thing drawn at the rock.
+    this.comboBloom(x, y, celebration);
 
     rock.plate.dissolveUpward(520);
     const floater = this.add
@@ -2563,7 +2820,12 @@ export class FlightScene extends Phaser.Scene {
    * and charging them the shell's latency for it would poison the calibration
    * this belt folds back into the profile.
    */
-  private crackShell(rock: LiveRock, points: number, nowMs: number): void {
+  private crackShell(
+    rock: LiveRock,
+    points: number,
+    nowMs: number,
+    celebration: MultiplierCelebration = NO_CELEBRATION,
+  ): void {
     const core = rock.core;
     if (core === null) return;
 
@@ -2580,7 +2842,15 @@ export class FlightScene extends Phaser.Scene {
       this.cfg.colorblindPalette ? this.palette.colorblind.debris : null,
     );
     const tint = hexToInt(fill);
-    for (const wave of shardWaves(Math.max(4, Math.round(shardSpec.quantity * 0.75)))) {
+    // A shell sheds 75% of a full population, and a shell that wins a milestone
+    // sheds 75% of the bigger one: the mechanic scales, the proportion does not
+    // move. A cracked shell IS a completed word (D101), so it advances the
+    // combo and can therefore be the hit that crosses x3, x5 or x10.
+    const shellPopulation = Math.max(
+      4,
+      Math.round(blastShardCount(celebration.milestone, shardSpec.quantity) * 0.75),
+    );
+    for (const wave of shardWaves(shellPopulation)) {
       const emit = (): void => {
         if (!this.scene.isActive()) return;
         this.shards.setParticleTint(tint);
@@ -2591,7 +2861,8 @@ export class FlightScene extends Phaser.Scene {
     }
     this.blastFlash(x, y, rock.sizePx);
     this.shockwave(x, y, rock.sizePx);
-    this.shakeBy(3 + Math.min(10, this.combo.combo) * 0.6, 160);
+    this.shakeBy(blastShakePx(this.combo.combo, celebration.milestone), 160);
+    this.comboBloom(x, y, celebration);
 
     const floater = this.add
       .text(x, y, `+${points}`, {
@@ -2678,6 +2949,115 @@ export class FlightScene extends Phaser.Scene {
         ring.strokeCircle(x, y, sizePx * (0.45 + t * 1.25));
       },
       onComplete: () => ring.destroy(),
+    });
+  }
+
+  /**
+   * THE NEW MULTIPLIER BLOOMS ON THE ROCK THAT JUST DIED (UR-117).
+   *
+   * ================== WHY IT IS HERE AND NOT ON THE HUD ==================
+   * The HUD already shows `xN` and updates it on the same frame. That is
+   * bookkeeping: a value changing in a corner. What was asked for was the hit
+   * PAYING OFF, so the number is drawn where the rock was, swells, and goes.
+   * The anchor is the whole point - move it to the corner and it stops being
+   * about the rock the child just hit.
+   *
+   * ================== IT FIRES ON EVERY STEP, AND IT IS SILENT ==================
+   * That pair is one decision, not two. The multiplier climbs on each of the
+   * first ten words of a streak, so a sound on every one of them is ten rewards
+   * in twenty seconds (`scoring/combo.MULTIPLIER_MILESTONES` has the full
+   * argument). Being silent is what lets this fire every time; the chime and
+   * the bigger explosion are rationed to x3, x5 and x10 and are decided in
+   * `flight/celebration.ts`, never here.
+   *
+   * ================== CLEAR OF THE WORD PLATES ==================
+   * Anchored at the rock CENTRE and it does not travel. A plate hangs below its
+   * rock by `plateOffsetY`, so the band underneath belongs to the word; the
+   * `+points` floater already owns the path upward. The bloom swells in place
+   * between the two, and `bloomHalfHeightPx()` at full swell is asserted
+   * against the smallest rock the game can spawn in
+   * `tests/unit/flight/comboBloom.test.ts`.
+   *
+   * ================== REDUCED MOTION (D41 / AC-19.3) ==================
+   * Calm motion keeps the CUE and loses the MOVEMENT. The number still appears
+   * at the rock and still fades - the child is told what they earned either way
+   * - but it does not swell, because the swell is the part that is motion.
+   */
+  private comboBloom(x: number, y: number, celebration: MultiplierCelebration): void {
+    if (!celebration.bloom) return;
+    /**
+     * ================== THE CLEARANCE WAS NEVER APPLIED (UR-127) ==================
+     * The owner could not see the number at all. It was firing - the rule, the
+     * tween and the text were all correct - and it was drawn at the rock's
+     * exact centre, which is where the `+points` floater is drawn, in the same
+     * accent, at the same depth, on the same frame. Two numbers on top of each
+     * other read as one smudge.
+     *
+     * `celebration.ts` had already worked out the answer and exported it:
+     * `bloomHalfHeightPx()` and `COMBO_BLOOM.plateMarginPx`. Neither had a
+     * caller anywhere in `src/` - they appeared only in a comment in this file.
+     * Designed, documented, unit-tested, unreachable, which is the same shape
+     * as the trophy toast with no caller and the twelve trophies with no writer.
+     *
+     * UP, not down: the word plate hangs BELOW the rock (AC-2.3), so the only
+     * clear air the headline has is above it.
+     */
+    // Lifted by THIS bloom's own half height (UR-130): the box grows with the
+    // multiplier, so a fixed lift would sit `x10` lower than `x3`.
+    const swell = bloomToScale(celebration.multiplier);
+    const holdMs = bloomDurationMs(celebration.milestone);
+    const bloomY =
+      y - bloomHalfHeightPx(celebration.multiplier) - COMBO_BLOOM.plateMarginPx;
+    const text = this.add
+      .text(x, bloomY, bloomText(celebration.multiplier), {
+        fontFamily: this.plateStyle.fontFamily,
+        fontSize: `${COMBO_BLOOM.fontSizePx}px`,
+        // WHITE AT EVERY STOP (UR-129), not the stop's accent.
+        //
+        // The accent is the colour of the PLACE - it dresses the sky, the rims
+        // and the beacon - so a multiplier drawn in it changed hue from planet
+        // to planet while meaning exactly the same thing. It is also what
+        // `+points` is drawn in, one object away, which is how the two came to
+        // read as one smudge before UR-127 separated them.
+        //
+        // `INK.text` reads on all seven skies: it is the ink every word plate
+        // already prints its letters in, over the same backgrounds.
+        color: INK.text,
+      })
+      .setOrigin(0.5)
+      .setDepth(layer("shipFx").depth);
+
+    if (this.cfg.reducedMotion) {
+      text.setScale(1);
+      this.tweens.add({
+        targets: text,
+        alpha: 0,
+        duration: holdMs,
+        ease: "Sine.InOut",
+        onComplete: () => text.destroy(),
+      });
+      return;
+    }
+
+    // Bloom, then fade: the swell has to be READ before the fade starts, and a
+    // single tween that does both at once is a number that is already going
+    // when it arrives.
+    const swellMs = Math.round(holdMs * 0.45);
+    text.setScale(COMBO_BLOOM.fromScale);
+    this.tweens.add({
+      targets: text,
+      scale: swell,
+      duration: swellMs,
+      ease: "Back.Out",
+      onComplete: () => {
+        this.tweens.add({
+          targets: text,
+          alpha: 0,
+          duration: holdMs - swellMs,
+          ease: "Sine.In",
+          onComplete: () => text.destroy(),
+        });
+      },
     });
   }
 
@@ -2802,13 +3182,20 @@ export class FlightScene extends Phaser.Scene {
     // STRAIGHT DOWN, NOT SIDEWAYS. It used to slide 80 px left or right on the
     // way out, which reads as the rock being deflected by something. Nothing
     // deflected it; it simply went past. It keeps the column it fell in.
+    //
+    // AND AT ITS OWN SPEED, NOT THE TWEEN'S (UR-92). This used to travel a
+    // fixed 384 px on `Cubic.Out`, which leaves the breach line at ~1810 px/s
+    // against a fall of 99-420 px/s - the reported "rocks speed up when they go
+    // off screen". `passByExitPx` is the rock's own rate times the same window,
+    // on `Linear`, so the px/s never changes. See `@game/flight/stage`.
+    const exitPx = passByExitPx(rock.fromY, rock.toY, rock.fallMs, PASS_BY_EXIT_MS);
     for (const target of [rock.container, rock.plate]) {
       this.tweens.add({
         targets: target,
-        y: this.scale.height + 160,
+        y: target.y + exitPx,
         alpha: 0,
-        duration: 620,
-        ease: "Cubic.Out",
+        duration: PASS_BY_EXIT_MS,
+        ease: "Linear",
         onComplete: () => target.destroy(),
       });
     }
@@ -2818,6 +3205,8 @@ export class FlightScene extends Phaser.Scene {
     // Smaller than the strike's 6 px: the feedback has to say "that cost you"
     // without saying "that hit you", because it did not.
     this.shakeBy(4, 100);
+    // Reuses `hit` rather than a new event: D31 caps this moment's loudness.
+    this.cue("hit");
     this.publishHud(true);
     if (isStalled(this.hull)) this.beginStall();
   }
@@ -2904,10 +3293,10 @@ export class FlightScene extends Phaser.Scene {
    * 16x9 nobody could see. That size is UR-22's outcome and it is unchanged.
    *
    * ================== WHY THE DRAWING CHANGED ANYWAY ==================
-   * A shipped belt carries NINE marks - `hullForStage(58)` - and nine
-   * translucent near-black ellipses stacked inside a 20 px strip down the
-   * middle of the hull do not read as nine marks. They read as a hull painted
-   * out, and the value they paint it to is the sky's own: measured with the
+   * A shipped belt carried NINE marks when this was measured (six now, C26)
+   * and nine translucent near-black ellipses stacked inside a 20 px strip down
+   * the middle of the hull did not read as nine marks. They read as a hull
+   * painted out, and the value they paint it to is the sky's own: measured with the
    * gauntlet's silhouette probe the hull fell from 203 to about 75 against a
    * sky sitting at 57-109, which is AC-22.4's whole subject.
    *
@@ -3067,6 +3456,15 @@ export class FlightScene extends Phaser.Scene {
     this.calmTween = null;
     this.parallax.setWorldSpeed(this.cfg.worldSpeedPxPerSec * payload.multiplier);
   };
+
+  /** The stall card's other way out: abandon the belt and go back to the map. */
+  private onQuitRequested(): void {
+    this.scene.stop(SCENE_KEYS.stall);
+    this.scene.stop(SCENE_KEYS.hud);
+    // No payload: the map's own `resolveInit` reads the active profile, which
+    // is where the progress and settings live. Same route Pause takes.
+    goTo(this, SCENE_KEYS.map);
+  }
 
   private onRestartRequested(): void {
     // AC-4.3: restart from stage start, per-word history retained - the book
@@ -3257,7 +3655,7 @@ export class FlightScene extends Phaser.Scene {
       hits: this.hits,
       typos: this.typos,
       hullHits: this.hullHitsTaken,
-      // Without this the results screen would rate a nine-mark stage on a
+      // Without this the results screen would rate a six-mark stage on a
       // three-mark curve and call a cleared belt a stall (AC-4.4, @engine/hull).
       maxHull: this.maxHull,
     };
@@ -3431,6 +3829,8 @@ export class FlightScene extends Phaser.Scene {
           maxLive: this.controller.knobs.maxLive,
           hitStopUntilMs: this.hitStopUntilMs,
           knobChanges: this.knobChanges,
+          canisterHintSaid: this.canisterHintSaid,
+          nestedHintSaid: this.registry.get(NESTED_HINT_REGISTRY_KEY) === true,
           spawnGapMs: this.lastSpawnGapMs,
           skyProgress: Math.max(0, this.skyPaintedAt),
           rocks: this.rocks.map((r) => ({
@@ -3462,6 +3862,7 @@ export class FlightScene extends Phaser.Scene {
             spinPerSec: r.spinPerSec,
             travelPx: r.travelPx,
             fallMs: r.fallMs,
+            clearEstimateMs: r.clearEstimateMs,
             plateRotation: r.plate.rotation,
             typedCount: r.plate.typedCount,
             isCanister: r.isCanister,
@@ -3471,6 +3872,7 @@ export class FlightScene extends Phaser.Scene {
             crackedShellWord: r.crackedShellWord,
             onShipLane: isOnShipLane(r.container.x, this.laneSpec(r.sizePx, r.word)),
             debrisType: r.debris.id,
+            letters: r.plate.letterBoxes,
           })),
           layerOffsets: { ...this.layerOffsets },
           skySample: { x: this.scale.width * 0.05, y: this.scale.height * 0.04 },

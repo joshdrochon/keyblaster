@@ -69,6 +69,41 @@ const stageBundle = (stop: string): Record<string, unknown> | null => {
   return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
 };
 
+/**
+ * The FLIGHT table (`src/game/flight/copy.ts`) - the third string table, and the
+ * third this guard had to be taught about (UR-142 was the second). Deliberately
+ * the same regex `render-voice.mjs` uses, so guard and renderer cannot disagree
+ * about what the text is.
+ */
+const FLIGHT_SPOKEN_KEYS = ["flight.canisterHint", "flight.nestedHint"];
+
+/**
+ * The STORY LANE table (`src/game/scenes/support/copy.ts`) - the fourth, and
+ * the fourth this guard had to be taught about. UR-148 put a voice on the
+ * ending card, whose line lives here rather than in content, in the menu table
+ * or in the flight table.
+ */
+const LANE_SPOKEN_KEYS = ["ending.shadowLine"];
+
+/** Same regex `render-voice.mjs` uses, so guard and renderer cannot disagree. */
+const tableStrings = (path: string, keys: readonly string[]): Record<string, string> => {
+  const table = readFileSync(join(REPO, path), "utf8");
+  const out: Record<string, string> = {};
+  for (const key of keys) {
+    const re = new RegExp(`"${key.replace(/\./g, "\\.")}":\\s*\n?\\s*"((?:[^"\\\\]|\\\\.)*)"`);
+    const raw = table.match(re)?.[1];
+    if (typeof raw !== "string") continue;
+    out[key] = raw.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+  return out;
+};
+
+const flightStrings = (): Record<string, string> =>
+  tableStrings("src/game/flight/copy.ts", FLIGHT_SPOKEN_KEYS);
+
+const laneStrings = (): Record<string, string> =>
+  tableStrings("src/game/scenes/support/copy.ts", LANE_SPOKEN_KEYS);
+
 const uiStrings = (): Record<string, string> => {
   const ui = JSON.parse(readFileSync(join(REPO, "src/content/en/ui.json"), "utf8")) as {
     strings?: Record<string, string>;
@@ -125,6 +160,18 @@ function spokenLines(): Array<{ id: string; text: string; via: string }> {
     lines.push({ id: key, text: text.trim(), via: "PreflightScene" });
   }
 
+  // FlightScene.maybeHintCanister - the id IS the flight-table key (UR-146).
+  for (const [key, text] of Object.entries(flightStrings())) {
+    if (text.trim().length === 0) continue;
+    lines.push({ id: key, text: text.trim(), via: "FlightScene" });
+  }
+
+  // EndingScene.buildClosingLine - the id IS the lane-table key (UR-148).
+  for (const [key, text] of Object.entries(laneStrings())) {
+    if (text.trim().length === 0) continue;
+    lines.push({ id: key, text: text.trim(), via: "EndingScene" });
+  }
+
   // WarpScene.showNote -> installAudio.speakNote -> coachNoteClipId.
   //
   // Scoped to the language the clips were rendered in, because a session in
@@ -152,12 +199,81 @@ describe("AC-21.8 / D98: the speak sites are the ones this guard knows about", (
   it("no scene hands a line to the voice bus without being enumerated here", () => {
     // A fifth speak site is not a problem - it is a site whose id space nobody
     // has checked, which is the exact shape of both failures so far.
+    //
+    // UR-142 ADDED THE FIFTH and this guard is what made it safe: the greeting
+    // on an empty hangar is the first menu line Shadow speaks, and the menu
+    // table it lives in was invisible to `render-voice.mjs` until the same
+    // change taught the script about it. Adding the scene here is the moment
+    // somebody has to confirm its id is renderable, which is the whole job.
+    //
+    // UR-146 added the sixth, from a third table neither this guard nor the
+    // render script could see. `FLIGHT_SPOKEN_KEYS` is the half that fixes it.
+    //
+    // UR-148 added the seventh - the ending card - from a FOURTH table, the
+    // story lane's. `LANE_SPOKEN_KEYS` and the script's `SPOKEN_LANE_KEYS` are
+    // the halves that fix it, and adding the scene here is the moment somebody
+    // confirms the id is renderable.
+    // UR-169 added the eighth - the Briefing's closing line, from the SCENE
+    // string table (`content/<lang>/ui.json`), which is the same table the
+    // pre-flight ritual's lines come from and the script already collects via
+    // `SPOKEN_UI_KEYS`.
     expect(speakSiteFiles()).toEqual([
       "src/game/scenes/BeaconScene.ts",
+      "src/game/scenes/BriefingScene.ts",
       "src/game/scenes/EarthActivationScene.ts",
+      "src/game/scenes/EndingScene.ts",
+      "src/game/scenes/FlightScene.ts",
       "src/game/scenes/PreflightScene.ts",
+      "src/game/scenes/ProfilePickerScene.ts",
       "src/game/scenes/WarpScene.ts",
     ]);
+  });
+
+  it("UR-148: the ending's line is spoken with the id the render script writes", () => {
+    /**
+     * The id, the drawn string and the rendered clip are ONE key. The scene
+     * speaks `ending.shadowLine` and draws `ending.shadowLine`, so a caption
+     * that says one thing over audio that says another is not expressible.
+     *
+     * WATCHED FAILING with the script's `SPOKEN_LANE_KEYS` block removed:
+     *   AC-21.8: no speakable string is missing its recording
+     *   expected [ 'ending.shadowLine (EndingScene)' ] to deeply equal []
+     * and this case reports
+     *   expected '#!/usr/bin/env node\n/**\n * Pre-render …' to contain
+     *   'SPOKEN_LANE_KEYS'
+     */
+    const scene = readFileSync(join(SCENES, "EndingScene.ts"), "utf8");
+    expect(scene).toContain('id: "ending.shadowLine",');
+    // The voice is handed the SAME local the label above it was built from.
+    expect(scene).toMatch(/const line = this\.lane\.copy\.text\("ending\.shadowLine"\)/);
+    expect(scene).toMatch(/speak\(\{\s*\n\s*id: "ending\.shadowLine",\s*\n\s*text: line,/);
+    // And the script can SEE the table the key lives in.
+    const script = readFileSync(join(REPO, "scripts/render-voice.mjs"), "utf8");
+    expect(script).toContain("SPOKEN_LANE_KEYS");
+    expect(script).toContain("src/game/scenes/support/copy.ts");
+    expect(Object.keys(laneStrings())).toEqual(LANE_SPOKEN_KEYS);
+  });
+
+  it("UR-146 / UR-148: the flight lines are spoken with the ids the script writes", () => {
+    /**
+     * The scene speaks the CONSTANT, not a literal, so it cannot spell the id
+     * differently from the row the script renders - which is how 28 rendered
+     * files came to target ids no call site spoke.
+     *
+     * WATCHED FAILING with the scene's `id: CANISTER_HINT_KEY` replaced by the
+     * literal `id: "flight.canister-hint"`:
+     *   expected 'import Phaser from "phaser";\nimport …' to contain
+     *   'id: CANISTER_HINT_KEY,'
+     */
+    const flight = readFileSync(join(SCENES, "FlightScene.ts"), "utf8");
+    expect(flight).toContain("id: CANISTER_HINT_KEY,");
+    expect(flight).toContain("id: NESTED_HINT_KEY,");
+    // And the script can SEE the table the constant points at.
+    const script = readFileSync(join(REPO, "scripts/render-voice.mjs"), "utf8");
+    expect(script).toContain("SPOKEN_FLIGHT_KEYS");
+    expect(script).toContain("src/game/flight/copy.ts");
+    // The line this guard reads and the line the game says are one string.
+    expect(Object.keys(flightStrings())).toEqual(FLIGHT_SPOKEN_KEYS);
   });
 
   it("the coach note reaches the voice bus through the note-keyed lookup", () => {
@@ -188,8 +304,19 @@ describe("AC-21.8 / D98: the speak sites are the ones this guard knows about", (
     // and the guard above it reports
     //   expected 'import Phaser from "phaser";\nimport …' to match
     //   /speakNote\(\s*\{\s*note\s*[,}]/
+    //
+    // ============ THE RESOLVED NOTE IS NOW QUEUED, NOT DRAWN ============
+    // `askShadow` used to call `showNote(result, this.applyRetryRule(result.note))`
+    // directly. Shadow's card shows the screen's instruction until the note has
+    // had its dwell (`COACH_INTRO_MIN_MS`), so the note is put on
+    // `pendingNote` and `releaseCoachNote` draws it a few frames later. Both
+    // hops are asserted rather than one: the rule still runs on `result.note`
+    // at arrival, and what is queued is exactly what is shown.
     const warp = readFileSync(join(SCENES, "WarpScene.ts"), "utf8");
-    expect(warp).toContain("showNote(result, this.applyRetryRule(result.note))");
+    expect(warp).toContain(
+      "this.pendingNote = { result, note: this.applyRetryRule(result.note) };",
+    );
+    expect(warp).toContain("this.showNote(pending.result, pending.note);");
     expect(warp).toContain("private showNote(result: CoachResult, note: string): void");
     expect(warp).toContain("render({ text: note })");
     expect(warp).toContain("speakNote({ note }");
@@ -369,5 +496,30 @@ describe("AC-21.8 / D98: the system voice is OFF, and silence is what an unrende
     expect(result.order).toEqual(["text", "speech"]);
     expect(spoken).toEqual([]);
     expect(audio.snapshot().voiceClipsUsed).toEqual([]);
+  });
+});
+
+describe("UR-169: the Briefing's closing line is spoken without the pilot's name", () => {
+  it("speaks a key of its own, not the drawn line with {pilotName} in it", () => {
+    const src = readFileSync("src/game/scenes/BriefingScene.ts", "utf8");
+    // A clip is rendered ONCE and every pilot hears it, so a `{pilotName}` in
+    // the spoken string would be a placeholder read aloud.
+    expect(src).toMatch(/id: "briefing\.shipReadySpoken"/);
+    expect(src).not.toMatch(/speak\([\s\S]{0,120}briefing\.shipReady"/);
+  });
+
+  it("says it once per visit, after the page has finished revealing", () => {
+    const src = readFileSync("src/game/scenes/BriefingScene.ts", "utf8");
+    expect(src).toMatch(/if \(this\.shipReadySaid\) return;/);
+    expect(src).toMatch(/this\.sayShipReady\(\);/);
+  });
+
+  it("the spoken string carries no interpolation token", () => {
+    const ui = JSON.parse(readFileSync("src/content/en/ui.json", "utf8")) as {
+      strings: Record<string, string>;
+    };
+    const line = ui.strings["briefing.shipReadySpoken"];
+    expect(line).toBe("Ready to prepare the ship whenever you are.");
+    expect(line).not.toMatch(/\{/);
   });
 });

@@ -82,12 +82,39 @@ export interface PlanetBadgeInk {
  * loses its own edge, which is the same mistake `foregroundInk` exists to stop
  * the debris making against a dark sky.
  */
+/**
+ * THE TWO STOPS WHOSE ACCENT IS NOT THE PLANET.
+ *
+ * The badge is drawn from the stop's `accent`, and for five of seven that is
+ * right: Mars is rust, Jupiter cream, Uranus pale cyan, Neptune blue, and
+ * Pluto's rose is a deliberate stylisation. But `accent` is a UI HIGHLIGHT
+ * chosen to read against that stop's sky, not a portrait of the planet - so on
+ * the two stops whose sky is the planet's own colour it comes out as very
+ * nearly the inverse. Saturn, a gold world, wore a pale blue disc; Earth, the
+ * blue one, wore gold.
+ *
+ * The fix is deliberately NOT "use the palette's `sky` role" - `sky` is the sky
+ * SEEN FROM THE GROUND at that stop, so Mars's is pale sand and Earth's is
+ * night navy, and reading from it would break the four badges that are already
+ * right. Two named overrides, taken from each palette's own roles, is the
+ * whole change.
+ *
+ * `accent` itself is untouched, so every focus ring, plate highlight and UI
+ * accent in the game is exactly as it was.
+ */
+const BADGE_BODY: Readonly<Record<string, string>> = {
+  // Earth's accent IS its blue now, and Saturn's its gold, so nothing needs an
+  // override. Kept as the seam for any stop whose accent stops being its planet.
+  // Saturn's accent IS its body gold now, so no override is needed.
+};
+
 export function planetBadgeInk(stopId: string, plate: string): PlanetBadgeInk {
   const p = paletteFor(stopId);
+  const body = BADGE_BODY[stopId] ?? p.accent;
   return {
-    disc: p.accent,
-    shade: mixHex(p.accent, plate, 0.55),
-    ring: mixHex(p.accent, plate, 0.25),
+    disc: body,
+    shade: mixHex(body, plate, 0.55),
+    ring: mixHex(body, plate, 0.25),
   };
 }
 

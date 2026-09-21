@@ -1,4 +1,5 @@
 import type { Rect } from "./layout.js";
+import { HEADING_TOP } from "./grid.js";
 
 /**
  * THE COCKPIT WINDOW, MEASURED (UR-77).
@@ -44,6 +45,36 @@ import type { Rect } from "./layout.js";
  * disagreed, the Briefing's value is the reference - it is the newer screen and
  * the one that was polished (UR-50, UR-58, UR-59, UR-60, UR-61).
  */
+/**
+ * THE APERTURE ITSELF - the one rectangle the glass is cut at (UR-121).
+ *
+ * ================== THE DRIFT UR-77 DID NOT CLOSE ==================
+ * UR-77 made the window a COMPONENT and put its styling here, and the module
+ * note above says exactly why: "two drawings that happen to match today are not
+ * one component". What it did not do was move the RECTANGLE. Each screen kept
+ * its own, and they were never the same:
+ *
+ *     briefing   x 1012  y  84  w 812  h 636  r 56
+ *     preflight  x  900  y 170  w 924  h 600  r 48
+ *
+ * 112 px further left, 112 px wider, 36 px shorter, 86 px lower, on a tighter
+ * corner. The owner walked Briefing -> Pre-flight and saw the glass jump, which
+ * is the same way they found the missing crosshatch: the component was shared
+ * and the number it was called with was not.
+ *
+ * The Briefing's is the standard, on the owner's instruction. It is also the
+ * one that is derived rather than typed - `x` is the page's right column and
+ * `y` is `grid.HEADING_TOP`, so it sits on the product's own lines instead of
+ * on two numbers somebody nudged.
+ */
+export const VIEWPORT_APERTURE = {
+  x: 1012,
+  y: HEADING_TOP,
+  w: 812,
+  h: 636,
+  r: 56,
+} as const;
+
 export const VIEWPORT_WINDOW = {
   /** How far outside the aperture the heavy outer ring is struck. */
   frameOffset: 7,

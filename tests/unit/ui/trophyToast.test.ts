@@ -27,6 +27,13 @@ import {
   type TrophyEmitter,
 } from "@game/ui/trophyToastLayout";
 import { CHAIN_TROPHIES } from "@engine/awards";
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { WORD_PLATE_HALF_W } from "@game/ui/trophyToastLayout";
+import { plateSize, type WordPlateStyle } from "@game/render/wordPlateGeometry";
+import { STOP_IDS } from "@engine/types";
+import { stagePoolFor } from "@game/flight/stage";
 
 /**
  * THE IN-FLIGHT TROPHY NOTIFICATION, AS GEOMETRY AND AS A CLOCK.
@@ -258,5 +265,141 @@ describe("trophy toast - what the flight loop can announce", () => {
     resetLiveTrophies(game);
     for (let combo = 0; combo < 25; combo += 1) emitLiveTrophies(game, combo);
     expect(seen).toEqual([]);
+  });
+});
+
+/**
+ * THE PLATE HALF-WIDTH IS A BOUND, AND NOTHING WAS CHECKING THAT IT WAS ONE.
+ *
+ * `WORD_PLATE_HALF_W` was the exact width of the longest shipped word back when
+ * a plate was `letters * cell + 2 * pad`. Since `render/glyphAdvance.ts` made a
+ * plate as wide as its own glyphs, that derivation no longer produces the
+ * number and the constant is a deliberate over-estimate instead - which is only
+ * safe while it really is over. This is the assertion that says so.
+ *
+ * ================== WHAT WRITING IT FOUND ==================
+ * Swept over every word list on disk rather than the ones a belt can reach, the
+ * bound DOES NOT HOLD and never did: the Hindi word "क्षुद्रग्रहों" needs 163.49 px
+ * of half-width today and needed 167.40 under the old fixed cell, against a
+ * reserved 132. It is 13 CODE POINTS, and `wordPlate.ts` draws one `Text` per
+ * code point, so each matra is laid out as a separate dotted-circle glyph.
+ *
+ * That is not reachable today - `scenes/lib/content.ts` globs
+ * `content/en/*.json` only, so no Devanagari word can be on a belt - and it is
+ * not this lane's to fix, because the fix is grapheme segmentation and that
+ * moves `WordPlate.letterCount` and the typed count `@engine/lock` drives. It
+ * is raised in `gauntlet/escalations.md`.
+ *
+ * So the bound is asserted over the words that can actually be on a belt, and
+ * the thing keeping that true - the pools are Latin - is asserted next to it.
+ * If the loader ever widens to `hi`, the second test goes red and points here.
+ *
+ * WATCHED FAILING - `WORD_PLATE_HALF_W` set to 90:
+ *   AssertionError: "ENORMOUS" needs 114.59 px of half-width at D41 spacing and
+ *     the band reserves 90: expected 114.59325 to be less than or equal to 90
+ *
+ * RUN IT ALONE:
+ *   npx vitest run tests/unit/ui/trophyToast.test.ts --coverage.enabled=false
+ */
+describe("the word band is sized for a plate that is wider than any belted word", () => {
+  /** `FlightScene.plateStyle` at D41's increased spacing - the widest case. */
+  const WIDEST_STYLE: WordPlateStyle = {
+    plate: "#0E1116",
+    plateText: "#F7FAFF",
+    accent: "#FFC857",
+    fontFamily: "'Atkinson Hyperlegible', 'Noto Sans', 'Segoe UI', system-ui, sans-serif",
+    fontSizePx: 30,
+    letterSpacingPx: 5,
+    uppercase: false,
+    reducedMotion: false,
+  };
+
+  /** Every word a belt can put on a plate, through the shipped loader. */
+  const beltedWords = (): readonly string[] => {
+    const out = new Set<string>();
+    for (const stop of STOP_IDS) for (const word of stagePoolFor(stop)) out.add(word);
+    return [...out];
+  };
+
+  /** Every word on disk, in every language, read straight from the JSON. */
+  const everyShippedWord = (): readonly string[] => {
+    const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/content");
+    const out = new Set<string>();
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = resolve(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!entry.name.endsWith(".json")) continue;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(readFileSync(full, "utf8"));
+        } catch {
+          continue;
+        }
+        const rec = parsed as Record<string, unknown>;
+        for (const key of ["pool", "words"]) {
+          const list = rec[key];
+          if (Array.isArray(list)) for (const w of list) if (typeof w === "string") out.add(w);
+        }
+        const activation = rec["activationWord"];
+        if (typeof activation === "string") out.add(activation);
+      }
+    };
+    walk(root);
+    return [...out];
+  };
+
+  const widest = (words: readonly string[]): { word: string; half: number } => {
+    let worst = { word: "", half: 0 };
+    for (const word of words) {
+      for (const uppercase of [false, true]) {
+        const half = plateSize(word, { ...WIDEST_STYLE, uppercase }).width / 2;
+        if (half > worst.half) worst = { word: uppercase ? word.toUpperCase() : word, half };
+      }
+    }
+    return worst;
+  };
+
+  it("WORD_PLATE_HALF_W bounds every word a belt can spawn, in both letter cases", () => {
+    const words = beltedWords();
+    expect(words.length, "no belted words were found; this bound proves nothing").toBeGreaterThan(
+      100,
+    );
+    const worst = widest(words);
+    expect(
+      worst.half,
+      `"${worst.word}" needs ${worst.half.toFixed(2)} px of half-width at D41 spacing and the band reserves ${WORD_PLATE_HALF_W}`,
+    ).toBeLessThanOrEqual(WORD_PLATE_HALF_W);
+    // And the slack is recorded, because a bound with no stated headroom is
+    // indistinguishable from a number nobody has looked at since. The plate's
+    // face is whatever the machine resolves, so the headroom is what covers a
+    // wider one.
+    expect(
+      WORD_PLATE_HALF_W - worst.half,
+      `the bound has ${(WORD_PLATE_HALF_W - worst.half).toFixed(2)} px of headroom over "${worst.word}"`,
+    ).toBeGreaterThan(10);
+  });
+
+  /**
+   * THE THING THAT MAKES THE TEST ABOVE SAFE, ASSERTED (D85).
+   *
+   * WATCHED FAILING - `stagePoolFor` pointed at the `hi` bundles:
+   *   AssertionError: "क्षुद्रग्रहों" is on a belt and needs 163.49 px of half-width,
+   *     over the 132 the band reserves - see gauntlet/escalations.md
+   *     expected 163.49 to be less than or equal to 132
+   */
+  it("records that the bound does NOT hold for the unloaded Devanagari lists", () => {
+    const all = widest(everyShippedWord());
+    expect(all.half).toBeGreaterThan(WORD_PLATE_HALF_W);
+    // It is unreachable only because the loader is en-only. If that changes,
+    // the assertion above this one is what goes red.
+    const belted = new Set(beltedWords());
+    expect(
+      belted.has(all.word) || belted.has(all.word.toLowerCase()),
+      `"${all.word}" is on a belt and needs ${all.half.toFixed(2)} px of half-width, over the ${WORD_PLATE_HALF_W} the band reserves - see gauntlet/escalations.md`,
+    ).toBe(false);
   });
 });

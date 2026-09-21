@@ -12,9 +12,9 @@ import { mixHex } from "./palette.js";
  * fuselage 57 px across, a third of its width, against the old 16x9 that nobody
  * could see. That part is right and none of it moves here.
  *
- * What it did not account for is that a shipped belt carries NINE of them.
- * `hullForStage(58)` is 9 (`DEFAULT_FLIGHT_CONFIG.stageWordCount`), and the old
- * mark was three translucent near-black ellipses stacked at alpha, scattered
+ * What it did not account for is how MANY of them a belt carries: nine when
+ * this was measured, six since C26 resized the hull, against a lattice that
+ * holds twelve. The old mark was three translucent near-black ellipses stacked at alpha, scattered
  * inside a 20 px wide strip down the middle of the hull. Nine of those do not
  * read as nine marks; they read as one hull painted out. Measured with the
  * gauntlet's own silhouette probe, ship core against the frame immediately
@@ -102,8 +102,8 @@ export interface ScorchColors {
 export function scorchColors(hullHex: string): ScorchColors {
   return {
     rim: mixHex(hullHex, "#FFFFFF", 0.55),
-    // A visible step down from cream and no further. The field is what NINE
-    // marks paint the hull with, so its value is the value a fully scorched
+    // A visible step down from cream and no further. The field is what a FULL
+    // hull of marks paints with, so its value is the value a fully scorched
     // hull has, and that value has to stay clear of every stop's sky: measured,
     // the frame immediately around the ship runs 57 (neptune) to 108 (saturn).
     field: mixHex(hullHex, "#3A2E24", 0.1),
@@ -145,8 +145,9 @@ export interface ScorchSlot {
  * hull - so a burn laid across it paints out the ship's face AND, because the
  * burn is lighter than the glass, REMOVES dark pixels from the fuselage, which
  * is the opposite of what a hit should do to `hull-feedback.spec.ts`'s measure.
- * Nine slots clear it, which is exactly what a shipped 58-word stage can take
- * (`hullForStage(58)`), so the window is only reached by a fixture stage.
+ * Nine slots clear it, against the six a shipped 58-word stage can now take
+ * (`hullForStage(58)`, C26), so the porthole is only reached by a fixture
+ * stage - and it had two slots of headroom before the hull shrank, not none.
  *
  * After twelve the lattice repeats with fresh jitter; a 400-word fixture stage
  * can take 66 hits and the rule has to stay total.

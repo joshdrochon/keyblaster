@@ -139,10 +139,12 @@ describe("the board's shape holds", () => {
     // grow, the parser has silently stopped matching a line shape.
     // 108 + D99's three (AC-11.4/.5/.6, the launch ceremony, UR-28) + D100's
     // two (AC-11.7/.8, the prompt assist, UR-31) + D101's six (AC-26.1..26.6,
-    // two-layer rocks). The board grew because the PRD grew, which is the
-    // direction this guard is happy about - it exists to catch the parser
-    // going quiet, not to freeze the PRD.
-    expect(tickets.filter((t: { kind: string }) => t.kind === "ac")).toHaveLength(119);
+    // two-layer rocks) + D102's one (AC-21.9, the pinned voice model, which
+    // trace-check was failing on because the decision had no AC at all). The
+    // board grew because the PRD grew, which is the direction this guard is
+    // happy about - it exists to catch the parser going quiet, not to freeze
+    // the PRD.
+    expect(tickets.filter((t: { kind: string }) => t.kind === "ac")).toHaveLength(120);
     expect(tickets.filter((t: { kind: string }) => t.kind === "rubric")).toHaveLength(33);
   });
 

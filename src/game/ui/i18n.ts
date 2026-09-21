@@ -62,12 +62,13 @@ export interface MenuTranslator {
 export function createMenuTranslator(
   lang: Lang,
   shipName: string,
+  pilotName = "",
 ): MenuTranslator {
   const inner = createTranslator({
     lang,
     mode: "prod",
     tables: MERGED,
-    defaults: { shipName },
+    defaults: { shipName, pilotName },
   });
   return {
     lang,

@@ -926,14 +926,24 @@ describe("UR-23 / AC-22.8: a word plate never covers another word plate", () => 
       if (JSON.stringify(a.columns) !== JSON.stringify(b.columns)) movedColumns += 1;
     }
     const nestedRocks = shipped.reduce((n, r) => n + r.nestedRocks, 0);
-    // MEASURED, printed by this file: 5075 nested rocks, 1152 boards, 8 moved.
+    // MEASURED, printed by this file: 5072 nested rocks, 1152 boards.
     // Was 5080 before the core was budgeted with its stop and board depth
-    // (UR-84/C22), then 5084; it is 5075 since UR-88 made the clamp FLOOR a
-    // function of the word and the hands, because a short word that used to be
-    // held at 2500 ms now falls at its own floor and the belt paces one rock
-    // differently over 1152 boards. The count is a pacing fingerprint, not a
-    // property - it is recorded so a change to it is noticed and explained.
-    expect(nestedRocks).toBe(5075);
+    // (UR-84/C22), then 5084; 5075 since UR-88 made the clamp FLOOR a function
+    // of the word and the hands, because a short word that used to be held at
+    // 2500 ms now falls at its own floor and the belt paces one rock
+    // differently over 1152 boards.
+    //
+    // IT IS 5072 SINCE THE PLATE STARTED MEASURING ITS OWN GLYPHS. A plate used
+    // to be `letters * cell + 2 * pad` wide and is now the sum of its letters'
+    // real advances, which makes every plate roughly a fifth narrower - the
+    // widest word in any shipped pool, "enormous", went from 216.80 px to
+    // 192.29 px at D41 spacing. Narrower plates need a narrower column keep-out,
+    // so `hasCleanColumn` refuses fewer spawns, so three more rocks fit across
+    // 1152 boards. The count is a pacing fingerprint, not a property - it is
+    // recorded so a change to it is noticed and explained, and the property
+    // this file actually guards (zero plate-on-plate overlap) is asserted above
+    // and is unchanged at zero.
+    expect(nestedRocks).toBe(5072);
     expect(nestedBoards).toBe(1152);
     expect(
       movedColumns,

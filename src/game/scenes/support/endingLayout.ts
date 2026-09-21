@@ -1,5 +1,7 @@
 import type { TextSample } from "@engine/contrast/index.js";
 import type { Lang } from "@engine/types";
+import { speechCardHeight, speechCardRows, speechCardWrapWidth } from "@game/ui/speechCard";
+import { stackRows } from "@game/ui/plateLayout";
 import { INK, SKY_PLATE, SPACE, TYPE } from "@game/ui/theme";
 
 /**
@@ -25,6 +27,12 @@ import { INK, SKY_PLATE, SPACE, TYPE } from "@game/ui/theme";
  *
  *   THE HEADLINE floating top-left over bare sky at 1.19:1. It is now centred,
  *   at display size, on the shared sky plate, in an ink measured here.
+ *
+ *   SHADOW'S WORDS 680 PX FROM SHADOW (UR-148). The closing plate was centred
+ *   on the frame while the speaker stood bottom-left, so nothing on screen said
+ *   the two were the same event. It is `ui/speechCard`'s card now - a speaker
+ *   row over a line row, the outline Earth activation and the pilot picker
+ *   already wear - anchored over her head on `SPEECH_TAIL_GAP`.
  *
  * NOTHING IN THIS FILE IMPORTS PHASER. It is plain numbers and colour names, so
  * the screen's composition is testable without booting a renderer - which is
@@ -82,8 +90,14 @@ export interface EndingLayout {
   readonly lampBeadRadius: number;
   /** Top of the stop names, drawn with origin (0.5, 0). */
   readonly labelY: number;
-  /** Shadow's closing plate, or null when there is no line to put on it. */
+  /** Shadow's drawn footprint, which the card above is anchored to. */
+  readonly shadow: Rect;
+  /** Shadow's speech card, or null when there is no line to put on it. */
   readonly panel: Rect | null;
+  /** The card's speaker row ("Shadow"). */
+  readonly panelSpeaker: Rect | null;
+  /** Lines the card is cut for. 0 when there is nothing to say. */
+  readonly panelLines: number;
   readonly panelText: TextRect | null;
   readonly button: Rect;
 }
@@ -98,29 +112,86 @@ const RAIL_INSET = 150;
 const RAIL_TOP_PAD = 84;
 const LABEL_GAP = 44;
 const BAND_BOTTOM_PAD = 34;
-const PANEL_PAD_X = 40;
-const PANEL_PAD_Y = 30;
 /**
- * The closing panel is CENTRED and narrower than the band on purpose: Shadow
- * stands in the left gutter, so a panel that shared the band's left edge would
- * be drawn straight through the figure saying the line.
+ * The card's widest. It keeps the 1080 the centred panel had, so the measure a
+ * child reads at is unchanged; only the anchor moved (UR-148).
  */
 const PANEL_W = 1080;
-/** Panel bottom to button top. Constant, whatever the panel holds. */
-const PANEL_BOTTOM_GAP = 70;
 const BUTTON = { w: 560, h: 76 } as const;
 
+// ---------------------------------------------------------------------------
+// Shadow, and the card above her
+// ---------------------------------------------------------------------------
+
+/** `render/shadow.SHADOW_RADIUS`. */
+const SHADOW_R = 64;
 /**
- * The tallest closing panel the card has room for, in lines.
- *
- * Four lines of Devanagari is 248 px of panel, which still clears the route
- * band with 120 px to spare. It is a RESERVATION, not a wrap setting - Phaser
- * wraps the real string at `panelText.wrapWidth` and knows nothing about this
- * number - so a line longer than the budget would be clipped. That is why
- * `endingLayout.test.ts` asserts every SHIPPED closing line wraps inside it;
- * new copy that does not is a red test, not a silent crop.
+ * Her drawn reach about her origin, in radii - `support/warpLayout.ts`'s four
+ * coefficients, measured off the served build (`render/shadow.SHADOW_HEIGHT`
+ * under-reads the drawing by half a radius). Restated rather than imported,
+ * like `support/earthLayout.ts` does, because those are other screens' modules.
  */
-export const PANEL_MAX_LINES = 4;
+const SHADOW_ABOVE_R = 1.82;
+const SHADOW_BELOW_R = 1.6;
+const SHADOW_LEFT_R = 1.32;
+const SHADOW_RIGHT_R = 1.52;
+
+const SHADOW_SCALE = 0.95;
+
+/**
+ * Where she stands. BOTH COORDINATES MOVED, and neither is a taste call.
+ *
+ * `x` IS NOW DERIVED, exactly as `earthLayout.shadowOrigin` derives its own:
+ * her drawn box's LEFT EDGE lands on `GUTTER`, so the card above her starts on
+ * the page margin and its content on the margin's inner line. It was the
+ * literal 280, which put the card's type at 320 - a line `ui/alignment.ts`
+ * does not name, and `left-edge-conformance.spec.ts` counts as two more
+ * off-model elements on a screen already carrying two.
+ *
+ * `y` WAS 760 AND THE CARD FORCED IT DOWN. A card anchored over her head grows
+ * up into the route band's plate, and 760 leaves 169 px of sky between the two
+ * - one line of card, not two. Hindi decides it: its band is 23 px taller AND
+ * its line wraps to two, so at 760 the card printed 14.7 px INTO the band, in
+ * the one language nobody here reads. 800 gives all three at least
+ * `PLATE_STACK_GAP`, and nothing lives in her column below her - the button is
+ * centred at x 680-1240 and her feet land at 897, 151 px clear of
+ * `BACK_CORNER_BOTTOM`.
+ */
+export const SHADOW_AT = {
+  x: SPACE.gutter + SHADOW_LEFT_R * SHADOW_R * SHADOW_SCALE,
+  y: 800,
+  scale: SHADOW_SCALE,
+} as const;
+
+/** Air between the top of her drawing and the foot of her card. */
+export const SPEECH_TAIL_GAP = SPACE.gap;
+
+export function shadowBox(): Rect {
+  const r = SHADOW_R * SHADOW_AT.scale;
+  return {
+    x: SHADOW_AT.x - SHADOW_LEFT_R * r,
+    y: SHADOW_AT.y - SHADOW_ABOVE_R * r,
+    w: (SHADOW_LEFT_R + SHADOW_RIGHT_R) * r,
+    h: (SHADOW_ABOVE_R + SHADOW_BELOW_R) * r,
+  };
+}
+
+/**
+ * The tallest card the screen has room for, in lines. MEASURED, not picked.
+ *
+ * The card grows UPWARD out of Shadow's head, so its ceiling is the route
+ * band's own plate. The card's foot is 669.3 and the band's bottom is 460 in
+ * Latin and 483 in Devanagari, which is 186.3 px in the worst language;
+ * `speechCardHeight` is 114 at one line, 161 at two and 208 at three. Two fits
+ * with 25.3 px to spare, three does not. It was 4 while the panel was centred
+ * low on the frame with the whole lower half of the screen to grow into.
+ *
+ * It is a RESERVATION, not a wrap setting - Phaser wraps the real string at
+ * `panelText.wrapWidth` and knows nothing about this number - so copy longer
+ * than the budget would be clipped. `endingLayout.test.ts` asserts every
+ * SHIPPED closing line wraps inside it, and that a third line would collide.
+ */
+export const PANEL_MAX_LINES = 2;
 
 /**
  * Budgeted average glyph advance per character, in em.
@@ -241,39 +312,34 @@ export function endingLayout(input: EndingLayoutInput): EndingLayout {
   // NO CONTENT, NO PANEL. This is the whole fix for the empty black box: the
   // scene is handed `null` and has nothing to draw.
   //
-  // AND NO CONSTANT HEIGHT. The first fix left a 1380x170 plate holding one
-  // line, about 110 px of which was dead black - the same defect the critic
-  // found on the results screen. The panel is now budgeted from its own
-  // content: it is exactly as tall as the lines the closing string wraps to,
-  // and it grows UPWARD so the gap to the forward action never moves.
+  // AND IT SITS ON SHADOW'S HEAD (UR-148). It was 1080 px of plate centred on
+  // the frame while the speaker stood bottom-left, so the figure and her words
+  // had no relationship on screen - the same defect `support/earthLayout.ts`
+  // closed on the Earth screen, and closed the same way: the card is anchored
+  // to her drawn box, left-aligned to her column because she stands on the
+  // left, and grows UPWARD from a tail gap over her head.
+  const figure = shadowBox();
   const bodySize = input.bodySize ?? TYPE.body;
   const advanceEm = input.advanceEm ?? ADVANCE_EM.latin;
-  const panelX = Math.round((width - PANEL_W) / 2);
-  const wrapWidth = PANEL_W - PANEL_PAD_X * 2;
-  const lines = Math.min(
-    PANEL_MAX_LINES,
-    wrapLineCount(input.closingLine, wrapWidth, bodySize, advanceEm),
+  // Her column, clamped so the card cannot run past the right margin.
+  const cardW = Math.min(PANEL_W, width - SPACE.gutter - figure.x);
+  const wrapWidth = speechCardWrapWidth(cardW);
+  const lines = Math.max(
+    1,
+    Math.min(
+      PANEL_MAX_LINES,
+      wrapLineCount(input.closingLine, wrapWidth, bodySize, advanceEm),
+    ),
   );
-  const inkH = lines * Math.round(bodySize * input.lineHeightEm);
-  const panelH = inkH + PANEL_PAD_Y * 2;
+  const cardH = speechCardHeight(lines);
   const panel: Rect | null = hasContent(input.closingLine)
-    ? {
-        x: panelX,
-        y: button.y - PANEL_BOTTOM_GAP - panelH,
-        w: PANEL_W,
-        h: panelH,
-      }
+    ? { x: figure.x, y: figure.y - SPEECH_TAIL_GAP - cardH, w: cardW, h: cardH }
     : null;
+  const rows = panel === null ? null : stackRows(panel, speechCardRows(lines), "card");
+  const speakerRow = rows?.[0] ?? null;
+  const lineRow = rows?.[1] ?? null;
   const panelText: TextRect | null =
-    panel === null
-      ? null
-      : {
-          x: panel.x + PANEL_PAD_X,
-          y: panel.y + PANEL_PAD_Y,
-          w: wrapWidth,
-          h: inkH,
-          wrapWidth,
-        };
+    lineRow === null ? null : { ...lineRow, wrapWidth };
 
   return {
     headline,
@@ -284,7 +350,10 @@ export function endingLayout(input: EndingLayoutInput): EndingLayout {
     lampHaloRadius: LAMP_HALO_RADIUS,
     lampBeadRadius: LAMP_BEAD_RADIUS,
     labelY: railY + LABEL_GAP,
+    shadow: figure,
     panel,
+    panelSpeaker: speakerRow,
+    panelLines: panel === null ? 0 : lines,
     panelText,
     button,
   };
@@ -329,6 +398,8 @@ export function endingBlocks(layout: EndingLayout): NamedRect[] {
 export const ENDING_INK = {
   heading: INK.accentSoft,
   stopName: INK.text,
+  /** The menu accent, not Pluto's - the same call `continue` below makes. */
+  speaker: INK.accent,
   shadowLine: INK.text,
   continue: INK.accent,
 } as const;
@@ -371,6 +442,13 @@ export function endingTextSamples(): TextSample[] {
     },
     {
       screen: "ending",
+      id: "ending.speaker",
+      color: ENDING_INK.speaker,
+      plateFill: ENDING_PLATE.panel,
+      plateAlpha: ENDING_PLATE.alpha,
+    },
+    {
+      screen: "ending",
       id: "ending.shadowLine",
       color: ENDING_INK.shadowLine,
       plateFill: ENDING_PLATE.panel,
@@ -390,6 +468,8 @@ export function endingTextSamples(): TextSample[] {
 export const ENDING_TYPE = {
   heading: TYPE.display,
   stopName: TYPE.caption,
+  /** `speechCardRows`' first row is a caption; this has to agree with it. */
+  speaker: TYPE.caption,
   shadowLine: TYPE.body,
   continue: TYPE.label,
 } as const;

@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { DUR, EASE, FONT_STACK, INK, SKY_PLATE, SPACE, TYPE, chromeCase, letterSpacingPx, lineHeightEm } from "@game/ui/theme";
 import { hexToNum as rgb } from "@game/render/palette";
 import { drawPlate, paintFocusRing, paintPlate, plateRectOf, type PlateProps } from "@game/ui/plate";
-import { POP_NAME_PREFIX, focusPopScale, isPartOf, type PopBox } from "@game/ui/focusPop";
+import { focusArrive, focusPopScale, focusPulse, isPartOf, POP_NAME_PREFIX, type PopBox } from "@game/ui/focusPop";
 import { recordSkyText as record } from "./skyTextRegistry";
 import type { Lang } from "@engine/types";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
@@ -339,6 +339,25 @@ export interface FocusTarget {
 
 export interface FocusRing {
   moveTo(target: FocusTarget): void;
+  /**
+   * Take the ring off the screen on a named beat.
+   *
+   * IT IS ON THE COMPONENT BECAUSE THE BREATH IS. `moveTo` starts a
+   * `repeat: -1` tween on `alpha`, and a screen that fades the ring itself is
+   * a second tween on that one property - which the pulse then wins. Measured
+   * in the served build of the warp break, sampled every animation frame from
+   * the last keystroke of the sentence:
+   *
+   *              panelRoot.alpha   ring.graphics.alpha
+   *     Pluto       0.000               1.000   (+1413 ms)
+   *     Mars        0.000               0.856   (+1187 ms)
+   *     Neptune     0.000               0.865   (+1323 ms)
+   *
+   * The card was gone and the gold outline was still painted around where it
+   * had been, at every stop. A caller cannot fix that from outside because the
+   * pulse handle is this closure's.
+   */
+  fadeOut(durationMs: number, ease: string): void;
   readonly graphics: Phaser.GameObjects.Graphics;
   destroy(): void;
 }
@@ -347,9 +366,50 @@ export interface FocusRing {
  * The visible focus state AC-18.1 requires. One ring, moved between targets
  * with a Back.Out pop so the eye tracks it; it is never hidden.
  */
-export function createFocusRing(scene: Phaser.Scene, depth = 40): FocusRing {
+/**
+ * `reducedMotion` IS OPTIONAL, AND OMITTING IT MEANS "NO BREATH" (UR-112).
+ *
+ * The ring breathes while it holds a control - a slight alpha pulse, the spec
+ * in `ui/focusPop.focusPulse`, shared with `ui/chrome.FocusRing` so the five
+ * menu screens and the seven story screens cannot answer "what does focused
+ * look like" differently again (UR-111's whole subject).
+ *
+ * Nine scenes call this and only the ones that have their reduced-motion flag
+ * to hand pass it. That is deliberate and it is the SAFE default: a screen that
+ * has not been wired up yet gets the ring it has always had, and the way to get
+ * the pulse is to hand over the flag that can switch it off. The alternative -
+ * a `reducedMotion = false` default - is a screen that pulses at a child who
+ * asked the game to stop moving, which is the failure this argument exists to
+ * prevent (D41, AC-19.3).
+ */
+export function createFocusRing(
+  scene: Phaser.Scene,
+  depth = 40,
+  reducedMotion?: boolean,
+): FocusRing {
   const g = scene.add.graphics().setDepth(depth);
   let tween: Phaser.Tweens.Tween | null = null;
+  let pulse: Phaser.Tweens.Tween | null = null;
+
+  /** Breathe, once the arrival has landed. Never both at once on `alpha`. */
+  const startPulse = (): void => {
+    pulse?.remove();
+    pulse = null;
+    // Undefined means this screen has not opted in; true means calm motion.
+    const spec = reducedMotion === undefined ? null : focusPulse(reducedMotion);
+    if (spec === null) {
+      g.setAlpha(1);
+      return;
+    }
+    pulse = scene.tweens.add({
+      targets: g,
+      alpha: { from: spec.alpha.from, to: spec.alpha.to },
+      duration: spec.duration,
+      ease: spec.ease,
+      yoyo: spec.yoyo,
+      repeat: spec.repeat,
+    });
+  };
 
   const draw = (t: FocusTarget): void => {
     const o = SPACE.focusRingOffset;
@@ -365,16 +425,44 @@ export function createFocusRing(scene: Phaser.Scene, depth = 40): FocusRing {
     moveTo(target: FocusTarget) {
       draw(target);
       tween?.remove();
+      // The breath belongs to the control the ring is ON, so it stops when the
+      // ring leaves and starts again when the arrival has landed.
+      pulse?.remove();
+      pulse = null;
       g.setScale(1);
+      const arrive = focusArrive();
       tween = scene.tweens.add({
         targets: g,
-        alpha: { from: 0.55, to: 1 },
-        duration: DUR.focus,
-        ease: EASE.pop,
+        alpha: arrive.alpha,
+        duration: arrive.duration,
+        ease: arrive.ease,
+        onComplete: () => {
+          tween = null;
+          startPulse();
+        },
+      });
+    },
+    fadeOut(durationMs: number, ease: string) {
+      // BOTH TWEENS FIRST. The arrival can still be running and the breath
+      // repeats forever; either one writes `alpha` after this fade has set it,
+      // which is the defect the interface note above measures.
+      tween?.remove();
+      tween = null;
+      pulse?.remove();
+      pulse = null;
+      scene.tweens.add({
+        targets: g,
+        alpha: 0,
+        duration: durationMs,
+        ease,
+        onComplete: () => {
+          g.setVisible(false);
+        },
       });
     },
     destroy() {
       tween?.remove();
+      pulse?.remove();
       g.destroy();
     },
   };

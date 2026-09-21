@@ -11,6 +11,8 @@ import {
   DUCK_ATTACK_MS,
   DUCK_RELEASE_MS,
   DUCK_TARGET_IDS,
+  PAUSE_DUCK_DB,
+  PAUSE_DUCK_SOURCE,
   SidechainDucker,
   UI_BUS,
   buildAudioGraph,
@@ -330,5 +332,154 @@ describe("createAudioSystem binds the platform", () => {
     graph.voice.speak({ id: "x", text: "Hola.", kind: "scripted" });
     // Voice selection ran against the Spanish content language (D45).
     expect(graph.voice.transportId).toBe("webspeech");
+  });
+});
+
+/**
+ * UR-145 - THE PAUSE MENU DUCKS THE MUSIC, AND THE RELEASE IS THE POINT.
+ *
+ * ================== WHAT WAS ASKED FOR ==================
+ * The project owner: the in-game pause menu should make the music quieter; it
+ * should STAY quieter if Settings is opened from inside that pause menu; and
+ * coming out of pause should feel like dropping back into the action.
+ *
+ * ================== WHY IT IS NOT JUST `duck(true)` ==================
+ * `duck` is a COUNTER at one fixed depth - it is the AC-21.4 voice sidechain,
+ * where two overlapping lines duck as far as one line and both must release.
+ * A pause is a STATE at its OWN depth: it may be asked for twice (`create` and
+ * `wake`) and released once, and it is deliberately shallower than the voice
+ * duck so that Shadow starting a line over a pause menu still moves the mix.
+ *
+ * So the ducker grew named sources. The reductions do NOT add: the deepest
+ * claim in force wins, which is the rule `duck`'s own counter already used.
+ *
+ * ================== WATCH THEM FAIL ==================
+ * Recorded from real red runs; see the per-case notes.
+ */
+describe("UR-145: the pause duck composes with the voice duck", () => {
+  const level = (graph: AudioGraph, id: BusId): number => graph.buses[id].gain.value;
+  const reduction = (graph: AudioGraph, id: BusId, rest: number): number =>
+    gainToDb(level(graph, id) / rest);
+
+  it("is shallower than the voice duck, and deeper than a just-noticeable step", () => {
+    // The two bars the number was chosen against, asserted rather than
+    // described. -6 is AC-21.4's floor for Shadow speaking; -3 is roughly where
+    // a level change on a sustained bed stops being obvious.
+    expect(PAUSE_DUCK_DB).toBeGreaterThan(DUCK_DB);
+    expect(PAUSE_DUCK_DB).toBeLessThan(-3);
+  });
+
+  it("pulls both ducked buses down by the pause depth, and no further", () => {
+    const { graph } = build();
+    const rest = { music: level(graph, "music"), ambient: level(graph, "ambient") };
+    graph.ducker.setSource(PAUSE_DUCK_SOURCE, true, PAUSE_DUCK_DB);
+    for (const id of DUCK_TARGET_IDS) {
+      expect(reduction(graph, id, rest[id as "music" | "ambient"]), id).toBeCloseTo(
+        PAUSE_DUCK_DB,
+        6,
+      );
+    }
+    // SFX is untouched: the menu still has to click when a child moves on it.
+    expect(level(graph, "sfx")).toBeCloseTo(busSpec("sfx").gain, 9);
+  });
+
+  it("Shadow speaking over a pause deepens the duck, and stops it deepening twice", () => {
+    // WATCHED FAILING, with the reductions ADDED instead of maxed:
+    //   expected -10.5 to be close to -6, received difference is 4.5
+    const { graph } = build();
+    const rest = level(graph, "music");
+    graph.ducker.setSource(PAUSE_DUCK_SOURCE, true, PAUSE_DUCK_DB);
+    graph.ducker.duck(true);
+    expect(reduction(graph, "music", rest)).toBeCloseTo(DUCK_DB, 6);
+  });
+
+  it("Shadow finishing does NOT hand the music back while the menu is still up", () => {
+    // This is the half the owner called out: the pause survives the other duck.
+    // WATCHED FAILING, with `move()` reading the sources only while the voice
+    // depth is open - i.e. the pre-UR-145 `duck` behaviour:
+    //   expected +0 to be close to -4.5, received difference is 4.5
+    const { graph } = build();
+    const rest = level(graph, "music");
+    graph.ducker.setSource(PAUSE_DUCK_SOURCE, true, PAUSE_DUCK_DB);
+    graph.ducker.duck(true);
+    graph.ducker.duck(false);
+    expect(reduction(graph, "music", rest)).toBeCloseTo(PAUSE_DUCK_DB, 6);
+    expect(graph.ducker.ducking).toBe(true);
+  });
+
+  it("releasing the pause returns the world to rest, from either order", () => {
+    const { graph } = build();
+    const rest = level(graph, "music");
+    for (const voiceFirst of [true, false]) {
+      graph.ducker.setSource(PAUSE_DUCK_SOURCE, true, PAUSE_DUCK_DB);
+      graph.ducker.duck(true);
+      if (voiceFirst) {
+        graph.ducker.duck(false);
+        graph.ducker.setSource(PAUSE_DUCK_SOURCE, false, PAUSE_DUCK_DB);
+      } else {
+        graph.ducker.setSource(PAUSE_DUCK_SOURCE, false, PAUSE_DUCK_DB);
+        graph.ducker.duck(false);
+      }
+      expect(level(graph, "music"), `voiceFirst=${voiceFirst}`).toBeCloseTo(rest, 9);
+      expect(graph.ducker.ducking).toBe(false);
+    }
+  });
+
+  it("a named duck is a state: asking twice needs one release", () => {
+    // The counter's semantics would leave the music down for ever here, and
+    // `PauseScene` really does ask twice - once on create, once on wake.
+    // WATCHED FAILING, with `setSource` routed through the `duck` counter:
+    //   expected 0.35083106353909055 to be close to 0.7
+    const { graph } = build();
+    const rest = level(graph, "music");
+    graph.ducker.setSource(PAUSE_DUCK_SOURCE, true, PAUSE_DUCK_DB);
+    graph.ducker.setSource(PAUSE_DUCK_SOURCE, true, PAUSE_DUCK_DB);
+    graph.ducker.setSource(PAUSE_DUCK_SOURCE, false, PAUSE_DUCK_DB);
+    expect(level(graph, "music")).toBeCloseTo(rest, 9);
+    // ...and releasing one that was never held is not an error either.
+    graph.ducker.setSource(PAUSE_DUCK_SOURCE, false, PAUSE_DUCK_DB);
+    expect(level(graph, "music")).toBeCloseTo(rest, 9);
+  });
+
+  it("a volume knob moved during a pause lands at the level it will return to", () => {
+    // THE `setBase` NOTE, one duck further on. The slider must not write the
+    // gain node: the release has to come back to the CHILD'S level, not the
+    // shipped one.
+    // WATCHED FAILING, with `setBase` reading only the voice depth:
+    //   expected 0.25 to be close to 0.14891553588225262
+    const { graph } = build();
+    graph.ducker.setSource(PAUSE_DUCK_SOURCE, true, PAUSE_DUCK_DB);
+    graph.setBusGain("music", 0.25);
+    // Heard now: the child's 0.25, under the pause duck.
+    expect(level(graph, "music")).toBeCloseTo(0.25 * dbToGain(PAUSE_DUCK_DB), 9);
+    // Heard on resume: the child's 0.25, at full level. Not the shipped 0.7.
+    graph.ducker.setSource(PAUSE_DUCK_SOURCE, false, PAUSE_DUCK_DB);
+    expect(level(graph, "music")).toBeCloseTo(0.25, 9);
+    expect(level(graph, "music")).not.toBeCloseTo(busSpec("music").gain, 3);
+  });
+
+  it("the return is a ramp, and it is the slower of the two", () => {
+    // "Audible as a return, not a snap" - the existing release constant, whose
+    // whole reason for being slower than the attack is this sentence.
+    const { graph } = build();
+    graph.ducker.setSource(PAUSE_DUCK_SOURCE, true, PAUSE_DUCK_DB);
+    graph.ducker.setSource(PAUSE_DUCK_SOURCE, false, PAUSE_DUCK_DB);
+    const music = graph.buses.music as NullGain;
+    expect(music.gain.events.map((e) => e.kind)).toContain("linear");
+    expect(DUCK_RELEASE_MS).toBeGreaterThan(DUCK_ATTACK_MS);
+  });
+
+  it("the AC-21.4 probe still leaves the graph as it found it under a pause", () => {
+    // `scheduledReductionDb` opens and closes a duck to read the commit. It
+    // used to guard on `ducking`, which now also reports a named duck - so
+    // under a pause it would have opened a voice duck and never closed it.
+    // WATCHED FAILING, with the guard left on `ducking`:
+    //   expected 0.35083106353909055 to be close to 0.41696350047030734
+    const { graph } = build();
+    graph.ducker.setSource(PAUSE_DUCK_SOURCE, true, PAUSE_DUCK_DB);
+    const during = level(graph, "music");
+    graph.ducker.scheduledReductionDb();
+    expect(level(graph, "music")).toBeCloseTo(during, 9);
+    expect([...graph.ducker.activeSources()]).toEqual([PAUSE_DUCK_SOURCE]);
   });
 });

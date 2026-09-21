@@ -77,13 +77,30 @@ const PLATE_HALF_H_PX = 26.75;
 export const WORD_BAND_BOTTOM = BREACH_Y + MAX_ROCK_PX / 2 + PLATE_DROP_PX + PLATE_HALF_H_PX;
 
 /**
- * The widest a word plate gets, in half-widths.
+ * AN UPPER BOUND on a word plate's half-width, px. Not the measurement.
  *
- * The longest word in any shipped pool is ten letters (`superficie`, es) and
- * `plateSize` gives it 132 px of half-width at D41's increased letter spacing.
- * Restated as a constant rather than recomputed, because the pools belong to
- * the content lane and a layout module that reached into them would go red
- * every time a word was added.
+ * It was the measurement: `plateSize` used to be `letters * cell + 2 * pad`, so
+ * the longest word in any shipped word list (`superficie`, es, ten letters) gave
+ * exactly 132 px of half-width at D41's increased letter spacing, and that is
+ * where this number came from.
+ *
+ * THE PLATE NOW MEASURES ITS OWN GLYPHS (`render/glyphAdvance.ts`), so a plate's
+ * width is a function of the WORD rather than of its letter count, and of the
+ * face the machine actually resolves. The real figures at D41 spacing, from the
+ * node fallback metrics: `superficie` 99.84, `enormous` 96.14 - the widest plate
+ * any shipped list can produce.
+ *
+ * THE NUMBER IS DELIBERATELY NOT LOWERED TO 100. Plate width is now
+ * machine-dependent: the plate's family names three faces that no machine here
+ * has and falls through to whatever the OS supplies, and a wider face makes
+ * wider plates. This constant is what keeps the in-flight trophy chip out of the
+ * falling-word band, and it fails in only one direction - too small and the chip
+ * lands on a word a child is reading. 132 keeps 32 px of headroom for a face
+ * whose lowercase runs wider than San Francisco's, which is roughly a third
+ * wider than the widest word measured here.
+ *
+ * `tests/unit/ui/trophyToast.test.ts` asserts it IS a bound over every shipped
+ * word list, so it cannot quietly stop being one, and records the slack.
  */
 export const WORD_PLATE_HALF_W = 132;
 

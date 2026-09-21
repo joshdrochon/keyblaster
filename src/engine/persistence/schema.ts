@@ -85,6 +85,16 @@ export const DEFAULT_PROFILE_NAME = "Pilot";
  * that a fuzzed 10 MB string cannot be written back to a 5 MB quota. */
 export const MAX_NAME_LENGTH = 24;
 
+/**
+ * Shortest name the create screen will accept (UR-149).
+ *
+ * A one-character name reads as a typo everywhere it is interpolated -
+ * "Remove s? Their beacons go too." The schema still ACCEPTS one, because an
+ * older save may already carry it and refusing it there would lose a pilot;
+ * this is the create screen's gate only.
+ */
+export const MIN_NAME_LENGTH = 2;
+
 /** Upper bound on any stored opaque id (avatar, ship, skin, trophy, word). */
 export const MAX_ID_LENGTH = 64;
 
@@ -177,6 +187,40 @@ export function finiteOrNull(value: unknown, log: RepairLog, path: string): numb
   if (typeof value === "number" && Number.isFinite(value)) return value;
   repaired(log, path);
   return null;
+}
+
+/**
+ * A FIELD THIS BUILD ADDED, read out of a save written before it existed.
+ *
+ * ================== WHY IT IS NOT `boundedString` ==================
+ * `boundedString` calls `repaired()` for anything that is not a usable string,
+ * and `undefined` is one of those. So decoding a newly added field with it
+ * would make EVERY save written before the field existed report a repair - and
+ * `app.noticeTextFor` turns a repair into a line of text on the first screen a
+ * child sees (AC-18.4). A field that was never there is not damage, and telling
+ * a nine-year-old their save was repaired because the build learned a new
+ * setting is the notice that teaches everyone to ignore the notice that matters.
+ *
+ * ================== WHY IT IS NOT A MIGRATION EITHER ==================
+ * A migration and a `SCHEMA_VERSION` bump would also be correct, and would cost
+ * a rewrite of every stored payload to add one default the decoder can supply
+ * for free. The project owner's standing position on this screen is that a
+ * migration costs a save file; an additive field with a silent default costs
+ * nothing and is reversible by deleting one line.
+ *
+ * ABSENT is silent. ANYTHING ELSE that is not a usable id is still a REPAIR,
+ * because a `dashColor` of `42` in a save that has the key IS damage, and this
+ * must not become a hole that swallows real corruption.
+ */
+export function addedString(
+  value: unknown,
+  max: number,
+  fallback: string,
+  log: RepairLog,
+  path: string,
+): string {
+  if (value === undefined) return fallback;
+  return boundedString(value, max, fallback, log, path);
 }
 
 export function boundedString(
@@ -408,6 +452,13 @@ function decodeSettings(raw: unknown, log: RepairLog, path: string): Settings {
     reducedMotion: boolean(o["reducedMotion"], DEFAULT_SETTINGS.reducedMotion, log, `${path}.reducedMotion`),
     colorblindPalette: boolean(o["colorblindPalette"], DEFAULT_SETTINGS.colorblindPalette, log, `${path}.colorblindPalette`),
     relativeBoard: boolean(o["relativeBoard"], DEFAULT_SETTINGS.relativeBoard, log, `${path}.relativeBoard`),
+    dashColor: addedString(
+      o["dashColor"],
+      MAX_ID_LENGTH,
+      DEFAULT_SETTINGS.dashColor,
+      log,
+      `${path}.dashColor`,
+    ),
   };
 }
 
@@ -654,6 +705,7 @@ function encodeProfile(profile: Profile): Record<string, unknown> {
       reducedMotion: profile.settings.reducedMotion,
       colorblindPalette: profile.settings.colorblindPalette,
       relativeBoard: profile.settings.relativeBoard,
+      dashColor: profile.settings.dashColor,
     },
     progress: profile.progress.map((p) => ({
       stopId: p.stopId,

@@ -280,6 +280,30 @@ export function fallTimeIkiMs(ikiMs: number): number {
  * minimum than FR-8's literal 2.5 s and a pilot at `HEADROOM_SLOW_IKI_MS` reads
  * exactly this at every length.
  */
+/**
+ * UNVERIFIED - the owner asked for this to go in unmeasured so they can play it.
+ * It has NOT been through a 120-seed sweep. Do not treat it as settled.
+ *
+ * WHAT A QUEUE SLOT ACTUALLY COSTS.
+ *
+ * `fallBudgetFactor` paid a WHOLE FR-8 budget for every slot in the queue ahead
+ * of a rock. A slot does not cost a budget - it costs one SERVICE time, which
+ * is what the pilot in front of it actually spends. Measured service/budget
+ * ratios: ace 0.47, median 0.62, grade-2 0.69. Paying 1.0 therefore handed back
+ * 1500-1800 ms per slot that nobody was waiting for.
+ *
+ * The consequence was that CLIMBING THE PRIMARY DIFFICULTY KNOB GAVE THE PILOT
+ * MORE TIME - measured, grade-2 at Mars: maxLive 2 -> 6310 ms, 3 -> 7640,
+ * 4 -> 8849. Every difficulty pass for days measured as "no change" because
+ * every one of them made the board busier, and a busier board paid better.
+ *
+ * At 0.45 the payment sits below every measured ratio, so a competent typist
+ * now SPENDS time to climb. `headroomEarned` scales it back to 1 for a pilot at
+ * `HEADROOM_SLOW_IKI_MS`, so a grade-2 child is paid exactly what they are paid
+ * today, byte for byte, at every depth.
+ */
+export const QUEUE_PAY = 0.45;
+
 export const FALL_TIME_MIN_MS = 2500;
 export const FALL_TIME_MAX_MS = 14000;
 
@@ -641,6 +665,7 @@ export function recognitionReaderBaseMs(ikiMs: number): number {
 export function fallBudgetFactor(
   knobs?: Pick<BudgetKnobs, "maxLive" | "budgetLive">,
   liveCount?: number,
+  ikiMs?: number,
 ): number {
   // C23: the CAP IS THE RATCHET'S, NOT THE KNOB'S, and that one word is the
   // whole of D31's inversion fix. `budgetLiveOf` is the knob for every caller
@@ -650,7 +675,16 @@ export function fallBudgetFactor(
   // child already had. See `@engine/controller/knobs.BudgetKnobs`.
   const cap = concurrencyTarget(budgetLiveOf(knobs));
   if (liveCount === undefined || !Number.isFinite(liveCount)) return cap;
-  return Math.min(cap, Math.max(1, Math.floor(liveCount) + 1));
+  const slots = Math.min(cap, Math.max(1, Math.floor(liveCount) + 1));
+  // A FRACTION OF A BUDGET PER SLOT, NOT A WHOLE ONE. See `QUEUE_PAY`. The
+  // first slot is the rock's own and is always paid in full, so the fraction
+  // applies only to what is queued AHEAD of it - an empty board is untouched.
+  // `headroomEarned` is 1 for a pilot at FR-8's default or faster and 0 at
+  // `HEADROOM_SLOW_IKI_MS`, so the DISCOUNT is what scales with it: a competent
+  // typist pays `QUEUE_PAY` per queued slot, a grade-2 child pays 1.0 and is
+  // therefore byte-identical to today at every depth.
+  const pay = 1 - (1 - QUEUE_PAY) * headroomEarned(ikiMs ?? DEFAULT_CALIBRATION.ikiMs);
+  return 1 + (slots - 1) * pay;
 }
 
 /**
@@ -871,7 +905,7 @@ export function fallTimeMs({
 }: FallTimeInput): number {
   return clampFallTime(
     rawFallTimeMs({ word, ease, calibration, knobs, spread, stop, liveCount }),
-    fallBudgetFactor(knobs, liveCount),
+    fallBudgetFactor(knobs, liveCount, calibration?.ikiMs),
     // UR-88: the floor is this word's and these hands', not a constant's.
     fallFloorMs(word.length, calibration?.ikiMs ?? DEFAULT_CALIBRATION.ikiMs),
   );
@@ -897,7 +931,7 @@ export function rawFallTimeMs({
   return (
     (keystrokeBudgetMs(word.length, iki, headroom) +
       recognitionBudgetMs(ease, recognitionBaseMs(live, iki))) *
-    fallBudgetFactor(knobs, liveCount) *
+    fallBudgetFactor(knobs, liveCount, iki) *
     fallSpreadFactor(spread, iki) *
     stopPaceFactor(stop, iki)
   );
@@ -905,7 +939,7 @@ export function rawFallTimeMs({
 
 /** True if the computed value hit either clamp (telemetry, not gameplay). */
 export function isClamped(input: FallTimeInput): boolean {
-  const factor = fallBudgetFactor(input.knobs, input.liveCount);
+  const factor = fallBudgetFactor(input.knobs, input.liveCount, input.calibration?.ikiMs);
   const raw = rawFallTimeMs(input);
   // The floor is unscaled (C20) and is the WORD's (UR-88); the ceiling scales
   // with the queue. This asks the same two questions `clampFallTime` answers

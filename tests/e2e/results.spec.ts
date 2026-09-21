@@ -53,7 +53,13 @@ interface Seed {
     priorSamples?: number[];
     firstFkLatencyMs?: number | null;
   }[];
-  relativeBoard?: { label: string; wpm: number; isYou: boolean }[];
+  /**
+   * A PROFILE SAVED BEFORE UR-102. `settings.relativeBoard` is still persisted
+   * and still decoded - removing a field from a stored profile is the only part
+   * of that removal that could damage a child's save - so a pilot who opted
+   * into the nearby-pilots board before it was cut still has `true` on disk.
+   * The test below is what that is for: it must change nothing on screen.
+   */
   relativeBoardOptedIn?: boolean;
 }
 
@@ -76,11 +82,8 @@ type ResultsSnapshot = {
   };
   isNewBest: boolean;
   bestWpm: number;
-  optedIn: boolean;
-  promptShown: boolean;
-  promptAnswered: boolean;
-  boardRows: { label: string; wpm: number; isYou: boolean }[];
   rendered: string[];
+  panels: { report: { x: number; y: number; w: number; h: number } | null };
   focusIndex: number;
   focusId: string | null;
   focusIds: string[];
@@ -163,7 +166,6 @@ async function seed(page: Page, fixture: Seed): Promise<void> {
     exposures,
     profile,
     progress,
-    relativeBoard: fixture.relativeBoard ?? [],
   });
   // The entrance tweens have to finish before `texts()` can be trusted: a
   // marker still fading in is below the visibility floor and would read as
@@ -383,97 +385,39 @@ test("D43 personal best for this stop is shown, and beating it is said plainly",
   expect(best.rendered).toContain("personal-best-new");
 });
 
-test("D43 the relative board is opt-in, default off, with a calm first-time prompt", async ({
+test("UR-102 the nearby-pilots board is gone, including for a pilot who opted in", async ({
   page,
 }) => {
-  await seed(page, {
-    stopId: "mars",
-    progress: [],
-    tally: CLEAN_TALLY,
-    exposures: [],
-    relativeBoard: [
-      { label: "Ivy", wpm: 96, isYou: false },
-      { label: "Omar", wpm: 88, isYou: false },
-      { label: "Ada", wpm: 80, isYou: true },
-      { label: "Ren", wpm: 74, isYou: false },
-      { label: "Kit", wpm: 70, isYou: false },
-      { label: "Wen", wpm: 44, isYou: false },
-    ],
-  });
-
-  const off = await snap<ResultsSnapshot>(page, "results");
-  expect(off.optedIn).toBe(false);
-  expect(off.promptShown).toBe(true);
-  expect(off.rendered).toContain("board-prompt");
-  expect(off.focusIds.slice(0, 2)).toEqual(["board-yes", "board-no"]);
-
-  // No pilot is named until the player asks.
-  const before = (await texts(page, "results")).join(" ");
-  expect(before).not.toContain("Ivy");
-  expect(before).not.toContain("Omar");
-
-  await page.keyboard.press("Enter");
-  await waitForSnapshot(page, "results", "optedIn", true);
-
-  const on = await snap<ResultsSnapshot>(page, "results");
-  expect(on.optedIn).toBe(true);
-  // Up to two above and two below, and the player is always in it (D43).
-  expect(on.boardRows.map((r) => r.label)).toEqual(["Ivy", "Omar", "you", "Ren", "Kit"]);
-  expect(on.boardRows.filter((r) => r.isYou)).toHaveLength(1);
-  // "Wen" is outside the window, so the slowest pilot is never displayed.
-  expect((await texts(page, "results")).join(" ")).not.toContain("Wen");
-});
-
-test("D43 the board NEVER shows a global rank", async ({ page }) => {
+  // THE FEATURE IS DELETED, NOT HIDDEN. The stage report used to carry a second
+  // panel in the right-hand column: a one-time question asking a child to opt
+  // into seeing pilots flying near their speed, and the board that question
+  // turned on. Nothing was ever behind it - D43 rules out accounts and there is
+  // no network - so its only honest state was "no other pilots nearby yet".
+  //
+  // This seeds the hardest case: a pilot whose SAVED profile says they opted
+  // in, which is the one state that used to draw the board with no prompt. The
+  // field is still on disk and still decoded; the screen must not react to it.
   await seed(page, {
     stopId: "mars",
     progress: [],
     tally: CLEAN_TALLY,
     exposures: [],
     relativeBoardOptedIn: true,
-    relativeBoard: [
-      { label: "Ivy", wpm: 96, isYou: false },
-      { label: "Ada", wpm: 80, isYou: true },
-      { label: "Ren", wpm: 74, isYou: false },
-    ],
   });
 
   const s = await snap<ResultsSnapshot>(page, "results");
-  expect(s.optedIn).toBe(true);
-  expect(s.promptShown).toBe(false);
+  // One panel, not two.
+  expect(Object.keys(s.panels)).toEqual(["report"]);
+  // Nothing the board drew is marked as rendered any more.
+  expect(s.rendered.filter((m) => m.startsWith("board"))).toEqual([]);
+  // The focus list is the two buttons and nothing else: no "show nearby
+  // pilots", no "not now".
+  expect(s.focusIds).toEqual(["replay", "continue"]);
 
-  for (const line of await texts(page, "results")) {
-    // No ordinal, no "#3", no "3rd", no "of 412".
-    expect(line).not.toMatch(/^\s*#?\d+\s*[).]/);
-    expect(line.toLowerCase()).not.toMatch(/\b\d+(st|nd|rd|th)\b/);
-    expect(line.toLowerCase()).not.toContain("rank");
-    expect(line.toLowerCase()).not.toMatch(/\bout of\b/);
+  const seen = (await texts(page, "results")).join(" ").toLowerCase();
+  for (const phrase of ["pilots near you", "nearby pilots", "no other pilots", "not now"]) {
+    expect(seen, phrase).not.toContain(phrase);
   }
-});
-
-test("D43 declining the board leaves it off and shows no pilots", async ({ page }) => {
-  await seed(page, {
-    stopId: "mars",
-    progress: [],
-    tally: CLEAN_TALLY,
-    exposures: [],
-    relativeBoard: [
-      { label: "Ivy", wpm: 96, isYou: false },
-      { label: "Ada", wpm: 80, isYou: true },
-    ],
-  });
-
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("Enter");
-  await waitForSnapshot(page, "results", "promptAnswered", true);
-
-  const s = await snap<ResultsSnapshot>(page, "results");
-  expect(s.optedIn).toBe(false);
-  // "Not now" means not now: the panel goes away rather than asking again.
-  expect(s.rendered).toContain("board-declined");
-  const seen = (await texts(page, "results")).join(" ");
-  expect(seen).not.toContain("Ivy");
-  expect(seen).not.toContain("show nearby pilots");
 });
 
 test("AC-18.1 Results is operable with the keyboard alone and shows focus", async ({
@@ -484,7 +428,6 @@ test("AC-18.1 Results is operable with the keyboard alone and shows focus", asyn
     progress: [],
     tally: CLEAN_TALLY,
     exposures: [],
-    relativeBoardOptedIn: true,
   });
 
   const s = await snap<ResultsSnapshot>(page, "results");

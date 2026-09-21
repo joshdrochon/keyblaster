@@ -5,14 +5,15 @@ import type { ShadowFigure } from "@game/render/shadow";
 import type { StopId } from "@engine/types";
 import { stopStaleScenes } from "@game/scenes/lib/init";
 import { type App, appFor } from "./app.js";
-import { Backdrop, FocusRing } from "./chrome.js";
+import { FocusRing } from "./chrome.js";
+import { buildParallax, type Parallax } from "@game/render/parallax";
 import { type Control, type ControlStyle } from "./controls.js";
 import { ConfirmDialog } from "./dialog.js";
 import { FocusList, handleFocusKey } from "./focus.js";
 import type { MenuKey, MenuTranslator } from "./i18n.js";
 import { type HintLine, drawHint } from "./hintLine.js";
 import { clearMirror, publishMirror } from "./mirror.js";
-import { INK, SPACE, TYPE } from "./theme.js";
+import { DUR, INK, SPACE, TYPE } from "./theme.js";
 import { uiText } from "./text.js";
 import { showToast } from "./toast.js";
 
@@ -41,6 +42,19 @@ import { HEADING_TOP } from "./layout.js";
 /** An eyebrow above the heading - a step counter, a section name. */
 export const HEADING_EYEBROW_TOP = 44;
 
+/**
+ * How far the menu screens' focus ring sits outside a row (UR-143).
+ *
+ * 2, not the app's 6: the owner asked for the ring flush to the row's outline.
+ * A row's own border is stroked at 3 when focused, which is 1.5 px outside its
+ * box, so 2 is the tightest value that still leaves daylight between the two
+ * lines instead of merging them into one thick edge.
+ */
+const MENU_RING_OFFSET = 2;
+
+/** One seed for every menu, so the four screens share a sky (UR-155). */
+const MENU_SKY_SEED = 0x0d13;
+
 export abstract class MenuScene extends Phaser.Scene {
   protected app!: App;
   protected t!: MenuTranslator;
@@ -60,7 +74,7 @@ export abstract class MenuScene extends Phaser.Scene {
    */
   protected readonly shadows: ShadowFigure[] = [];
 
-  private backdrop: Backdrop | null = null;
+  private parallax: Parallax | null = null;
   private heading = "";
   private headingText: Phaser.GameObjects.Text | null = null;
   private noticeLine: Phaser.GameObjects.Text | null = null;
@@ -82,6 +96,37 @@ export abstract class MenuScene extends Phaser.Scene {
     return "earth";
   }
 
+  /**
+   * THE ACCENT THIS SCREEN WEARS, WHEN IT IS NOT A STOP'S (UR-123).
+   *
+   * ================== WHAT WAS REPORTED ==================
+   * The project owner, on Ship Controls: the screen has no colour identity of
+   * its own, it borrows Earth's. That is literally true and was true of every
+   * menu - `paletteStop()` returns `"earth"` here, so eight screens wore the
+   * launchpad's amber because a stop is the only thing this class knew how to
+   * be dressed by.
+   *
+   * ================== WHY A HOOK AND NOT A SECOND PALETTE ENTRY ==========
+   * The obvious fix was to add a palette keyed `"settings"`. It was rejected on
+   * inspection: `StopPalette` is looked up by `StopId`, which is the route's own
+   * type - `types.STOP_IDS`, `stageIndexOf`, `BELT_STOP_IDS`, the Director map's
+   * seven discs, the debris tables (D71) and `stopBand`'s difficulty curve all
+   * read it. A screen is not a place on the route, and widening the route's key
+   * type so a menu can have a colour would put a non-place into every one of
+   * those readers.
+   *
+   * So the BACKDROP still comes from a stop - this screen is still lit like the
+   * rest of the product - and the ACCENT, which is the thing the report is
+   * about, is a separate answer the screen may give. Returning null is the
+   * default and leaves all eight other screens byte-identical.
+   *
+   * `SettingsScene` returns the pilot's dash colour, which is what makes the
+   * identity the PLAYER'S rather than a ninth constant somebody chose.
+   */
+  protected accentOverride(): string | null {
+    return null;
+  }
+
   /** Build the screen. Call `setControls` with the focus order at the end. */
   protected abstract build(): void;
 
@@ -97,19 +142,49 @@ export abstract class MenuScene extends Phaser.Scene {
     return false;
   }
 
-  create(): void {
+  create(data?: { readonly fadeIn?: boolean }): void {
     this.app = appFor(this);
     this.t = this.app.t();
-    this.uiStyle = this.app.style(this.paletteStop());
+    const dressed = this.app.style(this.paletteStop());
+    const ownAccent = this.accentOverride();
+    this.uiStyle = ownAccent === null ? dressed : { ...dressed, accent: ownAccent };
 
     if (this.wantsBackdrop) {
-      this.backdrop = new Backdrop(
-        this,
-        this.app.palette(this.paletteStop()),
-        this.reducedMotion,
-      );
+      // UR-155: the menus wear the Director map's sky, not a second one.
+      // `chrome.Backdrop` was a flat gradient with round bubble-rocks; this is
+      // the same stack every other screen draws, in the map's neutral config -
+      // no planet framing and no debris plane, because a menu is not a place.
+      this.parallax = buildParallax(this, {
+        // UR-171: a menu borrows Earth's palette; it is not AT Earth.
+        publishStop: false,
+        palette: this.app.palette(this.paletteStop()),
+        reducedMotion: this.reducedMotion,
+        width: GAME_WIDTH,
+        height: GAME_HEIGHT,
+        decorate: ["sky", "farField", "midField", "nearField"],
+        crossDrift: false,
+        seed: MENU_SKY_SEED,
+      });
     }
-    this.ring = new FocusRing(this, this.depth + 2);
+    // The ring breathes unless the player asked for calm motion (UR-112,
+    // D41 / AC-19.3). The flag is passed, never defaulted: see `FocusRing`.
+    /**
+     * UR-131b: the ring wears an OVERRIDE, never the stop's accent.
+     *
+     * The first pass passed `this.uiStyle.accent`, which is the stop palette's
+     * accent on every screen that has no override - and Earth's accent is
+     * `#4A87E0`. So the profile picker's focus ring went blue. The chrome
+     * accent is gold by decision (`INK.accent`, UR-49: "a theme may set the SKY
+     * and nothing else"), and the dash colour is the ONE thing allowed to move
+     * it, on the one screen that declares it.
+     */
+    this.ring = new FocusRing(
+      this,
+      this.depth + 2,
+      this.reducedMotion,
+      ownAccent ?? INK.accent,
+      MENU_RING_OFFSET,
+    );
     this.list.onChange(() => {
       this.moveRing();
       this.publish();
@@ -119,13 +194,17 @@ export abstract class MenuScene extends Phaser.Scene {
     this.renderNotice();
     this.wireKeyboard();
     this.publish();
+    // LAST, and after `build`: the camera fades up over a screen that is
+    // already drawn, so the dissolve shows the destination rather than an
+    // empty frame filling in behind it. No-op unless the caller asked (UR-118).
+    this.fadeInIfAsked(data);
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.teardown());
   }
 
   override update(time: number, delta: number): void {
     this.elapsed += delta;
-    this.backdrop?.update(this.elapsed);
+    this.parallax?.update(delta);
     for (const shadow of this.shadows) shadow.update(time);
   }
 
@@ -304,6 +383,7 @@ export abstract class MenuScene extends Phaser.Scene {
       confirmLabel: options.confirmLabel,
       cancelLabel: options.cancelLabel,
       depth: this.depth + 20,
+      reducedMotion: this.reducedMotion,
       onConfirm: () => {
         this.dialog = null;
         this.list.setPointerEnabled(true);
@@ -349,7 +429,7 @@ export abstract class MenuScene extends Phaser.Scene {
    * screen down. Missing targets are logged and the current screen simply
    * stays up, which is a dead end but never a crash.
    */
-  protected goTo(key: string, data?: object): boolean {
+  protected goTo(key: string, data?: object, options?: { readonly fade?: boolean }): boolean {
     if (this.scene.get(key) === null) {
       console.warn(`[kb] scene "${key}" is not registered yet; staying put`);
       return false;
@@ -358,9 +438,43 @@ export abstract class MenuScene extends Phaser.Scene {
     // This path matters most on the pause menu's "quit to map", which stopped
     // the belt but left the HUD running - so the readouts were still drawn over
     // the Director map, and over the Settings panel after that.
-    stopStaleScenes(this, key);
-    this.scene.start(key, data);
+    const start = (): void => {
+      stopStaleScenes(this, key);
+      this.scene.start(key, data);
+    };
+    /**
+     * OPT IN, NOT ON BY DEFAULT (UR-118).
+     *
+     * Most moves between menus are a change of PLACE - the map, settings, the
+     * beacon log - and a cut is the honest way to show that. A fade says the
+     * two screens are the same place at two moments, which is true of exactly
+     * one pair here: the pilot picker handing over to pilot creation. Making
+     * every menu dissolve would spend 260 ms on every navigation to say
+     * something that is only true once.
+     *
+     * The other half is `MenuScene.fadeInIfAsked`, called from `create`: a
+     * fade-out with no fade-in is a screen that goes black and then snaps,
+     * which looks more broken than the cut it replaced.
+     */
+    if (options?.fade !== true) {
+      start();
+      return true;
+    }
+    this.cameras.main.fadeOut(DUR.panel, 0, 0, 0);
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, start);
     return true;
+  }
+
+  /**
+   * Fade this screen up when it was entered through a fading `goTo`.
+   *
+   * Reads the flag off the scene's own init data rather than off a field, so a
+   * screen that Phaser re-runs `create` on (it builds each scene once and
+   * re-enters it) does not keep fading in forever on later visits.
+   */
+  protected fadeInIfAsked(data?: { readonly fadeIn?: boolean }): void {
+    if (data?.fadeIn !== true) return;
+    this.cameras.main.fadeIn(DUR.panel, 0, 0, 0);
   }
 
   // -- mirror ---------------------------------------------------------------
@@ -402,6 +516,8 @@ export abstract class MenuScene extends Phaser.Scene {
   }
 
   private teardown(): void {
+    this.parallax?.destroy();
+    this.parallax = null;
     for (const shadow of this.shadows) shadow.destroy();
     this.shadows.length = 0;
     if (this.onKey) this.input.keyboard?.off("keydown", this.onKey);

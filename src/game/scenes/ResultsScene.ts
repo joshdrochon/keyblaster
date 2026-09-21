@@ -17,14 +17,15 @@ import {
   type StopProgress,
 } from "@engine/types";
 import { blankProfile } from "@engine/persistence/index.js";
-import { SCENE_KEYS } from "@game/sceneKeys";
+import { GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { layer } from "@game/render/layers";
 import { buildParallax, EASE, type Parallax } from "@game/render/parallax";
-import { hexToNum, lightPositionOf, mixHex } from "@game/render/palette";
-import { drawShadow, type ShadowFigure } from "@game/render/shadow";
+import { hexToNum, lightPositionOf } from "@game/render/palette";
+import { SHADOW_HEIGHT, drawShadow, type ShadowFigure } from "@game/render/shadow";
+import { SHADOW_DRAWN_HEIGHT, shadowMirrorInset, shadowOrigin } from "./support/pickerLayout";
 import { starPoints } from "@game/render/textures";
 import { DUR, INK, SPACE, TYPE, chromeCase } from "@game/ui/theme";
-import { headerText } from "@game/ui/grid";
+import { GUTTER, headerText } from "@game/ui/grid";
 import {
   goTo,
   persistStopCleared,
@@ -44,22 +45,13 @@ import {
   type PlatedText,
   type SceneSnapshot,
 } from "./lib/kit";
-import { paintPlate } from "@game/ui/plate";
+import { ACTION_INK, paintActionButton, paintPlate } from "@game/ui/plate";
 import { typographyOf } from "./lib/typography";
 import { type HintLine, drawHint } from "@game/ui/hintLine";
 import { laneInit, publishBag, textStyles, type LaneInit } from "./support/laneInit";
 import {
-  openingFocusId,
-  relativeWindow,
-  type RelativeRow,
-} from "./support/relativeBoard";
-import {
-  BOARD_W,
-  BOARD_X,
-  BUTTON_H,
   PANEL_PAD_X,
   REPORT_W,
-  SHADOW_GAP,
   resultsLayout,
   shadowBox,
   sunDisc,
@@ -94,23 +86,22 @@ import {
  * shows no delta. A delta against Earth would put a fabricated "+60 wpm" on the
  * first results screen a child ever sees. Nothing in this file invents one.
  *
- * THE RELATIVE BOARD IS OFF UNTIL ASKED (D43): default off, one calm prompt the
- * first time this screen would show it, up to two pilots either side of you,
- * and never a global rank.
+ * THERE IS NO NEARBY-PILOTS BOARD (UR-102). The second panel and its one-time
+ * opt-in question are deleted; see `renderActions`.
  *
  * -------------------------------------------------------------------------
- * WHY THE PANELS ARE MEASURED AND NOT DECLARED
+ * WHY THE PANEL IS MEASURED AND NOT DECLARED
  *
  * This screen used to draw two rectangles of a fixed 700 px and hang content off
  * the top of each at hand-written offsets. On a first run at Mars four of the
  * six blocks are correctly ABSENT - no delta (D57), no personal best (nothing to
- * beat), no faster words, no retention set - so about three quarters of both
- * panels was empty black. A stage report that is mostly nothing does not read as
+ * beat), no faster words, no retention set - so about three quarters of the
+ * panel was empty black. A stage report that is mostly nothing does not read as
  * restraint; it reads as a screen that failed to load.
  *
  * So every block MEASURES itself (`Piece.height` comes from the Phaser Text, not
  * from a table of guesses) and `support/resultsLayout.ts` turns those heights
- * into rectangles. The same module keeps the panels off Shadow and pulls their
+ * into rectangles. The same module keeps the panel off Shadow and pulls its
  * top edge up over the stop's sun, both of which are geometry rather than taste
  * and both of which are unit-tested without a browser.
  *
@@ -151,45 +142,37 @@ const PANEL_ALPHA = 1;
 const PANEL_SURFACE = compositeOver(INK.panel, PANEL_ALPHA, WORST_CASE_SKY);
 
 /**
- * A BUTTON HAS A SURFACE (AC-18.1's visible affordance half).
+ * WHERE THIS SCREEN'S BUTTON INKS WENT (UR-112).
  *
- * The two actions were drawn as `INK.panelRaised` plates on an `INK.panel`
- * panel - 1.08:1, which is not an edge - with their labels in the stop accent.
- * A control with no fill difference, no border and coloured text reads as
- * DISABLED, and a capture showed exactly that: "fly it again" and "continue"
- * looked like two captions. So the secondary action gets a lifted fill and a
- * border you can see against the panel, and the primary one is filled in the
- * stop accent with dark ink on it - the same treatment the Title gives "play",
- * so "the filled one is the one you meant" holds across the game.
+ * Four local constants used to live here - a lifted fill, a border, a white to
+ * mix the primary's edge toward, and a dark ink for the label on it - and they
+ * built a primary filled with `this.lane.palette.accent`. The note read: "the
+ * primary one is filled in the stop accent with dark ink on it - the same
+ * treatment the Title gives 'play', so 'the filled one is the one you meant'
+ * holds across the game."
+ *
+ * It did hold across the game, and it took the focus ring with it. `INK.accent`
+ * is the ring, and the ring drawn on the Earth accent is 1.00:1 - the owner's
+ * report that this screen's buttons "do not have the right yellow outline".
+ *
+ * The drawing is now `ui/plate.paintActionButton` and the inks are
+ * `ui/plate.ACTION_INK`, which are the beacon-placed screen's - the control the
+ * owner named as correct. `tests/unit/ui/actionButton.test.ts` holds the bars
+ * and the reasoning; `resultsInk.test.ts` measures the labels.
  */
-const BUTTON_FILL = "#32445E";
-const BUTTON_STROKE = "#5A7195";
-/**
- * What the primary button's edge is mixed TOWARD, as a token rather than as a
- * `"#FFFFFF"` written inside a draw call. It is pure white; naming it is what
- * keeps the scene's ink greppable alongside the rest (UR-69).
- */
-const BUTTON_EDGE_LIGHT = "#FFFFFF";
-const BUTTON_INK = INK.panelSunken;
 
 /** Where Shadow stands, and how big he is there. */
-const SHADOW_AT = { x: 1830, y: 940, scale: 0.7 } as const;
+// UR-158: the picker's placement, so Shadow is the same size and in the same
+// corner on every screen that stands her bottom-right.
+const SHADOW_SCALE = SHADOW_DRAWN_HEIGHT.list / SHADOW_HEIGHT;
+
+
 
 /**
- * Wrap widths, fixed BEFORE the layout runs because the layout is computed from
- * the heights these widths produce. The board's is the NARROWED width - what it
- * would be if the panel had to give way to Shadow - so a line can never be
- * measured against a panel wider than the one it ends up in.
+ * The wrap width, fixed BEFORE the layout runs because the layout is computed
+ * from the heights this width produces.
  */
 const REPORT_CONTENT_W = REPORT_W - PANEL_PAD_X * 2;
-const BOARD_CONTENT_W =
-  Math.floor(
-    Math.min(
-      BOARD_W,
-      shadowBox(SHADOW_AT.x, SHADOW_AT.y, SHADOW_AT.scale).x - SHADOW_GAP - BOARD_X,
-    ),
-  ) -
-  PANEL_PAD_X * 2;
 
 /** Column starts inside the report panel, as offsets from its content edge. */
 const COL_ACCURACY = 340;
@@ -200,12 +183,6 @@ export interface ResultsInit extends StoryInit {
   readonly exposures?: readonly WordExposure[];
   /** The profile as it stood BEFORE this stage was written back (see scoring/). */
   readonly profile?: Profile;
-  /**
-   * Rows for the relative board. There is no source for these yet (D43: no
-   * accounts, no network), so the default is none and the board says so.
-   */
-  readonly relativeBoard?: readonly RelativeRow[];
-  readonly onRelativeBoardOptIn?: (optedIn: boolean) => void;
   /**
    * What the stage knows and the profile cannot (D80, AC-6d.1c): the peak
    * chain, D25's tier, the stars, the retention set. Travels in Flight's opaque
@@ -238,22 +215,14 @@ interface Part {
  *
  * `height` is read off the Phaser Text objects after they are built, never
  * declared: that is the whole mechanism by which a panel can be the size of what
- * is in it. Parts are positioned RELATIVE to the block, so placing a block twice
- * (the board rebuilds when the D43 question is answered) is idempotent.
+ * is in it. Parts are positioned RELATIVE to the block, so placing a block is
+ * idempotent.
  */
 interface Piece extends Block {
   readonly parts: readonly Part[];
 }
 
 const EMPTY_PIECE = (id: string): Piece => ({ id, height: 0, parts: [] });
-
-/**
- * Whether the results screen asks about nearby pilots (UR-102).
- *
- * False: there is nothing behind the feature yet, so the question has no
- * honest answer. See the note at its only use.
- */
-const BOARD_PROMPT_ENABLED = false;
 
 export class ResultsScene extends Phaser.Scene {
   private lane!: LaneInit;
@@ -271,25 +240,17 @@ export class ResultsScene extends Phaser.Scene {
   private isNewBest = false;
   /** False on the very first run at this stop: there is no best to report yet. */
   private hasPreviousRun = false;
-  private optedIn = false;
   /** Trophies THIS run earned, in award order (AC-6d.2: once per profile). */
   private earnedTrophies: readonly string[] = [];
-  private promptShown = false;
-  /** True once the player has answered the one-time prompt, either way. */
-  private promptAnswered = false;
 
   private reportPieces: Piece[] = [];
-  private boardPieces: Piece[] = [];
-  private boardParts: Phaser.GameObjects.GameObject[] = [];
-  /** The rectangles `drawPanel` last filled. Read-only, for the e2e probe. */
-  private panelRects: { report: Rect | null; board: Rect | null } = {
-    report: null,
-    board: null,
-  };
+  /** The button surfaces and their labels, destroyed together on a rebuild. */
+  private actionParts: Phaser.GameObjects.GameObject[] = [];
+  /** The rectangle `drawPanel` last filled. Read-only, for the e2e probe. */
+  private panelRects: { report: Rect | null } = { report: null };
   private reportPlate!: Phaser.GameObjects.Graphics;
-  private boardPlate!: Phaser.GameObjects.Graphics;
   /**
-   * The keyboard hint. Kept whole rather than pushed into `boardParts`: it is a
+   * The keyboard hint. Kept whole rather than pushed into `actionParts`: it is a
    * `skyText`, so it is a Text AND the plate cut for it, and splitting the two
    * across a rebuild leaves an orphan plate on screen for every rebuild.
    */
@@ -304,12 +265,9 @@ export class ResultsScene extends Phaser.Scene {
     this.initData = data;
     this.earnedTrophies = [];
     this.reportPieces = [];
-    this.boardPieces = [];
-    this.boardParts = [];
+    this.actionParts = [];
     this.hint = null;
     this.rendered = [];
-    this.promptShown = false;
-    this.promptAnswered = false;
   }
 
   create(): void {
@@ -332,7 +290,6 @@ export class ResultsScene extends Phaser.Scene {
     // D31 failure mode: a number that reads as a verdict where the honest
     // answer is silence. See `buildPersonalBest`.
     this.hasPreviousRun = this.stopProgress.bestWpm > 0;
-    this.optedIn = profile.settings.relativeBoard;
 
     // The run is now written back. This is the second half of the clear Beacon
     // started: Beacon knows the stop was charted, this screen knows the stars,
@@ -386,8 +343,7 @@ export class ResultsScene extends Phaser.Scene {
 
     const hud = this.parallax.layerOf("hud").container;
     this.reportPlate = this.add.graphics().setDepth(0);
-    this.boardPlate = this.add.graphics().setDepth(0);
-    hud.add([this.reportPlate, this.boardPlate]);
+    hud.add(this.reportPlate);
 
     this.buildHeader();
     this.reportPieces = [
@@ -402,26 +358,27 @@ export class ResultsScene extends Phaser.Scene {
       for (const part of piece.parts) hud.add(part.obj);
     }
 
+    const stand = this.shadowAt();
     this.shadow = drawShadow(
       this,
-      SHADOW_AT.x,
-      SHADOW_AT.y,
+      stand.x,
+      stand.y,
       this.results.stars === 3 ? "cheering" : "idle",
       {
-        scale: SHADOW_AT.scale,
+        scale: SHADOW_SCALE,
         facing: -1,
         reducedMotion: this.lane.reducedMotion,
         depth: layer("shipFx").depth,
       },
     );
 
-    this.ring = createFocusRing(this, layer("hud").depth + 1);
+    this.ring = createFocusRing(this, layer("hud").depth + 1, this.lane.reducedMotion);
     this.menu = createKeyboardMenu(this, this.ring, [], {
       // DELIBERATELY NOT ESCAPABLE (UR-86). The run is over and scored. Going
       // "back" would mean back into a belt that has already been banked.
       onBack: () => {},
     });
-    this.renderBoard();
+    this.renderActions();
 
     this.publish();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -978,152 +935,70 @@ export class ResultsScene extends Phaser.Scene {
   }
 
   // -------------------------------------------------------------------------
-  // Relative board (D43) and the buttons, which share a focus list
+  // The panel and the two things you can do about it
   // -------------------------------------------------------------------------
 
   /**
-   * The board panel, the one-time prompt, or nothing at all - and then the
-   * whole screen is laid out around whichever it turned out to be.
+   * Lay the stage report out and draw the buttons under it.
    *
-   * "Not now" means NOT NOW: the panel disappears rather than asking again on
-   * the same screen. A prompt that reappears after being declined is not
-   * opt-in, it is nagging, and D43 asks for one calm prompt.
+   * THE NEARBY-PILOTS BOARD IS GONE (UR-102). A second panel used to stand in
+   * the right-hand column holding a one-time question - "want to see the pilots
+   * flying near your speed?" - and the board that question turned on. There was
+   * never anything behind it: D43 rules out accounts and there is no network,
+   * so the board's only honest state was "no other pilots nearby yet", and a
+   * question with no answer behind it does not belong on the screen a child
+   * reaches by finishing a stage. The owner cut the feature; this is the
+   * deletion, not a flag.
+   *
+   * `settings.relativeBoard` is STILL PERSISTED and still decoded by
+   * `engine/persistence/schema.ts`, deliberately: removing a field from a
+   * stored profile is the only part of this that could damage a save, and it
+   * buys nothing. Nothing reads it now.
+   *
+   * `resultsLayout` still takes a second column and is handed nothing to put in
+   * it - the `board === null` branch it has always had - so the stage report's
+   * own rectangle is unchanged to the pixel by this removal.
    */
-  private renderBoard(): void {
-    for (const part of this.boardParts) part.destroy();
-    this.boardParts = [];
-    for (const piece of this.boardPieces) {
-      for (const part of piece.parts) part.obj.destroy();
-    }
-    this.boardPieces = [];
+  /**
+   * Where Shadow stands, measured at RUN TIME.
+   *
+   * Two things were wrong with the module constant. The scale mode is
+   * `HEIGHT_CONTROLS_WIDTH`: height is pinned at 1080 and width follows the
+   * window's aspect, so `GAME_WIDTH` is only the real width at 16:9 - on a
+   * 1728x901 window the game is 2071 wide and she sat 151 px short of the
+   * gutter. And she is drawn MIRRORED here, so her reach right is the LEFT
+   * coefficient (UR-164).
+   */
+  private shadowAt(): { x: number; y: number } {
+    const at = shadowOrigin(this.scale.width, SHADOW_SCALE);
+    return { x: at.x + shadowMirrorInset(SHADOW_SCALE), y: at.y };
+  }
+
+  private renderActions(): void {
+    for (const part of this.actionParts) part.destroy();
+    this.actionParts = [];
 
     const hud = this.parallax.layerOf("hud").container;
-    const showPanel = this.optedIn || !this.promptAnswered;
-    /**
-     * Is the screen ASKING right now?
-     *
-     * Set only inside the branch that actually draws the question, so it is a
-     * fact about what is on screen right now rather than about
-     * `this.promptShown`, which is sticky for the snapshot's benefit and stays
-     * true after the question has been answered and removed. `openingFocusId`
-     * turns it into the id the caret opens on.
-     */
-    let asking = false;
-    /** Board rows that are buttons, in the order they are drawn. */
-    const boardButtons: { id: string; text: string; activate: () => void }[] = [];
-
-    if (!showPanel) this.mark("board-declined");
-
-    // THE NEARBY-PILOTS PROMPT IS HIDDEN (UR-102).
-    //
-    // It asked a child to opt into seeing pilots flying near their speed, and
-    // there is NO DATA SOURCE behind it - no leaderboard, no peers, nothing to
-    // show if they said yes. It has been on the escalation list as "no data
-    // source, lean: hide it" since it was first raised; the owner has now
-    // called it.
-    //
-    // HIDDEN, NOT DELETED. The consent flow, the persisted choice and the board
-    // rendering all still work and are still tested - the one thing that
-    // changed is that the question is not asked. Turning it back on is this
-    // constant, not a rebuild, for the day there is something to put behind it.
-    //
-    // A child who ALREADY opted in keeps their board: the `else if` below is
-    // untouched, so this removes a question rather than revoking a choice.
-    if (BOARD_PROMPT_ENABLED && !this.optedIn && !this.promptAnswered) {
-      this.promptShown = true;
-      asking = true;
-      this.mark("board-prompt");
-      this.boardPieces.push(
-        this.textPiece(
-          "board-prompt",
-          "results.board.prompt",
-          this.lane.copy.text("results.boardPrompt"),
-          TYPE.label,
-          INK.text,
-        ),
-      );
-      boardButtons.push({
-        id: "board-yes",
-        text: this.lane.copy.text("results.boardPromptYes"),
-        activate: () => this.setOptIn(true),
-      });
-      boardButtons.push({
-        id: "board-no",
-        text: this.lane.copy.text("results.boardPromptNo"),
-        activate: () => this.setOptIn(false),
-      });
-      for (const b of boardButtons) {
-        this.boardPieces.push({ id: b.id, height: BUTTON_H, parts: [] });
-      }
-    } else if (this.optedIn) {
-      this.mark("board");
-      this.boardPieces.push(
-        this.textPiece(
-          "board-heading",
-          "results.board.heading",
-          this.lane.copy.text("results.boardHeading"),
-          TYPE.label,
-          this.lane.palette.accent,
-        ),
-      );
-      const rows = relativeWindow(this.initData?.relativeBoard ?? []);
-      if (rows.length === 0) {
-        this.mark("board-empty");
-        this.boardPieces.push(
-          this.textPiece(
-            "board-empty",
-            "results.board.empty",
-            this.lane.copy.text("results.boardEmpty"),
-            TYPE.caption,
-            INK.textDim,
-          ),
-        );
-      } else {
-        this.boardPieces.push(this.rowsPiece(rows));
-      }
-    }
-
-    for (const piece of this.boardPieces) {
-      for (const part of piece.parts) hud.add(part.obj);
-    }
 
     const laid = resultsLayout({
       report: this.reportPieces,
-      board: this.boardPieces,
+      board: [],
       sun: sunDisc(lightPositionOf(this.lane.palette)),
-      shadow: shadowBox(SHADOW_AT.x, SHADOW_AT.y, SHADOW_AT.scale),
+      shadow: (() => {
+        const stand = this.shadowAt();
+        return shadowBox(stand.x, stand.y, SHADOW_SCALE);
+      })(),
     });
 
     // Published for the e2e pixel probe (`results-panel-opacity.spec.ts`):
     // the card's rectangle in design space, so the probe reads the panel the
     // screen actually drew rather than a rectangle somebody transcribed.
-    this.panelRects = { report: laid.report, board: laid.board };
+    this.panelRects = { report: laid.report };
 
     this.drawPanel(this.reportPlate, laid.report);
-    this.drawPanel(this.boardPlate, laid.board);
     for (const placed of laid.reportContent) {
       const piece = this.reportPieces.find((p) => p.id === placed.id);
       if (piece) this.place(piece, placed);
-    }
-
-    const targets: FocusTarget[] = [];
-    for (const placed of laid.boardContent) {
-      const button = boardButtons.find((b) => b.id === placed.id);
-      if (button === undefined) {
-        const piece = this.boardPieces.find((p) => p.id === placed.id);
-        if (piece) this.place(piece, placed);
-        continue;
-      }
-      targets.push(
-        this.button(
-          { x: placed.x, y: placed.y, w: placed.w, h: BUTTON_H },
-          button.text,
-          button.id,
-          `results.${button.id === "board-yes" ? "board.yes" : "board.no"}`,
-          false,
-          button.activate,
-        ),
-      );
     }
 
     // Replay is drawn first because "back" reads on the left. CONTINUE is the
@@ -1131,6 +1006,7 @@ export class ResultsScene extends Phaser.Scene {
     // forward action is the default on every screen that offers both, and a
     // child pressing Enter on reflex moves on with their run rather than
     // silently re-flying the stage they just finished.
+    const targets: FocusTarget[] = [];
     targets.push(
       this.button(
         laid.replay,
@@ -1165,66 +1041,13 @@ export class ResultsScene extends Phaser.Scene {
       style: { lang: this.lane.lang, ...typographyOf(this) },
     });
 
-    hud.add(this.boardParts);
-    // The caret opens on CONTINUE (`primary`, above) - except while the D43
-    // opt-in question is on screen, when it opens on the question. A one-time
-    // prompt the default action skips past is a prompt nobody ever answers,
-    // and the defect being fixed here was "replay steals the default", not
-    // "anything that is not continue steals the default". The rule itself is
-    // `openingFocusId` in support/relativeBoard.ts, where it is unit-tested.
-    this.menu.setTargets(targets, openingFocusId(targets, asking) ?? undefined);
-  }
-
-  /** One wrapped line of board copy, measured. */
-  private textPiece(
-    id: string,
-    inkId: string,
-    content: string,
-    size: number,
-    color: string,
-  ): Piece {
-    const part = this.ink(inkId, 0, 0, content, {
-      size,
-      color,
-      wrapWidth: BOARD_CONTENT_W,
-    });
-    return { id, height: (part.obj as Phaser.GameObjects.Text).height, parts: [part] };
-  }
-
-  /** The window around the player: a name and a speed, never a position (D43). */
-  private rowsPiece(rows: readonly RelativeRow[]): Piece {
-    const parts: Part[] = [];
-    const rowH = Math.round(TYPE.label * 1.9);
-    rows.forEach((row, i) => {
-      const y = i * rowH;
-      parts.push(
-        this.ink(
-          row.isYou ? "results.board.you" : "results.board.row",
-          0,
-          y,
-          row.isYou ? this.lane.copy.text("results.boardYou") : row.label,
-          {
-            size: TYPE.label,
-            color: row.isYou ? this.lane.palette.accent : INK.text,
-          },
-        ),
-      );
-      parts.push(
-        this.ink(
-          row.isYou ? "results.board.you" : "results.board.row",
-          BOARD_CONTENT_W,
-          y,
-          `${Math.round(row.wpm)}`,
-          {
-            size: TYPE.label,
-            color: row.isYou ? this.lane.palette.accent : INK.text,
-            align: "right",
-            originX: 1,
-          },
-        ),
-      );
-    });
-    return { id: "board-rows", height: rows.length * rowH, parts };
+    hud.add(this.actionParts);
+    // The caret opens on CONTINUE, which is `primary` above. No id is passed:
+    // the kit's own `openingIndex` takes the primary target, so the rule lives
+    // in one place for every screen instead of being restated here. There used
+    // to be a second rule - the D43 opt-in question took the caret while it was
+    // being asked - and it went with the question.
+    this.menu.setTargets(targets);
   }
 
   /**
@@ -1241,53 +1064,41 @@ export class ResultsScene extends Phaser.Scene {
     primary: boolean,
     activate: () => void,
   ): FocusTarget {
-    const accent = this.lane.palette.accent;
     const g = this.add.graphics().setDepth(1);
-    // The same component on the `button` rhythm (UR-69). Both buttons get a
-    // border, because what made the shipped pair read as disabled was that
-    // neither had an edge of any kind.
-    paintPlate(g, r, {
-      fill: primary ? accent : BUTTON_FILL,
-      alpha: 1,
-      stroke: primary ? mixHex(accent, BUTTON_EDGE_LIGHT, 0.35) : BUTTON_STROKE,
-      strokeAlpha: 1,
-      rhythm: "button",
-    });
-    this.boardParts.push(g);
+    // THE SHARED ACTION BUTTON (UR-112, `ui/plate.paintActionButton`).
+    //
+    // This used to fill the primary with `this.lane.palette.accent` and stroke
+    // it with that accent mixed toward white. The owner reported the result as
+    // "'Fly It Again' and 'Continue' on the stage report do not have the right
+    // yellow outline" - and they did have it: `INK.accent` on the Earth accent
+    // is a contrast ratio of 1.00, so the ring was drawn onto its own colour.
+    // At Mars it was gold on coral, 1.83:1.
+    //
+    // It is also `docs/coding-standards.md` rule 1, which already names this
+    // exact failure: a themed value must not reach the buttons. Both emphases
+    // are fixed tokens now, and the accent is the ring's alone.
+    paintActionButton(g, r, { primary });
+    this.actionParts.push(g);
 
     // D41: a button label is chrome and chrome is lowercase. Applied HERE and
     // not only in the string table, because the capture had `fly it again`
     // sitting next to `Continue` in one row - the table is shared with other
-    // screens and this is the render site that has to be right either way. No
-    // proper noun ever reaches this function: the board's pilot names are rows,
-    // not buttons.
+    // screens and this is the render site that has to be right either way.
     const t = skyText(this, r.x + r.w / 2, r.y + r.h / 2, chromeCase(text, typographyOf(this).uppercase), {
       screen: "results",
       id: inkId,
       size: TYPE.label,
-      color: primary ? BUTTON_INK : INK.text,
+      color: ACTION_INK.label,
       align: "center",
       lang: this.lane.lang,
       plated: true,
-      plateFill: primary ? accent : BUTTON_FILL,
+      plateFill: primary ? ACTION_INK.primaryFill : ACTION_INK.secondaryFill,
       depth: 2,
       originX: 0.5,
       originY: 0.5,
     }).text;
-    this.boardParts.push(t);
+    this.actionParts.push(t);
     return { id, x: r.x, y: r.y, w: r.w, h: r.h, activate };
-  }
-
-  private setOptIn(optedIn: boolean): void {
-    this.optedIn = optedIn;
-    this.promptAnswered = true;
-    this.initData?.onRelativeBoardOptIn?.(optedIn);
-    // Persist the choice where the profile lives; D43 says the board is opt-in,
-    // which is only true if "not now" is remembered too.
-    const store = this.lane.services?.store;
-    const active = store?.activeProfile();
-    if (store && active) store.updateSettings(active.id, { relativeBoard: optedIn });
-    this.renderBoard();
   }
 
   /**
@@ -1346,7 +1157,7 @@ export class ResultsScene extends Phaser.Scene {
       accuracyDelta: r.accuracyDelta,
       previousStopId: r.previousStopId,
       stars: r.stars,
-      // The stage's own hull, not D27's three: a nine-mark belt cleared with
+      // The stage's own hull, not D27's three: a six-mark belt cleared with
       // three marks gone is a CLEARED belt (@engine/hull, AC-4.4).
       starsRendered: isClearableHullHits(this.tally.hullHits, this.tally.maxHull),
       /** D80: trophies this run earned. The Beacon Log is where they are read. */
@@ -1362,14 +1173,6 @@ export class ResultsScene extends Phaser.Scene {
       },
       isNewBest: this.isNewBest,
       bestWpm: this.stopProgress.bestWpm,
-      optedIn: this.optedIn,
-      promptShown: this.promptShown,
-      promptAnswered: this.promptAnswered,
-      boardRows: relativeWindow(this.initData?.relativeBoard ?? []).map((row) => ({
-        label: row.isYou ? this.lane.copy.text("results.boardYou") : row.label,
-        wpm: row.wpm,
-        isYou: row.isYou,
-      })),
       rendered: [...this.rendered],
       /** AC-22.8: every colour pair this screen drew, for the contrast rubric. */
       skyText: skyTextSamples(this),
@@ -1377,7 +1180,7 @@ export class ResultsScene extends Phaser.Scene {
       focusId: this.menu.targets[this.menu.index]?.id ?? null,
       focusIds: this.menu.targets.map((t) => t.id),
       reducedMotion: this.lane.reducedMotion,
-      /** Where the two cards were drawn, in design space. */
+      /** Where the card was drawn, in design space. */
       panels: this.panelRects,
     };
   }

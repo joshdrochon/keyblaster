@@ -253,6 +253,14 @@ export interface LanternRig {
   aimAt(worldX: number, worldY: number): void;
   /** 0..1. The iris opens on fire (AC-24.1). */
   setIris(open: number): void;
+  /**
+   * Pulse the lens, so a shot leaves FROM somewhere (UR-116).
+   *
+   * The owner, watching Flight: the beam read as coming out of nothing. It
+   * was - the rig opened its iris and the scene drew a line starting in mid
+   * air, with no light at the end it left from.
+   */
+  flash(strength?: number): void;
   setColorway(colorway: LanternColorway): void;
   /** Repaint in a profile's four colours; `undefined` restores the colourway. */
   setLivery(livery: LanternLivery | undefined): void;
@@ -266,6 +274,20 @@ export interface LanternRig {
  * with `aimAt`'s tween (a tween per frame is a tween leak), and an aim limit
  * that exists in two places is an aim limit that ends up with two values.
  */
+/**
+ * THE MUZZLE FLASH'S THREE NUMBERS (UR-116).
+ *
+ * Bright and SHORT. The flash is not a light the player looks at, it is the
+ * reason the beam has somewhere to come from, so it has to land inside the
+ * beam's own 110 ms or it reads as a second, later event. The lamp's standing
+ * glow sits at 0.24-0.44 alpha; 0.85 is clearly a flash against that without
+ * blowing the lens out to a white disc at the scale Flight draws the ship.
+ */
+const MUZZLE_PEAK_ALPHA = 0.85;
+/** Multiple of `LENS_R` the flash starts at, falling back to the glow's 4x. */
+const MUZZLE_SPREAD = 7;
+const MUZZLE_MS = 150;
+
 export const LANTERN_AIM_LIMIT = Phaser.Math.DegToRad(26);
 const AIM_LIMIT = LANTERN_AIM_LIMIT;
 
@@ -414,6 +436,29 @@ export function drawLantern(
     .setBlendMode(Phaser.BlendModes.ADD);
   emitterMount.add(lensGlow);
 
+  /**
+   * THE MUZZLE FLASH, ON ITS OWN SPRITE (UR-116).
+   *
+   * A SECOND IMAGE RATHER THAN A TWEEN ON `lensGlow`, and that is the whole
+   * reason it exists. `lensGlow` carries a permanent breathing tween on its
+   * alpha; a flash tween on the same property would fight it and hand back
+   * whichever value finished last, which is the two-tweens-on-one-property bug
+   * `ui/chrome.FocusRing` already documents. This sprite is dark until it is
+   * asked for, so the lamp's breath is never interrupted by the gun going off.
+   *
+   * Built whether or not the rig draws a standing shaft: Flight turns the shaft
+   * OFF (its beam is gameplay, in the stop's accent) and is the one caller that
+   * fires, so gating the flash on `options.beam` would leave the only screen
+   * that shoots as the only screen with no muzzle.
+   */
+  const muzzle = scene.add
+    .image(LENS_LOCAL.x, LENS_LOCAL.y, TEX.glow)
+    .setDisplaySize(LENS_R * 4, LENS_R * 4)
+    .setAlpha(0)
+    .setBlendMode(Phaser.BlendModes.ADD);
+  emitterMount.add(muzzle);
+  let muzzleTween: Phaser.Tweens.Tween | null = null;
+
   const head = scene.add.graphics();
   emitterMount.add(head);
 
@@ -495,6 +540,28 @@ export function drawLantern(
     setIris(open: number): void {
       irisOpen = Phaser.Math.Clamp(open, 0, 1);
       drawIris(iris, irisOpen);
+    },
+
+    flash(strength = 1): void {
+      const k = Phaser.Math.Clamp(strength, 0, 1);
+      if (k <= 0) return;
+      // REPLACED, NOT STACKED. A fast typist fires again inside the previous
+      // flash; without the handle the old tween keeps writing alpha and the
+      // lamp stutters instead of pulsing.
+      muzzleTween?.remove();
+      muzzle.setAlpha(MUZZLE_PEAK_ALPHA * k);
+      muzzle.setDisplaySize(LENS_R * MUZZLE_SPREAD * k, LENS_R * MUZZLE_SPREAD * k);
+      muzzleTween = scene.tweens.add({
+        targets: muzzle,
+        alpha: 0,
+        displayWidth: LENS_R * 4,
+        displayHeight: LENS_R * 4,
+        duration: MUZZLE_MS,
+        ease: "Cubic.easeOut",
+        onComplete: () => {
+          muzzleTween = null;
+        },
+      });
     },
 
     setColorway(next: LanternColorway): void {

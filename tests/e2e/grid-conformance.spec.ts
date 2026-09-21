@@ -290,7 +290,12 @@ const HINT_GAPS: Readonly<Record<string, string>> = {
   EarthActivation: "no hint line",
   Beacon: "no hint line (UR-56): one focused button, which names its own action",
   Briefing: "no hint line (UR-56): both actions are labelled plates on screen",
-  Warp: "hint sits inside the sentence card",
+  Warp:
+    "no hint line: both of this screen's instructions are one line in " +
+    "Shadow's card (`warp.coachIntro`), so a copy at the foot of the frame " +
+    "would be UR-56's defect with a card in place of a button. The reason " +
+    "here read 'hint sits inside the sentence card', which stopped being " +
+    "true when the hint moved to the grid line and then off the screen.",
   Ending: "hint sits under the centred button",
 };
 

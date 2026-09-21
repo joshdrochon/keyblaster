@@ -199,9 +199,10 @@ const PLATE_LEFTS: Readonly<Record<string, readonly number[]>> = {};
  * sweep to the screens that already pass (standards rule 8).
  *
  * ================== WHAT IS BEHIND EACH NUMBER ==================
- * Title 4, EarthActivation 1, Briefing 1, Ending 2 - the lane closing UR-68
- * (the Title lockup) and UR-19 (the header contract) owns those four files.
- * Named, not excused; their fix is that lane's.
+ * Title 4, EarthActivation 1, Briefing 1 - the lane closing UR-68 (the Title
+ * lockup) and UR-19 (the header contract) owns those three files. Named, not
+ * excused; their fix is that lane's. Ending was a fourth and is down to 1
+ * (UR-148, see its row below).
  *
  * Preflight 4 - the real defect the census named. Three system rows at x=224
  * and Shadow's line at x=326, where the card's inner line is 136. This is the
@@ -260,7 +261,11 @@ const BUDGET: Readonly<Record<string, number>> = {
   Warp: 2,
   Beacon: 1,
   Results: 7,
-  Ending: 2,
+  // UR-148 took this from 2 to 1: Shadow's card is anchored to her drawn box,
+  // whose left edge is now the GUTTER, so the card starts on the page margin
+  // and its speaker row and line both sit on the margin's inner line. What is
+  // left is the route's first stop name, which is a lamp label, not a column.
+  Ending: 1,
 };
 
 async function open(page: Page, key: string): Promise<void> {

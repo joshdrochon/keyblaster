@@ -124,6 +124,19 @@ export async function waitForScene(
  * "long enough" is therefore a guess that gets slower and flakier as the scenes
  * grow; waiting on the tween manager is exact. Looping tweens (a blinking
  * beacon, a breathing glow) are ignored, because they never finish by design.
+ *
+ * WHERE `repeat` ACTUALLY LIVES. `tween.repeat` is a CONFIG field: Phaser
+ * copies it onto each TweenData and leaves it undefined on the Tween itself, so
+ * `t.repeat === -1` is false for a tween that repeats forever. It read as true
+ * for years only because nothing on a waited-for screen looped. UR-112's
+ * breathing focus ring (`ui/focusPop.focusPulse`: alpha 1 -> 0.82, yoyo,
+ * `repeat: -1`) is the first one, and every `waitForTweens` call on a screen
+ * with a focused control then sat out its full 20 s and failed - eleven tests
+ * in `results.spec.ts` at once, on a screen a capture shows fully settled.
+ *
+ * So the per-data repeat is checked too. This does not relax the wait: a
+ * one-shot tween still has to finish, and the change is that a tween the
+ * comment above already said to ignore is now actually recognised.
  */
 export async function waitForTweens(
   page: Page,
@@ -138,15 +151,26 @@ export async function waitForTweens(
         scene: {
           getScene(k: string): {
             tweens: {
-              getTweens(): { repeat?: number; loop?: number; isPlaying(): boolean }[];
+              getTweens(): {
+                repeat?: number;
+                loop?: number;
+                data?: { repeat?: number }[];
+                isPlaying(): boolean;
+              }[];
             };
           };
         };
       };
       const list = game.scene.getScene(key).tweens.getTweens();
-      return list.every(
-        (t) => t.repeat === -1 || t.loop === -1 || !t.isPlaying(),
-      );
+      const forever = (t: {
+        repeat?: number;
+        loop?: number;
+        data?: { repeat?: number }[];
+      }): boolean =>
+        t.repeat === -1 ||
+        t.loop === -1 ||
+        (t.data ?? []).some((d) => d.repeat === -1);
+      return list.every((t) => forever(t) || !t.isPlaying());
     },
     sceneKey,
     { timeout },

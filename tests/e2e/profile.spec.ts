@@ -114,6 +114,99 @@ test.describe("row 1b - profile picker", () => {
     await screen(page, PICKER).waitFor({ state: "attached" });
   });
 
+  /**
+   * UR-112: THE THREE THINGS THE OWNER MEASURED ON THIS SCREEN.
+   *
+   * A playtest: the owner's brother took several seconds to work out that he
+   * could press Enter or click "New Pilot". Everything below is one of the
+   * reasons, asserted against the SCREEN rather than against a helper - the
+   * scene's own `rowRects` and `shadowOrigin` are published for exactly this,
+   * because a Phaser canvas shows Playwright nothing and a `Graphics` carries
+   * no text for `grid-conformance.spec.ts` to measure.
+   */
+  test("UR-112: the picker opens with the caret on 'new pilot', not on the last pilot", async ({
+    page,
+  }) => {
+    // Three pilots, and one of them is the ACTIVE one - the row the screen used
+    // to steal focus to ("open on the pilot who last flew"). A first-time
+    // player has no such pilot and was the person this screen cost.
+    await seed(page, [{ name: "Ana" }, { name: "Bo" }, { name: "Cy" }], PICKER);
+    await assertVisibleFocus(page, PICKER);
+
+    expect((await snapshot(page, PICKER))["focusId"]).toBe("pick.new");
+    expect(await focused(page, PICKER).getAttribute("data-id")).toBe("pick.new");
+
+    // And Enter on arrival does the thing the label says.
+    await press(page, "Enter");
+    await screen(page, CREATE).waitFor({ state: "attached" });
+  });
+
+  test("UR-112: 'new pilot' is the same size as a pilot row, so the column is one list", async ({
+    page,
+  }) => {
+    await seed(page, [{ name: "Ana", beacons: ["earth"] }, { name: "Bo" }], PICKER);
+
+    const rects = (await snapshot(page, PICKER))["rowRects"] as {
+      id: string;
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+    }[];
+
+    const newPilot = rects.find((r) => r.id === "pick.new");
+    const pilots = rects.filter((r) => r.id.startsWith("pick.profile."));
+    expect(newPilot, "the picker did not report a rect for pick.new").toBeDefined();
+    expect(pilots.length).toBe(2);
+
+    for (const row of pilots) {
+      // SAME BOX, not "about the same". A list whose first row is a different
+      // height is a button parked on top of a list.
+      expect({ w: newPilot?.w, h: newPilot?.h }).toEqual({ w: row.w, h: row.h });
+      // One left edge, too.
+      expect(newPilot?.x).toBe(row.x);
+    }
+
+    // And they stack on one rhythm: every gap between consecutive rows equal.
+    const ordered = [...rects].sort((a, b) => a.y - b.y);
+    const gaps = ordered
+      .slice(1)
+      .map((row, i) => row.y - ((ordered[i]?.y ?? 0) + (ordered[i]?.h ?? 0)));
+    expect(new Set(gaps).size).toBe(1);
+  });
+
+  test("UR-112: Shadow stands in the bottom-right corner, not in the middle of space", async ({
+    page,
+  }) => {
+    await seed(page, [{ name: "Ana" }, { name: "Bo" }], PICKER);
+
+    const snap = await snapshot(page, PICKER);
+    const shadows = snap["shadowOrigin"] as { x: number; y: number; scale: number }[];
+    expect(shadows.length).toBe(1);
+    const at = shadows[0] as { x: number; y: number; scale: number };
+
+    // His drawn reach about his origin, in radii - the four coefficients
+    // `scenes/support/pickerLayout.ts` places him by, which that module's unit
+    // test pins. Written out rather than imported: this spec asserts the
+    // SCREEN, and importing the module would let a wrong screen pass by
+    // agreeing with it.
+    const r = 64 * at.scale;
+    const box = {
+      x: at.x - 1.32 * r,
+      y: at.y - 1.82 * r,
+      w: (1.32 + 1.52) * r,
+      h: (1.82 + 1.6) * r,
+    };
+
+    // `ui/grid`: GUTTER 96, HINT_TOP = 1080 - 76, BACK_CORNER_BOTTOM = +44.
+    expect(Math.round(box.x + box.w)).toBe(1920 - 96);
+    expect(Math.round(box.y + box.h)).toBe(1080 - 76 + 44);
+
+    // The defect, as a claim: he was at (1660, 620), above the middle of the
+    // world and on no named line.
+    expect(at.y).toBeGreaterThan(1080 / 2);
+  });
+
   test("AC-18.4 corrupt storage: fresh profile plus one calm non-blocking line", async ({
     page,
   }) => {

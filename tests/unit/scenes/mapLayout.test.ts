@@ -21,7 +21,6 @@ import {
   LAMP_HALO_MAX,
   LOCK_GAP,
   LOCK_SIZE,
-  MAP_HEADER_PAD_Y,
   NODE_DEPTH,
   NODE_R,
   NODE_RIM,
@@ -412,7 +411,7 @@ describe("UR-54: the map is on the one grid", () => {
   });
 
   it("the hint is the shared bottom-left line, not a centred caption", () => {
-    // `hintInk()`, NOT `hintOrigin(padX, MAP_HEADER_PAD_Y)`. This screen used to
+    // `hintInk()`, NOT `hintOrigin(padX, the map header's own padY)`. It used to
     // pass the map header's padding to `skyText` and so drew its ink at
     // (118, 1012) while the menu screens drew theirs at (96, 1004) - the map
     // was the closest to right and still nobody's neighbour. `ui/hintLine`

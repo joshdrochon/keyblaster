@@ -295,11 +295,6 @@ test("UR-20 Results: no text collides with every block on screen", async ({ page
         },
       ],
       progress,
-      relativeBoard: [
-        { label: "Nova", wpm: 26, isYou: false },
-        { label: "you", wpm: 24, isYou: true },
-        { label: "Orin", wpm: 21, isYou: false },
-      ],
     });
     await settle(page, SETTLE_MS);
     assertNoCollisions(await textsOf(page, "Results"), `Results/${stop}`);

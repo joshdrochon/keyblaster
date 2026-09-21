@@ -73,7 +73,7 @@ export function laneInit(
       : {}),
   };
 
-  const resolved = resolveInit(merged, fallbackStop);
+  const resolved = resolveInit(merged, fallbackStop, scene);
   const reducedMotion = resolved.ctx.reducedMotion;
 
   // Tell the rest of the game where this screen is. `SceneContext.stopId` is
@@ -90,7 +90,11 @@ export function laneInit(
     services: svc,
     palette: paletteAt(resolved.stopId, resolved.ctx.colorblindPalette),
     reducedMotion,
-    copy: createLaneText({ lang: resolved.lang, shipName: resolved.shipName }),
+    copy: createLaneText({
+      lang: resolved.lang,
+      shipName: resolved.shipName,
+      pilotName: resolved.pilotName,
+    }),
     params,
   };
 }

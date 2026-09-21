@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { hexToNum, paletteAt, type StopPalette } from "@game/render/palette";
 import { EASE, buildParallax, skyAt, type Parallax } from "@game/render/parallax";
-import { DUR, INK, SPACE, TYPE } from "@game/ui/theme";
+import { DUR, INK, SPACE, STEP, TYPE } from "@game/ui/theme";
 import { PANEL, rivetPositions } from "@game/ui/panel";
 import { paintPlate } from "@game/ui/plate";
 import { drawShadow, type ShadowFigure, type ShadowPose } from "@game/render/shadow";
@@ -126,6 +126,34 @@ import { systemCheckSemitones } from "@game/audio/sfx";
  */
 
 const LEAD_MS = 1400;
+/** Equal air above the eyebrow and under the stop name (UR-160). */
+/**
+ * A masthead is the biggest type on the screen and the plate has to breathe
+ * around it. `STEP.inset`, on the scale, not a bespoke number: 16 was cut so
+ * close to the ink that the owner read it as too tight (UR-167).
+ */
+const HEADER_PAD = STEP.inset;
+
+/** Phaser reports these when the font has loaded; the fallbacks are its own ratios. */
+function metricsOf(t: Phaser.GameObjects.Text): { ascent: number; descent: number } {
+  const m = (t.style as unknown as { metrics?: { ascent: number; descent: number } }).metrics;
+  if (m === undefined) return { ascent: t.height * 0.8, descent: t.height * 0.2 };
+  return m;
+}
+
+function descentOf(t: Phaser.GameObjects.Text): number {
+  return Math.max(0, t.height - metricsOf(t).ascent);
+}
+
+/** The empty band above a line's capitals, inside its own box. */
+function leadingAbove(t: Phaser.GameObjects.Text): number {
+  const size = Number.parseFloat(String(t.style.fontSize)) || t.height;
+  return Math.max(0, metricsOf(t).ascent - size * CAP_HEIGHT_EM);
+}
+
+/** Avenir Next's cap height, measured. */
+const CAP_HEIGHT_EM = 0.72;
+
 const STEP_INTRO_MS = 900;
 const STEP_SETTLE_MS = 620;
 const FINALE_MS = 1500;
@@ -168,6 +196,8 @@ export type RitualMode = "full" | "launch" | "none";
  * window frame - see that module's header.
  */
 import {
+  HEADER_PLATE,
+  HEADER_SPINE,
   HEADING,
   BULKHEAD,
   LINE_PAD,
@@ -271,7 +301,7 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
   private onKey: ((event: KeyboardEvent) => void) | null = null;
   private readyText!: Phaser.GameObjects.Text;
   /** The stop name, which steps aside for the ready line (UR-94). */
-  private stopNamePlate: PlatedText | null = null;
+  private stopNamePlate: Phaser.GameObjects.Text | null = null;
 
   private plan: RitualPlan | null = null;
   private mode: RitualMode = "none";
@@ -304,7 +334,7 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
   }
 
   init(data: StoryInit): void {
-    this.story = resolveInit(data, "mars");
+    this.story = resolveInit(data, "mars", this);
     this.phase = "lead";
     this.stepIndex = 0;
     this.wordIndex = 0;
@@ -351,7 +381,11 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     this.calibration = storedCalibration(this) ?? this.story.calibration;
     const wantsFullRitual = this.story.newProfile || profileNeedsCalibration(this);
     const pool = ritualPool(stopId);
-    const seed = 0x51_7a1 + STOP_IDS.indexOf(stopId) * 977;
+    // A DIFFERENT RITUAL EVERY RUN. This was a pure function of the stop, so
+    // the ceremony asked for the same words in the same order every time a
+    // child launched from it. Nothing here is scored, so there is nothing that
+    // needs to replay identically.
+    const seed = (0x51_7a1 + STOP_IDS.indexOf(stopId) * 977) ^ (Date.now() >>> 4);
     if (wantsFullRitual) {
       this.plan = planRitual(pool, rng(seed));
       this.mode = this.plan === null ? "none" : "full";
@@ -378,6 +412,10 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
       // Briefing's window next door has always shown a still planet from this
       // same layer. Two screens, one implementation, one position.
       decorate: ["sky", "celestial", "farField", "midField", "nearField"],
+      // UR-120: this stack is MASKED to the cockpit glass, so the light has to
+      // be placed inside the aperture rather than at its full-frame position -
+      // which for Earth through Saturn is behind the briefing card.
+      lightBand: { x: WINDOW.x, w: WINDOW.w },
       // NOTHING TRAVELS ON THIS SCREEN (UR-50.5). `worldSpeed: 0` never did
       // this on its own: `DRIFT_X` gives every decorative plane a px/s FLOOR
       // (+5, -8, +11, -15) that runs at any world speed, so the planes marched
@@ -542,24 +580,40 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
   private drawHeader(accent: string): void {
     const { lang, text } = this.story;
 
-    skyText(this, HEADING.x, HEADING.y, text.text("preflight.heading"), {
-      screen: "preflight",
-      id: "preflight.heading",
+    // UR-124: one masthead, the Briefing's - accent spine, eyebrow, stop name.
+    // UR-167: sized to the INK, not the text box. The box carries a descender
+    // band under "Pluto", which has no descender, and internal leading above
+    // the eyebrow's caps - so a plate cut to the box is padded unevenly.
+    const eyebrow = label(this, HEADING.x, HEADING.y, text.text("preflight.heading"), {
+      size: TYPE.caption,
+      color: INK.textDim,
+      lang,
+    }).setDepth(20);
+    this.stopNamePlate = label(this, SUBHEADING.x, SUBHEADING.y, this.stopName(), {
       size: TYPE.heading,
       color: INK.text,
       lang,
-      depth: 20,
-      padY: 14,
+    }).setDepth(20);
+
+    const inkTop = eyebrow.y + leadingAbove(eyebrow);
+    const inkBottom = this.stopNamePlate.y + this.stopNamePlate.height - descentOf(this.stopNamePlate);
+    const plate = {
+      x: HEADER_PLATE.x,
+      y: inkTop - HEADER_PAD,
+      w: HEADER_PLATE.w,
+      h: inkBottom - inkTop + HEADER_PAD * 2,
+    };
+    const header = this.add.graphics().setDepth(17);
+    paintPlate(header, plate, {
+      fill: INK.panel,
+      radius: SPACE.radiusCard,
+      strokeWidth: 0,
     });
-    this.stopNamePlate = skyText(this, SUBHEADING.x, SUBHEADING.y, this.stopName(), {
-      screen: "preflight",
-      id: "preflight.stop",
-      size: TYPE.body,
-      color: accent,
-      lang,
-      depth: 20,
-      padY: 8,
-    });
+    paintPlate(
+      header,
+      { x: HEADER_SPINE.x, y: plate.y + STEP.tight, w: HEADER_SPINE.w, h: plate.h - STEP.tight * 2 },
+      { fill: accent, alpha: 0.85, corner: "pill", strokeWidth: 0 },
+    );
 
     // ONE CHIP, SHARED WITH THE BRIEFING (UR-98). This screen drew a 262x66
     // plate in `INK.panelRaised` at `TYPE.label` where the Briefing drew a
@@ -1001,7 +1055,9 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     this.say("preflight.line.done", "saluting");
     const name = this.stopNamePlate;
     if (name !== null) {
-      this.tweens.add({ targets: name.objects, alpha: 0, duration: 260, ease: EASE.arrive });
+      // A plain Text since UR-124 put the masthead on one plate: the stop's
+      // name no longer carries a plate of its own to fade with it.
+      this.tweens.add({ targets: name, alpha: 0, duration: 260, ease: EASE.arrive });
     }
     this.tweens.add({
       targets: this.readyText,

@@ -29,12 +29,10 @@ const STOPS = ["earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto
 /**
  * A full profile for the Results screen.
  *
- * `relativeBoard` is the lever these specs care about: false means the D43
- * one-time opt-in prompt is on screen (and holds the caret), true means it is
- * not (and `continue` holds the caret). Handed to the scene explicitly so the
- * fixture cannot write itself into a real save.
+ * Handed to the scene explicitly so the fixture cannot write itself into a
+ * real save.
  */
-function resultsProfile(relativeBoard: boolean): Record<string, unknown> {
+function resultsProfile(): Record<string, unknown> {
   return {
     id: "pilot-test",
     name: "Ada",
@@ -54,7 +52,6 @@ function resultsProfile(relativeBoard: boolean): Record<string, unknown> {
       increasedLetterSpacing: false,
       reducedMotion: false,
       colorblindPalette: false,
-      relativeBoard,
     },
     progress: STOPS.map((stopId) => ({
       stopId,
@@ -253,7 +250,7 @@ test.describe("AC-18.1: the pointer reaches everything the keyboard does", () =>
     // buttons, and a prompt would add two more hit areas to reason about.
     await restartScene(page, "Results", {
       stopId: "mars",
-      profile: resultsProfile(true),
+      profile: resultsProfile(),
       tally: { characters: 210, elapsedMs: 60_000, hits: 12, typos: 3, hullHits: 0 },
       exposures: [],
     });

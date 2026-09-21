@@ -86,9 +86,12 @@ describe("it is audibly a different sound from a key press", () => {
    * WATCHED FAILING at `peakGain: 0.02`:
    *   AssertionError: expected 0.02 to be greater than 0.05
    */
-  it("is louder than the quietest sound the game makes", () => {
-    const typo = Math.max(...variantsFor("typo").map((v) => v.peakGain));
-    expect(TRANSMISSION_TICK.peakGain).toBeGreaterThan(typo);
+  // UR-170: the typo cue was raised past this tick by the owner because it was
+  // inaudible mid-belt. What the tick still has to be is quieter than a key
+  // press, so it is never mistaken for the player's own keyboard.
+  it("is quieter than a key press, so it is never mistaken for one", () => {
+    const keystroke = Math.min(...variantsFor("keystroke").map((v) => v.peakGain));
+    expect(TRANSMISSION_TICK.peakGain).toBeLessThanOrEqual(keystroke);
   });
 });
 

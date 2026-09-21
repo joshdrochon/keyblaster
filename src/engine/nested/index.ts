@@ -1,5 +1,6 @@
 import type { StopId } from "../types.js";
 import { HULL_PASS_COST, HULL_STRIKE_COST } from "../hull/index.js";
+import { rockHintFits, type RockHintView } from "../hint/index.js";
 
 /**
  * TWO-LAYER ROCKS (D101, UR-106; AC-26.1..AC-26.5).
@@ -417,4 +418,38 @@ export function liveWordsOf(rock: {
 }): readonly string[] {
   const core = rock.coreWord;
   return core === undefined || core === null ? [rock.word] : [rock.word, core];
+}
+
+/**
+ * UR-148: Shadow says once, the first time a child meets a nested rock, that it
+ * has another rock inside. The copy is in `game/flight/copy.ts`; this is the
+ * part that can be wrong, which is WHEN. `@engine/hint` answers the two
+ * questions the canister hint also asks.
+ */
+
+export interface NestedWarningInput {
+  readonly stopId: StopId;
+  readonly saidThisRun: boolean;
+  /** How long the clause that NAMES the rock takes to say - not the whole line. */
+  readonly leadMs: number;
+  /** The live nested rock with its SHELL STILL INTACT, or `null`. */
+  readonly nested: RockHintView | null;
+}
+
+/**
+ * `isNestedStop`, not `stopId === "neptune"`.
+ *
+ * Neptune is where a child meets one first because the route is linear and
+ * `NESTED_STOPS` is in route order, and a test asserts that. Naming Neptune
+ * here would be a second copy of the decision `NESTED_STOPS` already holds, and
+ * it would go silently wrong the day the route changes: the warning would
+ * either fire at a stop with no nested rocks or never fire at all. Gating on
+ * the mechanic plus once-per-run gets the same behaviour today and stays
+ * correct if the list moves.
+ */
+export function shouldWarnNested(input: NestedWarningInput): boolean {
+  if (input.saidThisRun) return false;
+  if (!isNestedStop(input.stopId)) return false;
+  if (input.nested === null) return false;
+  return rockHintFits(input.nested, input.leadMs);
 }

@@ -123,7 +123,7 @@ describe("UR-80: every block on the title starts on one visible line", () => {
         "button it is around",
     ).toBe(true);
     expect(
-      /offset: item\.id === "primary" \? FOCUS_PAD : 0,/.test(s),
+      /offset: item\.id === "primary" \? FOCUS_PAD : SPACE\.focusRingOffset,/.test(s),
       "the quiet row's ring is not struck on its plate",
     ).toBe(true);
     expect(/return \{ x: item\.root\.x, y: top, w: item\.width, h: item\.height \};/.test(s)).toBe(

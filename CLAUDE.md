@@ -34,6 +34,18 @@ on it, and each attempt cost a rebuild, a census capture and a full test run.
 This applies to anything in `src/game/ui/theme.ts`, `ui/grid.ts`, `ui/layout.ts`,
 any exported layout constant, and any function two or more scenes call.
 
+COMMENTS ARE SPARSE
+- Default to NO comment. Code that needs a paragraph to explain it usually needs
+  rewriting instead.
+- Write one only when the reason is not visible in the code: a non-obvious
+  constraint, a measured number, or a decision that looks wrong until explained.
+- One or two lines. Never a block header, never a banner, never a restatement of
+  what the next line does.
+- Cite the ticket or decision id and stop. The log holds the history; the file
+  does not need to.
+- This applies to EXISTING comments too: when you touch a file, trim the bloated
+  ones you pass rather than leaving them and adding more.
+
 HARD RULES
 - src/engine never imports Phaser or the DOM. Everything there is unit-tested (Vitest), 95% coverage gate.
 - Tests are written with the feature, in the same commit. No red merges. No skipped tests on main.

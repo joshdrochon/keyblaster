@@ -256,6 +256,7 @@ function fakeRing(): FocusRing {
   return {
     graphics: g as never,
     moveTo() {},
+    fadeOut() {},
     destroy() {},
   };
 }

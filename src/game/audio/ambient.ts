@@ -77,16 +77,16 @@ export interface AmbientBedSpec {
 
 const BED_SEEDS: Readonly<Record<StopId, Omit<AmbientBedSpec, "stopId">>> = Object.freeze({
   earth: {
-    droneHz: 98,
+    droneHz: 132,
     partials: [1, 1.5, 2, 3],
-    droneLevel: 0.12,
+    droneLevel: 0.012,
     filterHz: 1200,
     windLevel: 0.7,
-    windFilterHz: 900,
+    windFilterHz: 1000,
     shimmerHz: 0.09,
     shimmerDepth: 0.1,
     level: 0.24,
-    note: "home: warm, close, a little city hum under it",
+    note: "the launchpad, outdoors: night air, no engine",
   },
   mars: {
     droneHz: 87,

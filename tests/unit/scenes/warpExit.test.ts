@@ -104,10 +104,18 @@ describe("UR-78: the warp break says what to do and then gets out of the way", (
       "the cut fires from the world's acceleration, so the scene changes while " +
         "the ship is still on screen",
     ).toBe(1);
+    // UR-166: AND IT IS NOT A NUMBER ANY MORE. It was
+    // `delayedCall(SHIP_LAUNCH_DELAY_MS + SHIP_LAUNCH_MS)`, a constant that had
+    // to be kept equal to the longest tween by hand and was not - Shadow's exit
+    // was computed backwards off it. The cut waits on the tweens themselves.
+    expect(
+      /tween\.once\("complete", done\)/.test(s),
+      "the cut is back on a timer rather than on the things it is waiting for",
+    ).toBe(true);
     expect(
       /delayedCall\(\s*SHIP_LAUNCH_DELAY_MS \+ SHIP_LAUNCH_MS/.test(s),
-      "the cut is no longer timed to the ship leaving the frame",
-    ).toBe(true);
+      "the exit is timed by a constant again",
+    ).toBe(false);
     // Up and OFF, not up and back: a negative target is past the top edge.
     expect(/y: -SHIP_EXIT_CLEARANCE_PX/.test(s)).toBe(true);
   });

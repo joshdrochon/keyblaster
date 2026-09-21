@@ -70,8 +70,10 @@ const rel = (file: string): string => path.relative(ROOT, file);
 /**
  * The settings that change WHAT IS DRAWN, and therefore need a reader on a
  * rendering path. The audio volumes and `relativeBoard` are deliberately
- * absent: the first two are consumed by the audio graph and the third is a
- * behaviour flag, and a guard that flags things it cannot judge is noise.
+ * absent: the first two are consumed by the audio graph, and the third is the
+ * nearby-pilots opt-in, whose UI was deleted in UR-102 - the field is still
+ * persisted so an existing save decodes unchanged, and nothing reads it. A
+ * guard that flags things it cannot judge is noise.
  */
 const PRESENTATION_SETTINGS = [
   "uppercase",

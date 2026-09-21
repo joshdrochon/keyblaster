@@ -66,6 +66,43 @@ export const LENGTH_BONUS_PER_LETTER = 10;
 export const MAX_MULTIPLIER = 10;
 
 /**
+ * THE MULTIPLIERS WORTH MAKING A NOISE ABOUT (UR-117).
+ *
+ * ================== WHY NOT EVERY STEP ==================
+ * `multiplierFor` is `min(combo, 10)`, so the multiplier rises on each of the
+ * FIRST TEN WORDS of a streak and then never again for the rest of the belt.
+ * "Celebrate every increase" therefore means ten celebrations in the opening
+ * twenty seconds and silence afterwards - and each of those ten lands on top
+ * of a blast the player already triggered. A reward that fires ten times in
+ * twenty seconds has stopped being a reward by the fourth.
+ *
+ * So the SOUND and the bigger explosion are rationed to three moments, and the
+ * silent bloom over the rock is what marks the other seven. The bloom is
+ * attached to the rock the player just hit, so it reads as that hit paying off
+ * rather than as a separate announcement.
+ *
+ * ================== WHY 3, 5, 10 ==================
+ * 3 is the first one a child reaches without trying, which is the point: it
+ * teaches that the number means something before they are chasing it. 5 is the
+ * halfway mark. 10 is the ceiling (`MAX_MULTIPLIER`) and the last one there
+ * will ever be, so it is the loudest. Not 2 - a streak of two is an accident,
+ * and rewarding it makes the signal cheap.
+ */
+export const MULTIPLIER_MILESTONES: readonly number[] = [3, 5, 10];
+
+/**
+ * True when reaching this multiplier is one of the three moments above.
+ *
+ * Takes the MULTIPLIER, not the combo. They are the same number below 10 and
+ * they are not the same number at 14, and a milestone that re-fired on every
+ * word of a long streak is exactly the noise this exists to prevent.
+ */
+export function isMultiplierMilestone(multiplier: number): boolean {
+  if (!Number.isFinite(multiplier)) return false;
+  return MULTIPLIER_MILESTONES.includes(Math.floor(multiplier));
+}
+
+/**
  * Everything that moves the combo. Named for what happened in the world, not
  * for a verdict on the player: D31 forbids a "wrong" signal, so a mistyped key
  * is a `typo` event and an asteroid crossing the line is a `hullHit` event.

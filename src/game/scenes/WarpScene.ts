@@ -24,11 +24,8 @@ import { hexToNum, mixHex } from "@game/render/palette";
 import { LANTERN_DESIGN_HEIGHT, type LanternRig } from "@game/render/lantern";
 import { drawPlayerLantern, playerLivery } from "./lib/livery.js";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
-import { DUR, INK, SKY_PLATE, TYPE } from "@game/ui/theme";
+import { DUR, INK, TYPE } from "@game/ui/theme";
 import type { Rect } from "@game/ui/layout";
-import { headerText } from "@game/ui/grid";
-import { type HintLine, drawHint } from "@game/ui/hintLine";
-import { typographyOf } from "./lib/typography";
 import { highlightSpans, prefixOf, quotedWords } from "./support/coachHighlight";
 import { hasStageBundle, stageBundle } from "./lib/content";
 import { goTo, type StoryInit } from "./lib/init";
@@ -43,8 +40,8 @@ import {
   type PlatedText,
   type SceneSnapshot,
 } from "./lib/kit";
-import { paintBolt, paintPlate, paintPromptGlyph, paintStatusDots } from "@game/ui/plate";
-import { MARK, PLATE_STEP } from "@game/ui/plateLayout";
+import { paintBolt, paintPlate } from "@game/ui/plate";
+import { PLATE_STEP } from "@game/ui/plateLayout";
 import { paintPlanetBadge, planetBadgeInk, planetBadgeSpec } from "@game/render/planetBadge";
 import {
   laneInit,
@@ -54,6 +51,7 @@ import {
   type DrawLatch,
   type LaneInit,
 } from "./support/laneInit";
+import { paintCaret } from "./lib/typedWord";
 import { coachAllowlist, sightWordList } from "./support/vocab";
 import { audioFrom } from "@game/audio/wiring";
 import { chargeSoundPlan } from "./support/warpCharge";
@@ -150,8 +148,28 @@ const WARP_DURATION_MS = 1200;
  * the one setting that exists for children who are hurt by motion the one
  * setting that skips the story beat.
  */
+/**
+ * The floor on how long Shadow's card shows the instruction before his note
+ * can replace it. See `coachIntroDwell`.
+ */
+const COACH_INTRO_MIN_MS = DUR.toast;
+
 const PANEL_CLEAR_MS = 320;
 const PANEL_CLEAR_LIFT_PX = 28;
+/**
+ * Reduced motion has no hop, so it holds for the same beat instead.
+ *
+ * UR-166b: ONE hop, not two, and a shorter fade. Two hops plus a 620 ms fade
+ * left her alone on a cleared frame for 1.2 s and the owner read it as
+ * orphaned rather than celebrating. She is now moving for the whole time she
+ * is on her own.
+ */
+const SHADOW_CHEER_HOLD_MS = 260;
+/** One half of one hop. One hop is `* 2`. */
+const SHADOW_HOP_MS = 130;
+const SHADOW_HOP_PX = 30;
+/** How long her cheer takes to leave. */
+const SHADOW_CHEER_EXIT_MS = 300;
 const SHIP_LAUNCH_DELAY_MS = 260;
 const SHIP_LAUNCH_MS = 900;
 /** How far above the frame the hull must be before the cut. */
@@ -186,11 +204,13 @@ import {
   WARP_CARDS,
   instrumentChargedRow,
   instrumentLabelRow,
+  rowMiddle,
   lanternBox,
   lanternStand,
   shipBandTop,
   SENTENCE_PX,
   SENTENCE_STEP,
+  fitsOneLine,
   WORD_PULSE_MS,
   WORD_PULSE_SCALE,
   completedWordRange,
@@ -267,6 +287,11 @@ export class WarpScene extends Phaser.Scene {
   private sentence!: WarpSentenceState;
   private letters: Phaser.GameObjects.Text[] = [];
   /**
+   * The caret under the letter being typed - the SAME drawing the pre-flight
+   * ritual's prompt uses (`lib/typedWord.paintCaret`), on a wrapped run.
+   */
+  private caret!: Phaser.GameObjects.Graphics;
+  /**
    * How many lines the sentence on screen actually laid out to.
    *
    * Kept as the screen's own evidence that a composed sentence (D09) wrapped
@@ -276,7 +301,6 @@ export class WarpScene extends Phaser.Scene {
    * it; nothing else may.
    */
   private sentenceLines = 1;
-  private hintLine!: HintLine;
   /**
    * The charge label's own Text and the bolt's box, kept for the `boxes()`
    * probe below. The bolt is placed off the LABEL'S MEASURED BOUNDS
@@ -294,6 +318,16 @@ export class WarpScene extends Phaser.Scene {
   private chargedLabel!: Phaser.GameObjects.Text;
   private chargedPlate: Phaser.GameObjects.Graphics | null = null;
   private noteText!: Phaser.GameObjects.Text;
+  /**
+   * The screen's instruction, in the note's own row, until the note arrives.
+   * See `buildCoachArea` for why it is a second Text and not a string in
+   * `noteText`, and `COACH_INTRO_MIN_MS` for why it is not replaced instantly.
+   */
+  private introText!: Phaser.GameObjects.Text;
+  /** When the instruction went up, so the dwell is measured from the screen. */
+  private introShownAtMs = 0;
+  /** The instruction holds the card until the child has typed (UR-163). */
+  private typedSinceIntro = false;
   /** UR-24: the accent-coloured copies of the words Shadow names. */
   private namedWords: Phaser.GameObjects.Text[] = [];
   /**
@@ -323,6 +357,8 @@ export class WarpScene extends Phaser.Scene {
    */
   private retry: RetryResolution | null = null;
 
+  /** Shadow's note, held until the instruction has had its dwell. */
+  private pendingNote: { result: CoachResult; note: string } | null = null;
   private coachResult: CoachResult | null = null;
   private coachSettled = false;
   private coachCalls = 0;
@@ -548,25 +584,16 @@ export class WarpScene extends Phaser.Scene {
     }
 
     if (this.overlay) this.panelRoot.add(this.scrim());
-    this.panelRoot.add(this.buildHeader());
     this.panelRoot.add(this.buildSentencePanel());
     this.panelRoot.add(this.buildMeter());
     this.panelRoot.add(this.buildCoachArea());
 
-    // THE PRODUCT'S HINT LINE, bottom-left (`ui/hintLine.drawHint`). This
-    // screen is declared `placement: "grid"` in `ui/hint.ts` and was the only
-    // one of the nine so declared with nothing on the line: its hint lived
-    // inside the sentence card, which is why the owner's sweep of the served
-    // build read "ABSENT" here. Outside `panelRoot` on purpose - the card
-    // slides in, the instructions do not.
-    this.hintLine = drawHint(this, this.lane.copy.text("warp.hint"), {
-      screen: "warp",
-      id: "warp.hint",
-      depth: layer("hud").depth + 2,
-      style: { lang: this.lane.lang, ...typographyOf(this) },
-    });
+    // NO HINT ON THE GRID LINE. `ui/hint.ts` declares this screen
+    // `placement: "none"`: its instruction is in Shadow's card, and a second
+    // copy at the foot of the frame would be UR-56's defect with a card in
+    // place of a button.
 
-    this.ring = createFocusRing(this, layer("hud").depth + 1);
+    this.ring = createFocusRing(this, layer("hud").depth + 1, this.lane.reducedMotion);
     this.ring.moveTo({
       id: "warp-sentence",
       x: PANEL.x,
@@ -735,82 +762,20 @@ export class WarpScene extends Phaser.Scene {
   }
 
   /**
-   * THE HEADER SITS ON A PLATE (AC-22.8).
+   * THE SCREEN HAS NO HEADER LINE AT ALL NOW.
    *
-   * It did not, and that is why "Warp break" measured 1.60:1 and "Belt cleared.
-   * Type this to charge the warp drive." measured 1.35:1 against Mars' ochre
-   * sky. The word plate below them has always measured 17.4:1, because the word
-   * plate is the only pair the contrast rubric ever looked at. The line a child
-   * has to read to know WHAT TO DO was the least legible text on the screen.
+   * It had one: `warp.beltCleared`, on a plate at the top of the frame, telling
+   * the player the belt was clear and to type the sentence below. It is inside
+   * Shadow's card with the other instruction (`warp.coachIntro`) - one place
+   * the screen speaks instead of three - and with it went UR-70's two status
+   * dots, which hung off that line's right end and had nothing left to hang
+   * off. `warp.beltCleared` is kept unused in the string table so restoring the
+   * banner stays a layout change.
    *
-   * `skyText` draws the same plate the word gets and registers the colour pair,
-   * so this header is now measured by V-22.8 along with everything else.
+   * The 94 px hole it left above the sentence card went with it: `PANEL_Y` is
+   * `HEADING_TOP` now, which is where every other screen's first element
+   * starts. See `support/warpLayout.ts`.
    */
-  private buildHeader(): Phaser.GameObjects.GameObject[] {
-    // THE TAB IS GONE (UR-78). "warp break" named the screen to a reader who
-    // was already looking at it, and it cost the top line of the screen to say
-    // nothing the line under it did not say better. The instruction line is the
-    // header now, and it is the first thing on the screen because it is the
-    // only thing on the screen a player has to act on.
-    //
-    // `warp.heading` IS KEPT IN THE STRING TABLE, unused. It is the screen's
-    // name in three languages and deleting it would make restoring the tab a
-    // translation job rather than one line of layout.
-    // "belt cleared - type this to charge the warp drive". The line used to be
-    // "the belt is clear. everything is still out here.", which is atmosphere:
-    // it never said that the asteroids were GONE because the player destroyed
-    // them, and it never said what the typing below it was for.
-    // ROW 0 NOW, not row 1: the line moved up into the space the tab was using
-    // rather than leaving a gap where it used to be.
-    const under = headerText(0, undefined, 10);
-    const calm = skyText(this, under.x, under.y, this.lane.copy.text("warp.beltCleared"), {
-      screen: "warp",
-      id: "warp.beltCleared",
-      size: TYPE.body,
-      color: INK.textDim,
-      lang: this.lane.lang,
-      depth: this.headerDepth(),
-      padY: 10,
-    });
-    // UR-70's TWO HEADER MARKS. The prompt sits after the tab, the dots after
-    // the line under it, both on the ink that row is already drawn in - so
-    // neither is a new colour and neither is a tenth type size.
-    //
-    // AFTER, NOT BEFORE. Every one of these marks hangs off the RIGHT end of a
-    // line that is already there, because the left edges on this screen are the
-    // thing UR-69's census is counting: a glyph placed before the heading would
-    // either push the heading off `GUTTER` or add an eleventh left edge to a
-    // screen that has fifteen.
-    // The prompt glyph went WITH the tab it was set into - it was a mark on the
-    // tab, not on the screen, so keeping it would leave a terminal cursor
-    // hanging off a sentence. The two dots stay: they hang off the instruction
-    // line, which is still here.
-    const marks = this.add.graphics().setDepth(this.headerDepth());
-    paintStatusDots(marks, this.markBoxAfter(calm, MARK.glyph + MARK.dot * 2), INK.textDim, {
-      count: 2,
-      alpha: 0.75,
-    });
-    return [...calm.objects, marks];
-  }
-
-  /**
-   * The box a mark takes at the right end of a plated line.
-   *
-   * Measured off the TEXT's own bounds rather than off the plate's, because a
-   * Graphics' bounds are whatever was last drawn into it and the plate is drawn
-   * from those same text bounds anyway. One `glass` step of air, so the mark
-   * reads as part of the line rather than as something stuck to it.
-   */
-  private markBoxAfter(line: PlatedText, width: number): Rect {
-    const b = line.text.getBounds();
-    const height = MARK.glyph;
-    return {
-      x: b.x + b.width + SKY_PLATE.padX + PLATE_STEP.glass,
-      y: b.y + b.height / 2 - height / 2,
-      w: width,
-      h: height,
-    };
-  }
 
   /** Depth the header's text draws at; its plate takes one below. */
   private headerDepth(): number {
@@ -928,6 +893,12 @@ export class WarpScene extends Phaser.Scene {
       text: this.warpSentenceText(),
       blasted: this.blastedThisRun(),
     });
+
+    // BEFORE the letters, so the bar draws under the glyph it is under. It is
+    // one Graphics for the whole sentence: the caret is on exactly one letter
+    // at a time, and `paintSentenceCaret` clears and redraws it each frame.
+    this.caret = this.add.graphics();
+    made.push(this.caret);
 
     made.push(...this.layoutLetters());
     this.paintLetters();
@@ -1122,17 +1093,25 @@ export class WarpScene extends Phaser.Scene {
     );
 
     const labelRow = instrumentLabelRow();
-    // THE WORDS START RIGHT OF THE BOLT, NOT ON THE ROW'S OWN EDGE.
+    // ON THE ROW'S MIDDLE, NOT ITS TOP EDGE.
     //
-    // `chargeLabelX()` is `labelRow.x + BOLT_LEAD_PX`, and the bolt below is
-    // then placed off this text's measured bounds so its LEFT edge lands back
-    // on `labelRow.x`. The lockup's left edge is the mark; the words are the
-    // second object in it. The row itself is unmoved - the percentage is still
-    // right-anchored to `labelRow.x + labelRow.w` below.
+    // Both ends of this line are drawn with `originY: 0.5` at `rowMiddle`, so
+    // the ink is centred in the row at any type size and in any of the three
+    // languages. Hung from `labelRow.y` with the row's old literal height of
+    // 32, "Beacon Charge" was not centred in its element - it overflowed it,
+    // because one line of `TYPE.label` is 37 in the language the rows are
+    // sized for. The row is `lineBox(TYPE.label)` now; see
+    // `support/warpLayout.ts`.
+    //
+    // THE WORDS STILL START RIGHT OF THE BOLT. `chargeLabelX()` is
+    // `labelRow.x + BOLT_LEAD_PX`, and the bolt is placed off this text's
+    // measured bounds so its LEFT edge lands back on `labelRow.x` - which is
+    // also why centring the words carries the mark with them.
+    const labelY = rowMiddle(labelRow);
     const chargeLabel = skyText(
       this,
       chargeLabelX(),
-      labelRow.y,
+      labelY,
       this.lane.copy.text("warp.chargeLabel"),
       {
         screen: "warp",
@@ -1141,6 +1120,7 @@ export class WarpScene extends Phaser.Scene {
         color: INK.textDim,
         lang: this.lane.lang,
         depth: this.headerDepth(),
+        originY: 0.5,
         plated: true,
         plateFill: INK.panel,
       },
@@ -1148,13 +1128,13 @@ export class WarpScene extends Phaser.Scene {
     made.push(...chargeLabel.objects);
     this.chargeLabelText = chargeLabel.text;
 
-    // Right-anchored to the SAME x the track ends at, on the SAME y the label
-    // sits at. That pair is the whole of "one instrument": the readout is the
-    // right end of the label's line and the right end of the bar at once.
+    // Right-anchored to the SAME x the track ends at, on the SAME middle the
+    // label sits on. That pair is the whole of "one instrument": the readout is
+    // the right end of the label's line and the right end of the bar at once.
     const percent = skyText(
       this,
       labelRow.x + labelRow.w,
-      labelRow.y,
+      labelY,
       this.lane.copy.text("warp.chargePercent", { percent: 0 }),
       {
         screen: "warp",
@@ -1165,6 +1145,7 @@ export class WarpScene extends Phaser.Scene {
         lang: this.lane.lang,
         depth: this.headerDepth(),
         originX: 1,
+        originY: 0.5,
         plated: true,
         plateFill: INK.panel,
       },
@@ -1435,6 +1416,37 @@ export class WarpScene extends Phaser.Scene {
     this.noteText.setAlpha(0);
     made.push(this.noteText);
 
+    // ============ BOTH OF THE SCREEN'S INSTRUCTIONS, IN THIS CARD ============
+    //
+    // They were a banner at the top of the frame (`warp.beltCleared`) and a
+    // hint at the foot (`warp.hint`), one at each end of a screen whose middle
+    // was a coach card saying nothing until the note landed. They are one line
+    // here, in Shadow's voice, because that is the one place on this screen a
+    // child is already reading.
+    //
+    // AC-33 SURVIVES BECAUSE THIS IS A SECOND TEXT IN THE SAME RECTANGLE, not
+    // a string swapped into the note's. Same row, same size, same wrap, both
+    // created now, neither ever moved or resized: the note's own x, y, style
+    // and wrap are byte-identical to what they were before this existed, which
+    // is what `warp.spec.ts` compares field by field. The arrival is a
+    // crossfade between two objects that occupy one box, so no geometry can
+    // react to what the transport returned.
+    this.introShownAtMs = this.time.now;
+    this.typedSinceIntro = false;
+    this.introText = label(
+      this,
+      noteRow.x,
+      noteRow.y,
+      this.lane.copy.text("warp.coachIntro"),
+      {
+        size: TYPE.body,
+        color: INK.text,
+        wrapWidth: noteRow.w,
+        lang: this.lane.lang,
+      },
+    );
+    made.push(this.introText);
+
     return made;
   }
 
@@ -1481,10 +1493,20 @@ export class WarpScene extends Phaser.Scene {
     const spans = highlightSpans(lines, words);
     const lineStep = this.noteText.height / Math.max(1, lines.length);
 
+    // `label` sets letterSpacing OUTSIDE `style`, so a ruler built from style
+    // alone measures a narrower prefix and the accent word lands left of the
+    // white one under it - the white fringe the owner saw (UR-156).
     const ruler = this.make.text(
       { text: "", style: this.noteText.style as unknown as object },
       false,
     );
+    const spaced = this.noteText as unknown as { letterSpacing?: number };
+    const rulerSpaced = ruler as unknown as {
+      setLetterSpacing?: (v: number) => unknown;
+    };
+    if (typeof rulerSpaced.setLetterSpacing === "function") {
+      rulerSpaced.setLetterSpacing(spaced.letterSpacing ?? 0);
+    }
     for (const span of spans) {
       ruler.setText(prefixOf(lines, span));
       const t = label(this, this.noteText.x + ruler.width, this.noteText.y + span.line * lineStep, span.text, {
@@ -1492,7 +1514,30 @@ export class WarpScene extends Phaser.Scene {
         color: this.lane.palette.accent,
         lang: this.lane.lang,
       });
-      t.setDepth(this.noteText.depth + 1).setAlpha(0);
+      // Same spacing as the run it sits on, for the same reason as the ruler.
+      const tSpaced = t as unknown as { setLetterSpacing?: (v: number) => unknown };
+      if (typeof tSpaced.setLetterSpacing === "function") {
+        tSpaced.setLetterSpacing(spaced.letterSpacing ?? 0);
+      }
+      // UR-156 again: the accent word is drawn OVER the white run, so any
+      // sub-pixel shortfall in the ruler leaves a white fringe. A knockout in
+      // the card's own fill, stroked so it covers the antialiasing, erases the
+      // glyph underneath instead of relying on the measurement being exact.
+      const knockout = label(this, t.x, t.y, span.text, {
+        size: TYPE.body,
+        color: INK.panel,
+        lang: this.lane.lang,
+      });
+      const kSpaced = knockout as unknown as { setLetterSpacing?: (v: number) => unknown };
+      if (typeof kSpaced.setLetterSpacing === "function") {
+        kSpaced.setLetterSpacing(spaced.letterSpacing ?? 0);
+      }
+      knockout.setStroke(INK.panel, 4);
+      knockout.setDepth(this.noteText.depth + 1).setAlpha(0);
+      this.panelRoot.add(knockout);
+      this.namedWords.push(knockout);
+
+      t.setDepth(this.noteText.depth + 2).setAlpha(0);
       this.panelRoot.add(t);
       this.namedWords.push(t);
     }
@@ -1542,7 +1587,46 @@ export class WarpScene extends Phaser.Scene {
     // so on the deployed path the promise is usually already kept and this is a
     // no-op. Running it first would have measured the promise against a
     // sentence that was about to be replaced.
-    this.showNote(result, this.applyRetryRule(result.note));
+    //
+    // QUEUED, NOT DRAWN. `releaseCoachNote` puts it on screen once the
+    // instruction has had the card for `COACH_INTRO_MIN_MS`; the rule is
+    // resolved HERE, against the sentence that is on screen now.
+    this.pendingNote = { result, note: this.applyRetryRule(result.note) };
+  }
+
+  /**
+   * HOW LONG THE INSTRUCTION GETS THE CARD BEFORE SHADOW TAKES IT BACK.
+   *
+   * Without this the feature deletes itself. `MockCoach` is the default
+   * transport (D47/AC-15.4) and it is SYNCHRONOUS - measured in the served
+   * build, `coach.received` is already true 200 ms after boot - so a note that
+   * replaced the instruction "on arrival" would replace it before a single
+   * frame had drawn it, and the two lines this screen used to carry would be
+   * gone rather than consolidated.
+   *
+   * TWO GATES, and the first is the one that matters: the child must have
+   * typed a character. A clock alone took the instruction away at 3.2 s from a
+   * child who had not started, which is exactly when they still needed it
+   * (UR-163). `DUR.toast` stays as the floor underneath, so the line is also
+   * never snatched away the instant the first key lands.
+   *
+   * It also makes AC-33 tighter rather than looser - live (instant) and
+   * fallback (1500 ms timeout) both render the note at the same moment now.
+   * The dwell is in gauntlet/escalations.md with its options and a lean.
+   *
+   * ON THE FRAME LOOP, NOT A `delayedCall`. The first version awaited a promise
+   * resolved by `this.time.delayedCall` and the note never arrived at all in
+   * the served build - `coach.calls` read 1 and `coach.received` stayed false
+   * past six seconds. `update` is the clock this screen is already known to be
+   * running, because the parallax and the caret are drawn from it.
+   */
+  private releaseCoachNote(): void {
+    const pending = this.pendingNote;
+    if (pending === null) return;
+    if (!this.typedSinceIntro) return;
+    if (this.time.now - this.introShownAtMs < COACH_INTRO_MIN_MS) return;
+    this.pendingNote = null;
+    this.showNote(pending.result, pending.note);
   }
 
   /**
@@ -1655,6 +1739,13 @@ export class WarpScene extends Phaser.Scene {
       return;
     }
     if (composed.text === this.sentence.text) return;
+    // UR-165: the card reserves one line. A composed sentence that would wrap
+    // is refused rather than kept by force, which is the third case of the
+    // rule above and the same shape as the other two.
+    if (!fitsOneLine(composed.text)) {
+      this.composedRefused = "would-wrap";
+      return;
+    }
 
     this.composedText = composed.text;
     this.composedReused = [...composed.reused];
@@ -1685,12 +1776,9 @@ export class WarpScene extends Phaser.Scene {
     });
     this.panelRoot.add(this.layoutLetters());
     this.paintLetters();
-    // THE HINT NO LONGER MOVES WITH THE SENTENCE. It is on the product's hint
-    // line at the bottom left (`ui/hintLine.drawHint`), outside the card, so a
-    // composed sentence that wraps where the shipped one did not changes
-    // nothing about it - and the plate, the meter and the coach area stay
-    // byte-identical either way, which is the part of this method's contract
-    // that is load-bearing.
+    // Nothing else moves when a composed sentence wraps where the shipped one
+    // did not: the plate, the meter and the coach area are byte-identical
+    // either way, which is the load-bearing half of this method's contract.
     // The meter is driven by `chargeFraction`, which is index/length; index is
     // 0 and the length changed, so the drawn fill has to be told the new zero
     // rather than left holding a fraction of the old string.
@@ -1728,11 +1816,21 @@ export class WarpScene extends Phaser.Scene {
       this.noteText.setText(display.text);
       const named = this.markNamedWords();
       if (this.lane.reducedMotion) {
+        this.introText.setAlpha(0);
         this.noteText.setAlpha(1);
         for (const t of named) t.setAlpha(1);
         settle();
         return;
       }
+      // One beat, two objects, one rectangle: the instruction leaves on the
+      // same duration and ease the note arrives on, so the card reads as
+      // Shadow starting to talk rather than as two things swapping places.
+      this.tweens.add({
+        targets: this.introText,
+        alpha: 0,
+        duration: DUR.panel,
+        ease: EASE.arrive,
+      });
       this.tweens.add({
         targets: [this.noteText, ...named],
         alpha: 1,
@@ -1783,6 +1881,7 @@ export class WarpScene extends Phaser.Scene {
     this.sentence = typeChar(before, event.key);
     if (this.sentence.lastEvent === "none") return;
 
+    this.typedSinceIntro = true;
     this.soundCharge(chargeFraction(this.sentence));
 
     this.paintLetters();
@@ -2072,13 +2171,17 @@ export class WarpScene extends Phaser.Scene {
   private clearAndLaunch(): void {
     const reduced = this.lane.reducedMotion;
 
-    this.tweens.add({
-      targets: this.panelRoot,
-      alpha: 0,
-      ...(reduced ? {} : { y: this.panelRoot.y - PANEL_CLEAR_LIFT_PX }),
-      duration: PANEL_CLEAR_MS,
-      ease: EASE.arrive,
-    });
+    const pending: Phaser.Tweens.Tween[] = [];
+
+    pending.push(
+      this.tweens.add({
+        targets: this.panelRoot,
+        alpha: 0,
+        ...(reduced ? {} : { y: this.panelRoot.y - PANEL_CLEAR_LIFT_PX }),
+        duration: PANEL_CLEAR_MS,
+        ease: EASE.arrive,
+      }),
+    );
 
     /**
      * ============ THE FOCUS RING GOES WITH THE CARD IT IS AROUND ============
@@ -2110,55 +2213,116 @@ export class WarpScene extends Phaser.Scene {
      * two things that happen to leave at about the same time. UR-82's
      * snap-and-fade teardown is not involved - that is `ui/chrome.FocusRing`,
      * which this screen does not use; the story lane's ring is
-     * `scenes/lib/kit.createFocusRing` and its only fade is the one it plays on
-     * arrival.
+     * `scenes/lib/kit.createFocusRing`.
+     *
+     * ============ AND THE FADE BELONGS TO THE RING, NOT TO THIS SCREEN ============
+     *
+     * It was `this.tweens.add({ targets: this.ring.graphics, alpha: 0, ... })`
+     * written here, and that FIXED NOTHING a player could see: `createFocusRing`
+     * breathes the ring with a `repeat: -1` tween on the same `alpha`, so the
+     * fade was a second tween on one property and the breath put the ring
+     * straight back. Sampled every animation frame from the last keystroke, in
+     * the served build, with that tween in place:
+     *
+     *              panelRoot.alpha   ring.graphics.alpha
+     *     Pluto       0.000               1.000   (+1413 ms)
+     *     Mars        0.000               0.856   (+1187 ms)
+     *     Neptune     0.000               0.865   (+1323 ms)
+     *
+     * The owner reported it at Pluto; it was every stop. `ring.fadeOut` stops
+     * the breath and then fades, because the pulse's handle is the component's
+     * and no caller can reach it. Same duration and same ease as the panel, so
+     * the beat this note was written about is unchanged.
      */
-    this.tweens.add({
-      targets: this.ring.graphics,
-      alpha: 0,
-      duration: PANEL_CLEAR_MS,
-      ease: EASE.arrive,
-    });
+    this.ring.fadeOut(PANEL_CLEAR_MS, EASE.arrive);
 
-    // AND THE HINT LINE, WHICH HAD THE IDENTICAL DEFECT (UR-104).
-    //
-    // It is outside `panelRoot` for the same reason the ring is - it belongs to
-    // the screen's foot, not to the card - so the panel fade never reached it
-    // either, and it sat at full alpha over an empty frame for the whole exit.
-    // It was not in the report; it is the same bug one object along, and
-    // fixing the reported half only would have left the screen clearing in two
-    // stages for no reason a player could see.
-    //
-    // Same duration, same ease, same beat as the panels and the ring: the
-    // screen empties as one thing.
-    for (const object of this.hintLine.objects) {
-      this.tweens.add({
-        targets: object,
-        alpha: 0,
-        duration: PANEL_CLEAR_MS,
-        ease: EASE.arrive,
-      });
+    // UR-104's THIRD FADE IS GONE BECAUSE THE OBJECT IS. The hint line at the
+    // foot of the frame was outside `panelRoot`, so the panel fade never
+    // reached it and it sat at full alpha over an empty frame for the whole
+    // exit. The screen has no hint line any more (`ui/hint.ts`), so there is
+    // nothing left outside `panelRoot` but the ring above - which is a
+    // stronger guarantee than fading it was.
+
+    /**
+     * THE ORDER IS THE POINT (UR-166): the page clears, THEN she cheers, THEN
+     * the next screen. She is drawn at the hud depth, outside `panelRoot`, so
+     * she is the one thing the panel's fade does not take with it - which is
+     * what makes the beat possible rather than being the bug it used to be.
+     *
+     * Her fade starts once the card is gone and she has had `SHADOW_CHEER_HOLD_MS`
+     * of the frame to herself. The cut waits on this tween like any other.
+     */
+    /**
+     * THE CHEER IS A REAL ANIMATION NOW, and that is the whole fix.
+     *
+     * `setPose("cheering")` is a STATIC pose - sparks drawn once, plus the
+     * ambient face-glow pulse - so "hold until she has finished" had nothing to
+     * finish and the hold was a number standing in for one. She hops twice into
+     * the cleared frame, and the cut waits on THAT tween.
+     *
+     * Reduced motion (D41) keeps the beat and drops the movement: the pose and
+     * its sparks are the information, the hop is the decoration.
+     */
+    const hopY = this.shadow.root.y;
+    if (!reduced) {
+      pending.push(
+        this.tweens.add({
+          targets: this.shadow.root,
+          y: { from: hopY, to: hopY - SHADOW_HOP_PX },
+          delay: PANEL_CLEAR_MS,
+          duration: SHADOW_HOP_MS,
+          ease: "Sine.Out",
+          yoyo: true,
+        }),
+      );
     }
+    pending.push(
+      this.tweens.add({
+        targets: this.shadow.root,
+        alpha: 0,
+        delay: PANEL_CLEAR_MS + (reduced ? SHADOW_CHEER_HOLD_MS : SHADOW_HOP_MS * 2),
+        duration: SHADOW_CHEER_EXIT_MS,
+        ease: EASE.arrive,
+      }),
+    );
 
     const ship = this.lantern?.container ?? null;
     if (ship !== null) {
-      this.tweens.add({
-        targets: ship,
-        ...(reduced
-          ? { alpha: 0 }
-          : { y: -SHIP_EXIT_CLEARANCE_PX, scale: ship.scale * 0.72 }),
-        delay: SHIP_LAUNCH_DELAY_MS,
-        duration: SHIP_LAUNCH_MS,
-        ease: reduced ? EASE.arrive : "Cubic.In",
-      });
+      pending.push(
+        this.tweens.add({
+          targets: ship,
+          ...(reduced
+            ? { alpha: 0 }
+            : { y: -SHIP_EXIT_CLEARANCE_PX, scale: ship.scale * 0.72 }),
+          delay: SHIP_LAUNCH_DELAY_MS,
+          duration: SHIP_LAUNCH_MS,
+          ease: reduced ? EASE.arrive : "Cubic.In",
+        }),
+      );
     }
 
-    // ONE CUT, however many things are moving. `delayedCall` rather than an
-    // onComplete so the overlay path - which has no ship - leaves on the same
-    // beat as the standalone one.
-    this.time.delayedCall(SHIP_LAUNCH_DELAY_MS + SHIP_LAUNCH_MS, () => {
-      this.cutToBeacon();
-    });
+    /**
+     * ONE CUT, WHEN THE LAST THING ON SCREEN HAS ACTUALLY FINISHED.
+     *
+     * It was `delayedCall(SHIP_LAUNCH_DELAY_MS + SHIP_LAUNCH_MS)` - a number
+     * that had to be kept equal to the longest tween by hand, and was not:
+     * Shadow's exit was computed backwards off it, so changing either one
+     * silently changed when she left. The cut now waits on the tweens
+     * themselves, so "the cue plays, then the next page" is enforced by the
+     * cue rather than restated as a constant (UR-166).
+     *
+     * The overlay path draws no ship, so the set is whatever this screen
+     * actually started; an empty set cuts on the next frame rather than
+     * hanging.
+     */
+    let waiting = pending.length;
+    // ONE call site, so a guard can still say the cut belongs to the exit.
+    const done = (): void => {
+      waiting -= 1;
+      if (waiting <= 0) this.cutToBeacon();
+    };
+    if (waiting === 0) this.time.delayedCall(0, done);
+    else for (const tween of pending) tween.once("complete", done);
   }
 
   /**
@@ -2246,7 +2410,40 @@ export class WarpScene extends Phaser.Scene {
   override update(_time: number, delta: number): void {
     this.parallax.update(delta);
     this.shadow.update(this.time.now);
+    this.releaseCoachNote();
+    this.paintSentenceCaret();
     this.sampleDebris();
+  }
+
+  /**
+   * THE PRE-FLIGHT PROMPT'S CARET, ON A LINE THAT WRAPS.
+   *
+   * `lib/typedWord.paintCaret` is the drawing, unchanged and unduplicated -
+   * this project has shipped two cockpit windows, two `WINDOW` rects and two
+   * skies, and a second caret would be the fourth. What the shared module
+   * needed was not a multi-line mode but a PARAMETER: it used to read the
+   * letter's position off a container offset it owned, and it now takes the
+   * letter's box. This screen lays every character out at its own absolute
+   * position (`layoutLetters` breaks on word boundaries), so a caret on line
+   * two is the same call with a different box.
+   *
+   * Read off the drawn Text every frame rather than computed, so the completed
+   * word's pulse (UR-26) carries the caret with it instead of leaving it
+   * behind.
+   */
+  private paintSentenceCaret(): void {
+    const letter = this.sentence.charged
+      ? undefined
+      : this.letters[this.sentence.index];
+    paintCaret(
+      this.caret,
+      letter === undefined
+        ? null
+        : { x: letter.x, y: letter.y, w: letter.width },
+      SENTENCE_PX,
+      this.lane.palette.accent,
+      this.time.now,
+    );
   }
 
   /**

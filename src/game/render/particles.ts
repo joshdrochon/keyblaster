@@ -281,3 +281,67 @@ export function shardWaves(count?: number): readonly ShardWave[] {
 export function shardsDetachedBy(atMs: number, count?: number): number {
   return shardOnsetsMs(count).filter((t) => t <= atMs).length;
 }
+
+/* ======================================================================== *
+ *  THE ROCK THAT WINS x3, x5 OR x10 COMES APART HARDER (UR-117)
+ * ======================================================================== */
+
+/**
+ * HOW MUCH BIGGER THE MILESTONE EXPLOSION IS, AND WHY IT IS THE SAME EXPLOSION.
+ *
+ * `scoring/combo.MULTIPLIER_MILESTONES` rations this to three moments a belt.
+ * That is the whole reason it can be expensive at all - a burst 50% larger on
+ * every one of the first ten words would be the normal blast with extra cost
+ * and no meaning left in it.
+ *
+ * IT SCALES THE POPULATION AND NOTHING ELSE, and the two things it deliberately
+ * does NOT touch are the argument for it:
+ *
+ *   NOT A SECOND EFFECT. An extra ring, a second flash or a different particle
+ *   system laid on top would be a new vocabulary item for a moment that is
+ *   supposed to read as "that one broke HARDER", not as "something else
+ *   happened". The player learns one explosion; this is that explosion, louder.
+ *
+ *   NOT THE SCHEDULE. `shardOnsetsMs` is the crumble sound's own onset
+ *   distribution (see the block comment above it), and UR-48 is the claim that
+ *   the picture and the sound are the SAME distribution. Compressing the burst
+ *   in time would make the milestone blast finish shedding at ~290 ms while the
+ *   ear is still hearing rock fall at 460 - the exact disagreement UR-48 was
+ *   filed about. The population is the one axis that can move without breaking
+ *   it, and moving it DOES make the burst faster in the sense an eye reads:
+ *   the same 18-440 ms window with half again as much material coming through
+ *   it is a higher arrival RATE, every fragment still landing inside the sound.
+ *
+ * 1.5 and not 2: 16 -> 24 fragments, measured against the same P-22.9 sweep
+ * that put the population back to 16 (that block comment has the numbers). 24
+ * is a third more particle-ms than the 16 that measured indistinguishable from
+ * 12, on an event that fires three times in a belt rather than sixty. Double
+ * would be 32, which is more fragments than the 24 the P-22.9 sweep's upper arm
+ * ever covered, so it would be a number chosen rather than measured.
+ */
+export const MILESTONE_SHARD_SCALE = 1.5;
+
+/**
+ * And the camera. `3 + min(10, combo) x 0.6` already rises with the combo, so
+ * a milestone blast is at 4.8-9 px before this; 1.6x puts it at 7.7-14.4 px,
+ * under the 16 px the strike-side work treats as the ceiling for a shake a
+ * child can read text through. It is off entirely under reduced motion, which
+ * `FlightScene.shakeBy` owns for every caller (AC-19.3).
+ */
+export const MILESTONE_SHAKE_SCALE = 1.6;
+
+/**
+ * The fragment population for one blast. `milestone` is the only input that
+ * changes it, so the rationing rule is visible in the signature.
+ */
+export function blastShardCount(milestone: boolean, count?: number): number {
+  const base = shardPopulation(count);
+  return milestone ? Math.round(base * MILESTONE_SHARD_SCALE) : base;
+}
+
+/** The camera shake for a blast, px. Pure so the rationing can be asserted. */
+export function blastShakePx(combo: number, milestone: boolean): number {
+  const c = Number.isFinite(combo) ? Math.max(0, Math.min(10, combo)) : 0;
+  const base = 3 + c * 0.6;
+  return milestone ? base * MILESTONE_SHAKE_SCALE : base;
+}

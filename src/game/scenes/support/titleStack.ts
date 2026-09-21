@@ -142,6 +142,17 @@ export const QUIET_GAP = 28;
 export const MIN_CLEAR = 20;
 
 /**
+ * UR-151: the gap under the primary action, when there is no caption.
+ *
+ * The lockup's own rule-to-tagline gap is 6 (rule bottom 160, tagline plate
+ * top 166); 10 is that plus the 4 px the owner asked for by eye.
+ */
+export const LOCKUP_INNER_GAP = 10;
+
+/** What the quiet row's focus ring is struck at. `SPACE.focusRingOffset`. */
+export const QUIET_RING_OFFSET = 6;
+
+/**
  * The frame itself. Nothing may be drawn past it at any budget.
  *
  * `STACK_FLOOR` is where the column SHOULD stop; this is where it physically
@@ -223,7 +234,17 @@ export function titleStack(input: TitleStackInput): TitleStackTops {
     const blockBottom =
       statusY === null || input.statusH === null ? ringBottom : statusY + input.statusH;
 
-    const settingsY = blockBottom + SECONDARY_GAP + FOCUS_PAD;
+    // `SECONDARY_GAP` exists to separate the settings row from the CAPTION, so
+    // the caption reads as belonging to the button above it. With no caption
+    // there is nothing to separate from, and the gap was sizing itself against
+    // an absent object - measured at 78 px of empty sky on a profile with no
+    // status line. `blockBottom` already carries the primary's ring pad, and
+    // the settings row's own ring is struck at offset 0, so it needs no
+    // clearance of its own either.
+    const settingsY =
+      statusY === null
+        ? blockBottom + LOCKUP_INNER_GAP
+        : blockBottom + SECONDARY_GAP + FOCUS_PAD;
     const settingsBottom = settingsY + input.settingsH + FOCUS_PAD;
 
     const langY = input.langH === null ? null : settingsBottom + QUIET_GAP + FOCUS_PAD;
@@ -263,9 +284,13 @@ export function clearGaps(boxes: {
   readonly settingsTop: number;
 }): number[] {
   const primaryRing = boxes.primaryBottom + FOCUS_PAD;
-  const settingsRing = boxes.settingsTop - FOCUS_PAD;
+  // The quiet row's ring is struck at `SPACE.focusRingOffset`, not `FOCUS_PAD`
+  // - that is what `TitleScene.drawFocusRing` draws (UR-151).
+  const settingsRing = boxes.settingsTop - QUIET_RING_OFFSET;
   if (boxes.statusTop === null || boxes.statusBottom === null) {
-    return [settingsRing - primaryRing];
+    // Ring to PLATE: only one control is focused at a time, so the primary's
+    // ring and the quiet row's never both exist (UR-151).
+    return [boxes.settingsTop - primaryRing];
   }
   return [boxes.statusTop - primaryRing, settingsRing - boxes.statusBottom];
 }

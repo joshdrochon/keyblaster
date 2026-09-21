@@ -8,6 +8,7 @@ import {
   reduce,
 } from "@engine/lock";
 import { hexToNum as rgb } from "@game/render/palette";
+import type { Rect } from "@game/ui/layout";
 import { FONT_STACK, INK, SPACE, TYPE } from "@game/ui/theme";
 import { audioFrom } from "@game/audio/wiring";
 
@@ -94,6 +95,67 @@ export interface WordPrompt {
 }
 
 const ASTEROID_ID = "prompt";
+
+/**
+ * THE CARET UNDER THE LETTER BEING TYPED - ONE DRAWING, TWO SCREENS.
+ *
+ * "the next letter carries a soft underline cue" (art-direction s7). It was a
+ * closure inside `createWordPrompt`, reachable only by the single-word ritual;
+ * the warp break asked for the same cue under a line that WRAPS. The drawing
+ * did not have to change for that - a caret is a function of ONE letter's box -
+ * so what changed is that the box is now a parameter instead of a container
+ * offset. This project has shipped two cockpit windows, two `WINDOW` rects and
+ * two skies; it is not shipping two carets.
+ */
+export const CARET = {
+  /** How far under the letter's TOP the bar sits, in ems. */
+  drop: 1.06,
+  height: 5,
+  radius: 3,
+  /** A space, or a narrow "i", still gets a caret wide enough to see. */
+  minWidth: 8,
+  breatheMs: 900,
+  /** The alpha band every caret in the game breathes across (UR-161). */
+  breatheMin: 0.3,
+  breatheMax: 0.8,
+} as const;
+
+/** The letter the caret is under: its left edge, its top, its width. */
+export interface CaretTarget {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+}
+
+export function caretBox(target: CaretTarget, fontPx: number): Rect {
+  return {
+    x: target.x,
+    y: target.y + fontPx * CARET.drop,
+    w: Math.max(CARET.minWidth, target.w),
+    h: CARET.height,
+  };
+}
+
+export function caretBreathe(timeMs: number): number {
+  const mid = (CARET.breatheMax + CARET.breatheMin) / 2;
+  const swing = (CARET.breatheMax - CARET.breatheMin) / 2;
+  return mid + Math.sin((timeMs / CARET.breatheMs) * Math.PI * 2) * swing;
+}
+
+/** Repaint the caret. `null` clears it - a finished word has no next letter. */
+export function paintCaret(
+  g: Phaser.GameObjects.Graphics,
+  target: CaretTarget | null,
+  fontPx: number,
+  accent: string,
+  timeMs: number,
+): void {
+  g.clear();
+  if (target === null) return;
+  const box = caretBox(target, fontPx);
+  g.fillStyle(rgb(accent), caretBreathe(timeMs));
+  g.fillRoundedRect(box.x, box.y, box.w, box.h, CARET.radius);
+}
 
 function toKeyInput(event: KeyboardEvent): KeyInput {
   return {
@@ -187,17 +249,22 @@ export function createWordPrompt(
   };
 
   const drawCue = (timeMs: number): void => {
-    cue.clear();
-    if (complete) return;
-    const i = [...typed].length;
-    const target = letters[i];
-    if (target === undefined) return;
-    // "the next letter carries a soft underline cue" (art-direction s7).
-    const breathe = 0.55 + Math.sin((timeMs / 900) * Math.PI * 2) * 0.25;
-    const x = letterLayer.x + target.x;
-    const y = letterLayer.y + size * 1.06;
-    cue.fillStyle(rgb(options.accent), breathe);
-    cue.fillRoundedRect(x, y, Math.max(8, target.width), 5, 3);
+    const target = complete ? undefined : letters[[...typed].length];
+    paintCaret(
+      cue,
+      target === undefined
+        ? null
+        : {
+            // The letters live in `letterLayer`; the caret is drawn in the
+            // root, so the box is handed over in the root's space.
+            x: letterLayer.x + target.x,
+            y: letterLayer.y + target.y,
+            w: target.width,
+          },
+      size,
+      options.accent,
+      timeMs,
+    );
   };
 
   // UR-101.4. Resolved once: the registry is the scene's and does not change,

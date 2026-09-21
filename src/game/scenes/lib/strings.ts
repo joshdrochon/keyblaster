@@ -43,6 +43,8 @@ export const SCENE_STRING_KEYS = [
   "earth.lit",
   "earth.continue",
   "map.subheading",
+  "map.goalLabel",
+  "map.goal",
   "map.personalBest",
   "map.bestWpm",
   "map.bestAccuracy",
@@ -55,6 +57,7 @@ export const SCENE_STRING_KEYS = [
   "briefing.back",
   "briefing.hint",
   "preflight.step.hull",
+  "briefing.shipReadySpoken",
   "preflight.step.systems",
   "preflight.step.engines",
   "preflight.line.opening",
@@ -112,6 +115,15 @@ export interface SceneTextOptions {
   readonly mode?: Mode;
   /** C07: bound once, never passed at a call site. */
   readonly shipName: string;
+  /**
+   * The name the child typed at profile creation, bound the same way (C27).
+   *
+   * OPTIONAL, AND IT DEFAULTS TO EMPTY RATHER THAN TO A NAME. There is no
+   * sensible stand-in for a person's own name - "Pilot" reads as the game
+   * having forgotten them - so a caller with no profile gets a string the
+   * copy can be written around instead of a wrong name.
+   */
+  readonly pilotName?: string;
 }
 
 export interface SceneText {
@@ -134,12 +146,12 @@ export interface SceneText {
 }
 
 export function createSceneText(options: SceneTextOptions): SceneText {
-  const { lang, shipName } = options;
+  const { lang, shipName, pilotName = "" } = options;
   // Scenes run in the browser, where a thrown MissingStringError would take a
   // child's game down over a typo in a content file. The engine's dev throw
   // stays available to unit tests by constructing a translator with mode dev.
   const mode: Mode = options.mode ?? "prod";
-  const defaults: InterpolationParams = { shipName };
+  const defaults: InterpolationParams = { shipName, pilotName };
 
   const engine = createTranslator({ lang, mode, defaults });
   const own = TABLES[lang] ?? {};

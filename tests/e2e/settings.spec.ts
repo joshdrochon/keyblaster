@@ -321,40 +321,42 @@ test.describe("row 11 - settings", () => {
     await expect(heading).toContainText("ship controls");
   });
 
-  test("AC-19.1 / AC-14.1 content language is filtered by input method", async ({
+  test("the two rows that could not change anything are GONE from the screen", async ({
     page,
   }) => {
-    // Next in line behind the test at the top of this file: measured at 26.6s
-    // of a 30s budget under the suite's own three-worker load, which is 89% and
-    // no room for a slow morning. It is two `adjust` walks past a seed, and it
-    // has not failed yet - this is the one that would have gone next.
-    test.slow();
+    // This test replaces "AC-19.1 / AC-14.1 content language is filtered by
+    // input method", which exercised two controls that wrote to the save and
+    // reached nothing else.
+    //
+    // `contentLang` is collision C14: `FlightScene` reads `cfg.contentLang`,
+    // but neither `PreflightScene.complete` nor `ResultsScene.replay` carries
+    // it into the `FlightConfig`, so the belt built an English allowlist
+    // whatever the row said. `inputMethod` is the identical break one field
+    // over, and is additionally a control for typing a language D95 cut from
+    // the shipped menu.
+    //
+    // What AC-14.1 asserts is unchanged and is asserted in two better places:
+    // its input-method RULE by `tests/unit/i18n/shippedLangs.test.ts` over all
+    // three languages, and its stored-pair REPAIR by the test directly below,
+    // which still runs on the real screen.
     await seed(page, [{ name: "Ana" }], SETTINGS);
 
-    // D95: the shipped menu is English only, on every input method. AC-14.1's
-    // "Devanagari is offered only on a Devanagari input method" rule still
-    // holds and is exercised on all three languages by
-    // tests/unit/i18n/shippedLangs.test.ts via typeableContentLangs(); what is
-    // asserted HERE is what a player can actually reach.
-    expect((await snapshot(page, SETTINGS))["contentLangChoices"]).toEqual(["en"]);
-    // The "pick a Hindi keyboard" note must NOT show on a latin keyboard when
-    // the row offers only English - it told the child to do something that
-    // would change nothing. It previously showed to everyone, and the old
-    // assertion here passed for that wrong reason.
-    await expect(item(page, SETTINGS, "settings.contentLang")).not.toContainText(
-      "hindi keyboard",
+    const ids = await items(page, SETTINGS).evaluateAll((nodes) =>
+      nodes.map((n) => n.getAttribute("data-id") ?? ""),
     );
-
-    // Cycling cannot leave English, because there is nowhere to go.
-    await adjust(page, "settings.contentLang", "ArrowRight");
-    expect((await settings(page))["contentLang"]).toBe("en");
-
-    // And a Devanagari input method does not conjure Hindi content into a
-    // build that does not ship it. This is the assertion that would fail the
-    // day someone filters the menu somewhere other than SHIPPED_LANGS.
-    await adjust(page, "settings.inputMethod", "ArrowRight");
-    expect((await settings(page))["inputMethod"]).toBe("translit");
-    expect((await snapshot(page, SETTINGS))["contentLangChoices"]).toEqual(["en"]);
+    expect(ids, "a removed row is still on the panel").not.toContain(
+      "settings.contentLang",
+    );
+    expect(ids, "a removed row is still on the panel").not.toContain(
+      "settings.inputMethod",
+    );
+    // The rows that DO reach something are untouched - `keyboardLayout` reaches
+    // the lock machine and `uiLang` has readers throughout.
+    expect(ids).toContain("settings.keyboardLayout");
+    expect(ids).toContain("settings.uiLang");
+    // And the two new rows are here and operable.
+    expect(ids).toContain("settings.dashColor");
+    expect(ids).toContain("settings.avatar");
   });
 
   test("AC-14.1 an untypeable stored pair is repaired when Settings opens", async ({
@@ -478,7 +480,8 @@ test.describe("row 11 - settings", () => {
 
     // Step one: says what goes and what stays, by name.
     await expect(dialog(page, SETTINGS)).toContainText("Ana");
-    await expect(dialog(page, SETTINGS)).toContainText("the pilot stays");
+    // UR-146 recased the clause after the full stop; the claim is unchanged.
+    await expect(dialog(page, SETTINGS)).toContainText("The pilot stays");
     expect((await snapshot(page, SETTINGS))["resetStage"]).toBe(1);
     // The safe answer has focus, so Enter on reflex destroys nothing.
     expect(await screen(page, SETTINGS).getAttribute("data-focus")).toBe(

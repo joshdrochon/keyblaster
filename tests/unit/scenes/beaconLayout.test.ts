@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { DESIGN_WIDTH, GAME_HEIGHT } from "@game/sceneKeys";
 import { rectsOverlap, type Rect } from "@game/ui/layout";
-import { ACTION_BUTTON, BLOCK_GAP, GUTTER, actionButton } from "@game/ui/grid";
+import { ACTION_BUTTON, BLOCK_GAP, GUTTER, actionButton,
+  BACK_CORNER_BOTTOM,
+} from "@game/ui/grid";
 import { PLATE_RHYTHM } from "@game/ui/plateLayout";
 import {
   CARD_W,
@@ -183,8 +185,12 @@ describe("Beacon placement - the forward action", () => {
 
   it("is the size the launch button on the Earth beacon screen is", () => {
     const b = button();
-    expect([b.w, b.h, b.y]).toEqual([420, 88, Math.round(GAME_HEIGHT * 0.87)]);
-    expect(ACTION_BUTTON.y).toBe(940);
+    // The action button now sits on the SHARED foot line rather than a fraction
+    // of the artboard: the back chip and the hint plate are both on
+    // `BACK_CORNER_BOTTOM`, and a forward action 20 px above them read as
+    // misaligned on every screen that has both.
+    expect([b.w, b.h, b.y]).toEqual([420, 88, BACK_CORNER_BOTTOM - 88]);
+    expect(ACTION_BUTTON.y + ACTION_BUTTON.h).toBe(BACK_CORNER_BOTTOM);
   });
 
   it("stays on the artboard at every window the game can be built at", () => {

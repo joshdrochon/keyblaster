@@ -156,11 +156,45 @@ describe("UR-101.5: the check rows are a rising figure, composed not sampled", (
     }
   });
 
-  it("composes from an EXISTING cue rather than adding an eleventh event", () => {
-    // The brief asked for composition over a new sample. `lock` is one of the
-    // ten AC-21.3 events and this adds none.
+  it("composes from an EXISTING cue rather than adding an event of its own", () => {
+    // The brief asked for composition over a new sample, and `lock` is what it
+    // composes from. That claim is about THIS feature, so it is now asserted
+    // as this feature adding nothing rather than as a global count of ten.
     expect(SFX_EVENTS).toContain("lock");
-    expect(SFX_EVENTS.length).toBe(10);
+    expect(SFX_EVENTS).not.toContain("systemCheck");
+    expect(SFX_EVENTS).not.toContain("rowChime");
+  });
+
+  it("the event list only ever grows on purpose", () => {
+    /**
+     * THE RATCHET THE COUNT USED TO BE.
+     *
+     * `expect(SFX_EVENTS.length).toBe(10)` was doing two jobs: saying the row
+     * chime added nothing (above, where it belongs), and stopping anybody from
+     * quietly growing the game's sound vocabulary. The second job is the one
+     * worth keeping, and a bare number cannot do it - it fails identically for
+     * a careless addition and for a deliberate one, and the only way past it is
+     * to edit the number, which is exactly what a ratchet must not invite.
+     *
+     * So the list is named. A new event fails here until it is written down,
+     * and writing it down is where somebody has to say which AC it belongs to.
+     */
+    expect([...SFX_EVENTS]).toEqual([
+      // The ten AC-21.3 named at the start, in the PRD's order.
+      "lock",
+      "keystroke",
+      "typo",
+      "blast",
+      "hit",
+      "shield",
+      "warpCharge",
+      "warp",
+      "beacon",
+      "uiNav",
+      // UR-117, added to AC-21.3: a multiplier milestone (x3, x5, x10). Not on
+      // every multiplier step - `scoring/combo.MULTIPLIER_MILESTONES` has why.
+      "comboUp",
+    ]);
   });
 
   it("stays inside the transposition cap however many rows there are", () => {

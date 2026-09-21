@@ -1,11 +1,6 @@
-import { GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
-import { SHIPPED_LANGS, availableContentLangs, resolveContentLang } from "@engine/i18n";
-import {
-  type InputMethod,
-  type KeyboardLayout,
-  type Lang,
-  type Settings,
-} from "@engine/types";
+import { SCENE_KEYS } from "@game/sceneKeys";
+import { SHIPPED_LANGS, resolveContentLang } from "@engine/i18n";
+import { type KeyboardLayout, type Lang, type Settings } from "@engine/types";
 import { MenuScene } from "@game/ui/MenuScene";
 import { type Control } from "@game/ui/controls";
 import {
@@ -18,10 +13,14 @@ import {
   SwitchRow,
   drawConsoleFace,
 } from "@game/ui/cockpit";
-import { liveryForShip } from "@game/ui/catalog";
+import { AVATARS, liveryForShip } from "@game/ui/catalog";
+import { DASH_COLORS, dashHexOf } from "@game/ui/dash";
+import { drawAvatar, drawDashSwatch } from "@game/ui/chrome";
 import { equippedIndex, hullSlots } from "@game/ui/hulls";
+import { contentWidth, pageInset } from "@game/ui/grid";
+import { type ConsoleColumn, consoleColumns } from "@game/ui/controlSurfaceLayout";
 import { SETTINGS_CONSOLE, bottomOf, fitPlan, flowColumn } from "@game/ui/layout";
-import { INK, SPACE, TYPE } from "@game/ui/theme";
+import { INK, TYPE } from "@game/ui/theme";
 import { uiText } from "@game/ui/text";
 import type { MenuKey } from "@game/ui/i18n";
 import { audioFrom } from "@game/audio/wiring";
@@ -72,15 +71,44 @@ import { audioFrom } from "@game/audio/wiring";
  * are deliberate exclusions in D41, and the e2e asserts their absence rather
  * than trusting this comment.
  *
- * AC-14.1: the content-language row is filtered by input method. `hi` is only
- * offered when Hindi can actually be typed; when it is not, the row carries one
- * calm line saying which keyboard to pick.
+ * AC-14.1: THE ROW IS GONE AND THE RULE IS NOT. The content-language and
+ * input-method rows were removed from this screen because neither could change
+ * anything a child can see - see the long note in `build`, and collision C14.
+ * What AC-14.1 actually asserts survives in two better places: the input-method
+ * RULE is exercised over all three languages by
+ * `tests/unit/i18n/shippedLangs.test.ts` through `typeableContentLangs`, and
+ * the stored-PAIR repair still runs on this screen, in `repairLanguagePair`,
+ * because a profile can still carry a pair the engine can produce.
+ *
+ * UR-123 / UR-124: this screen is dressed in the pilot's own DASH COLOUR rather
+ * than Earth's palette, and the pilot's MARK can be changed here rather than
+ * only at profile creation. Both write to the profile and both are read back by
+ * something that draws them - see `dashRow` and `avatarRow`.
  *
  * AC-22b.1 / D31: reset progress is the most destructive thing in the game and
  * it is drawn in exactly the same ink as everything else. No red, no warning
  * triangle, no shouting - it asks twice, in plain words, and the safe answer
  * has focus both times.
  */
+/**
+ * The two marks this screen draws in a selector's glyph bay.
+ *
+ * Both are well under `HULL_GLYPH` (72), which `cockpit.test.ts` measures as
+ * the thing the right-hand column can least afford to grow: a mark that made a
+ * row taller than the hull bay would push the reset key through the hint line
+ * in Devanagari, and the frame has ~29 px of margin there.
+ */
+const DASH_SWATCH = 48;
+const AVATAR_GLYPH = 52;
+
+/**
+ * Whether the flight deck shows the hull picker (UR-132).
+ *
+ * `false` on the owner's instruction. Everything behind it is intact - see the
+ * note at its one call site for why it is a flag and not a deletion.
+ */
+const SHOW_HULL_ROW = false;
+
 export class SettingsScene extends MenuScene {
   static readonly KEY = SCENE_KEYS.settings;
 
@@ -98,13 +126,58 @@ export class SettingsScene extends MenuScene {
     this.restoreFocus = data?.focus ?? null;
   }
 
+  /**
+   * THIS SCREEN'S ACCENT IS THE PILOT'S DASH COLOUR (UR-123).
+   *
+   * Not Earth's, which is what every menu wears and what the owner reported as
+   * this screen having no identity of its own. See `MenuScene.accentOverride`
+   * for why it is a hook rather than a ninth palette entry, and `ui/dash.ts`
+   * for why the colour is the player's rather than a constant.
+   *
+   * It is read on EVERY build, including the `scene.restart` that
+   * `applyAndRestart` runs, so turning the dash-colour row repaints the panel
+   * under the child's hands - which is the "takes effect without a reload" half
+   * of AC-19.1 for a value that changes how the screen is drawn.
+   */
+  protected override accentOverride(): string {
+    return dashHexOf(this.app.settings().dashColor);
+  }
+
+  /**
+   * ============ WHERE THIS SCREEN'S GEOMETRY COMES FROM (UR-121, UR-122) =====
+   *
+   * ================== WHAT IT WAS, AND WHY IT WAS WRONG ==================
+   * Three lines of arithmetic here:
+   *   `colW = min(820, (GAME_WIDTH - gutter * 3) / 2)`, `leftX = gutter`,
+   *   `rightX = gutter * 2 + colW`
+   * - the CONTROLS decided first and the console face derived from them by
+   * subtracting a bezel. Measured on the served build at 1920, that put the
+   * left face's ink at x=69 against a page padding of 96 and the right face's
+   * at 1850 against a content right edge of 1824: BOTH panels outside the
+   * margin, in opposite directions. That is the owner's report exactly, and the
+   * second half of the report - "why isn't there one page-level padding rather
+   * than each item being moved by hand" - is what those three lines are.
+   *
+   * ================== WHAT IT IS NOW ==================
+   * `controlSurfaceLayout.consoleColumns(2)`, and the direction is reversed:
+   * the FACES are laid out on `grid.pageBox()` and the CONTROLS are inset from
+   * the faces. Neither number is this screen's any more, which is the point - a
+   * panel cannot miss the margin when the margin is what it measures from, and
+   * a row cannot reach the bolts when the console says how much of its own edge
+   * is spoken for (`consoleContentInset()`, 48).
+   *
+   * The fix is deliberately NOT "nudge the panel 26 px right". A nudge is the
+   * defect the report is about, and it would have taught the next screen
+   * nothing.
+   */
   protected build(): void {
     this.addHeading("ui.settings.heading");
     this.repairLanguagePair();
     const s = this.app.settings();
-    const colW = Math.min(820, (GAME_WIDTH - SPACE.gutter * 3) / 2);
-    const leftX = SPACE.gutter;
-    const rightX = SPACE.gutter * 2 + colW;
+    const [leftCol, rightCol] = consoleColumns(2) as [ConsoleColumn, ConsoleColumn];
+    const colW = leftCol.colW;
+    const leftX = leftCol.controlX;
+    const rightX = rightCol.controlX;
 
     // EVERY CONTROL IS BUILT AT THE TOP OF ITS COLUMN AND POSITIONED AFTERWARDS.
     // A control's height is not known until its label has been wrapped and
@@ -120,6 +193,7 @@ export class SettingsScene extends MenuScene {
     left.push(
       new KnobRow(this, this.uiStyle, "settings.music", leftX, y, this.depth, {
         label: this.t.t("ui.settings.music"),
+        icon: "music",
         width: colW,
         value: s.musicVolume,
         format: (v) => this.t.t("ui.common.percent", { percent: Math.round(v * 100) }),
@@ -132,6 +206,7 @@ export class SettingsScene extends MenuScene {
     left.push(
       new KnobRow(this, this.uiStyle, "settings.sfx", leftX, y, this.depth, {
         label: this.t.t("ui.settings.sfx"),
+        icon: "sound",
         width: colW,
         value: s.sfxVolume,
         format: (v) => this.t.t("ui.common.percent", { percent: Math.round(v * 100) }),
@@ -153,6 +228,7 @@ export class SettingsScene extends MenuScene {
         this.depth,
         {
           label: this.t.t("ui.settings.keyboardLayout"),
+        icon: "keyboard",
           width: colW,
           value: s.keyboardLayout,
           choices: (["qwerty", "azerty", "qwertz", "dvorak"] as const).map(
@@ -169,30 +245,6 @@ export class SettingsScene extends MenuScene {
       ),
     );
     left.push(
-      new SelectorRow<InputMethod>(
-        this,
-        this.uiStyle,
-        "settings.inputMethod",
-        leftX,
-        y,
-        this.depth,
-        {
-          label: this.t.t("settings.inputMethod"),
-          width: colW,
-          value: s.inputMethod,
-          choices: [
-            { value: "latin", label: this.t.t("ui.settings.inputMethod.latin") },
-            { value: "translit", label: this.t.t("settings.inputMethodTranslit") },
-            { value: "inscript", label: this.t.t("settings.inputMethodInscript") },
-          ],
-          // Changing this can invalidate the content language (AC-14.1).
-          // applySettings repairs the pair, so the screen has to redraw to show
-          // what it was repaired to.
-          onChange: (v) => this.applyAndRestart({ inputMethod: v }),
-        },
-      ),
-    );
-    left.push(
       new SelectorRow<Lang>(this, this.uiStyle, "settings.uiLang", leftX, y, this.depth, {
         label: this.t.t("settings.uiLang"),
         width: colW,
@@ -203,49 +255,69 @@ export class SettingsScene extends MenuScene {
       }),
     );
 
-    const typeable = availableContentLangs(s.inputMethod);
-    left.push(
-      new SelectorRow<Lang>(
-        this,
-        this.uiStyle,
-        "settings.contentLang",
-        leftX,
-        y,
-        this.depth,
-        {
-          label: this.t.t("settings.contentLang"),
-          width: colW,
-          value: s.contentLang,
-          // AC-14.1: only languages this input method can actually produce.
-          choices: this.langChoices(typeable),
-          // D95: compare against what this input method COULD type, not
-          // against every language that exists. After the ship filter
-          // `typeable` is always length 1 while LANGS.length is 3, so this
-          // note rendered for every player on every input method - telling a
-          // child to pick a Hindi keyboard under a row offering only English.
-          // Unactionable, and settings.spec.ts:146 then passed for the wrong
-          // reason.
-          // Show it only when a SHIPPED language is blocked by this input
-          // method. Comparing against LANGS made it permanent after D95 (3
-          // languages exist, 1 is offered, so it always fired); comparing
-          // against typeableContentLangs made it permanent too, for the
-          // mirror-image reason. The note is actionable only if changing the
-          // keyboard would actually unlock something the build ships.
-          note:
-            typeable.length < SHIPPED_LANGS.length
-              ? this.t.t("settings.contentLangUnavailable")
-              : undefined,
-          onChange: (v) => this.app.applySettings({ contentLang: v }),
-        },
-      ),
-    );
+    // ================== TWO ROWS THAT USED TO BE HERE, AND ARE NOT =========
+    //
+    // `settings.inputMethod` ("How You Type Hindi") and `settings.contentLang`
+    // ("Typing Language") are GONE FROM THE SCREEN, and the persisted fields
+    // are deliberately UNTOUCHED - `Settings.inputMethod` and
+    // `Settings.contentLang` still exist, still decode, still migrate, and
+    // `repairLanguagePair` below still repairs the pair on the way in. Only the
+    // two CONTROLS are removed.
+    //
+    // WHY: neither could change anything a child can see. Measured against this
+    // tree rather than taken from the report -
+    //
+    //   contentLang  `FlightScene` reads `cfg.contentLang`, but neither route
+    //                into the belt carries it: `PreflightScene.complete` and
+    //                `ResultsScene.replay` hand over `{ctx, progress, shipName,
+    //                lang, stopId}`, and `lang` is not a `FlightConfig` key, so
+    //                `flightConfigFrom` falls back to the default on every real
+    //                launch. This is collision C14, logged before this lane.
+    //   inputMethod  the same break, one field over. `FlightScene` builds
+    //                `createWordMatcher(this.cfg.inputMethod)` and the lock
+    //                DOES consume it now (`LockOptions.matcher` is live, so the
+    //                "open seam" note beside that call is stale) - but
+    //                `cfg.inputMethod` is `DEFAULT_SETTINGS.inputMethod` on
+    //                every real launch for the identical reason. A reader fed a
+    //                constant is not a reader of the setting.
+    //
+    // So both rows wrote a value that reached the save and nothing else. The
+    // input-method row is additionally a control for typing a language D95 cut
+    // from the shipped menu: turning it offered a child a Devanagari keyboard
+    // for content the build does not load.
+    //
+    // AC-14.1's "pick a Hindi keyboard" note goes with them, and that is a
+    // strict improvement: after D95 it fired for every player on every input
+    // method, telling a child to change a keyboard to unlock a language the
+    // build does not ship. It was already unactionable; now it is absent.
+    //
+    // WHAT THIS DOES NOT DO: it does not close C14. The promise D45 and FR-14
+    // make is still unkept and the translated content still ships unreachable.
+    // Removing a control that cannot act on a broken pipeline does not repair
+    // the pipeline, and a future lane that widens the content globs and threads
+    // `contentLang` into `FlightConfig` puts this row back with one call.
+
+    left.push(this.dashRow(leftX, y, colW, s));
+    left.push(this.avatarRow(leftX, y, colW));
 
     // --- flight deck -------------------------------------------------------
 
-    // THE HULL IS THE FIRST THING ON THE FLIGHT DECK, above the reading and
-    // motion rows. It is the only control on this panel a child comes here
-    // WANTING, and it is the reward the rest of the game is paying out.
-    right.push(this.hullRow(rightX, y, colW));
+    /**
+     * ================== THE HULL ROW IS HIDDEN (UR-132) ==================
+     * The owner asked for this feature to be hidden for now.
+     *
+     * HIDDEN, NOT DELETED, and the distinction is load-bearing. `HullRow` is
+     * the only input in the shipped game that can EQUIP an earned hull -
+     * `ResultsScene` calls `applyUnlocks` at every stage end and `SHIP_UNLOCKS`
+     * opens ship-2/3/4 at 3/5/7 beacons - so deleting it would re-create the
+     * defect it was built for (rule 2: a field chosen, earned, persisted and
+     * reaching nothing). The row, its builder and its tests all stay; one flag
+     * decides whether the screen shows it, and flipping it back is one line.
+     *
+     * Unlocks keep accruing while it is hidden, so a pilot who comes back to a
+     * restored row finds the hulls they earned already waiting.
+     */
+    if (SHOW_HULL_ROW) right.push(this.hullRow(rightX, y, colW));
 
     right.push(
       new SelectorRow<"lower" | "upper">(
@@ -257,6 +329,7 @@ export class SettingsScene extends MenuScene {
         this.depth,
         {
           label: this.t.t("ui.settings.letterCase"),
+        icon: "letterCase",
           width: colW,
           // D41: lowercase is the default, so it is the first choice too.
           value: s.uppercase ? "upper" : "lower",
@@ -278,6 +351,7 @@ export class SettingsScene extends MenuScene {
         this.depth,
         {
           label: this.t.t("ui.settings.letterSpacing"),
+        icon: "spacing",
           width: colW,
           value: s.increasedLetterSpacing,
           onLabel: this.t.t("ui.common.on"),
@@ -296,6 +370,7 @@ export class SettingsScene extends MenuScene {
         this.depth,
         {
           label: this.t.t("ui.settings.reducedMotion"),
+        icon: "motion",
           width: colW,
           value: s.reducedMotion,
           onLabel: this.t.t("ui.common.on"),
@@ -316,6 +391,7 @@ export class SettingsScene extends MenuScene {
         this.depth,
         {
           label: this.t.t("ui.settings.colorblind"),
+        icon: "palette",
           width: colW,
           value: s.colorblindPalette,
           onLabel: this.t.t("ui.common.on"),
@@ -334,6 +410,10 @@ export class SettingsScene extends MenuScene {
       this.depth,
       {
         label: this.t.t("ui.settings.resetProgress"),
+        // NO MARK ON THIS ONE (UR-138). `PanelButton` is a KEY - centred
+        // text on a keycap, not a labelled row with a hardware column - so
+        // it has no left gutter for a mark to sit in. Giving it one would
+        // mean a second layout for a single control.
         minWidth: colW,
         onPress: () => this.askReset(),
       },
@@ -350,8 +430,8 @@ export class SettingsScene extends MenuScene {
       SETTINGS_CONSOLE.keyGap,
     );
 
-    this.consoleFace(leftX, leftBottom, colW);
-    this.consoleFace(rightX, rightBottom, colW);
+    this.consoleFace(leftCol.faceX, leftBottom, leftCol.faceW);
+    this.consoleFace(rightCol.faceX, rightBottom, rightCol.faceW);
 
     this.addHint("ui.common.hintAdjust");
     // The id goes IN, so the list never paints at index 0 first. Restoring
@@ -425,6 +505,111 @@ export class SettingsScene extends MenuScene {
   }
 
   /**
+   * THE DASH COLOUR (UR-123; D41, AC-18.1, AC-19.1, AC-22.8).
+   *
+   * ================== WHAT IT REPLACED, AND WHAT IT DID NOT ==============
+   * This lane was asked to replace the hull row with this one, on the premise
+   * that no hull other than `ship-1` is reachable because
+   * `createFlow.ENABLED_CREATE_STEPS` is `["pilot"]`. THAT PREMISE DOES NOT
+   * HOLD, and it was checked rather than taken: the create-time ship beat is
+   * indeed off, but hulls are not granted there. `ResultsScene` calls
+   * `@engine/unlocks.applyUnlocks` on the live profile at the end of every
+   * stage, which adds `ship-2`/`ship-3`/`ship-4` to `profile.unlockedShips` at
+   * 3 / 5 / 7 beacons, and `tests/unit/unlocks/equip.test.ts` already runs that
+   * whole chain - grant, store, serialize, reload, equip. The hull row is the
+   * ONLY input in the shipped game that can wear one.
+   *
+   * So the dash colour is ADDED and the hull row STAYS. Deleting a live reward
+   * surface on a premise that measurement disproves is not the instruction's
+   * intent - the instruction's reason was "do not ship a dead control", and the
+   * hull row is not dead. The decision, the evidence and a lean are in
+   * `gauntlet/escalations.md` under E-settings-hull (D94: escalate, then
+   * continue with the documented behaviour, never block).
+   *
+   * ================== WHY IT IS NOT A DEAD CONTROL ITSELF =================
+   * The bar this row had to clear is the one that removed two other rows from
+   * this screen in the same change. Turning it does three visible things on the
+   * frame it is turned: `accentOverride` makes it this screen's accent, so
+   * every knob arc, detent lamp, chevron and value behind glass repaints in it;
+   * `consoleFace` lights the console's cabin light and engraved seam with it;
+   * and the swatch in this row's own glyph bay burns in it. It is persisted by
+   * `applySettings` like every other row here, and `applyAndRestart` redraws
+   * the screen under it without a reload (AC-19.1).
+   */
+  private dashRow(x: number, y: number, width: number, s: Settings): SelectorRow<string> {
+    return new SelectorRow<string>(this, this.uiStyle, "settings.dashColor", x, y, this.depth, {
+      label: this.t.t("ui.settings.dashColor"),
+      width,
+      value: s.dashColor,
+      choices: DASH_COLORS.map((c) => ({ value: c.id, label: this.t.t(c.nameKey) })),
+      glyph: {
+        size: DASH_SWATCH,
+        draw: (scene, gx, gy, id) => drawDashSwatch(scene, gx, gy, DASH_SWATCH, dashHexOf(id)),
+      },
+      // A RESTART, not a bare write: this value decides how the whole panel is
+      // drawn, so the screen has to be rebuilt under it. `applyAndRestart`
+      // restores the focused row, so the child is still standing on the colour
+      // they just chose and can keep turning.
+      onChange: (v) => this.applyAndRestart({ dashColor: v }),
+    });
+  }
+
+  /**
+   * THE PILOT'S MARK (UR-124; D43, AC-18.1, AC-19.1).
+   *
+   * ================== THE DEFECT ==================
+   * `profile.avatar` had ONE writer in the build - `ProfileCreateScene`, at the
+   * moment the profile is made - and one reader, `ProfilePickerScene`, which
+   * draws it on the pilot's card. A child picked their mark on the first screen
+   * they ever saw, before they had played anything, and was that mark for the
+   * life of the save. That is the hull defect one field over: a chosen thing
+   * with no second input.
+   *
+   * ================== WHY HERE ==================
+   * The same argument the hull row is here on, and it is stronger for this row:
+   * Ship Controls is reached from the Director map AND from Pause, so one row
+   * lands the surface on both routes, and `trace-check` enforces the screen
+   * inventory in both directions so a new screen is not a small change. The
+   * profile picker is the other candidate and is worse - it is the screen you
+   * pass through to START, and putting an editor on it means a child changing
+   * their mark has to leave the game to do it.
+   *
+   * ================== END TO END, AND ASSERTED AS SUCH ==================
+   * The row writes through `app.setAvatar`, which is `store.updateProfile` plus
+   * an immediate flush, and the value is read back by
+   * `ProfilePickerScene`'s `drawAvatar(scene, gx, gy, 84, profile.avatar, ...)`.
+   * `tests/unit/scenes/settingsAvatar.test.ts` runs that whole round trip
+   * through a real store - write, serialize, second store, read back - rather
+   * than asserting the in-memory value, because the in-memory half was never
+   * the broken one.
+   *
+   * It does NOT restart the scene. Nothing about this screen's drawing depends
+   * on the avatar except this row's own mark, and the row redraws itself.
+   */
+  private avatarRow(x: number, y: number, width: number): SelectorRow<string> {
+    const worn = this.app.profile()?.avatar ?? AVATARS[0]?.id ?? "avatar-1";
+    return new SelectorRow<string>(this, this.uiStyle, "settings.avatar", x, y, this.depth, {
+      label: this.t.t("ui.settings.avatar"),
+        icon: "mark",
+      width,
+      value: worn,
+      choices: AVATARS.map((a) => ({ value: a.id, label: this.t.t(a.nameKey) })),
+      glyph: {
+        size: AVATAR_GLYPH,
+        // The accent is the fallback ink only: `chrome.AVATAR_INK` gives each
+        // mark its own colour, which is what the profile picker draws, so the
+        // two screens show the same six marks in the same six inks.
+        draw: (scene, gx, gy, id) =>
+          drawAvatar(scene, gx, gy, AVATAR_GLYPH, id, this.uiStyle.accent),
+      },
+      onChange: (v) => {
+        this.app.setAvatar(v);
+        this.publish();
+      },
+    });
+  }
+
+  /**
    * AC-14.1 on the way IN, not only on the way out.
    *
    * A stored profile can carry { contentLang: "hi", inputMethod: "latin" } -
@@ -452,15 +637,32 @@ export class SettingsScene extends MenuScene {
    * nothing is a row of lights a child will try to interpret - which is the one
    * thing a console in a game for seven-year-olds must not do.
    */
-  private consoleFace(x: number, stackBottom: number, w: number): void {
+  private consoleFace(faceX: number, stackBottom: number, faceW: number): void {
     const b = SETTINGS_CONSOLE.bezel;
     const g = this.add.graphics().setDepth(this.depth - 1);
-    drawConsoleFace(g, {
-      x: x - b,
-      y: SETTINGS_CONSOLE.top - b,
-      w: w + b * 2,
-      h: stackBottom - SETTINGS_CONSOLE.top + b * 2,
-    });
+    // THE FACE'S X AND WIDTH ARE GIVEN, NOT DERIVED FROM A CONTROL (UR-121).
+    // It used to take the COLUMN's x and subtract the bezel, which is how both
+    // panels ended up outside the page padding - 69 on the left against a 96
+    // margin, 1850 on the right against a 1824 content edge. The caller now
+    // lays the faces out on the page box and the controls out inside them, so
+    // this draws where it is told.
+    //
+    // The vertical bounds are still the stack plus the bezel: a panel that
+    // ended at a constant would end halfway through a knob, which is what the
+    // measured stack exists to prevent.
+    drawConsoleFace(
+      g,
+      {
+        x: faceX,
+        y: SETTINGS_CONSOLE.top - b,
+        w: faceW,
+        h: stackBottom - SETTINGS_CONSOLE.top + b * 2,
+      },
+      // The cabin light on this dashboard burns in the pilot's colour (UR-123).
+      // It is the same value `accentOverride` hands the control kit, so the
+      // metal and the instruments cannot be lit by two different colours.
+      this.uiStyle.accent,
+    );
   }
 
   /**
@@ -590,7 +792,11 @@ export class SettingsScene extends MenuScene {
   private showResetDone(): void {
     const line = uiText(
       this,
-      SPACE.gutter,
+      // The page box, not `SPACE.gutter` plus arithmetic (UR-121). It was
+      // `gutter` and `GAME_WIDTH - gutter * 2`, which is the same number by a
+      // different route - and "the same number by a different route" is what
+      // put the two console faces off the margin two methods up.
+      pageInset(0),
       this.scale.height - 176,
       this.t.t("ui.settings.resetDone"),
       {
@@ -599,7 +805,7 @@ export class SettingsScene extends MenuScene {
         lang: this.uiStyle.lang,
         uppercase: this.uiStyle.uppercase,
         increasedLetterSpacing: this.uiStyle.increasedLetterSpacing,
-        wrapWidth: GAME_WIDTH - SPACE.gutter * 2,
+        wrapWidth: contentWidth(),
       },
     ).setDepth(this.depth + 1);
     line.setAlpha(0);
@@ -633,7 +839,18 @@ export class SettingsScene extends MenuScene {
       // from the row: a row reporting its own argument would say "ship-4" for a
       // press `@engine/unlocks.equipShip` refused.
       shipId: this.app.profile()?.shipId ?? null,
-      contentLangChoices: availableContentLangs(s.inputMethod),
+      // The MARK actually worn, read back off the profile rather than echoed
+      // from the row - the same reason `shipId` is read back above. A row
+      // reporting its own argument would say "avatar-4" for a write that never
+      // reached the store, which is the half of AC-19.1 this lane is about.
+      avatar: this.app.profile()?.avatar ?? null,
+      // What this screen is DRESSED IN, so the accent is assertable rather than
+      // describable (UR-123). It is the dash colour resolved to a hex, which is
+      // what every instrument on the panel is actually drawn in.
+      accent: this.uiStyle.accent,
+      // `contentLangChoices` is gone with the row it described. The content
+      // language itself is still in `settings` above, and is still repaired on
+      // the way in - see `repairLanguagePair`.
     };
   }
 }

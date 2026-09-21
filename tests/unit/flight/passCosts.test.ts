@@ -98,6 +98,19 @@ describe("UR-91: a word past the ship costs half a mark", () => {
       /drift/.test(passBy),
       "a passed rock still slides sideways on its way off screen",
     ).toBe(false);
-    expect(/y: this\.scale\.height \+ 160/.test(passBy)).toBe(true);
+    // DOWN, and by the rock's own fall distance rather than to a fixed point
+    // off the bottom of the frame. It used to read `y: this.scale.height + 160`
+    // - a constant 384 px from the breach line on `Cubic.Out`, which is the
+    // UR-92 lurch (`./rockMotion.test.ts` has the px/s). The claim this test
+    // makes is unchanged: the rock moves in y and never in x. What it can no
+    // longer do is pin the destination, because the destination is now a
+    // function of how fast the rock was falling.
+    expect(/y: target\.y \+ exitPx/.test(passBy)).toBe(true);
+    expect(/passByExitPx\(rock\.fromY, rock\.toY, rock\.fallMs/.test(passBy)).toBe(true);
+    expect(
+      /ease: "Linear"/.test(passBy),
+      "the exit is back on an easing curve, which is where the speed-up was",
+    ).toBe(true);
+    expect(/x: /.test(passBy), "a passed rock is being moved in x").toBe(false);
   });
 });

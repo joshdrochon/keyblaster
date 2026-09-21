@@ -6,6 +6,8 @@ import {
   PANEL,
   type Point,
   SHADOW_ALPHA,
+  dashLitSurface,
+  dashSeam,
   lampAlpha,
 } from "./panel.js";
 import {
@@ -177,12 +179,32 @@ export function drawPositionLamps(
 export function drawConsoleFace(
   g: Phaser.GameObjects.Graphics,
   rect: Rect,
+  dash?: string,
 ): void {
-  paintFace(g, controlSurfaceLayout(rect, 0));
+  paintFace(g, controlSurfaceLayout(rect, 0), dash);
 }
 
-/** The face itself, from measured parts. */
-function paintFace(g: Phaser.GameObjects.Graphics, parts: ControlSurfaceParts): void {
+/**
+ * The face itself, from measured parts.
+ *
+ * `dash` is the pilot's DASH COLOUR (UR-123) and is optional: passing nothing
+ * paints exactly what this file has always painted, which is what keeps the
+ * Briefing and Pre-flight strips byte-identical. When it is given, the cabin
+ * light falling on the top of the face carries it and the engraved seam under
+ * that light does too - the two marks on this surface that are ABOUT the light
+ * rather than about the metal, so the panel reads as a dashboard lit in the
+ * pilot's colour rather than as a panel painted in it.
+ *
+ * The blend is `dashLitSurface`, which is pure and measured: every dash colour
+ * the game offers is run through the AC-22.8 cross product in
+ * `tests/unit/ui/cockpit.test.ts` against both label inks, so a colour that
+ * would cost this panel its contrast cannot be added to the set quietly.
+ */
+function paintFace(
+  g: Phaser.GameObjects.Graphics,
+  parts: ControlSurfaceParts,
+  dash?: string,
+): void {
   const { x, y, w, h } = parts.bezel;
   g.fillStyle(hexToNum(PANEL.faceShade), 1);
   g.fillRoundedRect(x, y, w, h, 26);
@@ -193,22 +215,34 @@ function paintFace(g: Phaser.GameObjects.Graphics, parts: ControlSurfaceParts): 
   g.fillStyle(hexToNum(PANEL.face), 1);
   g.fillRoundedRect(fx, fy, fw, fh, 16);
 
+  const lit = dash === undefined ? PANEL.faceLit : dashLitSurface(dash);
   const bands = 22;
   const reach = Math.min(fh * 0.55, 260);
   for (let i = 0; i < bands; i += 1) {
     const t = i / bands;
-    g.fillStyle(hexToNum(PANEL.faceLit), 0.42 * (1 - t) ** 2);
+    g.fillStyle(hexToNum(lit), 0.42 * (1 - t) ** 2);
     g.fillRect(fx + 16, fy + 2 + (reach * i) / bands, fw - 32, reach / bands + 1);
   }
 
-  // The engraved seam where the face meets the bezel: lit along the top edge,
-  // in shadow along the bottom.
+  /**
+   * The engraved seam where the face meets the bezel: in shadow along the
+   * bottom, and NO LONGER LIT IN THE DASH COLOUR ALONG THE TOP (UR-137).
+   *
+   * The lit seam was a 2 px line in `dashSeam(dash)` across the full width of
+   * both panels, and at the top of a tall dark console it did not read as a
+   * seam catching the cabin light - it read as a coloured rule someone had
+   * drawn on, which is what the owner called a yellow accent bar.
+   *
+   * The cabin light itself is KEPT: the 22-band wash above still carries the
+   * dash colour down the top of the face, which is the part that actually
+   * makes the panel look lit. What goes is the hard edge on top of it.
+   */
   g.lineStyle(2, hexToNum(PANEL.lip), 0.85);
   g.lineBetween(fx + 16, fy + 1, fx + fw - 16, fy + 1);
   g.lineStyle(2, hexToNum(PANEL.faceShade), 1);
   g.lineBetween(fx + 16, fy + fh - 1, fx + fw - 16, fy + fh - 1);
 
-  for (const p of parts.rivets) drawRivet(g, p, 9);
+  for (const p of parts.rivets) drawRivet(g, p, CONTROL_SURFACE.rivetR);
 }
 
 /**

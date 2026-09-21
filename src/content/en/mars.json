@@ -113,12 +113,14 @@
     "sunrise"
   ],
   "properNouns": [
-    "Mars"
+    "Mars",
+    "Jupiter"
   ],
   "preflightLine": "Asteroid belt ahead. Rocks with words on them. Type the word, the blaster does the rest. Ready when you are, pilot.",
   "activationWord": null,
   "warpSentence": "Mars is the red planet.",
   "beaconHeadline": "Mars Beacon",
-  "beaconState": "placed",
-  "beaconFlavor": "Rust and rivers. Someone will come back for those."
+  "beaconState": "lit",
+  "beaconFlavor": "Mars beacon lit. Good job. The road home is a little brighter. Onto Jupiter.",
+  "beaconSpoken": "Mars beacon lit. Good job. The road home is a little brighter. Onto Jupiter"
 }

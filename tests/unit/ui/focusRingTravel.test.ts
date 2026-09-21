@@ -94,10 +94,23 @@ const scene = {
 };
 
 const { FocusRing } = await import("@game/ui/chrome");
+const { FOCUS_ARRIVE_FROM } = await import("@game/ui/focusPop");
 
 /** The ring the class drew, which is the OUTER of its two passes' inner one. */
 const drawnAt = (): { x: number; y: number; w: number; h: number } =>
   strokes[0] as { x: number; y: number; w: number; h: number };
+
+/**
+ * THE BREATH IS NOT A FADE (UR-112).
+ *
+ * The ring now runs a slight repeating alpha pulse for as long as it holds a
+ * control, so "how many tweens are live" stopped being the same question as
+ * "how many arrival fades are live". Every count below is filtered through
+ * these two so the UR-75 claims keep asking exactly what they asked before.
+ */
+const isPulse = (t: TweenCall): boolean => t.config["repeat"] === -1;
+const fades = (): TweenCall[] => tweens.filter((t) => !isPulse(t));
+const removedFades = (): TweenCall[] => removed.filter((t) => !isPulse(t));
 
 /** Tweens that animate geometry rather than opacity. Must always be empty. */
 const geometryTweens = (): unknown[] =>
@@ -117,7 +130,7 @@ describe("UR-75: the focus ring appears on the new control, it does not travel",
   });
 
   it("never tweens its own geometry, at any hop", () => {
-    const ring = new FocusRing(scene as never, 10);
+    const ring = new FocusRing(scene as never, 10, false);
     ring.moveTo(100, 100, 200, 60);
     ring.moveTo(600, 400, 320, 80);
     ring.moveTo(100, 100, 200, 60);
@@ -131,7 +144,7 @@ describe("UR-75: the focus ring appears on the new control, it does not travel",
     // THE SNAP, MEASURED AT THE RECTANGLE. Nothing here advances a tween, so
     // if the ring only reached the new control by animating, this reads the
     // OLD control's box and fails.
-    const ring = new FocusRing(scene as never, 10);
+    const ring = new FocusRing(scene as never, 10, false);
     ring.moveTo(100, 100, 200, 60);
     ring.moveTo(600, 400, 320, 80);
     const at = drawnAt();
@@ -147,21 +160,25 @@ describe("UR-75: the focus ring appears on the new control, it does not travel",
     //
     // ONE, not two, since UR-82: the softer second stroke 3 px outside the
     // first was the same gold at two alphas and read as a double highlight.
-    const ring = new FocusRing(scene as never, 10);
+    const ring = new FocusRing(scene as never, 10, false);
     ring.moveTo(100, 100, 200, 60);
     ring.moveTo(600, 400, 320, 80);
     expect(strokes).toHaveLength(1);
   });
 
   it("fades up on arrival rather than snapping to full opacity", () => {
-    const ring = new FocusRing(scene as never, 10);
+    const ring = new FocusRing(scene as never, 10, false);
     ring.moveTo(100, 100, 200, 60);
     // First show is instant - there is no control to leave.
     expect(graphics.alpha).toBe(1);
     tweens.length = 0;
     ring.moveTo(600, 400, 320, 80);
-    expect(graphics.alpha).toBe(0);
-    const fade = tweens.at(-1);
+    // DIM, NOT GONE (UR-113). This asserted 0, which is a frame of the screen
+    // with no focus anywhere on it. The arrival now starts from the shared
+    // `FOCUS_ARRIVE_FROM` the story kit's ring has always used, so the ring is
+    // continuously present as it brightens onto the new control.
+    expect(graphics.alpha).toBe(FOCUS_ARRIVE_FROM);
+    const fade = fades().at(-1);
     expect(fade?.targets).toBe(graphics);
     expect(fade?.config["alpha"]).toBe(1);
   });
@@ -170,29 +187,31 @@ describe("UR-75: the focus ring appears on the new control, it does not travel",
     // A pointer dragged across three buttons fires `moveTo` three times inside
     // one fade. Without the handle the old tweens keep running and fight the
     // new one, which a child sees as a flicker.
-    const ring = new FocusRing(scene as never, 10);
+    const ring = new FocusRing(scene as never, 10, false);
     ring.moveTo(100, 100, 200, 60);
     ring.moveTo(600, 400, 320, 80);
     ring.moveTo(900, 400, 320, 80);
     ring.moveTo(1200, 400, 320, 80);
-    expect(removed).toHaveLength(2);
+    expect(removedFades()).toHaveLength(2);
   });
 
-  it("honours `instant` with no tween at all", () => {
-    const ring = new FocusRing(scene as never, 10);
+  it("honours `instant` with no arrival fade at all", () => {
+    // The ring still BREATHES after an instant hop (UR-112) - what `instant`
+    // forbids is the fade, i.e. the ring arriving at less than full strength.
+    const ring = new FocusRing(scene as never, 10, false);
     ring.moveTo(100, 100, 200, 60);
     tweens.length = 0;
     ring.moveTo(600, 400, 320, 80, true);
-    expect(tweens).toEqual([]);
+    expect(fades()).toEqual([]);
     expect(graphics.alpha).toBe(1);
   });
 
   it("drops the fade when focus is taken away, so it cannot land after a hide", () => {
-    const ring = new FocusRing(scene as never, 10);
+    const ring = new FocusRing(scene as never, 10, false);
     ring.moveTo(100, 100, 200, 60);
     ring.moveTo(600, 400, 320, 80);
     ring.hide();
-    expect(removed).toHaveLength(1);
+    expect(removedFades()).toHaveLength(1);
     expect(ring.isVisible).toBe(false);
   });
 });
