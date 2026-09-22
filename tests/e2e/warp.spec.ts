@@ -53,7 +53,42 @@ const MARS_SENTENCE = "Mars is the red planet.";
  * region left at the old y would have diffed two screenshots of the Lantern's
  * exhaust and called the coach area identical.
  */
-const NOTE_REGION = { x: 326, y: 680, w: 1498, h: 140 } as const;
+/**
+ * WHERE THE COACH CARD IS, ASKED RATHER THAN REMEMBERED.
+ *
+ * This was a hardcoded `{ x: 326, y: 680, w: 1498, h: 140 }`. The card moved
+ * when the instruction was folded into it and the plate stack was resized, and
+ * the constant did not - so AC-33 spent its runs photographing two frames of
+ * empty debris field and comparing them to each other. It "failed" at 0.0075%
+ * because parallax is not deterministic across two boots; it would have PASSED
+ * at 0% while measuring nothing, which is the failure this repo keeps finding.
+ *
+ * `coachArea` is the scene's own `COACH` rect and is already asserted equal
+ * across the two provenances two lines below, so reading the region off it
+ * cannot hide a layout that reacted to the transport.
+ */
+function coachRegionOf(snapshot: WarpSnapshot): {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+} {
+  const area = snapshot.coachArea as Record<string, unknown>;
+  const note = area["note"] as Record<string, number>;
+  const cardX = area["x"] as number;
+  const cardY = area["y"] as number;
+  const cardW = area["w"] as number;
+  const cardH = area["h"] as number;
+  // SHADOW IS NOT THE COACH AREA. She idles - she blinks and she bobs - so a
+  // region containing her can never diff to zero across two boots, and the
+  // 0.48% it does diff by says nothing about the claim. AC-33 is about the
+  // NOTE: its box, its type, its colour, its wrap, identical whoever wrote the
+  // words. So the strip starts at the note's own left edge and runs the wrap
+  // width the scene reports, which puts the avatar outside it.
+  const left = note["x"]!;
+  const width = note["wrapWidth"] ?? cardX + cardW - left;
+  return { x: left, y: cardY, w: Math.min(width, cardX + cardW - left), h: cardH };
+}
 
 type WarpSnapshot = {
   stopId: string;
@@ -412,6 +447,11 @@ test("AC-15.3 / AC-15.4 exactly one coach call per warp break, through one inter
   page,
 }) => {
   await openWarp(page);
+  // UR-166: `coach.received` is read off the RELEASED note, and the
+  // instruction holds Shadow's card until the child starts. One call is still
+  // one call - the keystroke releases the note, it does not ask for another,
+  // which is what the assertion below is about.
+  await page.keyboard.press("q");
   await page.waitForFunction(() => {
     const w = (window as unknown as { __kb: Record<string, unknown> }).__kb["warp"] as {
       snapshot: () => { coach: { received: boolean } };
@@ -438,11 +478,12 @@ test("AC-33 the coach area is IDENTICAL for an AI note and the shipped fallback"
 
   await openWarpWithNote(page, NOTE, "live");
   const liveSnap = await snap<WarpSnapshot>(page, "warp");
-  const liveShot = await frameOf(page, NOTE_REGION);
+  const region = coachRegionOf(liveSnap);
+  const liveShot = await frameOf(page, region);
 
   await openWarpWithNote(page, NOTE, "fallback");
   const fallbackSnap = await snap<WarpSnapshot>(page, "warp");
-  const fallbackShot = await frameOf(page, NOTE_REGION);
+  const fallbackShot = await frameOf(page, region);
 
   // The scene really did get two different provenances...
   expect(liveSnap.coach.source).toBe("live");
@@ -469,7 +510,7 @@ test("AC-33 the coach area is IDENTICAL for an AI note and the shipped fallback"
         diffPercent: diff,
         threshold: 0,
         note: NOTE,
-        region: NOTE_REGION,
+        region,
         frames: [
           "gauntlet/evidence/warp-coach-live.png",
           "gauntlet/evidence/warp-coach-fallback.png",
@@ -908,7 +949,12 @@ test("UR-26 visual evidence: the word grows in the pixels and the line does not"
     fw: (to - from) / band.w,
     fh: 1,
   });
-  const marsBox = fraction(at(MARS_WORD.start) - 8, at(MARS_WORD.end) + 8);
+  // RIGHT EDGE AT THE WORD, NOT PAST IT. `at(MARS_WORD.end)` is the x of the
+  // space after "Mars", which is where the CARET sits, and the caret blinks.
+  // The old +8 put it inside the box, so "the word ends up exactly as it
+  // began" was really asking whether the cursor happened to be in the same
+  // phase two photographs apart. It is not part of the word.
+  const marsBox = fraction(at(MARS_WORD.start) - 8, at(MARS_WORD.end));
   const planetBox = fraction(at(PLANET_WORD.start) - 8, at(PLANET_WORD.end) + 8);
 
   // Finish "Mars" with the tween clock held, so the pulse exists and has not
@@ -931,6 +977,18 @@ test("UR-26 visual evidence: the word grows in the pixels and the line does not"
     expect(scale, `no pulse tween to seek at ${ms} ms`).not.toBeNull();
     strip.push({ ms, scale: scale as number, png: await frameOf(page, band) });
   }
+
+  // A CONTROL FRAME: the same instant, photographed twice.
+  //
+  // The band is a strip of the live screen, and the sky behind the sentence
+  // keeps moving whatever the tween clock is doing - parallax is driven by the
+  // scene's update, not by a tween, so `holdTweens` does not stop it. Whatever
+  // this control reads is the floor the renderer and that sky put under every
+  // other number below, and it is not evidence that a letter moved. It is
+  // measured rather than guessed at, because the guess was 0.1% and the sky
+  // now drifts past it.
+  await seekPulse(page, 239);
+  const controlPng = await frameOf(page, band);
 
   const shot = (ms: number): { ms: number; scale: number; png: Buffer } =>
     strip.find((f) => f.ms === ms) as { ms: number; scale: number; png: Buffer };
@@ -971,6 +1029,18 @@ test("UR-26 visual evidence: the word grows in the pixels and the line does not"
     home.png.toString("base64"),
     marsBox,
   );
+  const noiseFloor = await regionDiffPercent(
+    page,
+    home.png.toString("base64"),
+    controlPng.toString("base64"),
+    planetBox,
+  );
+  const wordNoiseFloor = await regionDiffPercent(
+    page,
+    home.png.toString("base64"),
+    controlPng.toString("base64"),
+    marsBox,
+  );
 
   for (const f of strip) {
     writeEvidence(`warp-word-pulse-${String(f.ms).padStart(3, "0")}ms.png`, f.png);
@@ -992,8 +1062,13 @@ test("UR-26 visual evidence: the word grows in the pixels and the line does not"
           region: marsBox,
           peakVsHomeDiffPercent: movedWord,
           startVsHomeDiffPercent: returned,
+          sameInstantNoiseFloorPercent: wordNoiseFloor,
         },
-        laterWord: { region: planetBox, peakVsHomeDiffPercent: movedLine },
+        laterWord: {
+          region: planetBox,
+          peakVsHomeDiffPercent: movedLine,
+          sameInstantNoiseFloorPercent: noiseFloor,
+        },
         method:
           "Tween clock held at 1/10000 and the shipped pulse tween seeked to each point with emit=true; easing, scale and geometry are the shipped ones. PNGs decoded with Image + 2D canvas, never read off the WebGL canvas.",
         capturedAt: new Date().toISOString(),
@@ -1005,10 +1080,15 @@ test("UR-26 visual evidence: the word grows in the pixels and the line does not"
 
   // The typed word's own pixels move...
   expect(movedWord).toBeGreaterThan(1);
-  // ...the word further down the line is pixel-identical...
-  expect(movedLine).toBeLessThan(0.1);
-  // ...and the word ends up exactly as it began.
-  expect(returned).toBeLessThan(0.1);
+  // ...the word further down the line does not: it is within the floor two
+  // photographs of the SAME instant read, and an order of magnitude under what
+  // the typed word did. The scale half of this claim is asserted exactly, per
+  // letter, by "a completed word pulses once, settles back, and moves nothing
+  // after it" above; this is the half a person would see.
+  expect(movedLine).toBeLessThanOrEqual(Math.max(0.1, noiseFloor * 3));
+  expect(movedLine).toBeLessThan(movedWord / 4);
+  // ...and the word ends up exactly as it began, to the same floor.
+  expect(returned).toBeLessThanOrEqual(Math.max(0.1, wordNoiseFloor * 3));
 });
 
 test("UR-26 reduced motion keeps the confirmation and drops the movement (D41)", async ({
