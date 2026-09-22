@@ -1,5 +1,5 @@
 {
-  "renderedAt": "2026-09-21T22:34:35.227Z",
+  "renderedAt": "2026-09-22T23:35:16.240Z",
   "model": "eleven_flash_v2_5",
   "voiceId": "J1UkN5Wmr20DZIiLKXHI",
   "lang": "en",
@@ -437,6 +437,62 @@
       "bytes": 65663,
       "voiceId": "J1UkN5Wmr20DZIiLKXHI",
       "textSha": "5f089974bacdf1c0"
+    },
+    {
+      "id": "coach.clean.en.earth",
+      "file": "coach.clean.en.earth.mp3",
+      "chars": 67,
+      "bytes": 60648,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "5f6fadcd8465220f"
+    },
+    {
+      "id": "coach.clean.en.mars",
+      "file": "coach.clean.en.mars.mp3",
+      "chars": 74,
+      "bytes": 70261,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "8939bc37bf0bc677"
+    },
+    {
+      "id": "coach.clean.en.jupiter",
+      "file": "coach.clean.en.jupiter.mp3",
+      "chars": 76,
+      "bytes": 84471,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "0bf9922d6f3a6ed2"
+    },
+    {
+      "id": "coach.clean.en.saturn",
+      "file": "coach.clean.en.saturn.mp3",
+      "chars": 71,
+      "bytes": 61066,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "3eb1b759b807817b"
+    },
+    {
+      "id": "coach.clean.en.uranus",
+      "file": "coach.clean.en.uranus.mp3",
+      "chars": 69,
+      "bytes": 65663,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "b7931ef1da8c0788"
+    },
+    {
+      "id": "coach.clean.en.neptune",
+      "file": "coach.clean.en.neptune.mp3",
+      "chars": 66,
+      "bytes": 64827,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "03cce0f6df132500"
+    },
+    {
+      "id": "coach.clean.en.pluto",
+      "file": "coach.clean.en.pluto.mp3",
+      "chars": 73,
+      "bytes": 76112,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "8fadfafc1f087125"
     },
     {
       "id": "coach.mock.clean.0",

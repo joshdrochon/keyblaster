@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import {
   COACH_TIMEOUT_MS,
   DEFAULT_FALLBACK_BUNDLE,
+  cleanNoteFor,
   createCoachGate,
   type CoachClient,
   type CoachGate,
@@ -1593,7 +1594,18 @@ export class WarpScene extends Phaser.Scene {
     // QUEUED, NOT DRAWN. `releaseCoachNote` puts it on screen once the
     // instruction has had the card for `COACH_INTRO_MIN_MS`; the rule is
     // resolved HERE, against the sentence that is on screen now.
-    this.pendingNote = { result, note: this.applyRetryRule(result.note) };
+    // UR-191: a perfect belt gets its own authored line. There is no missed
+    // word for a live note to be about, and an authored one can be SPOKEN -
+    // D98 only lets a rendered clip through the voice bus. `sentence: false`
+    // is `composeContextFor`'s answer to "was anything practised".
+    const clean =
+      request.compose?.sentence === false
+        ? cleanNoteFor(this.lane.lang, this.stopId)
+        : undefined;
+    this.pendingNote = {
+      result,
+      note: clean ?? this.applyRetryRule(result.note),
+    };
   }
 
   /**

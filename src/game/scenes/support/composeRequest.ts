@@ -59,12 +59,14 @@ export function composeContextFor(run: RunSummary): ComposeContext | undefined {
 
   const practised =
     run.missed.length + run.slow.length + run.blasted.length > 0;
-  if (!practised) return undefined;
 
   return {
     pool: bundle.pool,
     sightWords: sightWordList(run.lang),
     blasted: run.blasted,
+    // D09 still refuses to BUY a sentence with nothing to build it from; the
+    // pool rides along anyway so the proxy can keep the variants on-list.
+    sentence: practised,
   };
 }
 

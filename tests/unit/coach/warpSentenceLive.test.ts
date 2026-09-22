@@ -210,10 +210,25 @@ describe("what the shipped request asks for (composeRequest.ts)", () => {
     ).toBeUndefined();
   });
 
-  it("a run with nothing practised has nothing to compose from (D09)", () => {
-    expect(
-      coachRequestFor({ ...MARS_RUN, missed: [], slow: [], blasted: [] }).compose,
-    ).toBeUndefined();
+  it("a run with nothing practised does not ask for a sentence (D09)", () => {
+    // The claim is that we never BUY a sentence with nothing to build it out
+    // of. It used to be expressed by dropping the whole compose block, which
+    // also dropped the pool - and the proxy needs the pool to keep the reply's
+    // unused variants on the allowlist. A variant that misses it fails the
+    // payload and takes the NOTE down with it, which is what a clean run at
+    // Jupiter looked like from play: shipped sentence AND shipped note.
+    const compose = coachRequestFor({
+      ...MARS_RUN,
+      missed: [],
+      slow: [],
+      blasted: [],
+    }).compose;
+    expect(compose?.sentence).toBe(false);
+    expect(compose?.pool.length, "the pool still rides along").toBeGreaterThan(0);
+  });
+
+  it("a run that practised something does ask for one", () => {
+    expect(coachRequestFor(MARS_RUN).compose?.sentence).toBe(true);
   });
 
   it("a language with no compiled allowlist does not pay for a call it would refuse", () => {

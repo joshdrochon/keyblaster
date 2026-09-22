@@ -148,6 +148,7 @@ export function createCoachValidator(
           pool: filterWords(compose.pool, allowlist).accepted,
           sightWords: filterWords(compose.sightWords, allowlist).accepted,
           blasted: filterWords(compose.blasted, allowlist).accepted,
+          sentence: compose.sentence,
         },
       };
     },

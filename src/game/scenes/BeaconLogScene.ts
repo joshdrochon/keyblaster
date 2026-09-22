@@ -1,4 +1,6 @@
+import Phaser from "phaser";
 import { GAME_HEIGHT, SCENE_KEYS } from "@game/sceneKeys";
+import { audioFrom } from "@game/audio/wiring";
 import { beaconReadout } from "@engine/ephemeris";
 import { STOP_IDS, type StopId } from "@engine/types";
 import { MenuScene } from "@game/ui/MenuScene";
@@ -73,18 +75,14 @@ export class BeaconLogScene extends MenuScene {
     super({ key: SCENE_KEYS.beaconLog });
   }
 
-  protected override paletteStop(): StopId {
-    // The log is dressed by how far you have got: it changes colour across a
-    // run without changing layout.
-    const profile = this.app.profile();
-    let furthest: StopId = "earth";
-    for (const p of profile?.progress ?? []) {
-      if (p.beaconPlacedAt !== null) furthest = p.stopId;
-    }
-    return furthest;
-  }
-
   protected build(): void {
+    // UR-172, same reason as the map: the log is a chart of the route, not a
+    // place on it. Stepping between the two must not change the bed.
+    audioFrom(this.registry)?.setAmbientTrim(true);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      audioFrom(this.registry)?.setAmbientTrim(false);
+    });
+
     this.addHeading("ui.log.heading");
     const profile = this.app.profile();
     const placed = new Map<StopId, number>();
