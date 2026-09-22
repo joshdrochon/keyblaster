@@ -730,7 +730,9 @@ export class TitleScene extends Phaser.Scene {
       height: item.text.height + CHROME_PAD_Y * 2,
       plateH: item.text.height + CHROME_PAD_Y * 2,
       plateTop: CHROME_PAD_Y,
-      activate: () => this.goto(SCENE_KEYS.settings),
+      // Esc out of Settings goes back where it was opened from, and its
+      // default is the map - which is not where a Title player came from.
+      activate: () => this.goto(SCENE_KEYS.settings, { returnTo: SCENE_KEYS.title }),
     };
   }
 
@@ -1041,11 +1043,13 @@ export class TitleScene extends Phaser.Scene {
     }
   }
 
-  private goto(key: string): boolean {
+  private goto(key: string, data: Record<string, unknown> = {}): boolean {
     if (this.scene.get(key) === null) return false;
     this.cameras.main.fadeOut(260, 0, 0, 0);
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-      this.scene.start(key);
+      // Never `undefined`: Phaser keeps the payload a scene was last started
+      // with when it is started without one (72524bd).
+      this.scene.start(key, data);
     });
     return true;
   }

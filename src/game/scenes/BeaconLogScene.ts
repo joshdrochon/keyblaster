@@ -73,17 +73,6 @@ export class BeaconLogScene extends MenuScene {
     super({ key: SCENE_KEYS.beaconLog });
   }
 
-  protected override paletteStop(): StopId {
-    // The log is dressed by how far you have got: it changes colour across a
-    // run without changing layout.
-    const profile = this.app.profile();
-    let furthest: StopId = "earth";
-    for (const p of profile?.progress ?? []) {
-      if (p.beaconPlacedAt !== null) furthest = p.stopId;
-    }
-    return furthest;
-  }
-
   protected build(): void {
     this.addHeading("ui.log.heading");
     const profile = this.app.profile();
