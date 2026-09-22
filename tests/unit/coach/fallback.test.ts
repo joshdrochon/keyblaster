@@ -150,7 +150,7 @@ describe("fallbackIssues catches a bad authored bundle", () => {
  * THE FALLBACK NOTES ARE RECORDABLE, AND THE LOOKUP IS ON THE LINE (D63, D88).
  *
  * The pre-render pass excluded the coach note as "runtime LLM text". The note
- * a child actually hears is this bundle - `/api/coach` has a 1500 ms deadline
+ * a child actually hears is this bundle - `/api/coach` has a 4500 ms deadline
  * and D33 puts these strings behind it - so a finite set was classified as
  * infinite and Shadow spoke his most frequent line in the system voice.
  *

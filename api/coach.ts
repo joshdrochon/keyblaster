@@ -17,8 +17,17 @@
 /** D92: chosen for latency inside the 1500 ms client budget. */
 const MODEL = "claude-haiku-4-5-20251001";
 
-/** Keep well inside the client's 1500 ms so it is the client that gives up. */
-const UPSTREAM_TIMEOUT_MS = 1200;
+/**
+ * Measured, not guessed: a warp reply lands in 1.5-2.3 s on the deployed
+ * function, so the old 1200 ms killed the call every single time and the AI
+ * never once reached a player. With the full pool restored the prompt is
+ * larger and a reply measures 1.75-2.8 s, so 2500 was still cutting two calls
+ * in three. Kept inside `COACH_TIMEOUT_MS` (4500) so it is
+ * still the SERVER that gives up first and the client falls back right behind
+ * it - and both are far inside the time a child spends typing a sentence, so
+ * nothing on screen ever waits on this.
+ */
+const UPSTREAM_TIMEOUT_MS = 4000;
 const MAX_TOKENS = 300;
 /** A warp reply carries the note, both variants AND the practice sentence. */
 const WARP_MAX_TOKENS = 420;
@@ -70,6 +79,70 @@ export interface CoachRequest {
   blasted: string[];
 }
 
+/**
+ * Read the model's JSON, fence or no fence.
+ *
+ * THE SECOND HALF OF WHY THE COACH NEVER SHIPPED. Once the timeout was wide
+ * enough for a reply to arrive, every reply was still thrown away: the model
+ * returns well-formed JSON wrapped in a ```json fence, and `JSON.parse` does
+ * not eat fences. Measured on the deployed function - stop_reason "end_turn",
+ * 274 characters, valid inside the fence.
+ *
+ * Tolerated rather than prompted away. A prompt can ask for bare JSON and
+ * usually get it; a parser that accepts both cannot be talked out of it by a
+ * model having an off day, and this is the one call in the game that a child
+ * is waiting on.
+ */
+export function parseModelJson(raw: string): unknown | null {
+  const text = raw.trim();
+  const fenced = /^```(?:json)?\s*\n?([\s\S]*?)\n?```$/.exec(text);
+  const body = fenced?.[1]?.trim() ?? text;
+  try {
+    return JSON.parse(body);
+  } catch {
+    // Last resort: the outermost object in whatever came back.
+    const open = body.indexOf("{");
+    const close = body.lastIndexOf("}");
+    if (open < 0 || close <= open) return null;
+    try {
+      return JSON.parse(body.slice(open, close + 1));
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * Of the sentences the model returned, the one most likely to survive.
+ *
+ * NOT A GATE, AND THE DISTINCTION MATTERS. The note above is right that this
+ * function cannot judge a sentence: it has no compiled allowlist, no banned
+ * list, no reuse history, and half-checking here would invite someone to
+ * believe it had been checked. The client's gates stay the only guardrail and
+ * every candidate still goes through all of them.
+ *
+ * This only CHOOSES between candidates the model already produced, using the
+ * one thing this function does know because it sent it - POOL and SIGHT. A
+ * warp reply carries three sentences and the old code kept the first and threw
+ * the other two away. Measured live, about half of first choices carry one
+ * outside word ("cover", where the pool has no verb for it), so roughly half
+ * of all warp breaks lost a composed sentence that a sibling in the same reply
+ * would have passed.
+ *
+ * Returns the first candidate whose every word is on the list, or the model's
+ * own first choice when none is - which is exactly what shipped before.
+ */
+export function pickSentence(
+  candidates: readonly string[],
+  allowed: ReadonlySet<string>,
+): string | undefined {
+  const onList = (s: string): boolean => {
+    const words = s.toLowerCase().match(/[a-z]+/g) ?? [];
+    return words.length > 0 && words.every((w) => allowed.has(w));
+  };
+  return candidates.find((c) => typeof c === "string" && onList(c)) ?? candidates[0];
+}
+
 const STOPS = ["mars", "jupiter", "saturn", "uranus", "neptune", "pluto"];
 const LANGS = ["en", "es", "hi"];
 
@@ -117,12 +190,29 @@ function parseRequest(body: unknown): CoachRequest | null {
   const slow = words(b["slow"]);
   if (!missed || !slow) return null;
 
-  // A stage pool is ~26 words; 48 is headroom, not an invitation. `blasted`
-  // is one run's worth of a single belt.
+  /**
+   * THE CAP THAT SILENTLY KILLED EVERY WARP BREAK.
+   *
+   * This read 48 on the note that "a stage pool is ~26 words; 48 is headroom".
+   * The pools grew and the note did not. Measured in `src/content/en`:
+   *
+   *     mars 100 · jupiter 115 · saturn 115 · uranus 115 · neptune 115 · pluto 115
+   *
+   * `composeContextFor` sends `bundle.pool` whole, so EVERY compose request
+   * the game has ever made was refused here with a 400 before a single token
+   * was spent - which is exactly why the credit balance never moved and why
+   * every warp break showed the stop's shipped sentence. Only the note-only
+   * calls, which carry no pool, ever reached the model.
+   *
+   * 160 is headroom over the largest shipped pool, and a pool that size is
+   * about 150 prompt tokens - cheap next to the reply. `blasted` stays at one
+   * run's worth of a single belt.
+   */
+  const POOL_CAP = 160;
   const rawMode = b["mode"];
   if (rawMode !== undefined && rawMode !== "note" && rawMode !== "warp") return null;
   const mode: CoachMode = rawMode === "warp" ? "warp" : "note";
-  const pool = b["pool"] === undefined ? [] : list(b["pool"], 48);
+  const pool = b["pool"] === undefined ? [] : list(b["pool"], POOL_CAP);
   const blasted = b["blasted"] === undefined ? [] : list(b["blasted"], 48);
   if (!pool || !blasted) return null;
   // A warp request with no pool cannot produce a sentence that satisfies
@@ -210,6 +300,13 @@ function warpSystemPrompt(req: CoachRequest): string {
     "",
     `- Use ONLY words from POOL and SIGHT below. Nothing else, not even a very`,
     "  common word. A single outside word means the sentence is thrown away.",
+    // MEASURED: the model does not invent words, it INFLECTS them. Every live
+    // reply was rejected on one word - "plains", where the pool carries
+    // "plain". The allowlist is exact-match and does not bend, so the prompt
+    // has to say this out loud.
+    "- Spell every word EXACTLY as it appears in the list. Do not add -s, -es,",
+    "  -ed or -ing, and do not change any ending. If the list says \"plain\" you",
+    "  may not write \"plains\"; if it says \"moons\" you may not write \"moon\".",
     "- It MUST contain at least one word from HARD. Those words are the point:",
     "  the pilot just struggled with them and this is how they meet them again.",
     `- ${WARP_MIN_WORDS} to ${WARP_MAX_WORDS} words, at most ${WARP_MAX_CHARS} characters, one plain sentence.`,
@@ -315,12 +412,8 @@ export default async function handler(request: Request): Promise<Response> {
     };
     const text = data.content?.find((c) => c.type === "text")?.text ?? "";
 
-    let payload: unknown;
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      return json({ error: "unparseable" }, 502);
-    }
+    const payload = parseModelJson(text);
+    if (payload === null) return json({ error: "unparseable" }, 502);
 
     const p = payload as Record<string, unknown>;
     if (
@@ -343,7 +436,14 @@ export default async function handler(request: Request): Promise<Response> {
     // someone to believe it had been checked. The client's six gates are the
     // guardrail; a missing or malformed sentence simply never passes them and
     // the child types the stop's shipped sentence instead.
-    const sentence = warp && typeof p["sentence"] === "string" ? p["sentence"] : undefined;
+    const candidates = [p["sentence"], ...(p["variants"] as unknown[])].filter(
+      (c): c is string => typeof c === "string" && c.length > 0,
+    );
+    const allowed = new Set<string>([
+      ...parsed.pool.map((w) => w.toLowerCase()),
+      ...(parsed.lang === "en" ? WARP_SIGHT_WORDS : []),
+    ]);
+    const sentence = warp && candidates.length > 0 ? pickSentence(candidates, allowed) : undefined;
     return json(
       sentence === undefined
         ? { note: p["note"], variants: p["variants"] }

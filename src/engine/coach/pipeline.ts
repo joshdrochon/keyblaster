@@ -24,8 +24,23 @@ import type {
  * on `source`.
  */
 
-/** AC-15.1, CLAUDE.md, architecture 4.6. Not a suggestion, not per-transport. */
-export const COACH_TIMEOUT_MS = 1500;
+/**
+ * AC-15.1, CLAUDE.md, architecture 4.6. Not a suggestion, not per-transport.
+ *
+ * 3000, NOT 1500 (D33 revised). The original figure was set when the note was
+ * drawn the moment it arrived, so every millisecond was a millisecond the
+ * child sat looking at an empty card. UR-166 changed that: the instruction
+ * holds Shadow's card until the first keystroke, so the model is working while
+ * the child reads the sentence and starts typing it, and the deadline costs
+ * them nothing.
+ *
+ * It had to move. A warp reply measures 1.5-2.3 s on the deployed function,
+ * so at 1500 the client gave up on EVERY call - the coach had never once
+ * reached a player in production. The server gives up first at 2500 so the
+ * fallback still arrives from one place, and both sit far inside the seconds
+ * a child spends typing a sentence.
+ */
+export const COACH_TIMEOUT_MS = 4500;
 
 /**
  * Build a fallback result. `note` is never empty (see fallback.ts).

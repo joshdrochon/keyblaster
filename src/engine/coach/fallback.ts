@@ -143,7 +143,7 @@ export function fallbackFor(
  *
  * The pre-render pass skipped the coach note as "runtime LLM text, unrenderable
  * by construction". That is true of a LIVE note and false of the note a child
- * actually hears: `/api/coach` is behind a 1500 ms deadline with THIS BUNDLE
+ * actually hears: `/api/coach` is behind a 4500 ms deadline with THIS BUNDLE
  * behind it (D33), and with no proxy deployed every warp break lands here. A
  * finite, authored, shipped set of strings was classified as infinite, so the
  * one line Shadow says every single break was the only one in the game spoken

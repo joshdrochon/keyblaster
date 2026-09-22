@@ -204,10 +204,10 @@ describe("DirectCoach request shape (D92)", () => {
     expect(body).toContain("NEVER use the word");
   });
 
-  it("AC-15.1: DirectCoach honours the same 1500 ms deadline and fallback", async () => {
+  it("AC-15.1: DirectCoach honours the same 4500 ms deadline and fallback", async () => {
     const { coach, clock } = build(respondHang);
     const pending = coach.request(marsRequest);
-    expect(clock.handles[0]?.ms).toBe(1500);
+    expect(clock.handles[0]?.ms).toBe(4500);
     clock.fireAll();
     const result = await pending;
     expect(result.source).toBe("fallback");

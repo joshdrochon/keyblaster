@@ -48,7 +48,7 @@ export const DIRECT_COACH_MARKER = "KB_DIRECT_COACH_DEV_ONLY";
 
 /**
  * D92: Claude Haiku 4.5, pinned to the dated snapshot the decision names.
- * Chosen for latency inside the 1500 ms budget (AC-15.1); ~400 in / ~120 out
+ * Chosen for latency inside the 4500 ms budget (AC-15.1); ~400 in / ~120 out
  * tokens per call, six calls per run.
  */
 export const COACH_MODEL = "claude-haiku-4-5-20251001";
