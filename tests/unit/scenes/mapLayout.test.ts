@@ -740,3 +740,70 @@ describe("UR-177: the board is sized to its rows and pinned at the foot", () => 
     expect(panelStarsY() + PANEL_STAR_R).toBeLessThan(box.y + box.h);
   });
 });
+
+describe("UR-180: the arrow is the affordance, and the only thing that moves", () => {
+  const src = readFileSync("src/game/scenes/DirectorMapScene.ts", "utf8");
+
+  it("draws the arrow as its own object, right of the words", () => {
+    // The words hold still so they stay readable; a pulsing label on a screen
+    // a child can sit on indefinitely is noise.
+    expect(src).toMatch(/this\.panelArrow = label\(/);
+    expect(src).toMatch(/panelInkRight\(\) - ARROW_GAP/);
+  });
+
+  it("glimmers rather than sliding - light on it, not it moving (UR-180)", () => {
+    // Destiny's interactive elements carry light across them and bulge on
+    // arrival; nothing loops a position. A repeating slide reads as fidgeting.
+    expect(src).toMatch(/alpha: \{ from: 1, to: ARROW_GLIMMER_ALPHA \}/);
+    expect(src).not.toMatch(/ARROW_NUDGE_PX/);
+  });
+
+  it("bulges once when the selection lands", () => {
+    expect(src).toMatch(/scale: \{ from: ACTION_POP_FROM, to: 1 \}/);
+    expect(src).toMatch(/this\.popAction\(\);/);
+  });
+
+  it("holds still under reduced motion (D41 / AC-19.3)", () => {
+    expect(src).toMatch(/if \(!this\.story\.ctx\.reducedMotion\) \{[\s\S]{0,400}this\.tweens\.add\(/);
+    expect(src).toMatch(/if \(this\.story\.ctx\.reducedMotion\) return;/);
+  });
+
+  it("points at nothing when there is nothing to fly to", () => {
+    expect(src).toMatch(/this\.panelArrow\.setVisible\(!locked\)/);
+  });
+});
+
+describe("UR-181: a locked stop answers instead of ignoring the child", () => {
+  const src = readFileSync("src/game/scenes/DirectorMapScene.ts", "utf8");
+
+  it("shakes the action rather than returning in silence", () => {
+    // It was a bare `return` - a child could not tell a locked stop from a
+    // broken key. D31 forbids reading as failure, not answering at all.
+    expect(src).toMatch(/if \(node\.locked\) \{[\s\S]{0,200}this\.shakeAction\(\);/);
+  });
+
+  it("eases out rather than snapping, and never under reduced motion", () => {
+    expect(src).toMatch(/ease: "Elastic\.Out"/);
+    expect(src).toMatch(/shakeAction\(\): void \{\s*\n\s*if \(this\.story\.ctx\.reducedMotion\) return;/);
+  });
+
+  it("draws a lock beside the word, like the chips do", () => {
+    expect(src).toMatch(/paintLockGlyph\(/);
+    expect(src).toMatch(/if \(locked\) \{/);
+  });
+});
+
+describe("UR-181: the board's lock is on the same scales as the chips'", () => {
+  const src = readFileSync("src/game/scenes/DirectorMapScene.ts", "utf8");
+
+  it("sizes one step down from the word, and gaps on the spacing scale", () => {
+    // `mapLayout.LOCK_SIZE` states the rule for the caption chips; this is the
+    // same relationship against a `TYPE.body` word.
+    expect(src).toMatch(/const ACTION_LOCK_SIZE = TYPE\.label;/);
+    expect(src).toMatch(/ACTION_LOCK_SIZE \+ STEP\.hair/);
+  });
+
+  it("centres the mark on the word rather than on a number beside it", () => {
+    expect(src).toMatch(/this\.panelAction\.y \+ this\.panelAction\.height \/ 2/);
+  });
+});

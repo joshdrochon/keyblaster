@@ -1,0 +1,2 @@
+import{d as O,G as u}from"./grid-uqlBurYo.js";const R="pick.new";function H(n,o){return R}const _=64,c=1.82,a=1.6,r=1.32,i=1.52,W={list:220,empty:260};function e(n,o){const t=_*o;return{x:n-u-i*t,y:O-a*t}}function D(n){return(i-r)*_*n}function T(n,o){const t=e(n,o),s=_*o;return{x:t.x-r*s,y:t.y-c*s,w:(r+i)*s,h:(c+a)*s}}export{R as N,W as S,T as a,D as b,H as i,e as s};
+//# sourceMappingURL=pickerLayout-FTAnowOf.js.map

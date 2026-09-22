@@ -569,6 +569,11 @@ export function goTo(
   // Before the new place is built, not after: a stale scene that is still
   // holding the keyboard must not get another frame of it.
   stopStaleScenes(scene, key);
-  scene.scene.start(key, data);
+  // UR-182: `data ?? {}`, never `undefined`. Phaser only overwrites
+  // `settings.data` when the value is truthy, so starting a scene with no
+  // payload leaves the one from its LAST start in place - the Director map
+  // drew a new pilot's route while standing in another profile, because the
+  // picker starts it with nothing to say.
+  scene.scene.start(key, data ?? {});
   return true;
 }

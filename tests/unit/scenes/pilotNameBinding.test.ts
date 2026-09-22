@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { createSceneText } from "@game/scenes/lib/strings";
 import { createLaneText } from "@game/scenes/support/copy";
@@ -61,6 +62,27 @@ describe("C27: the scene text factories bind the pilot's name", () => {
       const t = createSceneText({ lang, shipName: "Lantern", pilotName: "Rin" });
       expect(t.text(LINE)).toContain("Rin");
       expect(t.text(LINE)).not.toContain("{pilotName}");
+    }
+  });
+});
+
+describe("UR-182: a scene never inherits the last payload", () => {
+  it("starts with an object, so Phaser cannot keep the previous one", () => {
+    /**
+     * Measured in the served build. Josh had cleared earth and mars; a new
+     * pilot was created and lit earth; selecting Josh again drew:
+     *
+     *   source PAYLOAD  payloadCleared [earth]  storeCleared [earth, mars]
+     *
+     * The picker starts the map with no payload, and Phaser only overwrites
+     * `settings.data` when the value is truthy - so the map kept the NEW
+     * pilot's route and Jupiter locked again. `withStoredProgress` is
+     * payload-first, so the stale payload beat the store.
+     */
+    for (const file of ["src/game/scenes/lib/init.ts", "src/game/ui/MenuScene.ts"]) {
+      const src = readFileSync(file, "utf8");
+      expect(src, file).toMatch(/scene\.start\(key, data \?\? \{\}\)/);
+      expect(src, file).not.toMatch(/scene\.start\(key, data\)/);
     }
   });
 });

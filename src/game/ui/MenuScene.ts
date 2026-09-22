@@ -440,7 +440,8 @@ export abstract class MenuScene extends Phaser.Scene {
     // the Director map, and over the Settings panel after that.
     const start = (): void => {
       stopStaleScenes(this, key);
-      this.scene.start(key, data);
+      // UR-182: never `undefined` - see the note on `lib/init.goTo`.
+      this.scene.start(key, data ?? {});
     };
     /**
      * OPT IN, NOT ON BY DEFAULT (UR-118).

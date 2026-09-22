@@ -4,7 +4,7 @@ import { hexToNum, paletteAt } from "@game/render/palette";
 import { audioFrom } from "@game/audio/wiring";
 import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
 import { ensureTextures, fillShape, starPoints } from "@game/render/textures";
-import { DUR, INK, SKY_PLATE, SPACE, TYPE } from "@game/ui/theme";
+import { DUR, INK, SKY_PLATE, SPACE, STEP, TYPE } from "@game/ui/theme";
 import { paintPlate } from "@game/ui/plate";
 import { drawHint } from "@game/ui/hintLine";
 import { paintLockGlyph } from "@game/ui/chrome";
@@ -176,6 +176,17 @@ interface NodeView {
   readonly caption: { readonly halfW: number; readonly bottom: number };
 }
 
+const ARROW_GAP = 26;
+const ARROW_GLIMMER_ALPHA = 0.7;
+const ARROW_GLIMMER_MS = 2400;
+const ACTION_POP_FROM = 1.06;
+const ACTION_POP_MS = 420;
+/** One step down the type scale from the word, like the caption chips. */
+const ACTION_LOCK_SIZE = TYPE.label;
+const ACTION_LOCK_ADVANCE = ACTION_LOCK_SIZE + STEP.hair;
+const SHAKE_PX = 10;
+const SHAKE_MS = 620;
+
 export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   private story!: ResolvedInit;
   private parallax!: Parallax;
@@ -189,6 +200,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   private panelChapter!: Phaser.GameObjects.Text;
   private panelBoard!: Phaser.GameObjects.Text;
   private panelAction!: Phaser.GameObjects.Text;
+  private panelArrow!: Phaser.GameObjects.Text;
+  private panelLock!: Phaser.GameObjects.Graphics;
   private panelStars!: Phaser.GameObjects.Graphics;
   /** UR-53: the Lantern, hovering over whichever stop is selected. */
   private lantern: LanternRig | null = null;
@@ -317,8 +330,31 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     // right-hand ink line now; `drawStars` is given the centre that puts the
     // cluster's right EDGE on it (`starsCentreForRight`), which is the 42.4 px
     // the two were out by.
-    this.panelAction = label(this, panelInkRight(), PANEL.y + 40, "", {
-      size: TYPE.label,
+    // UR-180: an arrow says "this takes you somewhere"; a name does not.
+    this.panelArrow = label(this, panelInkRight(), PANEL.y + 40, "\u25B8", {
+      size: TYPE.body,
+      color: INK.accent,
+      align: "right",
+      lang: this.story.lang,
+    })
+      .setOrigin(1, 0)
+      .setDepth(10);
+    if (!this.story.ctx.reducedMotion) {
+      // UR-180: light on it, not it moving.
+      this.tweens.add({
+        targets: [this.panelArrow, this.panelAction],
+        alpha: { from: 1, to: ARROW_GLIMMER_ALPHA },
+        duration: ARROW_GLIMMER_MS,
+        ease: "Sine.InOut",
+        yoyo: true,
+        repeat: -1,
+      });
+    }
+
+    this.panelLock = this.add.graphics().setDepth(10);
+
+    this.panelAction = label(this, panelInkRight() - ARROW_GAP, PANEL.y + 40, "", {
+      size: TYPE.body,
       color: INK.accent,
       align: "right",
       lang: this.story.lang,
@@ -951,11 +987,70 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     // The board is a plate, but INK.locked on INK.panel is 1.6:1 - the same
     // failure as the map labels, indoors. `textDim` is 7.9:1 on the panel.
     this.panelAction.setColor(locked ? INK.textDim : INK.accent);
+    this.panelArrow.setVisible(!locked);
+    this.panelLock.clear();
+    if (locked) {
+      // Centred on the word's own middle, not on a number beside it.
+      const mid = this.panelAction.y + this.panelAction.height / 2;
+      paintLockGlyph(
+        this.panelLock,
+        {
+          x: panelInkRight() - ACTION_LOCK_SIZE,
+          y: mid - ACTION_LOCK_SIZE / 2,
+          w: ACTION_LOCK_SIZE,
+          h: ACTION_LOCK_SIZE,
+        },
+        INK.textDim,
+      );
+    } else {
+      // Only an available stop answers: a bulge on a dead end invites the press.
+      this.popAction();
+    }
+    this.panelArrow.setX(panelInkRight());
+    this.panelAction.setX(panelInkRight() - (locked ? ACTION_LOCK_ADVANCE : ARROW_GAP));
+  }
+
+  private shakeAction(): void {
+    if (this.story.ctx.reducedMotion) return;
+    // The word and its mark move as ONE: the lock is drawn in absolute
+    // coordinates, so its Graphics rides from -SHAKE_PX back to 0.
+    const home = panelInkRight() - ACTION_LOCK_ADVANCE;
+    for (const [obj, base] of [
+      [this.panelAction, home],
+      [this.panelLock, 0],
+    ] as const) {
+      this.tweens.killTweensOf(obj);
+      obj.setX(base);
+      this.tweens.add({
+        targets: obj,
+        x: { from: base - SHAKE_PX, to: base },
+        duration: SHAKE_MS,
+        ease: "Elastic.Out",
+        easeParams: [1, 0.55],
+      });
+    }
+  }
+
+  /** UR-180: the selection landed, so the action answers once. */
+  private popAction(): void {
+    if (this.story.ctx.reducedMotion) return;
+    for (const obj of [this.panelAction, this.panelArrow]) {
+      this.tweens.killTweensOf(obj);
+      obj.setScale(1);
+      this.tweens.add({
+        targets: obj,
+        scale: { from: ACTION_POP_FROM, to: 1 },
+        duration: ACTION_POP_MS,
+        ease: "Sine.Out",
+      });
+    }
   }
 
   private travel(node: NodeView): void {
     if (node.locked) {
-      // Nothing happens, and nothing tells the child off for asking (D31).
+      // UR-181: an answer, not a telling-off. Silence left the child unable to
+      // tell a locked stop from a broken key.
+      this.shakeAction();
       return;
     }
     if (node.stopId === "earth") {
