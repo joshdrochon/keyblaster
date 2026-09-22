@@ -3,6 +3,9 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { PROGRESS_VARIANTS, charted, mount, snapshot } from "./story-lane";
+// The menu lane's own helpers: the picker is a `MenuScene`, not a story screen,
+// so it is seeded through the real store and read from the DOM mirror.
+import { seed, snapshot as pickerSnapshot } from "./lib/menus";
 import {
   bootScene,
   freezeReloads,
@@ -66,12 +69,10 @@ const STOPS = ["earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto
 /**
  * A full profile for the Results screen.
  *
- * `relativeBoard` is the lever these specs care about: false means the D43
- * one-time opt-in prompt is on screen (and holds the caret), true means it is
- * not (and `continue` holds the caret). Handed to the scene explicitly so the
- * fixture cannot write itself into a real save.
+ * Handed to the scene explicitly so the fixture cannot write itself into a
+ * real save.
  */
-function resultsProfile(relativeBoard: boolean): Record<string, unknown> {
+function resultsProfile(): Record<string, unknown> {
   return {
     id: "pilot-test",
     name: "Ada",
@@ -91,7 +92,6 @@ function resultsProfile(relativeBoard: boolean): Record<string, unknown> {
       increasedLetterSpacing: false,
       reducedMotion: false,
       colorblindPalette: false,
-      relativeBoard,
     },
     progress: STOPS.map((stopId) => ({
       stopId,
@@ -124,13 +124,30 @@ test.describe("AC-18.1: the forward action is focused on entry", () => {
   // but the ceiling still has to allow for it.
   test.setTimeout(120_000);
 
+  test("AC-18.1 / UR-112: the profile picker opens on `pick.new`, not on the last pilot", async ({
+    page,
+  }) => {
+    // THE MENU LANE JOINS THE RULE. Every screen above is a story screen on
+    // `scenes/lib/kit`; the picker is a `MenuScene`, and it was the one screen
+    // in the product that opened on a BACKWARD-looking control - the pilot who
+    // last flew. The owner's brother, who had no such pilot, took several
+    // seconds to find the way forward. Starting a pilot is this screen's
+    // forward action, so it holds the caret.
+    await seed(page, [{ name: "Ana" }, { name: "Bo" }], "ProfilePicker");
+    // A real fork: both kinds of control are on screen.
+    const snap = await pickerSnapshot(page, "ProfilePicker");
+    expect(snap["items"]).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "pick.new" })]),
+    );
+    expect(snap["profileCount"]).toBe(2);
+    expect(snap["focusId"]).toBe("pick.new");
+  });
+
   test("AC-18.1: Results opens on `continue`, not on replay", async ({ page }) => {
     await bootScene(page, "Results", "results");
-    // Opted in, so the one-time D43 prompt is NOT on screen and the only
-    // choice is the one this test is about: replay versus continue.
     await restartScene(page, "Results", {
       stopId: "mars",
-      profile: resultsProfile(true),
+      profile: resultsProfile(),
       tally: STAGE_TALLY,
       exposures: [],
     });
@@ -143,55 +160,6 @@ test.describe("AC-18.1: the forward action is focused on entry", () => {
     expect(snapshotValue.focusIds).toContain("replay");
     expect(snapshotValue.focusIds).toContain("continue");
     expect(snapshotValue.focusId).toBe("continue");
-  });
-
-  test("AC-18.1 + D43: the one-time prompt holds focus while it is asking, and `continue` takes it back", async ({
-    page,
-  }) => {
-    // THE ONE EXCEPTION, and the reason it is one. "The forward action is the
-    // default" is a rule about replay-versus-continue. It is not a licence to
-    // focus past a question the screen is asking - a one-time opt-in the
-    // default action skips is an opt-in nobody ever answers.
-    await bootScene(page, "Results", "results");
-    await restartScene(page, "Results", {
-      stopId: "mars",
-      profile: resultsProfile(false),
-      tally: STAGE_TALLY,
-      exposures: [],
-      relativeBoard: [{ label: "a pilot", wpm: 20, isYou: false }],
-    });
-    await settle(page);
-
-    const asking = await snap<{
-      focusId: string;
-      focusIds: string[];
-      promptShown: boolean;
-    }>(page, "results");
-
-    expect(asking.promptShown).toBe(true);
-    expect(asking.focusIds.slice(0, 2)).toEqual(["board-yes", "board-no"]);
-    expect(asking.focusId).toBe("board-yes");
-
-    // Answer it. The screen rebuilds, there is no longer a question, and the
-    // forward action is the default again - never replay.
-    //
-    // Waits on `optedIn`, not on `promptShown`: the latter is sticky by design
-    // (it records that the question WAS asked this session, which is what D43's
-    // "ask once" claim is checked against) and never goes back to false.
-    await page.keyboard.press("Enter");
-    await page.waitForFunction(
-      () => {
-        const bag = (window as unknown as { __kb: Record<string, unknown> }).__kb;
-        const entry = bag["results"] as { snapshot(): { optedIn: boolean } };
-        return entry.snapshot().optedIn === true;
-      },
-      null,
-      { timeout: 60_000 },
-    );
-
-    const answered = await snap<{ focusId: string; focusIds: string[] }>(page, "results");
-    expect(answered.focusIds).toContain("replay");
-    expect(answered.focusId).toBe("continue");
   });
 
   test("AC-18.1: Stall opens on its one control, and that control is the forward one", async ({

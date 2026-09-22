@@ -35,6 +35,7 @@ import {
   type OscillatorWave,
 } from "./context.js";
 import { label } from "./nullContext.js";
+import { isMultiplierMilestone, multiplierFor } from "@engine/scoring/index.js";
 import {
   CRUMBLE_MATERIALS,
   CRUMBLE_SECONDS,
@@ -47,7 +48,7 @@ import {
   type CrumbleMaterial,
 } from "./crumble.js";
 
-/** The ten events AC-21.3 names, in the PRD's order. */
+/** The eleven events AC-21.3 names, in the PRD's order. */
 export const SFX_EVENTS = [
   "lock",
   "keystroke",
@@ -59,6 +60,7 @@ export const SFX_EVENTS = [
   "warp",
   "beacon",
   "uiNav",
+  "comboUp",
 ] as const;
 
 export type SfxEventId = (typeof SFX_EVENTS)[number];
@@ -72,11 +74,16 @@ export const MIN_VARIANTS_PER_EVENT = 3;
  */
 export const GENTLE_EVENTS: readonly SfxEventId[] = ["typo", "hit"];
 
-/** A neutral tick may not be loud, long, bright or harsh. D31 budget. */
+/**
+ * A neutral tick may not be loud, long, bright or harsh. D31 budget.
+ *
+ * UR-170: re-measured against the played game. The order is what D31 protects
+ * and it is asserted directly in `sfx.test.ts`; these caps sit under it.
+ */
 export const GENTLE_LIMITS = Object.freeze({
-  maxPeakGain: 0.1,
-  maxDurationMs: 220,
-  maxHarshness: 0.2,
+  maxPeakGain: 0.23,
+  maxDurationMs: 300,
+  maxHarshness: 0.25,
 });
 
 /** Pitch travel over the life of a voice. `flat` is the neutral register. */
@@ -126,6 +133,25 @@ export interface SfxVariant {
    * would be a drum.
    */
   readonly sub?: SubLayer;
+  /**
+   * UR-147b - THE SHIMMER. Optional.
+   *
+   * The Halo recharge is not a tone, it is a tone being FLUTTERED: a bright
+   * partial riding above the fundamental with its level wobbling a few times
+   * over the life of the cue. One oscillator cannot do that, and no amount of
+   * pitch or filter moves gets near it - which is why the first two attempts
+   * at this cue came out as "a beep" and then as "a thump".
+   *
+   * `ratio` is where the partial sits above the fundamental (2.5 is roughly an
+   * octave and a third - deliberately not a whole number, so it rings rather
+   * than doubling), `hz` is the flutter rate and `depth` how deep it cuts.
+   */
+  readonly shimmer?: {
+    readonly ratio: number;
+    readonly gain: number;
+    readonly hz: number;
+    readonly depth: number;
+  };
   /**
    * UR-34 - THE TRANSIENT. Optional.
    *
@@ -335,9 +361,15 @@ export const SFX_VARIANTS: Readonly<Record<SfxEventId, readonly SfxVariant[]>> =
   // on `peakGain`, which is how a layer added on top of a declared field got
   // past the budget in the first place.
   typo: table("typo", [
-    { wave: "sine", startHz: 330, endHz: 330, durationMs: 45, attackMs: 3, peakGain: 0.05, filterKind: "lowpass", filterHz: 1400, noise: 0.0, harshness: 0.0, pan: 0.0 },
-    { wave: "triangle", startHz: 294, endHz: 294, durationMs: 55, attackMs: 4, peakGain: 0.045, filterKind: "lowpass", filterHz: 1200, noise: 0.0, harshness: 0.0, pan: -0.08 },
-    { wave: "sine", startHz: 392, endHz: 392, durationMs: 40, attackMs: 3, peakGain: 0.048, filterKind: "lowpass", filterHz: 1600, noise: 0.02, harshness: 0.0, pan: 0.09 },
+    // UR-170: the owner tuned this by ear against the running game and kept it.
+    // A low buzz: sawtooth harmonics are what carry the pitch when the
+    // fundamental is below what a laptop speaker reproduces.
+    { wave: "sawtooth", startHz: 49.0, endHz: 43.65, durationMs: 260, attackMs: 8, peakGain: 0.1, filterKind: "lowpass", filterHz: 760, noise: 0.0, harshness: 0.2, pan: 0.0,
+      sub: { startHz: 36.71, endHz: 32.7, durationMs: 300, gain: 0.16 } },
+    { wave: "sawtooth", startHz: 43.65, endHz: 38.89, durationMs: 285, attackMs: 9, peakGain: 0.096, filterKind: "lowpass", filterHz: 680, noise: 0.0, harshness: 0.21, pan: -0.08,
+      sub: { startHz: 32.7, endHz: 29.14, durationMs: 330, gain: 0.155 } },
+    { wave: "sawtooth", startHz: 55.0, endHz: 49.0, durationMs: 240, attackMs: 8, peakGain: 0.098, filterKind: "lowpass", filterHz: 840, noise: 0.0, harshness: 0.19, pan: 0.09,
+      sub: { startHz: 41.2, endHz: 36.71, durationMs: 290, gain: 0.158 } },
   ]),
   // The rock breaks. Bright, fast, noisy - an impact, not a threat.
   // THREE LAYERS, AND THE MIDDLE ONE IS THE ROCK.
@@ -368,16 +400,36 @@ export const SFX_VARIANTS: Readonly<Record<SfxEventId, readonly SfxVariant[]>> =
   ]), // A rock reaches the hull. D31: this is a WARM LOW THUD you feel, never an
   // alarm, never a descending whine, never a red sound. The hull is the
   // engine's business; the audio's job is "something big just touched us".
+  // Pitched for a laptop, which rolls off hard below ~200 Hz: the original
+  // 58-110 Hz thud was inaudible on the speakers children actually use.
+  // `peakGain` is untouched, so D31's ceiling on this event is unchanged.
+  // A LOW WARNING, NOT A CLICK. An earlier pass gave this a bright transient
+  // and it read as another keystroke - the one thing it must not sound like,
+  // since the player is typing while it fires. Descending, filtered, no click.
   hit: table("hit", [
-    { wave: "sine", startHz: 96, endHz: 62, durationMs: 210, attackMs: 6, peakGain: 0.09, filterKind: "lowpass", filterHz: 420, noise: 0.18, harshness: 0.12, pan: 0.0 },
-    { wave: "triangle", startHz: 84, endHz: 58, durationMs: 190, attackMs: 8, peakGain: 0.085, filterKind: "lowpass", filterHz: 380, noise: 0.22, harshness: 0.15, pan: -0.12 },
-    { wave: "sine", startHz: 110, endHz: 70, durationMs: 170, attackMs: 5, peakGain: 0.095, filterKind: "lowpass", filterHz: 500, noise: 0.14, harshness: 0.1, pan: 0.11 },
+    { wave: "sawtooth", startHz: 390, endHz: 150, durationMs: 215, attackMs: 14, peakGain: 0.185, filterKind: "lowpass", filterHz: 1100, noise: 0.1, harshness: 0.19, pan: 0.0 },
+    { wave: "square", startHz: 370, endHz: 138, durationMs: 205, attackMs: 16, peakGain: 0.176, filterKind: "lowpass", filterHz: 1060, noise: 0.12, harshness: 0.2, pan: -0.12 },
+    { wave: "sawtooth", startHz: 398, endHz: 162, durationMs: 195, attackMs: 12, peakGain: 0.193, filterKind: "lowpass", filterHz: 1100, noise: 0.09, harshness: 0.18, pan: 0.11 },
   ]),
-  // Shields absorb: a rising filtered swell, glassy and protective.
+  // UR-147. The repair blip. Two defects in the old 380-460 ms swell: it was
+  // still sounding when the next rock needed reading, and at 0.0949-0.1114
+  // rendered against a blast at 0.3344-0.3517 it was up to 11.4 dB under the
+  // cue it is NEVER heard without - a canister is repaired by blasting it, so
+  // the two land on the same frame every time (UR-128's finding, second site).
+  // Now 150-190 ms: a contact transient (`click`), a glassy tone rising an
+  // octave and a fifth on a real interval, and a `sub` for weight. D31 lets a
+  // reward gain weight and not sharpness, so `harshness` and `noise` both came
+  // DOWN. Measurements and ceilings: tests/unit/audio/rendered.test.ts.
   shield: table("shield", [
-    { wave: "triangle", startHz: 240, endHz: 620, durationMs: 420, attackMs: 40, peakGain: 0.2, filterKind: "bandpass", filterHz: 400, noise: 0.35, harshness: 0.12, pan: -0.2 },
-    { wave: "sine", startHz: 300, endHz: 760, durationMs: 380, attackMs: 30, peakGain: 0.19, filterKind: "highpass", filterHz: 420, noise: 0.28, harshness: 0.1, pan: 0.2 },
-    { wave: "triangle", startHz: 200, endHz: 540, durationMs: 460, attackMs: 55, peakGain: 0.21, filterKind: "bandpass", filterHz: 340, noise: 0.42, harshness: 0.15, pan: 0.0 },
+    { wave: "triangle", startHz: 329.63, endHz: 493.88, durationMs: 420, attackMs: 34, peakGain: 0.42, filterKind: "lowpass", filterHz: 5200, noise: 0.03, harshness: 0.08, pan: -0.1,
+      sub: { startHz: 110, endHz: 82.41, durationMs: 460, gain: 0.3 },
+      shimmer: { ratio: 3.0, gain: 0.26, hz: 15, depth: 0.55 } },
+    { wave: "sine", startHz: 369.99, endHz: 554.37, durationMs: 380, attackMs: 30, peakGain: 0.39, filterKind: "lowpass", filterHz: 5600, noise: 0.03, harshness: 0.07, pan: 0.12,
+      sub: { startHz: 123.47, endHz: 92.5, durationMs: 420, gain: 0.28 },
+      shimmer: { ratio: 3.0, gain: 0.25, hz: 17, depth: 0.6 } },
+    { wave: "triangle", startHz: 293.66, endHz: 440.0, durationMs: 460, attackMs: 38, peakGain: 0.44, filterKind: "lowpass", filterHz: 4800, noise: 0.04, harshness: 0.09, pan: 0.0,
+      sub: { startHz: 98.0, endHz: 73.42, durationMs: 500, gain: 0.32 },
+      shimmer: { ratio: 3.0, gain: 0.27, hz: 13, depth: 0.5 } },
   ]),
   // The warp drive spools. Long, slow, climbing - anticipation.
   //
@@ -419,6 +471,31 @@ export const SFX_VARIANTS: Readonly<Record<SfxEventId, readonly SfxVariant[]>> =
     { wave: "sine", startHz: 660, endHz: 990, durationMs: 900, attackMs: 8, peakGain: 0.28, filterKind: "lowpass", filterHz: 5200, noise: 0.04, harshness: 0.02, pan: 0.0 },
     { wave: "triangle", startHz: 587, endHz: 880, durationMs: 1000, attackMs: 10, peakGain: 0.27, filterKind: "lowpass", filterHz: 4600, noise: 0.06, harshness: 0.04, pan: -0.15 },
     { wave: "sine", startHz: 740, endHz: 1110, durationMs: 820, attackMs: 6, peakGain: 0.29, filterKind: "highpass", filterHz: 300, noise: 0.03, harshness: 0.02, pan: 0.16 },
+  ]),
+  /**
+   * A MULTIPLIER MILESTONE (UR-117). x3, x5, x10 - and nothing else.
+   *
+   * ================== WHAT IT IS NOT ==================
+   * Not a fanfare, and not the beacon's chirp again. The beacon is the end of a
+   * whole stop and gets 900 ms; this lands ON TOP OF a blast the player just
+   * triggered, so anything long turns the moment into mud. It is a bell: one
+   * rise, out of the way in a fifth of a second.
+   *
+   * ================== WHY IT IS RATIONED ==================
+   * `scoring/combo.MULTIPLIER_MILESTONES` has the argument in full. In short,
+   * the multiplier climbs on each of the first ten words and then stops, so a
+   * cue on every increase is ten rewards in twenty seconds and none after.
+   *
+   * Pitched ABOVE the blast's own band (its sweep lands 780 -> 180 Hz) so the
+   * two do not mask each other when they fire on the same frame - the same
+   * reasoning that moved the `hit` out of the drone's band. Sine and triangle
+   * only, near-zero noise and harshness: D31 says a reward may be bright, it
+   * may never be sharp.
+   */
+  comboUp: table("comboUp", [
+    { wave: "sine", startHz: 880, endHz: 1320, durationMs: 190, attackMs: 4, peakGain: 0.30, filterKind: "lowpass", filterHz: 6000, noise: 0.02, harshness: 0.01, pan: 0.0 },
+    { wave: "triangle", startHz: 988, endHz: 1480, durationMs: 175, attackMs: 3, peakGain: 0.28, filterKind: "lowpass", filterHz: 5600, noise: 0.03, harshness: 0.02, pan: -0.1 },
+    { wave: "sine", startHz: 784, endHz: 1175, durationMs: 205, attackMs: 5, peakGain: 0.31, filterKind: "lowpass", filterHz: 6400, noise: 0.02, harshness: 0.01, pan: 0.11 },
   ]),
   // D62: "UI sounds for every interaction". Small, neutral, never fatiguing -
   // a child arrowing down a profile list will hear this a hundred times.
@@ -557,6 +634,76 @@ export const blastPitchRatio = (combo: number): number => semitoneRatio(blastSem
  */
 export function hitIntensityFor(hullFraction: number): number {
   return 1 + (1 - clamp(hullFraction, 0, 1)) * 0.35;
+}
+
+/**
+ * How much bigger the blast is when it is the one that won a milestone (UR-117).
+ *
+ * THE ROCK THAT EARNED x5 COMES APART HARDER. The owner asked for the bigger
+ * explosion and the louder noise to land on the milestone rather than on every
+ * multiplier step, which is also what keeps this affordable: it fires three
+ * times in a belt, not fifty.
+ *
+ * ================== IT WAS 1.3, AND 1.3 DOES NOT FIT ==================
+ * The number was written against an estimate - "the variants render around
+ * 0.24" - and the estimate was wrong. Rendered through the bus at shipped
+ * level, with `rendered.test.ts`'s own harness (RENDERED PEAKS, measured):
+ *
+ *     combo        blast.0   blast.1   blast.2
+ *     0 (no gain)   0.2962    0.3557    0.2996
+ *     3 x1.3        0.3668    0.4123    0.3769
+ *     5 x1.3        0.3901    0.4535    0.3322     <- OVER
+ *     10 x1.3       0.4347    0.4188    0.3445
+ *
+ * `rendered.test.ts` holds every blast variant under a 0.45 peak, and a
+ * milestone blast at 1.3 breaches it: 0.4535 on blast.1 at x5. The ceiling is
+ * not the thing to move. It is the one number that says the loudest cue in the
+ * game does not clip, and a reward that clips is a worse reward.
+ *
+ * ================== SO IT IS 1.2 ==================
+ * The bar divided by the loudest milestone blast without the gain (0.3488, the
+ * same blast.1 at x5) is 1.290, so 1.29 is the arithmetic ceiling and anything
+ * at it has no margin at all - the peak moves with the detune jitter and with
+ * where in the shuffle bag a belt happens to be. 1.2 measures 0.4196 at that
+ * worst case, 6.8% under the bar, and is still plainly bigger than the same
+ * rock at x4. GAIN ONLY - pitch is `blastSemitonesFor`'s job and already rises
+ * with the combo, and D31 says a sound may gain weight, never menace.
+ */
+export const BLAST_MILESTONE_GAIN = 1.2;
+
+/**
+ * THE KNOB'S DETENT, AS A PITCH (UR-133).
+ *
+ * The owner asked for a satisfying click as a knob turns, and for that click to
+ * get quieter as the Sound knob comes down. The second half is free: this is
+ * `uiNav`, which is on the `sfx` bus ("procedural events AND all UI sound"), so
+ * the Sound knob already scales it.
+ *
+ * THE FIRST HALF IS PITCH, NOT A NEW SAMPLE. A detent that plays the identical
+ * blip at every position is a click; one that CLIMBS as the knob turns up is a
+ * knob, and a child sweeping the volume hears where they are without reading
+ * the number. Composed from an existing cue for the same reason the pre-flight
+ * row chime is - `SFX_EVENTS` is a named list and a twelfth entry has to earn
+ * its way into AC-21.3.
+ *
+ * The span is a fifth, in semitones, and it is drawn from the SAME pentatonic
+ * set the keystroke tone uses (D75) so a knob swept during a belt stays in the
+ * key of the typing around it.
+ */
+export const DETENT_SEMITONES: readonly number[] = [0, 2, 4, 7, 9, 12];
+
+export function detentSemitones(value01: number): number {
+  const v = Number.isFinite(value01) ? clamp(value01, 0, 1) : 0;
+  const i = Math.min(
+    DETENT_SEMITONES.length - 1,
+    Math.floor(v * DETENT_SEMITONES.length),
+  );
+  return DETENT_SEMITONES[i] ?? 0;
+}
+
+/** The blast's gain multiplier for the combo it was fired at. */
+export function blastGainFor(combo: number): number {
+  return isMultiplierMilestone(multiplierFor(combo)) ? BLAST_MILESTONE_GAIN : 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -835,10 +982,24 @@ export class SfxBus {
     const pitchRatio = semitoneRatio(reactive + requested);
     const intensity =
       event === "hit" ? hitIntensityFor(options.hullFraction ?? 1) : 1;
+    /**
+     * UR-117: THE BLAST THAT WON x3, x5 OR x10 IS LOUDER THAN THE OTHERS.
+     *
+     * Shaped HERE and not threaded in from the scene, for the same reason the
+     * two lines above it are: this is a rule about the game, the cue already
+     * carries the combo it was fired at, and a `gainScale` passed down from
+     * `FlightScene` would be a second place that has to remember which
+     * multipliers are milestones. `blastGainFor` reads `scoring/combo`, so the
+     * three numbers live in exactly one file.
+     *
+     * Gain only. The pitch rise is `blastSemitonesFor`'s job and already tracks
+     * the combo, and D31 says a sound may gain weight, never menace.
+     */
+    const milestoneGain = event === "blast" ? blastGainFor(options.combo ?? 0) : 1;
 
     const startHz = variant.startHz * pitchRatio;
     const endHz = variant.endHz * pitchRatio;
-    const peakGain = clamp(variant.peakGain * intensity * gainScale, 0, 1);
+    const peakGain = clamp(variant.peakGain * intensity * milestoneGain * gainScale, 0, 1);
 
     // UR-66: resolved here rather than inside `voice` so the result can report
     // the material that was sounded. Recipes with no debris layer report null.
@@ -975,6 +1136,42 @@ export class SfxBus {
       noiseGain.connect(filter);
       noise.start(now, this.noiseOffset());
       noise.stop(end);
+    }
+
+    const shimmer = variant.shimmer;
+    if (shimmer !== undefined && shimmer.gain > 0) {
+      const shOsc = this.ctx.createOscillator();
+      shOsc.type = "sine";
+      shOsc.frequency.setValueAtTime(startHz * shimmer.ratio, now);
+      if (Math.abs(endHz - startHz) > 0.5) {
+        shOsc.frequency.exponentialRampToValueAtTime(
+          Math.max(1, endHz * shimmer.ratio),
+          end,
+        );
+      }
+      const shAmp = this.ctx.createGain();
+      shAmp.gain.setValueAtTime(0, now);
+      shAmp.gain.linearRampToValueAtTime(shimmer.gain, now + attack);
+      shAmp.gain.exponentialRampToValueAtTime(0.0001, end);
+
+      // The flutter itself: an LFO on a gain the partial passes through.
+      const lfo = this.ctx.createOscillator();
+      lfo.type = "sine";
+      lfo.frequency.setValueAtTime(shimmer.hz, now);
+      const lfoDepth = this.ctx.createGain();
+      lfoDepth.gain.setValueAtTime(shimmer.depth, now);
+      const trem = this.ctx.createGain();
+      trem.gain.setValueAtTime(1 - shimmer.depth, now);
+      lfo.connect(lfoDepth);
+      lfoDepth.connect(trem.gain);
+      lfo.start(now);
+      lfo.stop(end);
+
+      shOsc.connect(shAmp);
+      shAmp.connect(trem);
+      trem.connect(panner);
+      shOsc.start(now);
+      shOsc.stop(end);
     }
 
     // UR-34: THE CLICK. Its own band and its own envelope, both bypassing the

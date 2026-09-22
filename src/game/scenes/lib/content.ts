@@ -54,6 +54,8 @@ export interface StageBundle {
   readonly beaconHeadline: string;
   readonly beaconState: string;
   readonly beaconFlavor: string;
+  /** What Shadow says when the beacon lights. Null falls back to the labels. */
+  readonly beaconSpoken: string | null;
 }
 
 export interface SightWords {
@@ -132,6 +134,7 @@ export function parseStageBundle(value: unknown): StageBundle {
     beaconHeadline: str(raw, "beaconHeadline"),
     beaconState: str(raw, "beaconState"),
     beaconFlavor: str(raw, "beaconFlavor"),
+    beaconSpoken: raw["beaconSpoken"] === undefined ? null : strOrNull(raw, "beaconSpoken"),
   };
 }
 

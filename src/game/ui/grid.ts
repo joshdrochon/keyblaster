@@ -62,6 +62,66 @@ export interface Rect {
 export const GUTTER = SPACE.gutter;
 
 /**
+ * THE PAGE PADDING (UR-121).
+ *
+ * ================== WHAT WAS REPORTED ==================
+ * The project owner, on Ship Controls: the left panel is not following the
+ * uniform margin, and "why isn't there one page-level padding rather than each
+ * item being moved by hand". Measured on the served build, the Settings
+ * console's bezel sat at x = 70 while the heading above it sat at 96 - the
+ * panel was 26 px outside the margin every other element on the screen is on,
+ * and the right-hand panel ran 26 px past `contentRight()` for the same reason.
+ *
+ * ================== WHY THE FIX IS NOT "MOVE THE PANEL" ==================
+ * Nudging the panel by 26 would have put its edge on the line and taught the
+ * next screen nothing - and a nudge is exactly what the report is about. The
+ * defect is that `GUTTER` was a number screens ADDED THEMSELVES to whatever
+ * they were drawing, rather than a box they DERIVED from. A panel whose face is
+ * drawn `bezel` px outside its content has to subtract the bezel to land on the
+ * line, and every screen that never did is a screen off the margin.
+ *
+ * So the padding is DECLARED here as a box, and `pageBox()` / `pageInset()` are
+ * what a screen asks. `pageInset(b)` answers "where do I put my CONTENT so that
+ * the furniture `b` px outside it lands on the page's edge" - which is the
+ * question the Settings console could not previously ask, and the reason it was
+ * wrong.
+ *
+ * It is `GUTTER`, to the byte. Naming it does not move a pixel on any screen
+ * that was already on the line; what it moves is who is responsible for the
+ * arithmetic.
+ */
+export const PAGE_PADDING = GUTTER;
+
+/**
+ * The page's content box: everything a screen draws sits inside it, furniture
+ * included.
+ *
+ * `GAME_WIDTH` is read at call time, never captured (the world widens with the
+ * window, D99). The vertical bounds are the heading line and the hint line,
+ * which every screen already shares.
+ */
+export function pageBox(): Rect {
+  return {
+    x: PAGE_PADDING,
+    y: HEADING_TOP,
+    w: GAME_WIDTH - PAGE_PADDING * 2,
+    h: HINT_TOP - HEADING_TOP,
+  };
+}
+
+/**
+ * Where a screen puts CONTENT that carries `outset` px of furniture around it,
+ * so that the furniture - a bezel, a plate's bleed, a card's shadow - lands on
+ * the page padding rather than outside it.
+ *
+ * `pageInset(0)` is the page padding itself, which is what a screen with no
+ * furniture asks for.
+ */
+export function pageInset(outset: number): number {
+  return PAGE_PADDING + outset;
+}
+
+/**
  * The top of a screen heading's INK - or of its plate, where it has one.
  *
  * 84 is `MenuScene.addHeading`'s default, i.e. the value five screens already
@@ -220,7 +280,11 @@ export const ACTION_BUTTON = {
   w: 420,
   h: 88,
   /** Earth activation's `GAME_HEIGHT * 0.87`, rounded. */
-  y: Math.round(GAME_HEIGHT * 0.87),
+  // ONE FOOT LINE FOR EVERYTHING ON THE BOTTOM ROW. This was
+  // `round(GAME_HEIGHT * 0.87)` = 940, bottom 1028, while the back chip and the
+  // hint plate both sit on `BACK_CORNER_BOTTOM` = 1048 - so a forward action
+  // was 20 px above the furniture beside it on every screen that has both.
+  y: BACK_CORNER_BOTTOM - 88,
 } as const;
 
 /** The forward action's rectangle, centred on the width its screen is anchored to. */

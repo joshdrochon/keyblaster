@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { STOP_IDS, type Lang } from "@engine/types";
 import { lineHeightEm, TYPE } from "@game/ui/theme";
+import { ACTION_BUTTON } from "@game/ui/grid";
 import { advanceEmFor, wrapLineCount } from "@game/scenes/support/endingLayout";
 import {
   ACTION_BOTTOM,
@@ -668,7 +669,14 @@ describe("UR-60: launch is centred on the screen and the way out is small and le
     // WATCHED FAILING, with `h: 68` restored on LAUNCH:
     //   expected 1066 to be 1056
     const btn = launchButton();
-    expect(btn.y + btn.h).toBe(ACTION_BOTTOM);
+    // SUPERSEDED BY THE APP-WIDE ACTION LINE. UR-76/UR-101 put launch on the
+    // back chip's foot line, which was right while this screen owned its own
+    // button. The owner has since ruled that buttons are uniform across the
+    // app except for named one-offs, so launch takes `ACTION_BUTTON`'s line -
+    // the one Earth activation, Beacon and Results already sit on. The chip
+    // keeps its own: it is a small quiet control in the gutter, not a forward
+    // action. The two are no longer on one line and that is now intended.
+    expect(btn.y + btn.h).toBe(ACTION_BUTTON.y + ACTION_BUTTON.h);
     // And the line is clear of the foot by more than a hairline. 24 px is what
     // the chip already had; the point is that launch now has it too.
     expect(GAME_HEIGHT - ACTION_BOTTOM).toBeGreaterThanOrEqual(24);
@@ -711,17 +719,20 @@ describe("UR-60: launch is centred on the screen and the way out is small and le
    * WATCHED FAILING, with `ACTION_BOTTOM = 1056` and `LAUNCH.w = 420`:
    *   launch is not on the chip's line: expected 1056 to be 1048
    */
-  it("UR-101: puts launch on the chip's own foot line, with more air under both", () => {
-    expect(ACTION_BOTTOM, "launch is not on the chip's line").toBe(BACK_CORNER_BOTTOM);
+  it("UR-101: launch is on the APP-WIDE action line, the chip keeps the gutter's", () => {
+    // The chip's own line is unchanged; launch no longer shares it. See the
+    // note on the UR-76 case above: uniform buttons app-wide supersede this
+    // screen's internal alignment, by the owner's ruling.
+    expect(ACTION_BOTTOM, "the chip's line moved").toBe(BACK_CORNER_BOTTOM);
     const btn = launchButton();
     const chip = backChip();
-    expect(btn.y + btn.h).toBe(chip.y + chip.h);
+    expect(btn.y + btn.h).toBe(ACTION_BUTTON.y + ACTION_BUTTON.h);
     // The air the report asked for, stated as the number the report used.
     expect(GAME_HEIGHT - (btn.y + btn.h)).toBeGreaterThan(24);
-    expect(GAME_HEIGHT - (btn.y + btn.h)).toBe(32);
+    expect(GAME_HEIGHT - (btn.y + btn.h)).toBe(GAME_HEIGHT - (ACTION_BUTTON.y + ACTION_BUTTON.h));
     // ...and it was NOT bought from the page above, which has none to give.
-    expect(LAUNCH.y).toBe(998);
-    expect(focusRingBox(btn).y).toBeGreaterThanOrEqual(987);
+    expect(LAUNCH.y).toBe(ACTION_BUTTON.y);
+    expect(focusRingBox(btn).y).toBeGreaterThanOrEqual(PAGE_MAX_BOTTOM - 11);
   });
 
   it("UR-101: launch keeps its weight when it loses height", () => {

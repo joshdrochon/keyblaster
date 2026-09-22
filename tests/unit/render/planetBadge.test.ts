@@ -137,15 +137,40 @@ describe("UR-70: the badge is a destination, not a decoration", () => {
 });
 
 describe("UR-70: the badge invents no colour", () => {
-  it("takes the DESTINATION's accent, not the stop the player is leaving", () => {
+  it("takes the DESTINATION's own palette, not the stop the player is leaving", () => {
     // The screen is at Jupiter and the badge is Saturn's - a badge keyed off
     // `this.lane.palette` would draw the belt the child has just cleared.
+    //
+    // The disc is the stop's accent for five of seven, and a NAMED ROLE from
+    // the same palette for the two whose accent is a UI highlight rather than
+    // a portrait of the planet (see `BADGE_BODY`). Either way it comes out of
+    // that stop's palette, which is what "invents no colour" means.
     for (const id of STOP_IDS) {
-      expect(planetBadgeInk(id, INK.panel).disc).toBe(paletteFor(id).accent);
+      const pal = paletteFor(id);
+      const declared = [pal.accent, ...pal.colors, ...Object.values(pal.colorRoles)];
+      expect(
+        declared,
+        `${id}'s badge is a colour its palette does not declare`,
+      ).toContain(planetBadgeInk(id, INK.panel).disc);
     }
     expect(planetBadgeInk("saturn", INK.panel).disc).not.toBe(
       planetBadgeInk("jupiter", INK.panel).disc,
     );
+  });
+
+  it("draws Earth blue and Saturn gold, because their accents now ARE their planets", () => {
+    // `accent` is chosen to read AGAINST the stop's sky, so on the two stops
+    // whose sky is the planet's own colour it is very nearly the inverse:
+    // Saturn, a gold world, wore pale blue; Earth, the blue one, wore gold.
+    const earth = planetBadgeInk("earth", INK.panel).disc;
+    const saturn = planetBadgeInk("saturn", INK.panel).disc;
+    // Both accents were corrected to the planet rather than the badge being
+    // special-cased, so the badge and the level's typing colour are one value.
+    expect(earth).toBe(paletteFor("earth").accent);
+    // Saturn's ACCENT is now its planet gold, so badge and typing are one colour.
+    // Earth's accent is `atmosphere` lifted to clear 4.5:1 on the panel.
+    expect(saturn).toBe(paletteFor("saturn").accent);
+    expect(saturn).toBe(paletteFor("saturn").accent);
   });
 
   it("shades toward the plate it is drawn on, not toward black", () => {
@@ -153,6 +178,7 @@ describe("UR-70: the badge invents no colour", () => {
     // the mistake `foregroundInk` exists to stop the debris making against a
     // dark sky.
     const ink = planetBadgeInk("saturn", INK.panel);
+    // Saturn's badge body is its `sky` role, not its accent - see `BADGE_BODY`.
     expect(ink.shade).toBe(mixHex(paletteFor("saturn").accent, INK.panel, 0.55));
     expect(ink.shade).not.toBe(ink.disc);
     expect(ink.ring).not.toBe(ink.disc);

@@ -27,8 +27,76 @@ import type { Lang } from "@engine/types";
 
 export const UI_EN = {
   // --- shared chrome -------------------------------------------------------
-  "ui.common.hintKeys": "Arrows to move · enter to choose · esc to go back", // i18n-ignore
-  "ui.common.hintAdjust": "Left and Right to Change", // i18n-ignore
+  /**
+   * ============ A HINT NAMES THE KEY AND THE ACTION (UR-144) ============
+   *
+   * Reported on Ship Controls: "Left and Right to Change" is not obvious. It
+   * is not, and the sweep the report asked for found the same two faults on
+   * every hint line in the game rather than on that one:
+   *
+   *   1. IT DID NOT SAY "KEY". "Arrows" and "Left and Right" are directions;
+   *      nothing on a keyboard is labelled either. "Arrow Keys", "Left/Right
+   *      Keys" name the thing a hand reaches for.
+   *   2. IT NAMED THE WIDGET, NOT THE ACTION. "Change" is what a control does
+   *      to itself. "Move", "Choose", "Go Back" are what the player does.
+   *
+   * CASING. Title Case, because a line built out of key names is a LABEL RUN
+   * and the house rule is Title Case for labels, sentence case for sentences.
+   * That is why `warp.hint` in `scenes/support/copy.ts` is NOT swept with these
+   * - it is a whole sentence teaching a mechanic, it names no key at all, and
+   * UR-81 reasoned about its case on purpose.
+   *
+   * SPANISH STAYS LOWERCASE. D41's lowercase chrome is a decision about the
+   * Spanish table (see `tests/unit/i18n/translate.test.ts`, "the button reads
+   * 'jugar', not 'Jugar'"), so the Spanish hints gain the key NAMES without
+   * gaining English's capitals. Hindi has no case to carry either way.
+   */
+  "ui.common.hintKeys": "Arrow Keys to Move · Enter to Choose · Esc to Go Back", // i18n-ignore
+  /**
+   * SHIP CONTROLS (Settings), and it now says all three things that screen
+   * needs. Left/Right is what the report was about; Up/Down was never stated
+   * at all; and Esc was the omission that mattered most, because this screen
+   * draws no Back button - `hint.ts` lists `common.back` among its actions but
+   * `SettingsScene` never renders one, so the keyboard is the only way out.
+   */
+  "ui.common.hintAdjust":
+    "Up/Down Keys to Move · Left/Right Keys to Change · Esc to Go Back", // i18n-ignore
+  /**
+   * ============ THE PILOT PICKER'S OWN HINT (UR-146) ============
+   *
+   * ================== WHAT WAS REPORTED ==================
+   * The owner could not remove a pilot and concluded the feature was missing.
+   * It is not: `ProfilePickerScene.extraKey` takes Delete or Backspace on a
+   * focused pilot row and opens the confirm. Nothing on the screen said so, and
+   * the screen renders no Remove button either - `ui.pick.remove` is drawn
+   * nowhere - so a keyboard-only destructive action had no affordance at all.
+   *
+   * ================== WHY NOT RESTORE THE OLD LINE ==================
+   * UR-84 deleted a SECOND, fainter hint line that named this shortcut. That
+   * deletion was right twice over: the line measured 2.82:1 against the
+   * backdrop, under AC-22.8's 4.5:1, and it explained a destructive action in
+   * the least readable copy on the screen. What was wrong was stopping there.
+   *
+   * Both of UR-84's objections are answered by putting it on the ONE hint line
+   * instead of a second one. `ui/hintLine.drawHint` - which did not exist when
+   * UR-84 was written - plates every hint on `SKY_PLATE` and inks it
+   * `INK.textDim`, which is the treatment that clears 4.5:1 on both the menu
+   * backdrop and busy art (see that file's "WHY EVERY SCREEN IS PLATED"). So
+   * the copy is readable, and there is still exactly one line.
+   *
+   * ================== WHY NOT WIDEN `ui.common.hintKeys` ==================
+   * Four screens render that key - the picker, pilot creation, the Beacon Log
+   * and Pause - and Delete does something on ONE of them. `results.hint` in
+   * `scenes/support/copy.ts` already settled this question for this product:
+   * "a hint that names a key which does nothing is worse than no hint." So the
+   * picker gets its own key and the shared line is untouched.
+   *
+   * `ProfilePickerScene` still falls back to `ui.common.hintKeys` in the EMPTY
+   * hangar, for the same reason one step further: with no pilots on screen
+   * there is nobody to remove.
+   */
+  "ui.pick.hint":
+    "Arrow Keys to Move · Enter to Choose · Delete to Remove a Pilot · Esc to Go Back", // i18n-ignore
   "ui.common.cancel": "Cancel", // i18n-ignore
   "ui.common.on": "On", // i18n-ignore
   "ui.common.off": "Off", // i18n-ignore
@@ -39,9 +107,19 @@ export const UI_EN = {
   "ui.pick.furthest": "Furthest Beacon: {stop}", // i18n-ignore
   "ui.pick.noBeacons": "No Beacons Yet", // i18n-ignore
   "ui.pick.none": "No pilots yet — make the first one", // i18n-ignore
+  /**
+   * SHADOW INTRODUCES HIMSELF, ONCE (UR-142).
+   *
+   * Shown and SPOKEN only when the hangar is empty - a returning pilot has
+   * met him and does not need it again. It is the first thing anybody hears
+   * in the game, so it does two jobs in two sentences: says who is talking,
+   * and asks the one question the screen is there to collect.
+   */
+  "ui.pick.greeting":
+    "Hi, I'm Shadow. I'll be your helper robot on this trip. What's your name?", // i18n-ignore
   "ui.pick.fly": "Fly", // i18n-ignore
   "ui.pick.remove": "Remove Pilot", // i18n-ignore
-  "ui.pick.removeAsk": "Remove {name}? their beacons go too.", // i18n-ignore
+  "ui.pick.removeAsk": "Remove {name}? Their beacons go too.", // i18n-ignore
   "ui.pick.removeYes": "Remove Pilot", // i18n-ignore
   "ui.pick.removeNo": "Keep Pilot", // i18n-ignore
 
@@ -51,7 +129,12 @@ export const UI_EN = {
   "ui.create.typeName": "Type Your Name", // i18n-ignore
   "ui.create.typeShipName": "Type a name for your ship", // i18n-ignore
   "ui.create.next": "Next", // i18n-ignore
-  "ui.create.launch": "Take Off", // i18n-ignore
+  // THE FORWARD ACTION IS CALLED THE SAME THING EVERYWHERE (UR-115). This
+  // was "Take Off", which is the only screen in the game that named its
+  // forward action after what the action DOES in the fiction rather than
+  // where it takes you. `results.continue` and `beacon.continue` are both
+  // "Continue", and this button is the same promise on a third screen.
+  "ui.create.launch": "Continue", // i18n-ignore
   "ui.create.skins": "Skins", // i18n-ignore
   "ui.create.unlockBeacons": "Unlocks After {n} Beacons", // i18n-ignore
   "ui.create.unlockStars": "Unlocks at your first 3-star stop", // i18n-ignore
@@ -93,7 +176,7 @@ export const UI_EN = {
   "ui.log.lit": "{n} of {total} lit", // i18n-ignore
   "ui.log.notLit": "Not Lit Yet", // i18n-ignore
   "ui.log.coords": "λ {lam}°   β {beta}°   r {r} au", // i18n-ignore
-  "ui.log.emptyShadow": "Only earth is lit. six more are waiting for us.", // i18n-ignore
+  "ui.log.emptyShadow": "Only Earth is lit. Six more are waiting for us.", // i18n-ignore
   "ui.log.earned": "Earned", // i18n-ignore
   "ui.log.notYet": "Not Yet", // i18n-ignore
   "ui.log.trophyCount": "{n} of {total} earned", // i18n-ignore
@@ -138,12 +221,20 @@ export const UI_EN = {
   "ui.settings.letterSpacing": "Wider Letters", // i18n-ignore
   "ui.settings.reducedMotion": "Calm Motion", // i18n-ignore
   "ui.settings.colorblind": "Colour-safe Palette", // i18n-ignore
+  "ui.settings.dashColor": "Your Colour", // i18n-ignore
+  "ui.settings.dash.amber": "Amber", // i18n-ignore
+  "ui.settings.dash.teal": "Teal", // i18n-ignore
+  "ui.settings.dash.coral": "Coral", // i18n-ignore
+  "ui.settings.dash.sky": "Sky", // i18n-ignore
+  "ui.settings.dash.lime": "Lime", // i18n-ignore
+  "ui.settings.dash.violet": "Violet", // i18n-ignore
+  "ui.settings.avatar": "Your Mark", // i18n-ignore
   "ui.settings.resetProgress": "Reset Progress", // i18n-ignore
-  "ui.settings.resetAsk1": "This clears every beacon, trophy and star for {name}. the pilot stays.", // i18n-ignore
+  "ui.settings.resetAsk1": "This clears every beacon, trophy and star for {name}. The pilot stays.", // i18n-ignore
   "ui.settings.resetAsk2": "One more time: clear it all and start the route again?", // i18n-ignore
   "ui.settings.resetYes": "Yes, Clear It", // i18n-ignore
   "ui.settings.resetNo": "Keep My Progress", // i18n-ignore
-  "ui.settings.resetDone": "Progress cleared. earth is still yours to light.", // i18n-ignore
+  "ui.settings.resetDone": "Progress cleared. Earth is still yours to light.", // i18n-ignore
   "ui.settings.layout.qwerty": "QWERTY", // i18n-ignore
   "ui.settings.layout.azerty": "AZERTY", // i18n-ignore
   "ui.settings.layout.qwertz": "QWERTZ", // i18n-ignore
@@ -155,9 +246,9 @@ export const UI_EN = {
 
   // --- 13 pause ------------------------------------------------------------
   "ui.pause.heading": "Paused", // i18n-ignore
-  "ui.pause.resume": "Back to the Belt", // i18n-ignore
+  "ui.pause.resume": "Resume Mission", // i18n-ignore
   "ui.pause.quit": "Quit to Map", // i18n-ignore
-  "ui.pause.quitAsk": "Quit to the map? this belt starts over next time.", // i18n-ignore
+  "ui.pause.quitAsk": "Are you sure? This belt starts over next time.", // i18n-ignore
   "ui.pause.quitYes": "Quit to Map", // i18n-ignore
   "ui.pause.quitNo": "Keep Flying", // i18n-ignore
 
@@ -167,7 +258,7 @@ export const UI_EN = {
 
   // --- 14 notices (AC-18.4) ------------------------------------------------
   "ui.notice.fresh": "We could not read the old save, so this one starts fresh.", // i18n-ignore
-  "ui.notice.repaired": "We tidied up the save. your beacons are still here.", // i18n-ignore
+  "ui.notice.repaired": "We tidied up the save. Your beacons are still here.", // i18n-ignore
   "ui.notice.writeFailed": "We cannot save right now, but you can keep flying.", // i18n-ignore
 } as const;
 
@@ -175,8 +266,16 @@ export const UI_EN = {
 export type UiStringKey = keyof typeof UI_EN;
 
 export const UI_ES: Record<UiStringKey, string> = {
-  "ui.common.hintKeys": "flechas para moverte · enter para elegir · esc para volver", // i18n-ignore
-  "ui.common.hintAdjust": "izquierda y derecha para cambiar", // i18n-ignore
+  "ui.common.hintKeys":
+    "teclas de flecha para moverte · enter para elegir · esc para volver", // i18n-ignore
+  "ui.common.hintAdjust":
+    "arriba/abajo para moverte · izquierda/derecha para cambiar · esc para volver", // i18n-ignore
+  // "Supr" is what the key is actually LABELLED on a Spanish keyboard, which
+  // is the whole point of the sweep, and it is four characters where
+  // "suprimir" is eight - this line is the longest hint in the product and
+  // Spanish has +25% to spend, not more.
+  "ui.pick.hint":
+    "teclas de flecha para moverte · enter para elegir · supr para borrar un piloto · esc para volver", // i18n-ignore
   "ui.common.cancel": "cancelar", // i18n-ignore
   "ui.common.on": "sí", // i18n-ignore
   "ui.common.off": "no", // i18n-ignore
@@ -186,9 +285,11 @@ export const UI_ES: Record<UiStringKey, string> = {
   "ui.pick.furthest": "baliza más lejana: {stop}", // i18n-ignore
   "ui.pick.noBeacons": "todavía sin balizas", // i18n-ignore
   "ui.pick.none": "aún no hay pilotos — crea el primero", // i18n-ignore
+  "ui.pick.greeting":
+    "Hola, soy Shadow. Seré tu robot ayudante en este viaje. ¿Cómo te llamas?", // i18n-ignore
   "ui.pick.fly": "volar", // i18n-ignore
   "ui.pick.remove": "quitar piloto", // i18n-ignore
-  "ui.pick.removeAsk": "¿quitar a {name}? sus balizas también se van.", // i18n-ignore
+  "ui.pick.removeAsk": "¿Quitar a {name}? Sus balizas también se van.", // i18n-ignore
   "ui.pick.removeYes": "quitar piloto", // i18n-ignore
   "ui.pick.removeNo": "dejar al piloto", // i18n-ignore
 
@@ -197,7 +298,7 @@ export const UI_ES: Record<UiStringKey, string> = {
   "ui.create.typeName": "escribe tu nombre", // i18n-ignore
   "ui.create.typeShipName": "escribe un nombre para tu nave", // i18n-ignore
   "ui.create.next": "siguiente", // i18n-ignore
-  "ui.create.launch": "despegar", // i18n-ignore
+  "ui.create.launch": "continuar", // i18n-ignore
   "ui.create.skins": "diseños", // i18n-ignore
   "ui.create.unlockBeacons": "se abre con {n} balizas", // i18n-ignore
   "ui.create.unlockStars": "se abre con tu primera parada de 3 estrellas", // i18n-ignore
@@ -235,7 +336,7 @@ export const UI_ES: Record<UiStringKey, string> = {
   "ui.log.lit": "{n} de {total} encendidas", // i18n-ignore
   "ui.log.notLit": "todavía apagada", // i18n-ignore
   "ui.log.coords": "λ {lam}°   β {beta}°   r {r} ua", // i18n-ignore
-  "ui.log.emptyShadow": "solo la tierra está encendida. seis más nos esperan.", // i18n-ignore
+  "ui.log.emptyShadow": "Solo la Tierra está encendida. Seis más nos esperan.", // i18n-ignore
   "ui.log.earned": "conseguido", // i18n-ignore
   "ui.log.notYet": "todavía no", // i18n-ignore
   "ui.log.trophyCount": "{n} de {total} conseguidos", // i18n-ignore
@@ -278,12 +379,20 @@ export const UI_ES: Record<UiStringKey, string> = {
   "ui.settings.letterSpacing": "letras más separadas", // i18n-ignore
   "ui.settings.reducedMotion": "movimiento tranquilo", // i18n-ignore
   "ui.settings.colorblind": "paleta segura para el color", // i18n-ignore
+  "ui.settings.dashColor": "tu color", // i18n-ignore
+  "ui.settings.dash.amber": "ámbar", // i18n-ignore
+  "ui.settings.dash.teal": "turquesa", // i18n-ignore
+  "ui.settings.dash.coral": "coral", // i18n-ignore
+  "ui.settings.dash.sky": "cielo", // i18n-ignore
+  "ui.settings.dash.lime": "lima", // i18n-ignore
+  "ui.settings.dash.violet": "violeta", // i18n-ignore
+  "ui.settings.avatar": "tu marca", // i18n-ignore
   "ui.settings.resetProgress": "borrar el progreso", // i18n-ignore
-  "ui.settings.resetAsk1": "esto borra cada baliza, trofeo y estrella de {name}. el piloto se queda.", // i18n-ignore
+  "ui.settings.resetAsk1": "Esto borra cada baliza, trofeo y estrella de {name}. El piloto se queda.", // i18n-ignore
   "ui.settings.resetAsk2": "una vez más: ¿borrar todo y empezar la ruta otra vez?", // i18n-ignore
   "ui.settings.resetYes": "sí, borrarlo", // i18n-ignore
   "ui.settings.resetNo": "guardar mi progreso", // i18n-ignore
-  "ui.settings.resetDone": "progreso borrado. la tierra sigue esperando tu luz.", // i18n-ignore
+  "ui.settings.resetDone": "Progreso borrado. La Tierra sigue esperando tu luz.", // i18n-ignore
   "ui.settings.layout.qwerty": "qwerty", // i18n-ignore
   "ui.settings.layout.azerty": "azerty", // i18n-ignore
   "ui.settings.layout.qwertz": "qwertz", // i18n-ignore
@@ -296,7 +405,7 @@ export const UI_ES: Record<UiStringKey, string> = {
   "ui.pause.heading": "en pausa", // i18n-ignore
   "ui.pause.resume": "volver al cinturón", // i18n-ignore
   "ui.pause.quit": "salir al mapa", // i18n-ignore
-  "ui.pause.quitAsk": "¿salir al mapa? este cinturón empieza de nuevo la próxima vez.", // i18n-ignore
+  "ui.pause.quitAsk": "¿Salir al mapa? Este cinturón empieza de nuevo la próxima vez.", // i18n-ignore
   "ui.pause.quitYes": "salir al mapa", // i18n-ignore
   "ui.pause.quitNo": "seguir volando", // i18n-ignore
 
@@ -304,13 +413,18 @@ export const UI_ES: Record<UiStringKey, string> = {
   "ui.toast.skin": "diseño nuevo — {name}", // i18n-ignore
 
   "ui.notice.fresh": "no pudimos leer la partida anterior, así que esta empieza de cero.", // i18n-ignore
-  "ui.notice.repaired": "arreglamos la partida guardada. tus balizas siguen aquí.", // i18n-ignore
+  "ui.notice.repaired": "Arreglamos la partida guardada. Tus balizas siguen aquí.", // i18n-ignore
   "ui.notice.writeFailed": "ahora no podemos guardar, pero puedes seguir volando.", // i18n-ignore
 };
 
 export const UI_HI: Record<UiStringKey, string> = {
-  "ui.common.hintKeys": "तीर से चलो · एंटर से चुनो · एस्केप से वापस", // i18n-ignore
-  "ui.common.hintAdjust": "बाएँ और दाएँ से बदलो", // i18n-ignore
+  "ui.common.hintKeys": "तीर बटन से चलो · एंटर से चुनो · एस्केप से वापस", // i18n-ignore
+  "ui.common.hintAdjust":
+    "ऊपर/नीचे से चलो · बाएँ/दाएँ से बदलो · एस्केप से वापस", // i18n-ignore
+  // "हटाओ" is the verb `ui.pick.remove` and `ui.pick.removeYes` already use
+  // for this action, so the hint and the dialog it opens say the same word.
+  "ui.pick.hint":
+    "तीर बटन से चलो · एंटर से चुनो · डिलीट से पायलट हटाओ · एस्केप से वापस", // i18n-ignore
   "ui.common.cancel": "रहने दो", // i18n-ignore
   "ui.common.on": "चालू", // i18n-ignore
   "ui.common.off": "बंद", // i18n-ignore
@@ -320,6 +434,8 @@ export const UI_HI: Record<UiStringKey, string> = {
   "ui.pick.furthest": "सबसे दूर की बीकन: {stop}", // i18n-ignore
   "ui.pick.noBeacons": "अभी कोई बीकन नहीं", // i18n-ignore
   "ui.pick.none": "अभी कोई पायलट नहीं — पहला बनाओ", // i18n-ignore
+  "ui.pick.greeting":
+    "नमस्ते, मैं Shadow हूँ। इस सफ़र में मैं तुम्हारा मददगार रोबोट हूँ। तुम्हारा नाम क्या है?", // i18n-ignore
   "ui.pick.fly": "उड़ो", // i18n-ignore
   "ui.pick.remove": "पायलट हटाओ", // i18n-ignore
   "ui.pick.removeAsk": "{name} को हटाएँ? इनकी बीकन भी चली जाएँगी।", // i18n-ignore
@@ -331,7 +447,7 @@ export const UI_HI: Record<UiStringKey, string> = {
   "ui.create.typeName": "अपना नाम लिखो", // i18n-ignore
   "ui.create.typeShipName": "अपने यान का नाम लिखो", // i18n-ignore
   "ui.create.next": "आगे", // i18n-ignore
-  "ui.create.launch": "उड़ान भरो", // i18n-ignore
+  "ui.create.launch": "आगे बढ़ो", // i18n-ignore
   "ui.create.skins": "रंग-रूप", // i18n-ignore
   "ui.create.unlockBeacons": "{n} बीकन के बाद खुलेगा", // i18n-ignore
   "ui.create.unlockStars": "पहले 3-तारे वाले पड़ाव पर खुलेगा", // i18n-ignore
@@ -412,6 +528,14 @@ export const UI_HI: Record<UiStringKey, string> = {
   "ui.settings.letterSpacing": "अक्षरों में ज़्यादा जगह", // i18n-ignore
   "ui.settings.reducedMotion": "शांत हलचल", // i18n-ignore
   "ui.settings.colorblind": "रंग-सुरक्षित रंगपट", // i18n-ignore
+  "ui.settings.dashColor": "तुम्हारा रंग", // i18n-ignore
+  "ui.settings.dash.amber": "अंबर", // i18n-ignore
+  "ui.settings.dash.teal": "फ़िरोज़ी", // i18n-ignore
+  "ui.settings.dash.coral": "मूँगा", // i18n-ignore
+  "ui.settings.dash.sky": "आसमानी", // i18n-ignore
+  "ui.settings.dash.lime": "नींबू", // i18n-ignore
+  "ui.settings.dash.violet": "बैंगनी", // i18n-ignore
+  "ui.settings.avatar": "तुम्हारा निशान", // i18n-ignore
   "ui.settings.resetProgress": "प्रगति मिटाओ", // i18n-ignore
   "ui.settings.resetAsk1": "इससे {name} की हर बीकन, इनाम और तारा मिट जाएगा। पायलट रहेगा।", // i18n-ignore
   "ui.settings.resetAsk2": "एक बार और: सब मिटाकर रास्ता फिर से शुरू करें?", // i18n-ignore

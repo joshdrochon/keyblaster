@@ -50,6 +50,8 @@ export interface PointerHandlers {
    * a click the same way it answers Left/Right.
    */
   adjust(delta: number): void;
+  /** 0..1 for a control with a position (a knob); null for everything else. */
+  detentLevel?(): number | null;
 }
 
 export interface Focusable {
@@ -63,6 +65,12 @@ export interface Focusable {
   activate(): void;
   /** Left/Right, +1/-1. No-op unless `adjustable`. */
   adjust(delta: number): void;
+  /**
+   * 0..1 for a control that HAS a position - a knob - and null or absent for
+   * everything else (UR-133). Optional, so the twelve controls that are not
+   * knobs need no stub and keep the flat nav blip.
+   */
+  detentLevel?(): number | null;
   toMirror(): MirrorItem;
   /**
    * Wire this control's hit area to the list (AC-18.1's pointer half).
@@ -94,8 +102,12 @@ export type FocusListener = () => void;
  * Null by default, so a focus list in a unit test or a standalone scene makes
  * no sound and needs no stub.
  */
-export type UiSoundKind = "nav" | "activate";
-export type UiSound = (kind: UiSoundKind) => void;
+export type UiSoundKind = "nav" | "activate" | "detent";
+/**
+ * `amount` is only meaningful for "detent": where the knob now points, 0..1.
+ * Optional so the two existing kinds and every existing caller are unchanged.
+ */
+export type UiSound = (kind: UiSoundKind, amount?: number) => void;
 
 let uiSound: UiSound | null = null;
 
@@ -113,10 +125,10 @@ export function setUiSound(hook: UiSound | null): void {
  * this, so "UI sounds for every interaction" (D62) means every interaction and
  * not just the ones on the five screens that happen to use this file.
  */
-export function uiSoundBlip(kind: UiSoundKind): void {
+export function uiSoundBlip(kind: UiSoundKind, amount?: number): void {
   if (uiSound === null) return;
   try {
-    uiSound(kind);
+    uiSound(kind, amount);
   } catch {
     // A sound that throws must never take a menu down with it.
   }
@@ -125,7 +137,7 @@ export function uiSoundBlip(kind: UiSoundKind): void {
 export class FocusList {
   private items: Focusable[] = [];
   private index = 0;
-  private listener: FocusListener = () => {};
+  private readonly listeners: FocusListener[] = [];
 
   setItems(items: readonly Focusable[], focusId?: string): void {
     this.items = [...items];
@@ -163,8 +175,17 @@ export class FocusList {
     });
   }
 
+  /**
+   * ADDITIVE, NOT A SLOT. This was `this.listener = listener`, so the LAST
+   * caller silently won - and the confirm dialog registered `paintRing` before
+   * `PauseScene` registered `publish`, so the dialog's focus ring stopped
+   * following focus entirely. Measured: focus moved cancel -> confirm while the
+   * ring's box stayed at x 790, the cancel button's, and the confirm button at
+   * x 1056 never showed one. Nothing errored and no test failed; one screen
+   * quietly lost its selection outline.
+   */
   onChange(listener: FocusListener): void {
-    this.listener = listener;
+    this.listeners.push(listener);
   }
 
   get all(): readonly Focusable[] {
@@ -218,7 +239,7 @@ export class FocusList {
     const c = this.current;
     if (c && !c.locked) {
       c.activate();
-      this.listener();
+      this.notify();
       uiSoundBlip("activate");
     }
   }
@@ -228,7 +249,24 @@ export class FocusList {
     if (!c || c.locked) return;
     if (c.adjustable) {
       c.adjust(delta);
-      this.listener();
+      this.notify();
+      /**
+       * A KNOB CLICKS, AND THE CLICK CLIMBS (UR-133).
+       *
+       * `detentLevel` is a control's own position, 0..1, and only a knob has
+       * one - everything else returns null and keeps the flat nav blip it has
+       * always had. A knob's detent is pitched from that position, so sweeping
+       * the volume up runs up the scale and sweeping it down runs down it.
+       *
+       * It is `uiNav` underneath, on the `sfx` bus, which is why the Sound knob
+       * turning itself down also turns its own click down - the thing the owner
+       * asked for, and free rather than wired.
+       */
+      const level = c.detentLevel?.() ?? null;
+      if (level !== null) {
+        uiSoundBlip("detent", level);
+        return;
+      }
       // A slider step is an interaction too - and it is the one a child
       // dragging the SFX volume is listening to while they drag it.
       uiSoundBlip("nav");
@@ -257,7 +295,11 @@ export class FocusList {
 
   private paint(): void {
     this.items.forEach((item, i) => item.setFocused(i === this.index));
-    this.listener();
+    this.notify();
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) listener();
   }
 }
 

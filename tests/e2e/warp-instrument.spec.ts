@@ -77,6 +77,10 @@ type WarpShipSnapshot = {
 
 async function openWarp(page: Page, stop: string): Promise<void> {
   await bootScene(page, "Warp", "warp", `&stop=${stop}`);
+  // UR-166: the note waits for the child to START. The instruction holds
+  // Shadow's card until the first keystroke, so a test that never types waits
+  // for a note that is correctly refusing to arrive.
+  await page.keyboard.press("q");
   // WAIT FOR THE THING (rule 6): the coach note is what UR-64's claim is about
   // and it arrives asynchronously, so nothing below may read the screen until
   // it has landed and finished fading in.

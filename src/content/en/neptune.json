@@ -135,6 +135,7 @@
   "activationWord": null,
   "warpSentence": "Neptune is deep blue and very far from the sun.",
   "beaconHeadline": "Neptune Beacon",
-  "beaconState": "placed",
-  "beaconFlavor": "The sun is a star from here. It's still the sun."
+  "beaconState": "lit",
+  "beaconFlavor": "The sun is a star from here. It's still the sun.",
+  "beaconSpoken": "Neptune Beacon, lit. The sun is a star from here. It's still the sun."
 }

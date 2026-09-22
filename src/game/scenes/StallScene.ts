@@ -6,8 +6,10 @@ import { FLIGHT_EVENTS, type Palette, paletteFor } from "@game/flight/stage.js";
 import { type FlightCopy, createFlightCopy } from "@game/flight/copy.js";
 import type { Lang, StopId } from "@engine/types.js";
 import { HIT_ZONE_PREFIX } from "@game/ui/focus.js";
+import { INK } from "@game/ui/theme.js";
 import { chrome, label } from "./lib/kit.js";
 import { paintFocusRing, paintPlate } from "@game/ui/plate.js";
+import { focusArrive, focusPulse } from "@game/ui/focusPop.js";
 
 export interface StallSceneData {
   readonly stopId: StopId;
@@ -54,6 +56,12 @@ export class StallScene extends Phaser.Scene {
   /** The ONE Shadow (render/shadow.ts). See the note at the call site. */
   private shadow?: ShadowFigure;
   private restarting = false;
+  /** 0 = retry, 1 = quit. Retry is the forward action and opens focused. */
+  private focusIndex = 0;
+  /** The ring's arrival and its breath, so moving focus replaces them. */
+  private ringArriveTween: Phaser.Tweens.Tween | null = null;
+  private ringPulseTween: Phaser.Tweens.Tween | null = null;
+  private buttonBoxes: { x: number; y: number; w: number; h: number }[] = [];
 
   private readonly font =
     "'Atkinson Hyperlegible', 'Noto Sans', 'Segoe UI', system-ui, sans-serif";
@@ -71,6 +79,7 @@ export class StallScene extends Phaser.Scene {
       reducedMotion: data.reducedMotion ?? false,
     };
     this.restarting = false;
+    this.focusIndex = 0;
   }
 
   create(): void {
@@ -91,7 +100,7 @@ export class StallScene extends Phaser.Scene {
     this.tweens.add({ targets: veil, alpha: 1, duration: 520, ease: "Cubic.Out" });
 
     const cardW = 760;
-    const cardH = 360;
+    const cardH = 396;
     const cardX = width / 2 - cardW / 2;
     const cardY = height / 2 - cardH / 2;
 
@@ -155,24 +164,40 @@ export class StallScene extends Phaser.Scene {
     }).setOrigin(0, 0.5);
     card.add(line);
 
-    const buttonW = 330;
+    // TWO WAYS OUT. Retry was the only control, so a child who did not want to
+    // fly the belt again had nowhere to go but the browser's back button.
+    const buttonW = 300;
     const buttonH = 64;
-    const buttonX = cardX + cardW / 2 - buttonW / 2;
+    const buttonGap = 20;
+    const pairW = buttonW * 2 + buttonGap;
+    const buttonX = cardX + cardW / 2 - pairW / 2;
     const buttonY = cardY + cardH - 104;
+    const quitX = buttonX + buttonW + buttonGap;
+    this.buttonBoxes = [
+      { x: buttonX, y: buttonY, w: buttonW, h: buttonH },
+      { x: quitX, y: buttonY, w: buttonW, h: buttonH },
+    ];
 
     const button = this.add.graphics();
-    paintPlate(
-      button,
-      { x: buttonX, y: buttonY, w: buttonW, h: buttonH },
-      {
-        fill: accent,
-        alpha: 1,
-        radius: 14,
-        strokeWidth: 0,
-        rhythm: "button",
-      },
-    );
+    paintPlate(button, this.buttonBoxes[0]!, {
+      fill: accent,
+      alpha: 1,
+      radius: 14,
+      strokeWidth: 0,
+      rhythm: "button",
+    });
     card.add(button);
+
+    const quitPlate = this.add.graphics();
+    paintPlate(quitPlate, this.buttonBoxes[1]!, {
+      fill: this.palette.plate,
+      alpha: 1,
+      radius: 14,
+      strokeWidth: 2,
+      stroke: this.palette.plateText,
+      rhythm: "button",
+    });
+    card.add(quitPlate);
 
     const restart = chrome(
       this,
@@ -184,25 +209,30 @@ export class StallScene extends Phaser.Scene {
     ).setOrigin(0.5);
     card.add(restart);
 
-    // AC-18.1: the only control is focused on arrival and says so visibly.
+    const quitLabel = chrome(
+      this,
+      quitX + buttonW / 2,
+      buttonY + buttonH / 2,
+      this.copy.t("stall.quit"),
+      undefined,
+      { size: 24, color: this.palette.plateText, lang: this.params.uiLang },
+    ).setOrigin(0.5);
+    card.add(quitLabel);
+
+    // AC-18.1: whichever control holds focus says so visibly, and retry holds
+    // it on arrival because it is the forward action.
     this.focusRing = this.add.graphics();
-    paintFocusRing(
-      this.focusRing,
-      { x: buttonX, y: buttonY, w: buttonW, h: buttonH },
-      this.palette.plateText,
-      { radius: 14 },
-    );
+    this.ringArriveTween = null;
+    this.ringPulseTween = null;
+    this.paintRing();
     card.add(this.focusRing);
-    if (!this.params.reducedMotion) {
-      this.tweens.add({
-        targets: this.focusRing,
-        alpha: { from: 0.5, to: 1 },
-        duration: 1100,
-        yoyo: true,
-        repeat: -1,
-        ease: "Sine.InOut",
-      });
-    }
+    // THE BREATH USED TO BE STARTED HERE, ONCE (UR-113): a bespoke
+    // `0.5 -> 1` over 1100 ms on `Sine.InOut`, begun at create and left
+    // running forever. Two things were wrong with that. It was a fourth set of
+    // numbers for a state the rest of the game agrees on, and it did not
+    // belong to a CONTROL - this screen has two buttons now, so the ring
+    // snapped from Retry to Quit mid-exhale with no arrival at all.
+    // `paintRing` owns both steps now, so they move with the focus.
 
     card.setAlpha(0);
     card.y = 28;
@@ -224,19 +254,38 @@ export class StallScene extends Phaser.Scene {
       .setOrigin(0, 0)
       .setName(`${HIT_ZONE_PREFIX}${STALL_FOCUS_ID}`)
       .setInteractive({ useHandCursor: true })
+      .on("pointerover", () => {
+        this.focusIndex = 0;
+        this.paintRing();
+      })
       .on("pointerdown", () => this.requestRestart());
+
+    this.add
+      .zone(quitX, buttonY, buttonW, buttonH)
+      .setOrigin(0, 0)
+      .setName(`${HIT_ZONE_PREFIX}${STALL_QUIT_FOCUS_ID}`)
+      .setInteractive({ useHandCursor: true })
+      .on("pointerover", () => {
+        this.focusIndex = 1;
+        this.paintRing();
+      })
+      .on("pointerdown", () => this.requestQuit());
 
     const keyboard = this.input.keyboard;
     keyboard?.on("keydown", this.onKeyDown, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       keyboard?.off("keydown", this.onKeyDown, this);
+      this.ringArriveTween?.remove();
+      this.ringArriveTween = null;
+      this.ringPulseTween?.remove();
+      this.ringPulseTween = null;
       delete window.__kbStall;
     });
 
     window.__kbStall = {
       ready: () => true,
       restart: () => this.requestRestart(),
-      focusId: () => STALL_FOCUS_ID,
+      focusId: () => (this.focusIndex === 1 ? STALL_QUIT_FOCUS_ID : STALL_FOCUS_ID),
       button: () => ({ x: buttonX, y: buttonY, w: buttonW, h: buttonH }),
       texts: () => [
         this.copy.t("stall.title"),
@@ -257,10 +306,71 @@ export class StallScene extends Phaser.Scene {
   }
 
   private onKeyDown(event: KeyboardEvent): void {
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      this.focusIndex = event.key === "ArrowLeft" ? 0 : 1;
+      this.paintRing();
+      return;
+    }
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      this.requestRestart();
+      if (this.focusIndex === 1) this.requestQuit();
+      else this.requestRestart();
     }
+  }
+
+  private paintRing(): void {
+    const box = this.buttonBoxes[this.focusIndex];
+    if (box === undefined) return;
+    this.focusRing.clear();
+    // The app's focus colour, not this card's text colour: the ring means the
+    // same thing here as everywhere else.
+    paintFocusRing(this.focusRing, box, INK.accent, { radius: 14 });
+    this.animateRing();
+  }
+
+  /**
+   * Fade onto the button that now holds focus, then breathe - the shared two
+   * steps (`ui/focusPop.focusArrive`, `focusPulse`), same as every other ring.
+   */
+  private animateRing(): void {
+    this.ringArriveTween?.remove();
+    this.ringArriveTween = null;
+    this.ringPulseTween?.remove();
+    this.ringPulseTween = null;
+    const pulse = focusPulse(this.params.reducedMotion);
+    const breathe = (): void => {
+      if (pulse === null) {
+        this.focusRing.setAlpha(1);
+        return;
+      }
+      this.ringPulseTween = this.tweens.add({
+        targets: this.focusRing,
+        alpha: { from: pulse.alpha.from, to: pulse.alpha.to },
+        duration: pulse.duration,
+        ease: pulse.ease,
+        yoyo: pulse.yoyo,
+        repeat: pulse.repeat,
+      });
+    };
+    const arrive = focusArrive();
+    this.focusRing.setAlpha(arrive.alpha.from);
+    this.ringArriveTween = this.tweens.add({
+      targets: this.focusRing,
+      alpha: arrive.alpha.to,
+      duration: arrive.duration,
+      ease: arrive.ease,
+      onComplete: () => {
+        this.ringArriveTween = null;
+        breathe();
+      },
+    });
+  }
+
+  private requestQuit(): void {
+    if (this.restarting) return;
+    this.restarting = true;
+    this.game.events.emit(FLIGHT_EVENTS.quit, { stopId: this.params.stopId });
   }
 
   private requestRestart(): void {
@@ -280,6 +390,9 @@ export class StallScene extends Phaser.Scene {
 
 /** The id of the one control on this card. Exported so the e2e names it once. */
 export const STALL_FOCUS_ID = "stall.restart";
+
+/** The card's second control: leave the belt for the map. */
+export const STALL_QUIT_FOCUS_ID = "stall.quit";
 
 export interface StallDebugApi {
   ready(): boolean;

@@ -42,8 +42,18 @@ import { coachNoteClipId } from "../../engine/coach/spokenNotes.js";
 import { clamp } from "./context.js";
 import { NullAudioContext } from "./nullContext.js";
 import { AMBIENT_CROSSFADE_MS } from "./ambient.js";
-import type { AudioGraph, BusId } from "./graph.js";
-import { SFX_EVENTS, type SfxEventId, type SfxPlayOptions, type SfxPlayResult } from "./sfx.js";
+import { PAUSE_DUCK_DB, PAUSE_DUCK_SOURCE, type AudioGraph, type BusId } from "./graph.js";
+
+/** How far the bed drops on a chart rather than a place. The owner set this by ear. */
+export const AMBIENT_TRIM = 0.18;
+
+import {
+  detentSemitones,
+  SFX_EVENTS,
+  type SfxEventId,
+  type SfxPlayOptions,
+  type SfxPlayResult,
+} from "./sfx.js";
 import { TransmissionTicker, playTransmissionTick } from "./transmission.js";
 import {
   speakCoachNote,
@@ -96,7 +106,8 @@ export type FlightCueName =
   | "hit"
   | "shield"
   | "park"
-  | "stall";
+  | "stall"
+  | "comboUp";
 
 /**
  * The cues that END a word (UR-30). A rock destroyed, a rock that reached the
@@ -115,6 +126,7 @@ export const FLIGHT_CUE_NAMES: readonly FlightCueName[] = [
   "shield",
   "park",
   "stall",
+  "comboUp",
 ];
 
 /**
@@ -165,6 +177,14 @@ export const CUE_SFX: Readonly<Record<FlightCueName, SfxEventId | null>> = Objec
   shield: "shield",
   park: null,
   stall: null,
+  /**
+   * UR-117. The chime is RATIONED - `FlightScene` emits this cue only when the
+   * multiplier crosses x3, x5 or x10, and `flight/celebration.ts` owns that
+   * rule. This layer plays what it is told; it does not second-guess which
+   * multipliers deserve a sound, because a second copy of that rule is how the
+   * bloom and the chime end up firing on different words.
+   */
+  comboUp: "comboUp",
 });
 
 // ---------------------------------------------------------------------------
@@ -287,6 +307,10 @@ export interface WiringSnapshot {
   readonly coachNoteOrder: readonly string[];
   /** Resting gain of each bus right now. Settings volumes land here. */
   readonly busGains: Readonly<Record<string, number>>;
+  /** Is the pause menu holding the world down right now (UR-145)? */
+  readonly pauseDucked: boolean;
+  /** How many times it has taken hold. A pause that never ducked reads 0. */
+  readonly pauseDucks: number;
   readonly volumes: { readonly music: number; readonly sfx: number };
 }
 
@@ -302,6 +326,16 @@ export interface AudioService {
   routeFlightCue(payload: FlightCuePayload): SfxPlayResult | null;
   /** The UI kit's focus/activate blip (architecture 6: UI is on the SFX bus). */
   uiNav(): SfxPlayResult | null;
+  /**
+   * One knob detent (UR-133), composed from `uiNav` rather than a new event.
+   *
+   * `value01` is where the knob now points, and it picks the pitch: turning up
+   * climbs, turning down falls, so the hand and the ear agree. Composition over
+   * a twelfth SFX event is the pattern the row chime already set - see
+   * `pitch.test.ts`, "composes from an EXISTING cue rather than adding an
+   * event of its own", and the named list that keeps `SFX_EVENTS` honest.
+   */
+  uiDetent(value01: number): SfxPlayResult | null;
   /** Start or crossfade the ambient bed for a stop (AC-21.1). */
   ambientFor(stopId: StopId, crossfadeMs?: number): void;
   /** Drive the music from live state (AC-21.2). */
@@ -367,6 +401,31 @@ export interface AudioService {
    * and `shutdown` will call this again behind it.
    */
   endTransmission(): void;
+  /**
+   * THE PAUSE MENU IS UP, OR IT IS NOT (UR-145).
+   *
+   * Holds the named pause duck on the sidechain at `PAUSE_DUCK_DB`, which
+   * composes with the AC-21.4 voice duck instead of fighting it: Shadow can be
+   * mid-line when a child hits Escape, and the deeper of the two claims is what
+   * the mix does. Releasing it is the RETURN the owner asked for - a 420 ms
+   * swell back to the player's own level, not a snap.
+   *
+   * IDEMPOTENT, like `endTransmission` and for the same reason: `PauseScene`
+   * asks on `create` and on `wake`, and releases on `shutdown`, and more than
+   * one of those can land on a single frame.
+   *
+   * IT DOES NOT TOUCH A BUS GAIN. The ducker owns `music` and `ambient`, so the
+   * pause duck rides on top of whatever the Music and Sound knobs last set and
+   * the release comes back to THAT level - see `SidechainDucker.setBase`, and
+   * UR-134 for why `ambient` is on the Sound knob at all.
+   */
+  setPauseDuck(active: boolean): void;
+  /**
+   * Hold the ambient bed back without touching the music (UR-172). The map is
+   * a chart, not a place: it keeps Earth's track as its hub theme and drops
+   * the hum under it.
+   */
+  setAmbientTrim(active: boolean): void;
   /** Reset the D75 pitched layer at the start of a stage. */
   resetTone(): void;
   /** Everything the running game did, for the evidence artifact. */
@@ -467,6 +526,10 @@ export function installAudio(options: InstallAudioOptions): AudioService {
   const ticker = new TransmissionTicker();
   const transmissionVia: string[] = [];
   let transmitting = false;
+  /** UR-145: the pause menu's named duck, held as a state rather than counted. */
+  let pauseDucked = false;
+  let ambientTrimmed = false;
+  let pauseDucks = 0;
   let transmissionTicks = 0;
   let volumes = {
     music: clamp(options.volumes?.music ?? graph.buses.music.gain.value, 0, 1),
@@ -566,6 +629,24 @@ export function installAudio(options: InstallAudioOptions): AudioService {
       return service.play("uiNav", "ui:nav");
     },
 
+    uiDetent(value01): SfxPlayResult | null {
+      /**
+       * `keystroke`, NOT `uiNav` (UR-133b).
+       *
+       * The first pass composed from `uiNav`, the menu blip - the owner heard
+       * it and said the click is wrong, it should be like the type click. They
+       * are right, and it is the better cue for a second reason: `keystroke` is
+       * the sound of a key going down under a finger, which is exactly what a
+       * detent IS. The blip is the sound of MOVING BETWEEN things.
+       *
+       * Still on the `sfx` bus, so the Sound knob turning itself down still
+       * turns its own click down.
+       */
+      return service.play("keystroke", "ui:detent", {
+        pitchSemitones: detentSemitones(value01),
+      });
+    },
+
     ambientFor(stopId, crossfadeMs = AMBIENT_CROSSFADE_MS): void {
       if (!isStopId(stopId)) return;
       // THE COMPOSED PIECE RIDES THE SAME SIGNAL (E-MUSIC-1, UR-12). The bed
@@ -620,6 +701,19 @@ export function installAudio(options: InstallAudioOptions): AudioService {
       if (typeof next.sfx === "number") {
         volumes = { ...volumes, sfx: clamp(next.sfx, 0, 1) };
         graph.setBusGain("sfx", volumes.sfx);
+        /**
+         * THE AMBIENT BED FOLLOWS THE SOUND KNOB (UR-134).
+         *
+         * `ambient` hangs off `master` at a fixed 0.8 and NOTHING moved it -
+         * not this method, not either knob. So the ship's hum and the per-stop
+         * bed played at one level for ever, and a child who turned Sound to
+         * zero still heard the ship. The owner found it by trying exactly that.
+         *
+         * Under SOUND rather than MUSIC on the owner's call: the hum is a game
+         * sound, not a piece of music. That also matches which knob a player
+         * reaches for, which is the only test that matters here.
+         */
+        graph.setBusGain("ambient", volumes.sfx);
       }
     },
 
@@ -694,6 +788,19 @@ export function installAudio(options: InstallAudioOptions): AudioService {
       graph.ducker.duck(false);
     },
 
+    setPauseDuck(active): void {
+      if (pauseDucked === active) return;
+      pauseDucked = active;
+      if (active) pauseDucks += 1;
+      graph.ducker.setSource(PAUSE_DUCK_SOURCE, active, PAUSE_DUCK_DB);
+    },
+
+    setAmbientTrim(active): void {
+      if (ambientTrimmed === active) return;
+      ambientTrimmed = active;
+      graph.ambient.setTrim(active ? AMBIENT_TRIM : 1);
+    },
+
     /**
      * UR-101.4: THIS COUNTS NOW, AND IT DID NOT BEFORE.
      *
@@ -761,6 +868,8 @@ export function installAudio(options: InstallAudioOptions): AudioService {
         voiceInterrupts: transitions,
         coachNoteOrder: [...coachNoteOrder],
         busGains,
+        pauseDucked,
+        pauseDucks,
         volumes: { ...volumes },
       };
     },
@@ -769,8 +878,11 @@ export function installAudio(options: InstallAudioOptions): AudioService {
       detach();
       graph.voice.cancel();
       // A duck left open by a scene that was torn down mid-reveal is a game
-      // that plays the rest of its music 6 dB quiet forever.
+      // that plays the rest of its music 6 dB quiet forever. The pause duck is
+      // the same hazard one screen over: a service replaced while the menu was
+      // up would strand it (UR-145).
       service.endTransmission();
+      service.setPauseDuck(false);
     },
   };
 

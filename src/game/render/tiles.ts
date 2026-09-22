@@ -297,11 +297,25 @@ export function moteTile(
  * WORLD-BAR item 7: sparse, high-contrast accents. Three per tile, tiny, in the
  * stop's accent. Their whole job is to be the one saturated thing in frame.
  */
-export function accentTile(w: number, h: number, bright: string, rand: () => number): TileOp[] {
+export function accentTile(
+  w: number,
+  h: number,
+  bright: string,
+  rand: () => number,
+  keepClear?: readonly KeepClearShape[],
+): TileOp[] {
   const out: TileOp[] = [];
   for (let i = 0; i < 3; i++) {
-    const cx = w * (0.1 + rand() * 0.8);
-    const cy = ((i + rand()) / 3) * h;
+    let cx = w * (0.1 + rand() * 0.8);
+    let cy = ((i + rand()) / 3) * h;
+    // The accents were the one decoration no zone could steer, so a diamond
+    // could land on the hint line or behind Shadow. A cluster spans ~52 px
+    // below its anchor, so it is tested at that reach.
+    for (let tries = 0; tries < 12 && hitsKeepClear(cx, cy + 26, 52, keepClear); tries += 1) {
+      cx = w * (0.1 + rand() * 0.8);
+      cy = ((i + rand()) / 3) * h;
+    }
+    if (hitsKeepClear(cx, cy + 26, 52, keepClear)) continue;
     for (const [ox, oy, s] of [
       [0, 0, 9],
       [22, 34, 5],

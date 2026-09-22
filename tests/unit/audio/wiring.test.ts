@@ -16,7 +16,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NullAudioContext } from "../../../src/game/audio/nullContext.js";
-import { buildAudioGraph, DUCK_ATTACK_MS } from "../../../src/game/audio/graph.js";
+import {
+  buildAudioGraph,
+  busSpec,
+  DUCK_ATTACK_MS,
+  PAUSE_DUCK_DB,
+} from "../../../src/game/audio/graph.js";
+import { DUCK_DB as DUCK_ATTACK_DB } from "../../../src/game/audio/voice.js";
 import { seededRandom, dbToGain } from "../../../src/game/audio/context.js";
 import { SFX_EVENTS, GENTLE_LIMITS, pitchDirectionOf } from "../../../src/game/audio/sfx.js";
 import {
@@ -210,7 +216,7 @@ describe("AC-6e.2 / AC-21.3: a flight cue becomes a scheduled sound", () => {
     }
     const snap = audio.snapshot();
     expect(snap.cuesRouted).toEqual([...FLIGHT_CUE_NAMES]);
-    // Seven of the nine make a sound; `park` and `stall` are silent by decision.
+    // Eight of the ten make a sound; `park` and `stall` are silent by decision.
     expect(snap.sfxPlays).toBe(FLIGHT_CUE_NAMES.filter((c) => CUE_SFX[c] !== null).length);
   });
 
@@ -284,13 +290,15 @@ describe("AC-6e.2 / AC-21.3: a flight cue becomes a scheduled sound", () => {
 });
 
 describe("D31: nothing the flight cues play may read as failure", () => {
-  it("`typo` gets the gentle neutral tick, at a flat pitch", () => {
+  // UR-170: the cue settles a whole tone rather than sitting flat. A settle is
+  // not the falling interval D31 forbids; `sfx.test.ts` holds the bound.
+  it("`typo` gets the gentle neutral tick, and never a rising one", () => {
     const { audio, channel } = harness();
     channel.emit(CUE_EVENT, { cue: "typo" });
     const play = audio.snapshot().recent.at(-1)!;
     expect(play.event).toBe("typo");
     expect(play.peakGain).toBeLessThanOrEqual(GENTLE_LIMITS.maxPeakGain);
-    expect(pitchDirectionOf(variantOf(play.variant))).toBe("flat");
+    expect(pitchDirectionOf(variantOf(play.variant))).not.toBe("up");
   });
 
   it("`ignored` answers with the NEUTRAL keystroke tick, never the typo tick", () => {
@@ -909,5 +917,104 @@ describe("UR-101.4: toneResets counts every reset, not only the routed ones", ()
     expect(audio.snapshot().toneResets).toBe(2);
     // The pairing the field exists for: steps with no resets is the defect.
     expect(audio.snapshot().toneSteps).toBe(1);
+  });
+});
+
+/**
+ * UR-145 - THE PAUSE MENU'S DUCK, AT THE SERVICE BOUNDARY.
+ *
+ * `graph.test.ts` proves the sidechain arithmetic and `rendered.test.ts`
+ * measures the samples. This file's job is the one in between: that the thing a
+ * SCENE can reach behaves like a state rather than an event, and that no exit
+ * from the pause menu can strand the world 4.5 dB down.
+ *
+ * WATCHED FAILING (real runs, mutations named per case):
+ *
+ *   "asking twice and releasing once gives the music back"
+ *     with `setPauseDuck` dropping its own guard and calling the ducker on
+ *     every ask -> expected 2 to be 1
+ *     The GAIN half of that case survives the mutation, because
+ *     `SidechainDucker.setSource` is idempotent underneath as well. That is
+ *     the point of asserting the count too: the two guards are independent,
+ *     and only the count can see a service that stopped tracking the state.
+ *
+ *   "disposing the service cannot strand the world under a duck"
+ *     with the `setPauseDuck(false)` removed from `dispose` ->
+ *     expected 0.41696350047030734 to be close to 0.7
+ */
+describe("UR-145: setPauseDuck is a state, not an event", () => {
+  const REST = 0.7;
+
+  it("ducks the music and the ambient bed, and leaves SFX alone", () => {
+    const h = harness();
+    const sfxBefore = h.audio.graph.buses.sfx.gain.value;
+    h.audio.setPauseDuck(true);
+    expect(h.audio.graph.buses.music.gain.value).toBeCloseTo(
+      REST * dbToGain(PAUSE_DUCK_DB),
+      9,
+    );
+    expect(h.audio.graph.buses.ambient.gain.value).toBeLessThan(
+      busSpec("ambient").gain,
+    );
+    expect(h.audio.graph.buses.sfx.gain.value).toBeCloseTo(sfxBefore, 9);
+    expect(h.audio.snapshot().pauseDucked).toBe(true);
+    expect(h.audio.snapshot().pauseDucks).toBe(1);
+  });
+
+  it("asking twice and releasing once gives the music back", () => {
+    // `PauseScene` asks on create AND on wake; there is one release, on
+    // shutdown. A counted duck would leave the belt permanently quiet.
+    const h = harness();
+    h.audio.setPauseDuck(true);
+    h.audio.setPauseDuck(true);
+    h.audio.setPauseDuck(false);
+    expect(h.audio.graph.buses.music.gain.value).toBeCloseTo(REST, 9);
+    expect(h.audio.snapshot().pauseDucked).toBe(false);
+    // ...and it counted ONE pause, not two: the second ask changed nothing.
+    expect(h.audio.snapshot().pauseDucks).toBe(1);
+  });
+
+  it("the Music knob moved under a pause survives the release", () => {
+    // The `setBase` note, at the level a scene actually works at: Settings is
+    // reachable FROM the pause menu, so this is the real sequence.
+    const h = harness();
+    h.audio.setPauseDuck(true);
+    h.audio.setVolumes({ music: 0.3 });
+    h.audio.setPauseDuck(false);
+    expect(h.audio.graph.buses.music.gain.value).toBeCloseTo(0.3, 9);
+    expect(h.audio.snapshot().volumes.music).toBeCloseTo(0.3, 9);
+  });
+
+  it("the Sound knob still reaches the ambient bed during a pause (UR-134)", () => {
+    const h = harness();
+    h.audio.setPauseDuck(true);
+    h.audio.setVolumes({ sfx: 0 });
+    // Silent is silent, ducked or not - a duck multiplies, so zero stays zero.
+    expect(h.audio.graph.buses.ambient.gain.value).toBeCloseTo(0, 9);
+    h.audio.setPauseDuck(false);
+    expect(h.audio.graph.buses.ambient.gain.value).toBeCloseTo(0, 9);
+  });
+
+  it("Shadow speaking through a pause never leaves the world unducked", () => {
+    const h = harness();
+    h.audio.setPauseDuck(true);
+    h.audio.speak({ id: "l", text: "Careful out there.", kind: "scripted" });
+    expect(h.audio.graph.buses.music.gain.value).toBeCloseTo(
+      REST * dbToGain(DUCK_ATTACK_DB),
+      9,
+    );
+    h.finishSpeech();
+    // Back to the PAUSE level, not to rest: the menu is still up.
+    expect(h.audio.graph.buses.music.gain.value).toBeCloseTo(
+      REST * dbToGain(PAUSE_DUCK_DB),
+      9,
+    );
+  });
+
+  it("disposing the service cannot strand the world under a duck", () => {
+    const h = harness();
+    h.audio.setPauseDuck(true);
+    h.audio.dispose();
+    expect(h.audio.graph.buses.music.gain.value).toBeCloseTo(REST, 9);
   });
 });

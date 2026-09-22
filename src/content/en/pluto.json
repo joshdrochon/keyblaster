@@ -135,6 +135,7 @@
   "activationWord": null,
   "warpSentence": "Pluto is small, cold, and far away.",
   "beaconHeadline": "Pluto Beacon",
-  "beaconState": "placed",
-  "beaconFlavor": "Not a planet. Still on the map. The path is lit from Earth to here."
+  "beaconState": "lit",
+  "beaconFlavor": "Not a planet. Still on the map. The path is lit from Earth to here.",
+  "beaconSpoken": "Pluto Beacon, lit. Not a planet. Still on the map. The path is lit from Earth to here."
 }

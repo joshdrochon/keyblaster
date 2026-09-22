@@ -30,6 +30,12 @@ export interface ConfirmOptions {
   readonly onConfirm: () => void;
   readonly onCancel: () => void;
   readonly depth: number;
+  /**
+   * D41 / AC-19.3. The dialog's own focus ring breathes with the same spec as
+   * the screen's (UR-112, `ui/focusPop.focusPulse`), so a confirm opened over a
+   * calm-motion screen does not start moving.
+   */
+  readonly reducedMotion: boolean;
 }
 
 export class ConfirmDialog {
@@ -86,7 +92,7 @@ export class ConfirmDialog {
     );
     this.container.add(text);
 
-    this.ring = new FocusRing(scene, options.depth + 1);
+    this.ring = new FocusRing(scene, options.depth + 1, options.reducedMotion);
 
     const cancel = new MenuButton(
       scene,
@@ -132,6 +138,13 @@ export class ConfirmDialog {
   }
 
   private paintRing(): void {
+    // A CLOSED DIALOG DOES NOT PAINT. `FocusList.activate` runs the item's
+    // action and THEN notifies, so the press that closes this dialog arrives
+    // back here afterwards - `close()` has already hidden the ring and killed
+    // its pulse, and `moveTo` would make both come back. Measured: after
+    // Keep Flying, the dialog's ring sat at its old box with alpha 1 and a
+    // running pulse, over a menu that had moved on.
+    if (this.closed) return;
     const current = this.list.current as MenuButton | null;
     if (!current) return;
     const b = current.ringBounds();

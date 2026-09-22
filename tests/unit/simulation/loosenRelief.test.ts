@@ -5,7 +5,7 @@ import { BELT_STOP_IDS, EASE_NEW, type StopId } from "@engine/types.js";
 import { MAX_LIVE_MAX, MAX_LIVE_MIN, concurrencyTarget } from "@engine/controller/knobs.js";
 import { stopBand } from "@engine/controller/stopBand.js";
 import { clearanceMargin } from "@engine/controller/index.js";
-import { fallBudgetFactor, fallTimeMs } from "@engine/fallTime/index.js";
+import { QUEUE_PAY, fallBudgetFactor, fallTimeMs } from "@engine/fallTime/index.js";
 import { DEFAULT_FLIGHT_CONFIG, stagePoolFor, retentionPoolFor } from "@game/flight/stage.js";
 
 /**
@@ -285,13 +285,19 @@ describe("D31/C23: a loosen gives time back", () => {
   });
 
   it("D31: and a pilot who never loosened flies exactly the belt they flew before", () => {
-    // THE OTHER HALF OF THE BAR: nothing may get easier. `budgetLive` absent,
-    // or equal to the knob, is `concurrencyTarget(maxLive)` to the byte - which
-    // is every caller in the game that has not been given relief.
+    // THE OTHER HALF OF THE BAR: nothing may get easier. `budgetLive` absent
+    // reads IDENTICALLY to `budgetLive` equal to the knob - every caller in the
+    // game that has not been given relief.
     for (let k = MAX_LIVE_MIN; k <= MAX_LIVE_MAX; k += 1) {
       for (let depth = 0; depth <= MAX_LIVE_MAX; depth += 1) {
-        expect(fallBudgetFactor({ maxLive: k }, depth)).toBe(
-          Math.min(concurrencyTarget(k), Math.max(1, depth + 1)),
+        // QUEUE_PAY: the old RHS was `slots` flat, the whole-budget-per-slot
+        // rule; a queued slot now costs QUEUE_PAY of a budget. Ten digits
+        // because the engine spells it `1 - (1 - QUEUE_PAY)` and 0.45 is not a
+        // float - the cap and the slot count are still exact.
+        const slots = Math.min(concurrencyTarget(k), Math.max(1, depth + 1));
+        expect(fallBudgetFactor({ maxLive: k }, depth)).toBeCloseTo(
+          1 + (slots - 1) * QUEUE_PAY,
+          10,
         );
         expect(fallBudgetFactor({ maxLive: k, budgetLive: k }, depth)).toBe(
           fallBudgetFactor({ maxLive: k }, depth),

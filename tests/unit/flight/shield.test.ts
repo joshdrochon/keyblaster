@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  CANISTER_SPAWN_CHANCE,
   HULL_BASE_MARKS,
   HULL_BASE_SPAWNS,
+  HULL_SPAWNS_PER_MARK,
   MIN_HULL,
   hullAfterShield,
   HULL_PASS_COST,
@@ -13,6 +15,7 @@ import {
   startingHull,
   survivableHitRate,
 } from "@game/flight/shield.js";
+import { hullLampLevel } from "@engine/hull/index.js";
 import * as engineHull from "@engine/hull/index.js";
 import { HULL_HITS_PER_STAGE, starsForHullHits } from "@engine/scoring/index.js";
 import { DEFAULT_FLIGHT_CONFIG } from "@game/flight/stage.js";
@@ -41,6 +44,34 @@ describe("the shield seam", () => {
     expect(hullAfterShield).toBe(engineHull.hullAfterShield);
     expect(isStalled).toBe(engineHull.isStalled);
     expect(maySpawnCanister).toBe(engineHull.maySpawnCanister);
+    expect(CANISTER_SPAWN_CHANCE).toBe(engineHull.CANISTER_SPAWN_CHANCE);
+  });
+});
+
+describe("AC-5.1: `CANISTER_SPAWN_CHANCE` is the ONE number the repair rate is", () => {
+  it("AC-5.1: the shipped chance is a half, and it is a probability", () => {
+    // It was a literal `0.5` in `FlightScene.spawnRock` and a SECOND literal
+    // `0.5` in the belt harness - two copies of the number the owner's "we have
+    // the repair rocks so should be fine" argument rests on, and no way to tell
+    // whether the game and the measurement of the game agreed. They do now by
+    // construction; this pins the value so that moving it is a decision with a
+    // red test in front of it rather than an edit in one of two files.
+    //
+    // WATCHED FAILING at `toBe(0.25)`:
+    //   "expected 0.5 to be 0.25 // Object.is equality"
+    expect(CANISTER_SPAWN_CHANCE).toBe(0.5);
+    expect(CANISTER_SPAWN_CHANCE).toBeGreaterThan(0);
+    expect(CANISTER_SPAWN_CHANCE).toBeLessThanOrEqual(1);
+  });
+
+  it("AC-5.1: it is a chance BEHIND the gate, not a rate per belt", () => {
+    // Raising it can never hand a canister to a full hull or put two on the
+    // board, because `maySpawnCanister` is asked first and it is the rule.
+    // Measured consequence, in `tests/unit/simulation/hullThreeHits.test.ts`:
+    // pushing this to 1.0 and allowing three live at once STILL does not make a
+    // three-mark hull survivable for the grade-2 pilot.
+    expect(maySpawnCanister(3, 3, false)).toBe(false);
+    expect(maySpawnCanister(2, 3, true)).toBe(false);
   });
 });
 
@@ -53,9 +84,40 @@ describe("hullForStage: D27 as a rate, so D17's band survives a longer belt", ()
     expect(hullForStage(HULL_BASE_SPAWNS)).toBe(HULL_HITS_PER_STAGE);
   });
 
-  it("D17 / D27: the shipped 58-word stage carries nine marks", () => {
-    expect(hullForStage(58)).toBe(9);
-    expect(hullForStage(DEFAULT_FLIGHT_CONFIG.stageWordCount)).toBe(9);
+  it("C26 / D17: the shipped 58-word stage carries SIX marks", () => {
+    // THE OWNER'S DECISION, as one row. C26 was logged unresolved with the rate
+    // returning nine here; the owner picked six from the stall sweep in
+    // `tests/unit/simulation/hullThreeHits.test.ts`, and six is also the
+    // smallest hull D17's 90% ceiling allows at this belt length - which is why
+    // `hullForStage` is that relation rather than this literal.
+    //
+    // WATCHED FAILING at `toBe(9)`: "expected 6 to be 9 // Object.is equality"
+    expect(hullForStage(58)).toBe(6);
+    expect(hullForStage(DEFAULT_FLIGHT_CONFIG.stageWordCount)).toBe(6);
+  });
+
+  it("C26: the hull is the SMALLEST whole hull D17's ceiling permits, at any length", () => {
+    // THE RATE, STATED AS THE PROPERTY IT IS FOR rather than as its arithmetic.
+    // `HULL_SPAWNS_PER_MARK` is ten because `1 - h/n <= 0.90` is `h >= n/10`,
+    // so `ceil(n/10)` is the smallest hull D17 allows - and one mark LESS is
+    // always outside the band. That second half is what stops this being a
+    // tautology, and it is the reason five marks was not the answer at 58.
+    //
+    // WATCHED FAILING with `HULL_SPAWNS_PER_MARK` back at 6 (the old rate):
+    //   "expected 6 to be 10 // Object.is equality" here, and
+    //   "expected 10 to be 6 // Object.is equality" on the shipped row above,
+    //   which is the old nine-mark hull arriving as ten at a rate of six."
+    expect(HULL_SPAWNS_PER_MARK).toBe(10);
+    for (let words = 31; words <= 200; words += 1) {
+      const hull = hullForStage(words);
+      expect(hull, `${words} words: not the smallest hull D17's ceiling requires`).toBe(
+        Math.ceil(words / 10),
+      );
+      expect(
+        survivableHitRate(words, hull - 1),
+        `${words} words: ${hull - 1} marks would be inside the band too, so ${hull} is not minimal`,
+      ).toBeGreaterThan(0.9);
+    }
   });
 
   it("D17: the survivable hit rate lands INSIDE the 80-90% band, not above it", () => {
@@ -101,12 +163,12 @@ describe("hullForStage: D27 as a rate, so D17's band survives a longer belt", ()
     expect(hullForStage(Number.NaN)).toBe(MIN_HULL);
     expect(hullForStage(Number.POSITIVE_INFINITY)).toBe(MIN_HULL);
     expect(hullForStage(-40)).toBe(MIN_HULL);
-    expect(hullForStage(58.9)).toBe(9);
+    expect(hullForStage(58.9)).toBe(6);
   });
 
   it("AC-4.1 / D27: every stage starts at its own full hull", () => {
     expect(startingHull(18)).toBe(3);
-    expect(startingHull(58)).toBe(9);
+    expect(startingHull(58)).toBe(6);
   });
 
   it("survivableHitRate is total, and a stage of nothing is survivable", () => {
@@ -195,6 +257,75 @@ describe("hullAfterShield (AC-5.2, D26)", () => {
 
   it("a zero-mark stage cannot be repaired into existence", () => {
     expect(hullAfterShield(0, 0)).toBe(0);
+  });
+
+  it("AC-5.2: ONE mark, on a fractional hull too - it no longer rounds up first", () => {
+    // THE BUG THIS FIXES. `hullAfterShield` used to call `hullMarksLit` - which
+    // CEILS - before adding one, so a hull standing at 1.5 (one strike and one
+    // pass-by, UR-91) came back at 3 and the canister had paid 1.5 marks
+    // against an AC that writes 1. Every whole-number hull was exact, which is
+    // why the over-payment shipped with a green suite: the only hulls it could
+    // reach are the halves `HULL_PASS_COST` creates, and nothing asserted one.
+    //
+    // WATCHED FAILING against the old implementation (ceil, then add):
+    //   "expected 3 to be 2.5 // Object.is equality"
+    expect(hullAfterShield(1.5, 6)).toBe(2.5);
+    expect(hullAfterShield(0.5, 6)).toBe(1.5);
+    expect(hullAfterShield(5.5, 6)).toBe(6);
+    // The cap is the ONLY thing that may make a repair worth less than one.
+    expect(hullAfterShield(5.5, 6) - 5.5).toBeLessThan(1);
+  });
+
+  it("AC-5.2: a canister is worth exactly one mark from every hull it can reach", () => {
+    // Stated as the property rather than as four rows, because the defect was
+    // in a case nobody had written a row for. Halves are the only fractions the
+    // hull can hold: `HULL_STRIKE_COST` is 1 and `HULL_PASS_COST` is 0.5.
+    //
+    // WATCHED FAILING against the old implementation:
+    //   "a repair at hull 0.5 of 3 returned 1.5 marks, not AC-5.2's one:
+    //    expected 1.5 to be 1 // Object.is equality"
+    for (const cap of [3, 6, 9]) {
+      for (let hull = 0; hull <= cap - 1; hull += 0.5) {
+        const given = hullAfterShield(hull, cap) - hull;
+        expect(
+          given,
+          `a repair at hull ${hull} of ${cap} returned ${given} marks, not AC-5.2's one`,
+        ).toBe(1);
+      }
+    }
+  });
+});
+
+describe("C26 / UR-91: what HULL_PASS_COST does at a six-mark hull", () => {
+  it("a pass-by is a TWELFTH of the shipped ship, and neither surface shows it", () => {
+    // NOT A CHANGE, A MEASUREMENT. Both damage surfaces read `hullMarksLit`,
+    // which ceils, so half-mark damage moves neither of them: the Lantern holds
+    // its light (UR-22 made that the primary surface) and `maySpawnCanister`
+    // refuses a repair rock over a ship that has just been hit. At nine marks a
+    // pass-by was an eighteenth of the ship; at six it is a twelfth, and this
+    // pins the size so that changing the hull again cannot move it silently.
+    //
+    // Whether a near miss SHOULD dim the Lantern is a feel decision and it is
+    // the owner's - options, route numbers and a lean are in
+    // `gauntlet/escalations.md`. If it is ever changed, this goes red and takes
+    // the escalation with it.
+    //
+    // WATCHED FAILING with the lamp reading the raw hull instead of
+    // `hullMarksLit`:
+    //   "expected 0.9349999999999999 to be 1 // Object.is equality"
+    const cap = hullForStage(DEFAULT_FLIGHT_CONFIG.stageWordCount);
+    const afterPass = hullAfterStrike(cap, cap, HULL_PASS_COST);
+    expect(cap - afterPass).toBe(HULL_PASS_COST);
+    expect(HULL_PASS_COST / cap).toBeCloseTo(1 / 12, 10);
+    // The Lantern does not move.
+    expect(hullLampLevel(afterPass, cap)).toBe(hullLampLevel(cap, cap));
+    // And no repair window opens.
+    expect(maySpawnCanister(afterPass, cap, false)).toBe(false);
+    // A whole strike does both, which is what makes the above a rounding rather
+    // than a missing feature.
+    const afterStrike = hullAfterStrike(cap, cap);
+    expect(hullLampLevel(afterStrike, cap)).toBeLessThan(hullLampLevel(cap, cap));
+    expect(maySpawnCanister(afterStrike, cap, false)).toBe(true);
   });
 });
 

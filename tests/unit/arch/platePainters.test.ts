@@ -97,10 +97,10 @@ const NOT_A_PLATE: Record<string, string> = {
   // -- world art. Drawn objects that exist in the fiction. ------------------
   "BeaconScene.ts::fillRoundedRect(-14, -58, 28, 152, 10)":
     "the beacon's MAST. A pole with rounded ends, not a surface.",
-  "EarthActivationScene.ts::fillRoundedRect(x - 48, y - 36, 96, 78, 14)":
-    "the beacon lamp's HOUSING. Cold metal in the world, not chrome.",
-  "EarthActivationScene.ts::strokeRoundedRect(x - 48, y - 36, 96, 78, 14)":
-    "the same housing's edge.",
+  // THE BEACON LAMP'S HOUSING IS GONE (UR-98). Two entries lived here - the
+  // housing's fill and its edge - and the owner asked for the housing itself
+  // removed from Earth's launch screen as clutter. The drawing went; these
+  // stayed, and `no entry is stale` is exactly the guard that catches that.
 
   // -- masks and frames -----------------------------------------------------
   //
@@ -152,9 +152,12 @@ const NOT_A_PLATE: Record<string, string> = {
   // `corner: "pill"`, which is what a rounded 8 px bar is, so neither needs an
   // entry: a mark drawn by the shared component is not a bespoke painter.
 
-  "typedWord.ts::fillRoundedRect(x, y, Math.max(8, target.width), 5, 3)":
+  "typedWord.ts::fillRoundedRect(box.x, box.y, box.w, box.h, CARET.radius)":
     "the next letter's soft UNDERLINE CUE (art-direction s7). 5 px tall and " +
-    "it breathes; nothing is read on it.",
+    "it breathes; nothing is read on it. ONE entry for TWO screens now - the " +
+    "pre-flight ritual's prompt and the warp break's wrapped sentence both " +
+    "reach `typedWord.paintCaret`, so a second caret anywhere else is a " +
+    "finding here rather than a drawing nobody compared.",
 
   // -- generated textures. Not on a screen at all. --------------------------
   "WarpScene.ts::fillRoundedRect(0, 0, 4, 48, 2)":
@@ -297,7 +300,10 @@ describe("UR-69: a scene does not paint its own plate", () => {
         // rects - the window's geometry mask and the frame's two rings - and
         // now draws none: the window is `ui/viewportWindow.ts` and this screen
         // calls it. It is the second screen in the game to reach zero.
-        "EarthActivationScene.ts",
+        //
+        // EarthActivationScene.ts IS NOT HERE ANY MORE EITHER (UR-98). Its two
+        // were the beacon lamp's housing, removed from the screen as clutter.
+        // The third screen to reach zero.
         "HudScene.ts",
         "PreflightScene.ts",
         // TitleScene.ts IS NOT HERE ANY MORE. It drew four rounded rects - the

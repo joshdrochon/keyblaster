@@ -3,6 +3,7 @@ import type { Lang } from "@engine/types";
 import { HIT_ZONE_PREFIX, type Focusable, type PointerHandlers } from "./focus.js";
 import type { MirrorItem, MirrorRole } from "./mirror.js";
 import { DUR, EASE, INK, SPACE, TYPE, rowHeight } from "./theme.js";
+import { CARET } from "@game/scenes/lib/typedWord";
 import { plate, strokePlate } from "./chrome.js";
 import { hexToNum } from "@game/render/palette";
 import { plateWidth, uiText } from "./text.js";
@@ -117,7 +118,22 @@ export abstract class Control implements Focusable {
   static readonly POP_NAME_PREFIX = POP_NAME_PREFIX;
 
   readonly id: string;
-  locked = false;
+  /** UR-188: a setter, because assigning it has to repaint. */
+  get locked(): boolean {
+    return this.lockedValue;
+  }
+
+  set locked(value: boolean) {
+    if (this.lockedValue === value) return;
+    this.lockedValue = value;
+    // `setInteractive` returns early on an already-interactive object, so the
+    // cursor is written on the input object itself.
+    const input = this.pointerZone?.input;
+    if (input) input.cursor = value ? "" : "pointer";
+    this.redraw();
+  }
+
+  private lockedValue = false;
   adjustable = false;
   /**
    * True for a control with exactly two states, where a click anywhere flips
@@ -238,6 +254,17 @@ export abstract class Control implements Focusable {
 
   activate(): void {}
   adjust(_delta: number): void {}
+
+  /**
+   * The x a pointer click is measured against to decide down vs up.
+   *
+   * Defaults to the control's own middle, which is right for a row whose whole
+   * width IS the control. A row that draws its hardware in one corner overrides
+   * this with that hardware's centre - see UR-131 in `bindPointer`.
+   */
+  protected adjustPivotX(box: Box): number {
+    return box.x + box.w / 2;
+  }
   /** Returns true when the key was consumed as text input. */
   typeKey(_key: string): boolean {
     return false;
@@ -301,7 +328,22 @@ export abstract class Control implements Focusable {
           handlers.press();
           return;
         }
-        handlers.adjust(pointer.worldX >= box.x + box.w / 2 ? 1 : -1);
+        /**
+         * ================== SPLIT AT THE HARDWARE, NOT THE ROW (UR-131) ==============
+         * This was `box.x + box.w / 2` - the midpoint of the whole ROW. On the
+         * settings console the knob sits at the far right of a row that is most
+         * of the panel wide, so EVERY click on the knob lands in the right half
+         * and sends +1. The owner reported it exactly: the volume could be
+         * turned up and never down. The only way down was to click the label,
+         * a couple of hundred pixels away from the thing that looks like the
+         * control, which nobody would find.
+         *
+         * A control that draws its own hardware says where its centre is, and
+         * the split happens THERE: left of the knob turns it down, right of it
+         * turns it up, which is what the drawing already promises. Rows that
+         * draw nothing keep the old behaviour by default.
+         */
+        handlers.adjust(pointer.worldX >= this.adjustPivotX(box) ? 1 : -1);
         return;
       }
       handlers.press();
@@ -332,7 +374,39 @@ export abstract class Control implements Focusable {
   protected abstract redraw(): void;
   abstract toMirror(): MirrorItem;
 
-  /** Shared plate fill: sunken normally, raised on focus, flat when locked. */
+  /**
+   * Shared plate fill: sunken normally, raised on focus, flat when locked.
+   *
+   * ============= THE PLATE'S BORDER IS NEVER THE ACCENT (UR-112) =============
+   *
+   * ================== WHAT WAS REPORTED ==================
+   * The project owner, on the profile picker: "there appear to be two
+   * concentric yellow outlines around New Pilot ... one outline plus the
+   * control's own stroke, giving a strange hollow double line".
+   *
+   * ================== WHAT IT ACTUALLY WAS ==================
+   * Not two rings. `ui/chrome.FocusRing` has drawn exactly ONE stroke since
+   * UR-82 took its halo away for this same complaint. The second line was
+   * THIS ONE: the plate was stroked in `style.accent` at 3 px whenever the
+   * control was focused, while the ring strokes `INK.accent` at
+   * `SPACE.focusRingWidth` (4) px, `SPACE.focusRingOffset` (6) px outside the
+   * same box. `style.accent` is the STOP's accent, the screen's stop is
+   * `earth`, and Earth's palette accent is `#FFC857` - which is `INK.accent`
+   * to the byte. Two identical gold outlines with a strip of sky between them,
+   * and the held 1.5% swell closing the gap to about 4 px.
+   *
+   * ================== WHY THE RING KEEPS THE GOLD ==================
+   * The Director map's Beacon Log and Settings chips are the owner's stated
+   * standard, and their plate is `INK.panelRaised` with the DEFAULT line -
+   * `ui/plate.paintPlate` only reaches for gold on a bracketed plate. The
+   * accent belongs to the ring there and now here. Focus is still carried by
+   * three things: the ring, the raised fill, and the held swell. One of them
+   * is gold instead of two.
+   *
+   * The width still steps 2 -> 3 on focus. That is the plate's own edge getting
+   * firmer, in the quiet line, and it is invisible as a second outline because
+   * it is not a second colour.
+   */
   protected paintPlate(): void {
     this.g.clear();
     const fill = this.locked
@@ -347,7 +421,7 @@ export abstract class Control implements Focusable {
       0,
       this.boxW,
       this.boxH,
-      this.focused && !this.locked ? hexToNum(this.style.accent) : hexToNum(INK.line),
+      hexToNum(INK.line),
       this.focused && !this.locked ? 3 : 2,
     );
   }
@@ -358,6 +432,7 @@ export abstract class Control implements Focusable {
 export interface ButtonOptions {
   readonly label: string;
   readonly minWidth?: number;
+  readonly minHeight?: number;
   readonly size?: number;
   readonly onPress: () => void;
 }
@@ -388,7 +463,7 @@ export class MenuButton extends Control {
       increasedLetterSpacing: style.increasedLetterSpacing,
     });
     this.boxW = plateWidth(this.text, SPACE.rowPadX, options.minWidth ?? 220);
-    this.boxH = rowHeight(size, style.lang);
+    this.boxH = Math.max(rowHeight(size, style.lang), options.minHeight ?? 0);
     this.text.setPosition(
       Math.round((this.boxW - this.text.width) / 2),
       Math.round((this.boxH - this.text.height) / 2),
@@ -506,9 +581,23 @@ export class ListRow extends Control {
 
     const textHeight =
       this.title.height + (this.detail ? this.detail.height + 6 : 0);
+    /**
+     * THE GLYPH GETS THE SAME PADDING AS EVERY OTHER ELEMENT (UR-143).
+     *
+     * This was `max(textHeight, glyphSize) + rowPadY * 2`, so an 84 px avatar
+     * sat in a 112 px row: 22 px of air to its LEFT (`rowPadX`) and 14 to its
+     * top and bottom (`rowPadY`). The owner read that as the icon not keeping
+     * the row's padding, and they are right - it is the one element on the row
+     * whose margin depends on which axis you measure.
+     *
+     * The glyph is measured against `rowPadX` on all four sides, which is the
+     * padding its LEFT edge already uses; text keeps `rowPadY`, because a line
+     * of type has its own leading and does not need the same room as a disc.
+     */
     this.boxH = Math.max(
       rowHeight(TYPE.body, style.lang),
-      Math.max(textHeight, glyphSize) + SPACE.rowPadY * 2,
+      textHeight + SPACE.rowPadY * 2,
+      glyphSize > 0 ? glyphSize + SPACE.rowPadX * 2 : 0,
     );
 
     const top = Math.round((this.boxH - textHeight) / 2);
@@ -854,10 +943,13 @@ export class TextField extends Control {
         .rectangle(0, 0, 3, this.entry.height * 0.8, hexToNum(this.style.accent))
         .setOrigin(0, 0);
       this.container.add(this.caret);
+      // UR-161: one breathe for every caret in the game. A yoyo covers the
+      // band twice, so the tween runs half a cycle.
+      this.caret.setAlpha(CARET.breatheMax);
       this.scene.tweens.add({
         targets: this.caret,
-        alpha: 0.15,
-        duration: 620,
+        alpha: CARET.breatheMin,
+        duration: CARET.breatheMs / 2,
         ease: EASE.drift,
         yoyo: true,
         repeat: -1,

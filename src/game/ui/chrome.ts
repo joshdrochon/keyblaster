@@ -4,6 +4,7 @@ import { menuDebris, menuStars, type StarMote } from "./starfield.js";
 import { starsMayTravel, twinkleAlpha } from "@game/render/starField";
 import { particleSpec } from "@game/render/particles";
 import { DUR, EASE, INK, SPACE } from "./theme.js";
+import { focusArrive, focusPulse } from "./focusPop.js";
 import type { TrophyGlyphId } from "./catalog.js";
 import type { Rect } from "./layout.js";
 import { type StopPalette, hexToNum } from "@game/render/palette";
@@ -168,10 +169,22 @@ export class Backdrop {
   private readonly starsG: Phaser.GameObjects.Graphics;
   private readonly stars: readonly StarMote[];
 
+  /**
+   * `skyBottom` overrides the stop's own sky colour (UR-135).
+   *
+   * A menu screen is dressed by `paletteStop()`, which returns `"earth"` for
+   * all of them - so the one screen that has an identity of its own, the
+   * settings console with its player-chosen dash colour, still wore Earth's
+   * blue sky under it. The owner reported the colours adopting the planet
+   * three times; the accent was only two thirds of it, and this was the rest.
+   *
+   * Optional, so the eight screens that ARE dressed by a stop are unchanged.
+   */
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly palette: StopPalette,
     private readonly reducedMotion: boolean,
+    private readonly skyBottom: string | null = null,
   ) {
     this.g = scene.add.graphics().setDepth(layer("sky").depth);
     this.starsG = scene.add.graphics().setDepth(layer("sky").depth + 0.1);
@@ -196,7 +209,7 @@ export class Backdrop {
 
   private paintSky(): void {
     const top = hexToNum(INK.bgDeep);
-    const bottom = hexToNum(this.palette.colors[5] ?? INK.bg);
+    const bottom = hexToNum(this.skyBottom ?? this.palette.colors[5] ?? INK.bg);
     this.g.fillGradientStyle(top, top, bottom, bottom, 1);
     this.g.fillRect(0, 0, this.width, this.height);
     // A wide, very soft accent bloom at the top edge: the ship's own cabin
@@ -360,7 +373,48 @@ export class FocusRing {
   /** The live fade, so a fast pointer sweep replaces it instead of stacking. */
   private moveTween: Phaser.Tweens.Tween | null = null;
 
-  constructor(private readonly scene: Phaser.Scene, depth: number) {
+  /** The live breath, so hiding or moving the ring can stop it. */
+  private pulseTween: Phaser.Tweens.Tween | null = null;
+
+  /**
+   * `reducedMotion` is REQUIRED, not defaulted.
+   *
+   * A default of `false` is how a screen quietly gets a pulsing ring under calm
+   * motion - the same failure mode `ui/focus.setUiSound`'s note describes for
+   * audio, where threading a flag through fifteen screens leaves the sixteenth
+   * wrong and silent about it. There are two constructors of this class
+   * (`MenuScene` and `ui/dialog`), so making it an argument is cheap and making
+   * it optional is not.
+   */
+  /**
+   * `accent` is the RING'S OWN COLOUR, and it defaults (UR-131).
+   *
+   * The ring stroked `INK.accent` as a literal, so on the settings console -
+   * the one screen with a player-chosen dash colour - every knob, lamp and
+   * chevron turned Coral and the focus ring stayed gold. The owner reported
+   * it as the colours not staying what was chosen, twice.
+   *
+   * Defaulted rather than required because the other eight menu screens and
+   * `ui/dialog` have no accent of their own and must not change: passing
+   * nothing is byte-identical to what they drew before.
+   */
+  constructor(
+    private readonly scene: Phaser.Scene,
+    depth: number,
+    private readonly reducedMotion: boolean,
+    private readonly accent: string = INK.accent,
+    /**
+     * How far outside the control the ring is struck (UR-143).
+     *
+     * `SPACE.focusRingOffset` (6) by default, which is the app-wide standoff
+     * and what every other ring uses. The pilot picker asked for a ring FLUSH
+     * to the row's outline, and this is a per-ring value rather than an edit to
+     * the token because `blast-radius` names eleven source files and six suites
+     * on it - the beacon screen's forward action is one of them, and the owner
+     * has already called that ring correct.
+     */
+    private readonly ringOffset: number = SPACE.focusRingOffset,
+  ) {
     this.g = scene.add.graphics().setDepth(depth);
     this.g.setAlpha(0);
   }
@@ -369,10 +423,40 @@ export class FocusRing {
     return this.visible;
   }
 
+  /**
+   * Start the focused outline breathing (UR-112), or leave it at full strength
+   * when the player has asked for calm motion.
+   *
+   * The spec is `ui/focusPop.focusPulse`, shared with `scenes/lib/kit`'s ring so
+   * the map's Beacon Log and Settings chips - the treatment the owner named as
+   * the standard - and these five menu screens cannot drift apart.
+   */
+  private startPulse(): void {
+    this.pulseTween?.remove();
+    this.pulseTween = null;
+    const spec = focusPulse(this.reducedMotion);
+    if (spec === null) {
+      // FULL STRENGTH, never the low end of the breath. A calm-motion player
+      // loses the movement and keeps every static cue there is.
+      this.g.setAlpha(1);
+      return;
+    }
+    this.pulseTween = this.scene.tweens.add({
+      targets: this.g,
+      alpha: { from: spec.alpha.from, to: spec.alpha.to },
+      duration: spec.duration,
+      ease: spec.ease,
+      yoyo: spec.yoyo,
+      repeat: spec.repeat,
+    });
+  }
+
   hide(): void {
     this.visible = false;
     this.moveTween?.remove();
     this.moveTween = null;
+    this.pulseTween?.remove();
+    this.pulseTween = null;
     this.scene.tweens.add({
       targets: this.g,
       alpha: 0,
@@ -381,12 +465,17 @@ export class FocusRing {
     });
   }
 
+  /** UR-188: dim on a locked control - visible for AC-18.1, not an invitation. */
+  setDimmed(dimmed: boolean): void {
+    this.g.setAlpha(dimmed ? 0.4 : 1);
+  }
+
   moveTo(x: number, y: number, w: number, h: number, instant = false): void {
-    const o = SPACE.focusRingOffset;
+    const o = this.ringOffset;
     const target = { x: x - o, y: y - o, w: w + o * 2, h: h + o * 2 };
     const redraw = (): void => {
       this.g.clear();
-      this.g.lineStyle(SPACE.focusRingWidth, hexToNum(INK.accent), 1);
+      this.g.lineStyle(SPACE.focusRingWidth, hexToNum(this.accent), 1);
       this.g.strokeRoundedRect(
         this.box.x,
         this.box.y,
@@ -403,6 +492,29 @@ export class FocusRing {
     };
 
     const wasHidden = !this.visible || this.box.w === 0;
+    /**
+     * ALREADY HERE IS NOT AN ARRIVAL (UR-139).
+     *
+     * `moveTo` re-ran the whole arrival every time it was called, including
+     * when it was called with the BOX IT IS ALREADY ON - which a click on the
+     * focused row does, and which `FocusList.adjust` does on every turn of a
+     * knob. Each one dropped the ring to `FOCUS_ARRIVE_FROM` and faded it back,
+     * and clicking a row twice read as a yellow flicker. The owner reported it
+     * on the Keyboard row, where turning the selector does it on every step.
+     *
+     * Returning early also leaves the BREATH running, which is the second half
+     * of why the old behaviour looked wrong: the pulse was being killed and
+     * restarted mid-cycle, so the ring jumped brightness as well as flashing.
+     */
+    if (
+      this.visible &&
+      this.box.x === target.x &&
+      this.box.y === target.y &&
+      this.box.w === target.w &&
+      this.box.h === target.h
+    ) {
+      return;
+    }
     this.visible = true;
     // ================== THE RING DOES NOT TRAVEL (UR-75) ==================
     // It used to tween `this.box` - x, y, w AND h - from the old control to
@@ -424,19 +536,35 @@ export class FocusRing {
     Object.assign(this.box, target);
     redraw();
     this.moveTween?.remove();
+    // The breath belongs to the control the ring is ON. It stops here and is
+    // started again on arrival, so a ring moving between two controls is never
+    // mid-exhale on the one it is leaving.
+    this.pulseTween?.remove();
+    this.pulseTween = null;
     if (instant || wasHidden) {
       this.moveTween = null;
       this.g.setAlpha(1);
+      this.startPulse();
       return;
     }
-    this.g.setAlpha(0);
+    // THE SHARED ARRIVAL (UR-113, `ui/focusPop.focusArrive`). This was
+    // `setAlpha(0)` then a fade to 1 on `EASE.arrive`, so the ring blinked
+    // fully OUT and back every time focus moved between two buttons on the
+    // same screen - a frame of Settings with no focus anywhere on it. The kit
+    // the owner named as the standard never drops the ring below 0.55.
+    const arrive = focusArrive();
+    this.g.setAlpha(arrive.alpha.from);
     this.moveTween = this.scene.tweens.add({
       targets: this.g,
-      alpha: 1,
-      duration: DUR.focus,
-      ease: EASE.arrive,
+      alpha: arrive.alpha.to,
+      duration: arrive.duration,
+      ease: arrive.ease,
       onComplete: () => {
         this.moveTween = null;
+        // ARRIVE FIRST, THEN BREATHE. Two tweens writing alpha at once is a
+        // ring that flickers on every focus move; the fade owns the first
+        // `DUR.focus` ms and hands over when it is done.
+        this.startPulse();
       },
     });
   }
@@ -516,6 +644,77 @@ export function drawShip(
  * mark, not a person). Each is a distinct SILHOUETTE, not a colour variant, so
  * the set survives the colourblind palette and a desaturated screenshot.
  */
+/**
+ * THE EMPTY SEAT: the mark on the profile picker's "new pilot" row (UR-112).
+ *
+ * ================== WHY THE ROW NEEDS A MARK AT ALL ==================
+ * "New pilot" was a `MenuButton` sitting above three `ListRow`s. Measured on
+ * the served build, its box was 466x67 against the rows' 466x112 - the owner
+ * reported it as reading differently from the list under it, and 45 px of
+ * height is why. It is a `ListRow` now, and a `ListRow` is sized around its
+ * glyph, so the only way it is the same box as a pilot's row is to carry the
+ * same 84 px mark in the same place.
+ *
+ * ================== WHY A DASHED RING AND A PLUS ==================
+ * It is deliberately the SHAPE of an avatar with nothing in it yet - the same
+ * disc, the same radius, the same left inset - broken into an open ring so it
+ * reads as a slot rather than as a seventh pilot mark a child might think they
+ * already own. The plus is drawn, not typed (D83), so no font is involved and
+ * it is the same stroke weight at any row height.
+ *
+ * The ink is the caller's: the row's accent, so the one row that starts
+ * something is the one row with colour in its mark.
+ */
+export function drawNewPilotMark(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+): Phaser.GameObjects.Container {
+  const c = scene.add.container(x, y);
+  const g = scene.add.graphics();
+  const r = size / 2;
+  const tint = hexToNum(color);
+
+  // The same sunken disc every avatar sits on, so the two marks share a footing.
+  g.fillStyle(hexToNum(INK.panelSunken), 1);
+  g.fillCircle(0, 0, r);
+
+  // An OPEN ring: twelve arcs with twelve gaps, drawn as short chords so no
+  // rounded-rect painter is involved and the dashes stay even at any radius.
+  const DASHES = 12;
+  g.lineStyle(3, tint, 0.85);
+  for (let i = 0; i < DASHES; i += 1) {
+    const a0 = (i / DASHES) * Math.PI * 2;
+    const a1 = a0 + (Math.PI * 2) / (DASHES * 2);
+    g.beginPath();
+    g.moveTo(Math.cos(a0) * r, Math.sin(a0) * r);
+    g.lineTo(Math.cos(a1) * r, Math.sin(a1) * r);
+    g.strokePath();
+  }
+
+  // The plus. Two bars, not a glyph.
+  const arm = r * 0.44;
+  const bar = Math.max(3, r * 0.16);
+  g.fillStyle(tint, 1);
+  g.fillRect(-arm, -bar / 2, arm * 2, bar);
+  g.fillRect(-bar / 2, -arm, bar, arm * 2);
+
+  c.add(g);
+  return c;
+}
+
+/** Six marks, six inks, one family. */
+export const AVATAR_INK: Readonly<Record<string, string>> = {
+  "avatar-1": "#7FB2F0",
+  "avatar-2": "#8FA6F2",
+  "avatar-3": "#A79BEE",
+  "avatar-4": "#79C2E8",
+  "avatar-5": "#6FD0DA",
+  "avatar-6": "#8ADCC8",
+};
+
 export function drawAvatar(
   scene: Phaser.Scene,
   x: number,
@@ -527,7 +726,7 @@ export function drawAvatar(
   const c = scene.add.container(x, y);
   const g = scene.add.graphics();
   const r = size / 2;
-  const tint = hexToNum(color);
+  const tint = hexToNum(AVATAR_INK[avatarId] ?? color);
 
   g.fillStyle(hexToNum(INK.panelSunken), 1);
   g.fillCircle(0, 0, r);
@@ -551,11 +750,25 @@ export function drawAvatar(
       g.fillPoints(pts, true);
       break;
     }
-    case "avatar-4": // ring
+    case "avatar-4": { // ring
+      // A closed path, not `strokeEllipse`: at this stroke width its start and
+      // end overlap and the join reads as a blip on the right.
       g.lineStyle(r * 0.18, tint, 1);
-      g.strokeEllipse(0, 0, r * 1.24, r * 0.52);
+      const rx = r * 0.62;
+      const ry = r * 0.26;
+      g.beginPath();
+      for (let i = 0; i <= 48; i += 1) {
+        const a = (i / 48) * Math.PI * 2;
+        const px = Math.cos(a) * rx;
+        const py = Math.sin(a) * ry;
+        if (i === 0) g.moveTo(px, py);
+        else g.lineTo(px, py);
+      }
+      g.closePath();
+      g.strokePath();
       g.fillCircle(0, 0, r * 0.22);
       break;
+    }
     case "avatar-5": // spark: four-point burst
       g.fillTriangle(0, -r * 0.7, r * 0.2, 0, -r * 0.2, 0);
       g.fillTriangle(0, r * 0.7, r * 0.2, 0, -r * 0.2, 0);
@@ -584,10 +797,93 @@ export function drawAvatar(
 }
 
 /**
+ * THE DASH COLOUR'S SWATCH: a lamp behind glass, burning in that colour
+ * (UR-123).
+ *
+ * ================== WHY A LAMP AND NOT A SQUARE OF PAINT ==================
+ * This mark is mounted on the Lantern's console, and `ui/panel.ts`'s whole
+ * subject is that the console is hardware rather than a web form. A flat filled
+ * circle is a colour chip out of a settings dialog; the same colour behind a
+ * milled glass recess with a glow spilling onto the metal is the instrument the
+ * value describes. The glow is the same `fillStyle(accent, 0.18)` spill the
+ * illuminated toggle already paints when it is on, so the two lit things on
+ * this panel light the metal the same way.
+ *
+ * ================== WHAT KEEPS IT HONEST ==================
+ * The colour here is never the only carrier: the row prints the colour's NAME
+ * behind glass at 4.5:1 and the detent lamps say which of six positions it is
+ * (D41, AC-22.8). So a child who cannot separate teal from lime still reads the
+ * row, which is the same rule the avatar set follows by being six silhouettes.
+ *
+ * Vector, in code, no raster (D83).
+ */
+export function drawDashSwatch(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  size: number,
+  hex: string,
+): Phaser.GameObjects.Container {
+  const c = scene.add.container(x, y);
+  const g = scene.add.graphics();
+  const r = size / 2;
+  const tint = hexToNum(hex);
+
+  // The light this lamp throws on the metal it is screwed to.
+  g.fillStyle(tint, 0.18);
+  g.fillCircle(0, 0, r);
+  g.fillStyle(tint, 0.09);
+  g.fillCircle(0, 0, r * 1.22);
+
+  // The recess: the darkest surface on the panel, so the lamp has something to
+  // burn against.
+  g.fillStyle(hexToNum(INK.panelSunken), 1);
+  g.fillCircle(0, 0, r * 0.78);
+
+  // The lamp.
+  g.fillStyle(tint, 1);
+  g.fillCircle(0, 0, r * 0.58);
+
+  // A recess is DARK along its top edge and LIT along the bottom - the inverse
+  // of the raised hardware beside it, which is the one rule every surface on
+  // this console is drawn under (art-direction s5, `ui/panel.ts`).
+  g.lineStyle(3, hexToNum(INK.line), 1);
+  g.strokeCircle(0, 0, r * 0.78);
+
+  c.add(g);
+  return c;
+}
+
+/**
  * A beacon: the reward object (D13). Lit beacons carry a soft accent glow and a
  * slow pulse; unlit ones are the same silhouette in the locked ink, so the
  * collection reads as "six more to light", never as six failures.
  */
+/**
+ * The box `drawBeacon` actually paints in, relative to the point it is given.
+ *
+ * ================== WHY THIS IS NOT THE BODY'S BOX (UR-145) ==================
+ * The mast and base span y -34..48 and x -22..22 in the drawing's own units,
+ * and a caller that insets by THOSE numbers clips the beacon - which is what
+ * happened on the pilot rows. The LIT GLOW is a circle at y -22 with radius 26
+ * that the blink tween scales to 1.22, so the real top is -53.7 and the real
+ * half-width is 31.7, half again as wide as the body.
+ *
+ * Exported so a caller positions by the drawing rather than by the parts of it
+ * somebody remembered - the same reason `pickerLayout.shadowOrigin` exists and
+ * the same class of bug it was written for ("the literal 620 came to look
+ * centred in the sky").
+ */
+export function beaconBox(size: number): {
+  readonly top: number;
+  readonly bottom: number;
+  readonly halfW: number;
+} {
+  const s = size / 100;
+  const glowReach = (22 + 26 * 1.22) * s;
+  return { top: -glowReach, bottom: 48 * s, halfW: 26 * 1.22 * s };
+}
+
 export function drawBeacon(
   scene: Phaser.Scene,
   x: number,

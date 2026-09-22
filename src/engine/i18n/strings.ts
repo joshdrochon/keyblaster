@@ -39,13 +39,22 @@ export const EN = {
   "map.locked": "Locked",
   "map.stars": "{stars} of 3 stars",
 
-  "briefing.shipReady": "The {shipName} is fuelled and ready.",
-  "briefing.start": "Launch",
+  // UR-125: NOT "our ship is fuelled and ready". The button under this line
+  // says "Prepare Ship" and leads to a hull check, a systems check and an
+  // engine check - a line claiming the ship is already ready contradicts the
+  // one control on the screen. It points at the checks instead.
+  "briefing.shipReady": "{pilotName}, ready to prepare the ship whenever you are.",
+  // UR-122: NOT "Launch". This button is on the BRIEFING and it goes to
+  // Pre-flight (`BriefingScene:659`), which is a hull check, a systems check
+  // and an engine check - nothing has launched. The screen that launches is
+  // Pre-flight itself (`PreflightScene:1026` -> SCENE_KEYS.flight), so the
+  // word belongs to the button that ends the ritual, not the one that starts it.
+  "briefing.start": "Prepare Ship",
 
   "preflight.heading": "Warm Up Your Hands",
   "preflight.prompt": "Type the words you see.",
 
-  "flight.hull": "Hull",
+  "flight.hull": "Shield",
   "flight.wpm": "{wpm} words per minute",
 
   /**
@@ -69,14 +78,31 @@ export const EN = {
    */
   "warp.heading": "Charging The Beacon",
   "warp.prompt": "Type the sentence to charge the beacon.",
-  /*
-   * D30. The break is the most important five seconds in the game and it used
-   * to say neither of the two things a player needs to know. These three do:
-   * the belt is GONE, this typing is what charges the beacon, and the beacon
-   * being full means you are ABOUT TO PLANT IT, at a named place.
+  /**
+   * KEPT, UNUSED. It was the banner across the top of the frame; both of the
+   * screen's instruction lines are one line in Shadow's card now
+   * (`warp.coachIntro`). Kept for the same reason `warp.heading` is: restoring
+   * the banner should be a layout change, not a translation job. "below" dates
+   * it - the card is beneath the sentence, not above it.
    */
   "warp.beltCleared":
     "Asteroid belt cleared. Type the sentence below to charge the beacon.",
+  /**
+   * WHAT SHADOW SAYS BEFORE HE HAS ANYTHING TO SAY.
+   *
+   * The screen used to carry two separate instructions - a banner at the top
+   * (`warp.beltCleared`) and a hint at the foot (`warp.hint`) - and a coach
+   * card that sat empty until the note landed. This is all three of those: the
+   * belt is clear, the typing charges the beacon, and a missed letter costs
+   * nothing. It is drawn in the note's own row and the note replaces it, so
+   * the card's geometry never moves (AC-33).
+   *
+   * TWO LINES OF `TYPE.body` IS THE BUDGET, in all three languages - that is
+   * what `coachRows` reserves for the note, and this string shares the row.
+   * `warpCoachCard.test.ts` measures it.
+   */
+  "warp.coachIntro":
+    "The belt is clear, pilot. Type the sentence to charge the beacon. Miss a letter and the sentence just asks for it again.",
   /**
    * The line above the sentence: WHOSE beacon this is. A label, so Title Case,
    * and `{stop}` is the stop the child is standing at - the one the next scene
@@ -138,19 +164,21 @@ export const ES: Record<StringKey, string> = {
   "map.locked": "bloqueado",
   "map.stars": "{stars} de 3 estrellas",
 
-  "briefing.shipReady": "La {shipName} está cargada y lista.",
-  "briefing.start": "despegar",
+  "briefing.shipReady": "{pilotName}, lista para preparar la nave cuando quieras.",
+  "briefing.start": "preparar nave",
 
   "preflight.heading": "calienta las manos",
   "preflight.prompt": "Escribe las palabras que ves.",
 
-  "flight.hull": "casco",
+  "flight.hull": "escudo",
   "flight.wpm": "{wpm} palabras por minuto",
 
   "warp.heading": "Cargando la baliza",
   "warp.prompt": "Escribe la frase para cargar la baliza.",
   "warp.beltCleared":
     "Cinturón de asteroides limpio. Escribe la frase de abajo para cargar la baliza.",
+  "warp.coachIntro":
+    "El cinturón está despejado, piloto. Escribe la frase para cargar la baliza. Si fallas una letra, la frase te la vuelve a pedir.",
   // Español no pone mayúscula en cada palabra de un sintagma común, así que la
   // regla aquí es "la etiqueta lleva una mayúscula", y eso es una.
   "warp.nextStop": "Cargando: baliza de {stop}",
@@ -195,13 +223,13 @@ export const HI: Record<StringKey, string> = {
   "map.locked": "बंद",
   "map.stars": "3 में से {stars} तारे",
 
-  "briefing.shipReady": "{shipName} में ईंधन भरा है, उड़ने को तैयार।",
-  "briefing.start": "उड़ान भरो",
+  "briefing.shipReady": "{pilotName}, जब तुम कहो, जहाज़ तैयार कर लेते हैं।",
+  "briefing.start": "जहाज़ तैयार करो",
 
   "preflight.heading": "हाथ गरम करो",
   "preflight.prompt": "जो शब्द दिखें उन्हें लिखो।",
 
-  "flight.hull": "कवच",
+  "flight.hull": "ढाल",
   "flight.wpm": "{wpm} शब्द प्रति मिनट",
 
   // "बीकन" is the word every other Hindi string in this table already uses for
@@ -210,6 +238,8 @@ export const HI: Record<StringKey, string> = {
   "warp.heading": "बीकन भर रहे हैं",
   "warp.prompt": "बीकन भरने के लिए वाक्य लिखो।",
   "warp.beltCleared": "क्षुद्रग्रह पट्टी साफ़ हो गई। बीकन भरने के लिए नीचे का वाक्य लिखो।",
+  "warp.coachIntro":
+    "पट्टी साफ़ हो गई, पायलट। बीकन भरने के लिए वाक्य लिखो। कोई अक्षर चूक जाए तो वाक्य उसे फिर से माँगता है।",
   "warp.nextStop": "भर रहे हैं: {stop} का बीकन",
   "warp.chargedNext": "बीकन भर गया। इसे {stop} पर लगाओ।",
   "warp.chargedLast": "बीकन भर गया। आख़िरी वाला। इसे लगाओ।",

@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { GAME_WIDTH } from "@game/sceneKeys";
-import { SKY_PLATE, SPACE, STEP, TYPE, TYPE_SIZES } from "@game/ui/theme";
+import { LINE_HEIGHT, SKY_PLATE, SPACE, STEP, TYPE, TYPE_SIZES } from "@game/ui/theme";
 import { GUTTER, HINT_CONTRACT, contentRight, contentWidth, headerText } from "@game/ui/grid";
 import { rectsOverlap } from "@game/ui/layout";
 import { hintInk } from "@game/ui/hintLine";
@@ -21,7 +21,6 @@ import {
   LAMP_HALO_MAX,
   LOCK_GAP,
   LOCK_SIZE,
-  MAP_HEADER_PAD_Y,
   NODE_DEPTH,
   NODE_R,
   NODE_RIM,
@@ -53,6 +52,8 @@ import {
   panelBox,
   panelInkLeft,
   panelInkRight,
+  PANEL_PAD_Y,
+  panelBoardY,
   panelStarsY,
   routeX1,
   shadowBox,
@@ -412,7 +413,7 @@ describe("UR-54: the map is on the one grid", () => {
   });
 
   it("the hint is the shared bottom-left line, not a centred caption", () => {
-    // `hintInk()`, NOT `hintOrigin(padX, MAP_HEADER_PAD_Y)`. This screen used to
+    // `hintInk()`, NOT `hintOrigin(padX, the map header's own padY)`. It used to
     // pass the map header's padding to `skyText` and so drew its ink at
     // (118, 1012) while the menu screens drew theirs at (96, 1004) - the map
     // was the closest to right and still nobody's neighbour. `ui/hintLine`
@@ -700,5 +701,109 @@ describe("the focus ring's box", () => {
     // are not the same width, and a declared half-width would give one of them
     // even air and the other a margin.
     expect(src).toContain("cap.text.getBounds()");
+  });
+});
+
+describe("UR-176: the stars sit on the line they belong to", () => {
+  it("centres the star row on the personal-best line, not on the board's foot", () => {
+    // It was `panelBox().h - 62` - measured from the FOOT, so the stars and the
+    // line were two independent numbers. Measured live, 24.6 px apart.
+    const lineMid = panelBoardY() + Math.round(TYPE.body * LINE_HEIGHT.latin) / 2;
+    expect(panelStarsY()).toBeCloseTo(lineMid, 6);
+  });
+
+  it("the scene draws the line where the layout says it does", () => {
+    const src = readFileSync("src/game/scenes/DirectorMapScene.ts", "utf8");
+    expect(src).toMatch(/label\(this, inkLeft, panelBoardY\(\)/);
+    expect(src).not.toMatch(/label\(this, inkLeft, PANEL\.y \+ 146/);
+  });
+});
+
+describe("UR-177: the board is sized to its rows and pinned at the foot", () => {
+  it("leaves the same pad under the last ink as above the first", () => {
+    // It was y700/h250 with the lowest ink 70 px above the foot - dead space
+    // the owner reported. The top pad is the title row's own offset.
+    const box = panelBox();
+    const lastInk = panelBoardY() + Math.round(TYPE.body * LINE_HEIGHT.latin);
+    expect(box.y + box.h - lastInk).toBe(PANEL_PAD_Y);
+    expect(PANEL_PAD_Y).toBe(34);
+  });
+
+  it("keeps the foot exactly where it has always been", () => {
+    // The card shrinks upward: judges are looking at this screen and its
+    // bottom edge is what sits above the hint line.
+    expect(panelBox().y + panelBox().h).toBe(950);
+  });
+
+  it("the star row is still inside the card it hangs in", () => {
+    const box = panelBox();
+    expect(panelStarsY() + PANEL_STAR_R).toBeLessThan(box.y + box.h);
+  });
+});
+
+describe("UR-180: the arrow is the affordance, and the only thing that moves", () => {
+  const src = readFileSync("src/game/scenes/DirectorMapScene.ts", "utf8");
+
+  it("draws the arrow as its own object, right of the words", () => {
+    // The words hold still so they stay readable; a pulsing label on a screen
+    // a child can sit on indefinitely is noise.
+    expect(src).toMatch(/this\.panelArrow = label\(/);
+    expect(src).toMatch(/panelInkRight\(\) - ARROW_GAP/);
+  });
+
+  it("glimmers rather than sliding - light on it, not it moving (UR-180)", () => {
+    // Destiny's interactive elements carry light across them and bulge on
+    // arrival; nothing loops a position. A repeating slide reads as fidgeting.
+    expect(src).toMatch(/alpha: \{ from: 1, to: ARROW_GLIMMER_ALPHA \}/);
+    expect(src).not.toMatch(/ARROW_NUDGE_PX/);
+  });
+
+  it("bulges once when the selection lands", () => {
+    expect(src).toMatch(/scale: \{ from: ACTION_POP_FROM, to: 1 \}/);
+    expect(src).toMatch(/this\.popAction\(\);/);
+  });
+
+  it("holds still under reduced motion (D41 / AC-19.3)", () => {
+    expect(src).toMatch(/if \(!this\.story\.ctx\.reducedMotion\) \{[\s\S]{0,400}this\.tweens\.add\(/);
+    expect(src).toMatch(/if \(this\.story\.ctx\.reducedMotion\) return;/);
+  });
+
+  it("points at nothing when there is nothing to fly to", () => {
+    expect(src).toMatch(/this\.panelArrow\.setVisible\(!locked\)/);
+  });
+});
+
+describe("UR-181: a locked stop answers instead of ignoring the child", () => {
+  const src = readFileSync("src/game/scenes/DirectorMapScene.ts", "utf8");
+
+  it("shakes the action rather than returning in silence", () => {
+    // It was a bare `return` - a child could not tell a locked stop from a
+    // broken key. D31 forbids reading as failure, not answering at all.
+    expect(src).toMatch(/if \(node\.locked\) \{[\s\S]{0,200}this\.shakeAction\(\);/);
+  });
+
+  it("eases out rather than snapping, and never under reduced motion", () => {
+    expect(src).toMatch(/ease: "Elastic\.Out"/);
+    expect(src).toMatch(/shakeAction\(\): void \{\s*\n\s*if \(this\.story\.ctx\.reducedMotion\) return;/);
+  });
+
+  it("draws a lock beside the word, like the chips do", () => {
+    expect(src).toMatch(/paintLockGlyph\(/);
+    expect(src).toMatch(/if \(locked\) \{/);
+  });
+});
+
+describe("UR-181: the board's lock is on the same scales as the chips'", () => {
+  const src = readFileSync("src/game/scenes/DirectorMapScene.ts", "utf8");
+
+  it("sizes one step down from the word, and gaps on the spacing scale", () => {
+    // `mapLayout.LOCK_SIZE` states the rule for the caption chips; this is the
+    // same relationship against a `TYPE.body` word.
+    expect(src).toMatch(/const ACTION_LOCK_SIZE = TYPE\.label;/);
+    expect(src).toMatch(/ACTION_LOCK_SIZE \+ STEP\.hair/);
+  });
+
+  it("centres the mark on the word rather than on a number beside it", () => {
+    expect(src).toMatch(/this\.panelAction\.y \+ this\.panelAction\.height \/ 2/);
   });
 });

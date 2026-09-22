@@ -13,18 +13,25 @@
  * be the very mistake the engine module documents.
  */
 
+export type { CanisterHintInput } from "@engine/hull/index.js";
+export type { RockHintView } from "@engine/hint/index.js";
+export { rockHintFits, rockOnScreen } from "@engine/hint/index.js";
+
 export {
+  CANISTER_SPAWN_CHANCE,
   HULL_BASE_MARKS,
   HULL_PASS_COST,
   HULL_STRIKE_COST,
   HULL_MARK_COUNT,
   HULL_MARK_DIM,
   HULL_BASE_SPAWNS,
+  HULL_SPAWNS_PER_MARK,
   LAMP_GUTTER_FRACTION,
   LAMP_MIN,
   MIN_HULL,
   hullAfterShield,
   hullAfterStrike,
+  hullIsDamaged,
   hullForStage,
   hullLampLevel,
   hullLampStep,
@@ -32,6 +39,7 @@ export {
   hullMarksLit,
   isStalled,
   maySpawnCanister,
+  shouldHintCanister,
   startingHull,
   survivableHitRate,
 } from "@engine/hull/index.js";

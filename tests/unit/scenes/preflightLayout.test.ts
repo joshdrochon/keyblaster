@@ -13,10 +13,11 @@ import {
   headerText,
 } from "@game/ui/grid";
 import type { Rect } from "@game/ui/layout";
-import { SPACE, TYPE } from "@game/ui/theme";
+import { SPACE, STEP, TYPE } from "@game/ui/theme";
 import {
   BACK_CHIP,
   BULKHEAD,
+  HEADER_SPINE,
   HEADING,
   LINE_PAD,
   LINE_PLATE,
@@ -52,6 +53,7 @@ import {
 import * as preflightLayout from "@game/scenes/support/preflightLayout";
 import {
   SHELF as BRIEFING_SHELF,
+  WINDOW as BRIEFING_WINDOW,
   controlStrip as briefingStrip,
 } from "@game/scenes/support/briefingLayout";
 import {
@@ -60,7 +62,7 @@ import {
   controlSurfaceElementCount,
   controlSurfaceLayout,
 } from "@game/ui/controlSurfaceLayout";
-import { VIEWPORT_WINDOW } from "@game/ui/viewportWindowLayout";
+import { VIEWPORT_APERTURE, VIEWPORT_WINDOW } from "@game/ui/viewportWindowLayout";
 import {
   PALETTE_STOP_IDS,
   lightness,
@@ -167,7 +169,8 @@ describe("UR-39: the screen has a header, one column and a way out", () => {
   it("puts its title on the product's header lines", () => {
     // The defect: NOTHING above y=320. The only story screen with no header.
     expect(HEADING.y).toBeLessThan(320);
-    expect(HEADING).toEqual(headerText(0, undefined, 14));
+    // UR-168: on header line 0, but inset the MASTHEAD's pad, not the plate's.
+    expect(HEADING.y).toBe(headerText(0, undefined, 14).y);
     expect(SUBHEADING.y).toBeGreaterThan(HEADING.y);
     expect(HEADING.x).toBe(SUBHEADING.x);
   });
@@ -219,21 +222,49 @@ describe("UR-39: the screen has a header, one column and a way out", () => {
     expect(ROW.x - BULKHEAD.x).toBe(SPACE.rowPadX);
     // ...and by the same amount on the right, or it is not a rack.
     expect(BULKHEAD.x + BULKHEAD.w - (ROW.x + ROW.w)).toBe(SPACE.rowPadX);
-    // ONE INNER LINE FOR THE WHOLE SCREEN. This is the number the owner
-    // measured three times over on the served build.
-    expect(ROW.x).toBe(HEADING.x);
-    expect(ROW.x).toBe(SUBHEADING.x);
+    // THE RACK'S INNER LINE, which is the one the owner measured three times
+    // over on the served build. The MASTHEAD is no longer on it - see the case
+    // below - so this says what it is about rather than "the whole screen".
     expect(ROW.x).toBe(GUTTER + SPACE.rowPadX);
+    expect(HEADING.x).toBe(SUBHEADING.x);
   });
 
-  it("UR-101.1: the whole screen is TWO left edges, not four", () => {
-    // Every plate on the gutter, everything drawn inside a plate on the inner
-    // line. `HINT_CONTRACT.x` is the hint PLATE's edge; the hint's ink sits at
+  it("UR-101.1: every plate is on the gutter", () => {
+    // `HINT_CONTRACT.x` is the hint PLATE's edge; the hint's ink sits at
     // `+ SKY_PLATE.padX`, which is the same 22.
     const plates = [BULKHEAD.x, LINE_PLATE.x, HINT_CONTRACT.x, ROW.x - SPACE.rowPadX];
     expect([...new Set(plates)]).toEqual([GUTTER]);
-    const inner = [ROW.x, HEADING.x, SUBHEADING.x, LINE_PLATE.x + SPACE.rowPadX];
-    expect([...new Set(inner)]).toEqual([GUTTER + SPACE.rowPadX]);
+  });
+
+  /**
+   * UR-168, AND IT IS A DECISION, NOT A DRIFT.
+   *
+   * This screen was ONE inner line at 118 and the owner had measured that three
+   * times over. They then asked for the masthead to match the Briefing's, where
+   * the spine is `STEP.inset` in from the page edge and the text another
+   * `STEP.inset` clear of it - so the masthead's ink is at 168 and the rack's
+   * is still at 118.
+   *
+   * The trade was stated before it was made: one masthead across two screens,
+   * paid for with a second inner line here. What is NOT allowed is a third, so
+   * the case asserts the exact pair rather than a count.
+   */
+  it("UR-168: two inner lines - the rack's and the masthead's - and no more", () => {
+    const rack = [ROW.x, LINE_PLATE.x + SPACE.rowPadX];
+    expect([...new Set(rack)]).toEqual([GUTTER + SPACE.rowPadX]);
+
+    const masthead = [HEADING.x, SUBHEADING.x];
+    expect([...new Set(masthead)]).toEqual([HEADER_SPINE.x + HEADER_SPINE.w + STEP.inset]);
+
+    expect([...new Set([...rack, ...masthead])]).toHaveLength(2);
+  });
+
+  it("UR-168: the masthead's spine and text are the Briefing's own numbers", () => {
+    // Briefing: page.x + STEP.inset for the spine, + STEP.hair wide, + another
+    // STEP.inset to the text. Measured in the served build at x 168.
+    expect(HEADER_SPINE.x).toBe(GUTTER + STEP.inset);
+    expect(HEADER_SPINE.w).toBe(STEP.hair);
+    expect(HEADING.x).toBe(168);
   });
 
   it("UR-101.1: the left column is ONE width, right edge included", () => {
@@ -435,11 +466,49 @@ describe("UR-77.1: the crosshatch, and where it is allowed to differ", () => {
     expect(at).toBeLessThanOrEqual(VIEWPORT_WINDOW.horizontalAt);
   });
 
-  it("NEGATIVE CONTROL: the Briefing's own fraction lands on the plate", () => {
-    const shipped = WINDOW.y + WINDOW.h * VIEWPORT_WINDOW.horizontalAt;
-    const plate = promptPlate(MAX_PROMPT_GLYPHS);
-    expect(shipped).toBeGreaterThan(plate.y);
-    expect(shipped).toBeLessThan(plate.y + plate.h);
+  it("UR-121: the two screens are now the SAME glass, crosshatch included", () => {
+    /**
+     * THIS TEST REPLACED A NEGATIVE CONTROL THAT BECAME FALSE, and the reason
+     * it became false is the fix.
+     *
+     * It used to assert that the Briefing's own horizontal fraction LANDS ON
+     * this screen's prompt plate - which was true, and was the whole
+     * justification for `mullionHorizontalAt` deriving a different fraction
+     * here. The owner then walked Briefing -> Pre-flight, saw the window jump,
+     * and named the Briefing's as the standard.
+     *
+     * The rects were never the same: `{1012, 84, 812, 636, r56}` against
+     * `{900, 170, 924, 600, r48}`. Sharing the aperture made the glass 112 px
+     * narrower, which forced the prompt down to its own 64 px size, and the
+     * plate then sat low enough that the Briefing's strut clears it. So the
+     * exception is gone - not overridden, but no longer earned.
+     *
+     * The derivation in `mullionHorizontalAt` is deliberately KEPT. If the
+     * glass shrinks or the prompt grows, the fraction moves off 0.7 and this
+     * test fails, which is the loud version of the strut quietly crossing the
+     * word a child is reading.
+     */
+    expect(mullionHorizontalAt()).toBe(VIEWPORT_WINDOW.horizontalAt);
+    // And the strut genuinely clears the widest plate, rather than the two
+    // numbers merely being equal.
+    const strutBottom =
+      WINDOW.y + WINDOW.h * VIEWPORT_WINDOW.horizontalAt + VIEWPORT_WINDOW.mullionH;
+    expect(strutBottom).toBeLessThanOrEqual(
+      promptPlate(MAX_PROMPT_GLYPHS).y - MULLION_CLEARANCE,
+    );
+  });
+
+  it("UR-121: the aperture itself is one constant, not two that match today", () => {
+    // The module note on `ui/viewportWindowLayout` says it in advance: "two
+    // drawings that happen to match today are not one component". UR-77 shared
+    // the STYLING and left each screen its own rectangle; this is the rest.
+    expect(windowRect()).toEqual({
+      x: VIEWPORT_APERTURE.x,
+      y: VIEWPORT_APERTURE.y,
+      w: VIEWPORT_APERTURE.w,
+      h: VIEWPORT_APERTURE.h,
+    });
+    expect(BRIEFING_WINDOW).toBe(VIEWPORT_APERTURE);
   });
 });
 
@@ -758,5 +827,20 @@ describe("UR-101.4: the typed word sounds like the belt", () => {
     const calls = SRC_NO_COMMENTS.match(/audio[?.]*\.(routeFlightCue|resetTone)/g) ?? [];
     expect(calls.length).toBeGreaterThanOrEqual(3);
     for (const call of calls) expect(call.startsWith("audio?.")).toBe(true);
+  });
+});
+
+describe("UR-178: the rack is one instrument at every stop", () => {
+  const src = readFileSync("src/game/scenes/PreflightScene.ts", "utf8");
+
+  it("fills the bar in the lamp's colour, not the stop's", () => {
+    // In `pal.accent` it read gold at Jupiter and blue at Neptune, beside a
+    // lamp that is blue at every stop.
+    expect(src).toMatch(/row\.state === "lit" \? INK\.lit : INK\.accentSoft/);
+  });
+
+  it("the bar and the lamp change on the same state", () => {
+    // Both read `row.state`, so they cannot disagree about which step is done.
+    expect(src).toMatch(/row\.state === "lit" \? INK\.lit : row\.state === "active"/);
   });
 });

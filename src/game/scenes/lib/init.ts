@@ -55,10 +55,16 @@ export interface ResolvedInit {
   readonly calibration: Calibration;
   readonly stopId: StopId;
   readonly text: SceneText;
+  /** The name the child typed at profile creation, or "" (C27). */
+  readonly pilotName: string;
 }
 
 /** Defaults that let any scene boot standalone (e2e, storybook-style harness). */
-export function resolveInit(data: StoryInit | undefined, fallbackStop: StopId): ResolvedInit {
+export function resolveInit(
+  data: StoryInit | undefined,
+  fallbackStop: StopId,
+  scene?: Phaser.Scene,
+): ResolvedInit {
   const ctx: SceneContext = data?.ctx ?? { ...DEFAULT_SCENE_CONTEXT };
   // profile.shipNameDefault is the engine's own default; a caller that has a
   // profile passes the child's chosen name instead (C07).
@@ -66,7 +72,20 @@ export function resolveInit(data: StoryInit | undefined, fallbackStop: StopId): 
   // SceneContext (sceneKeys.ts, which this lane may not edit) carries no
   // language, so the caller passes it; Settings owns the value.
   const lang: Lang = data?.lang ?? "en";
+  /**
+   * READ FROM THE STORE, NOT THREADED THROUGH THE PAYLOAD (C27).
+   *
+   * `shipName` above is threaded, and the note on `storedProgress` below says
+   * what that costs: an array handed Flight -> Warp -> Beacon -> Results -> Map
+   * is five chances to pass on the one a scene was GIVEN rather than the one
+   * that is true, and that is exactly how a cleared Mars once failed to open
+   * Jupiter. The pilot's name is not added to that chain. It is asked of the
+   * store, which is the thing that knows, and a scene that has no store (the
+   * e2e harness opening a screen cold) gets "".
+   */
+  const pilotName = scene === undefined ? "" : (storeOf(scene)?.activeProfile()?.name ?? "");
   return {
+    pilotName,
     ctx,
     progress: data?.progress ?? [],
     shipName,
@@ -74,7 +93,7 @@ export function resolveInit(data: StoryInit | undefined, fallbackStop: StopId): 
     newProfile: data?.newProfile ?? false,
     calibration: data?.calibration ?? DEFAULT_CALIBRATION,
     stopId: data?.stopId ?? (ctx.stopId as StopId | null) ?? fallbackStop,
-    text: createSceneText({ lang, shipName }),
+    text: createSceneText({ lang, shipName, pilotName }),
   };
 }
 
@@ -550,6 +569,11 @@ export function goTo(
   // Before the new place is built, not after: a stale scene that is still
   // holding the keyboard must not get another frame of it.
   stopStaleScenes(scene, key);
-  scene.scene.start(key, data);
+  // UR-182: `data ?? {}`, never `undefined`. Phaser only overwrites
+  // `settings.data` when the value is truthy, so starting a scene with no
+  // payload leaves the one from its LAST start in place - the Director map
+  // drew a new pilot's route while standing in another profile, because the
+  // picker starts it with nothing to say.
+  scene.scene.start(key, data ?? {});
   return true;
 }

@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { hexToNum } from "@game/render/palette";
-import { Control, type ControlStyle } from "./controls.js";
+import { Control, type Box, type ControlStyle } from "./controls.js";
+import { drawSettingIcon, type SettingIconId } from "./settingIcons.js";
 import type { Rect } from "./layout.js";
 import type { MirrorItem } from "./mirror.js";
 import {
@@ -300,8 +301,14 @@ export { drawConsoleFace };
  * an engraved label down the left, and its hardware in a column down the right
  * so the eye reads one instrument stack rather than nine unrelated widgets.
  */
+/** The box a row's leading mark is drawn in (UR-138). */
+const ICON_BOX = 24;
+
 abstract class PanelControl extends Control {
   protected readonly title: Phaser.GameObjects.Text;
+  /** The row's engraved mark, and the pen that draws it (UR-138). */
+  protected readonly icon: SettingIconId | null;
+  private readonly iconG: Phaser.GameObjects.Graphics;
 
   protected constructor(
     scene: Phaser.Scene,
@@ -312,11 +319,25 @@ abstract class PanelControl extends Control {
     depth: number,
     label: string,
     width: number,
+    icon?: SettingIconId,
   ) {
     super(scene, style, id, x, y, depth);
     this.adjustable = true;
     this.boxW = width;
-    this.title = uiText(scene, SPACE.rowPadX, 0, label, {
+    /**
+     * THE LEADING MARK (UR-138). Every row on this console carries one, so it
+     * is built HERE rather than in each subclass - nine constructors is nine
+     * chances to forget, and the census already knows what that costs.
+     *
+     * The label is indented past it by the icon's box plus one `SPACE.gap`, so
+     * the text column is still ONE left edge for every row whether or not a
+     * particular row ever loses its mark.
+     */
+    this.icon = icon ?? null;
+    this.iconG = scene.add.graphics();
+    this.container.add(this.iconG);
+    const textX = this.icon === null ? SPACE.rowPadX : SPACE.rowPadX + ICON_BOX + SPACE.gap;
+    this.title = uiText(scene, textX, 0, label, {
       size: TYPE.label,
       lang: style.lang,
       uppercase: style.uppercase,
@@ -337,6 +358,23 @@ abstract class PanelControl extends Control {
    * wrap width is the request; `width` is what was actually drawn, so the only
    * honest fit is to re-wrap until the drawn width is inside the span.
    */
+  /**
+   * Repaint the mark. Called from every subclass's `redraw`, in the row's own
+   * ink: dim at rest and the accent when focused, exactly like the chevrons.
+   */
+  protected paintIcon(): void {
+    this.iconG.clear();
+    if (this.icon === null) return;
+    drawSettingIcon(
+      this.iconG,
+      this.icon,
+      SPACE.rowPadX + ICON_BOX / 2,
+      this.boxH / 2,
+      ICON_BOX,
+      this.focused ? this.style.accent : INK.textDim,
+    );
+  }
+
   protected fitLabel(hardwareLeft: number): void {
     const span = labelSpan(hardwareLeft, SPACE.rowPadX, SPACE.gap);
     let wrap = span;
@@ -352,6 +390,39 @@ abstract class PanelControl extends Control {
    * THE TOP EDGE and LIT ALONG THE BOTTOM, which is what tells the eye it is
    * set into the face under a light from above - the exact inverse of the
    * shadow every knob, key and switch guard casts downward.
+   *
+   * ========= THE MODULE'S BORDER IS NEVER THE ACCENT (UR-112, reaching here) =
+   *
+   * ================== WHAT WAS REPORTED ==================
+   * The project owner, on Ship Controls: the double gold outline is back. It is
+   * the same defect UR-112 fixed for `ui/controls.Control.paintPlate` and the
+   * same two lines - a focused module stroked its own plate in
+   * `this.style.accent` at 3 px, while `chrome.FocusRing` strokes `INK.accent`
+   * at `SPACE.focusRingWidth` (4) px, `SPACE.focusRingOffset` (6) px outside
+   * the same box. On a screen whose accent IS the chrome accent, that is two
+   * identical gold outlines with a strip of panel between them.
+   *
+   * ================== WHY THE FIRST FIX DID NOT REACH IT, CHECKED ==========
+   * Not assumed - measured. UR-112 edited exactly one method, `controls.ts`'s
+   * `paintPlate`, because that is the base every MENU control draws through.
+   * Settings is the one screen in the build on the OTHER kit: every row here is
+   * a `PanelControl`, which extends `Control` but overrides the painting
+   * entirely and never calls `paintPlate` at all. So the fix was correct, was
+   * complete for the eight screens it covered, and could not have touched the
+   * ninth. `tests/unit/ui/focusRingSingle.test.ts` now drives BOTH kits, which
+   * is what stops a third kit inheriting the same gap silently.
+   *
+   * ================== WHAT REPLACES IT ==================
+   * `PANEL.lip`, which is the engraved line every other seam on this console is
+   * drawn in and the line an unfocused module already wore. The width still
+   * steps 2 -> 3 on focus and the alpha still lifts, so the module's edge still
+   * gets firmer when you land on it - it is invisible as a second OUTLINE
+   * because it is not a second COLOUR.
+   *
+   * Focus on this panel is still carried by four things and not one: the ring,
+   * the plate dropping to `PANEL.bay`, the held swell, and the hardware inside
+   * the module lighting in the accent. The accent belongs to the ring and to
+   * the instruments; it does not belong to the box.
    */
   protected paintBay(): void {
     this.g.clear();
@@ -372,11 +443,7 @@ abstract class PanelControl extends Control {
     this.g.lineBetween(r, 1, this.boxW - r, 1);
     this.g.lineStyle(2, hexToNum(PANEL.lip), 0.7);
     this.g.lineBetween(r, this.boxH - 1, this.boxW - r, this.boxH - 1);
-    this.g.lineStyle(
-      this.focused ? 3 : 2,
-      hexToNum(this.focused ? this.style.accent : PANEL.lip),
-      this.focused ? 1 : 0.55,
-    );
+    this.g.lineStyle(this.focused ? 3 : 2, hexToNum(PANEL.lip), this.focused ? 1 : 0.55);
     this.g.strokeRoundedRect(0, 0, this.boxW, this.boxH, r);
     this.title.setColor(labelInk(this.focused));
   }
@@ -414,6 +481,8 @@ abstract class PanelControl extends Control {
 export interface KnobOptions {
   readonly label: string;
   readonly width: number;
+  /** The row's engraved mark (UR-138). */
+  readonly icon?: SettingIconId;
   readonly value: number;
   readonly step?: number;
   readonly onChange: (value: number) => void;
@@ -456,6 +525,7 @@ export class KnobRow extends PanelControl {
       depth,
       options.label,
       options.width,
+      options.icon,
     );
     this.value = clamp01(options.value);
     this.step = options.step ?? KNOB.step;
@@ -508,8 +578,19 @@ export class KnobRow extends PanelControl {
     this.set(stepValue(this.value, delta, this.step));
   }
 
+  /** UR-133: a knob has a position, so its click is pitched from it. */
+  detentLevel(): number | null {
+    return this.value;
+  }
+
+  /** UR-131: the knob is the control, so the split is the knob's centre. */
+  protected override adjustPivotX(box: Box): number {
+    return box.x + this.knobCx;
+  }
+
   protected redraw(): void {
     this.paintBay();
+    this.paintIcon();
     drawGlass(
       this.g,
       this.glassX,
@@ -543,6 +624,8 @@ export class KnobRow extends PanelControl {
 export interface SwitchOptions {
   readonly label: string;
   readonly width: number;
+  /** The row's engraved mark (UR-138). */
+  readonly icon?: SettingIconId;
   readonly value: boolean;
   readonly onLabel: string;
   readonly offLabel: string;
@@ -578,6 +661,7 @@ export class SwitchRow extends PanelControl {
       depth,
       options.label,
       options.width,
+      options.icon,
     );
     this.twoState = true;
     this.value = options.value;
@@ -642,6 +726,7 @@ export class SwitchRow extends PanelControl {
 
   protected redraw(): void {
     this.paintBay();
+    this.paintIcon();
     drawGlass(
       this.g,
       this.glassX,
@@ -677,14 +762,56 @@ export interface SelectorChoice<T extends string> {
   readonly label: string;
 }
 
+/**
+ * A MARK IN THE HARDWARE COLUMN, LEFT OF THE READOUT (UR-123, UR-124).
+ *
+ * ================== WHY THE SELECTOR GREW ONE AND `HullRow` DID NOT MOVE =====
+ * Two of this screen's controls pick a THING rather than a setting - the dash
+ * colour and the pilot's avatar - and for both, the word behind the glass is
+ * the weaker half of the answer. "violet" and "wave" are names for something
+ * the child should be able to SEE on the row they are turning.
+ *
+ * `HullRow` already draws a mark this way and is the obvious place to copy
+ * from, which is the reason not to: it carries a per-choice `detail` line, a
+ * browse-then-Enter interaction and a locked state, none of which a colour or
+ * an avatar has. Copying it would have shipped a third and fourth row class
+ * that are each a `SelectorRow` with a picture. So the SELECTOR gained the bay,
+ * one implementation, and the two new rows are both plain selectors that hand
+ * it a pen (standards rule 3).
+ *
+ * The mark is NEVER the only carrier. The name stays behind glass in the
+ * accent at 4.5:1 and the detent lamps still say how many positions there are,
+ * so the row survives the colourblind palette and a greyscale print - which is
+ * the same three-encodings rule the illuminated toggle is built under (D41).
+ */
+export interface SelectorGlyph<T extends string> {
+  /** Drawn size in px. The row grows to clear it if the hardware does not. */
+  readonly size: number;
+  /**
+   * Draws the mark centred on (x, y) and returns it, the way
+   * `chrome.drawAvatar` and `chrome.drawShip` already do. Called on every
+   * value change, so it must be cheap and must not cache.
+   */
+  readonly draw: (
+    scene: Phaser.Scene,
+    x: number,
+    y: number,
+    value: T,
+  ) => Phaser.GameObjects.Container;
+}
+
 export interface SelectorOptions<T extends string> {
   readonly label: string;
   readonly width: number;
+  /** The row's engraved mark (UR-138). */
+  readonly icon?: SettingIconId;
   readonly value: T;
   readonly choices: readonly SelectorChoice<T>[];
   readonly onChange: (value: T) => void;
   /** One calm line under the row, e.g. why a language is not offered. */
   readonly note?: string;
+  /** An optional mark for the value, drawn between the label and the readout. */
+  readonly glyph?: SelectorGlyph<T>;
 }
 
 /**
@@ -702,6 +829,12 @@ export class SelectorRow<T extends string> extends PanelControl {
   private readonly onChange: (value: T) => void;
   private readonly glassX: number;
   private readonly glassW: number;
+  private readonly glyphSpec: SelectorGlyph<T> | null;
+  private readonly glyphX: number;
+  private glyphY = 0;
+  /** The value the live glyph was drawn for, so focus alone never rebuilds it. */
+  private glyphValue: T | undefined | symbol = UNDRAWN;
+  private glyph: Phaser.GameObjects.Container | null = null;
   private headH = 0;
 
   constructor(
@@ -722,9 +855,11 @@ export class SelectorRow<T extends string> extends PanelControl {
       depth,
       options.label,
       options.width,
+      options.icon,
     );
     this.choices = options.choices;
     this.onChange = options.onChange;
+    this.glyphSpec = options.glyph ?? null;
     this.index = Math.max(
       0,
       options.choices.findIndex((c) => c.value === options.value),
@@ -736,8 +871,24 @@ export class SelectorRow<T extends string> extends PanelControl {
     );
     // A chevron's reach plus its breathing room, each side of the window.
     this.glassX = this.boxW - SPACE.rowPadX - 26 - this.glassW;
-    // The LEFT chevron is the leftmost hardware on this row, not the window.
-    this.fitLabel(this.glassX - 26);
+    // The mark sits between the label and the readout, in the hardware column -
+    // the same place and the same arithmetic `HullRow` puts its ship.
+    const half = this.glyphSpec === null ? 0 : this.glyphSpec.size / 2;
+    /**
+     * UR-136: the mark sat 26 px left of the glass, and the LEFT CHEVRON is
+     * drawn at `glassX - 10` - so there were 16 px between the icon's edge and
+     * the chevron's tip, and it read as crowding the control it belongs to.
+     * `GLYPH_GAP` is measured from the chevron rather than the glass, so the
+     * two cannot drift apart if the chevron ever moves.
+     */
+    this.glyphX = Math.round(this.glassX - CHEVRON_INSET - GLYPH_GAP - half);
+    // The LEFT CHEVRON is the leftmost hardware on this row when there is no
+    // mark; the MARK is, when there is one. Measured either way rather than
+    // assumed, because a label that reaches the hardware is what `fitLabel`'s
+    // own header is about.
+    this.fitLabel(
+      this.glyphSpec === null ? this.glassX - CHEVRON_INSET : this.glyphX - half - SPACE.gap,
+    );
 
     this.readout = uiText(scene, 0, 0, this.currentLabel(), {
       size: TYPE.label,
@@ -764,8 +915,13 @@ export class SelectorRow<T extends string> extends PanelControl {
     this.headH = Math.max(
       rowHeight(TYPE.label, style.lang),
       HARDWARE_SPAN.selector,
+      // A mark taller than the selector's own hardware grows the row rather
+      // than being clipped by it. `SPACE.rowPadY` on each side, the same air
+      // every other module gives its hardware.
+      this.glyphSpec === null ? 0 : this.glyphSpec.size + SPACE.rowPadY * 2,
       this.title.height + SPACE.rowPadY * 2,
     );
+    this.glyphY = Math.round(this.headH / 2);
     this.boxH = this.headH + (this.note ? this.note.height + 10 : 0);
     this.title.setY(Math.round((this.headH - this.title.height) / 2));
     this.note?.setY(this.headH - 4);
@@ -794,6 +950,11 @@ export class SelectorRow<T extends string> extends PanelControl {
     return this.choices[this.index]?.value;
   }
 
+  /** UR-131: the chevrons flank the glass, so the split is the glass's centre. */
+  protected override adjustPivotX(box: Box): number {
+    return box.x + this.glassX + this.glassW / 2;
+  }
+
   override adjust(delta: number): void {
     if (this.choices.length === 0) return;
     const n = this.choices.length;
@@ -811,12 +972,13 @@ export class SelectorRow<T extends string> extends PanelControl {
 
   protected redraw(): void {
     this.paintBay();
+    this.paintIcon();
     const gy = this.glassY;
     drawGlass(this.g, this.glassX, gy, this.glassW, HW.glassH);
     const mid = gy + HW.glassH / 2;
     const chevron = this.focused ? this.style.accent : INK.textDim;
-    drawChevron(this.g, this.glassX - 10, mid, -1, chevron);
-    drawChevron(this.g, this.glassX + this.glassW + 10, mid, 1, chevron);
+    drawChevron(this.g, this.glassX - CHEVRON_INSET, mid, -1, chevron);
+    drawChevron(this.g, this.glassX + this.glassW + CHEVRON_INSET, mid, 1, chevron);
     drawPositionLamps(
       this.g,
       this.glassX,
@@ -827,6 +989,29 @@ export class SelectorRow<T extends string> extends PanelControl {
       this.style.accent,
       this.focused,
     );
+    /**
+     * THE MARK IS REDRAWN WHEN THE VALUE CHANGES, AND ONLY THEN (UR-136).
+     *
+     * It is still redrawn rather than re-tinted - a colour swatch and an avatar
+     * are two different drawings per value, not one drawing recoloured, the
+     * same reason `HullRow` calls `drawShip` again.
+     *
+     * What changed is WHEN. This ran on every `redraw()`, and `redraw()` runs
+     * on every focus change, so merely selecting a row destroyed the icon and
+     * built a new one - the owner reported it as a weird flicker on select, on
+     * every row that has a mark. Focus changes the chevrons, the lamps and the
+     * bay; it does not change which avatar you picked.
+     */
+    const value = this.value;
+    if (value !== this.glyphValue) {
+      this.glyph?.destroy();
+      this.glyph = null;
+      this.glyphValue = value;
+      if (this.glyphSpec !== null && value !== undefined) {
+        this.glyph = this.glyphSpec.draw(this.scene, this.glyphX, this.glyphY, value);
+        this.container.add(this.glyph);
+      }
+    }
     this.container.bringToTop(this.readout);
   }
 
@@ -843,6 +1028,15 @@ export class SelectorRow<T extends string> extends PanelControl {
     return this.note ? { ...base, detail: this.note.text } : base;
   }
 }
+
+/** Distance from the glass to a chevron's tip. `drawChevron` uses it directly. */
+const CHEVRON_INSET = 10;
+
+/** Air between a row's mark and the chevron beside it (UR-136). */
+const GLYPH_GAP = 26;
+
+/** "no glyph has been drawn yet", distinct from a real `undefined` value. */
+const UNDRAWN = Symbol("undrawn");
 
 // -- panel key --------------------------------------------------------------
 
@@ -904,7 +1098,7 @@ export class PanelButton extends Control {
   protected redraw(): void {
     this.g.clear();
     const r = SPACE.radius;
-    drawKey(this.g, this.boxW, this.boxH, r, this.focused, this.style.accent);
+    drawKey(this.g, this.boxW, this.boxH, r, this.focused);
     // Always the full-strength ink: focus is carried by the ring, the lit bevel
     // and the raised cap, never by dimming the only word on the key.
     this.text.setColor(INK.text);
@@ -915,14 +1109,23 @@ export class PanelButton extends Control {
   }
 }
 
-/** The key's material, kept out of the class so it reads as one shape. */
+/**
+ * The key's material, kept out of the class so it reads as one shape.
+ *
+ * ITS EDGE IS NEVER THE ACCENT, for the reason `PanelControl.paintBay` is not:
+ * the key's box is its `ringBounds`, and `chrome.FocusRing` strokes `INK.accent`
+ * six px outside exactly that box. A focused key stroked in the stop accent was
+ * the second of the two concentric gold lines the owner reported (UR-112), on
+ * the one control on this panel that is a button rather than an instrument.
+ * `PANEL.knobLit` is the metal it already wore unfocused; the width still steps
+ * 2 -> 3 and the alpha still lifts.
+ */
 function drawKey(
   g: Phaser.GameObjects.Graphics,
   w: number,
   h: number,
   r: number,
   focused: boolean,
-  accent: string,
 ): void {
   g.fillStyle(hexToNum(PANEL.shadow), SHADOW_ALPHA);
   g.fillRoundedRect(1, 5, w, h, r);
@@ -930,11 +1133,7 @@ function drawKey(
   g.fillRoundedRect(0, 0, w, h, r);
   g.fillStyle(hexToNum(focused ? PANEL.faceShade : PANEL.bay), 1);
   g.fillRoundedRect(0, 0, w, h - 5, r);
-  g.lineStyle(
-    focused ? 3 : 2,
-    hexToNum(focused ? accent : PANEL.knobLit),
-    focused ? 1 : 0.45,
-  );
+  g.lineStyle(focused ? 3 : 2, hexToNum(PANEL.knobLit), focused ? 1 : 0.45);
   g.strokeRoundedRect(0, 0, w, h - 5, r);
 }
 
@@ -982,6 +1181,8 @@ export interface HullChoice {
 export interface HullRowOptions {
   readonly label: string;
   readonly width: number;
+  /** The row's engraved mark (UR-138). */
+  readonly icon?: SettingIconId;
   /** The id currently WORN. The cursor opens here. */
   readonly value: string;
   readonly choices: readonly HullChoice[];
@@ -1058,7 +1259,7 @@ export class HullRow extends PanelControl {
     depth: number,
     options: HullRowOptions,
   ) {
-    super(scene, style, id, x, y, depth, options.label, options.width);
+    super(scene, style, id, x, y, depth, options.label, options.width, options.icon);
     this.choices = options.choices;
     this.onEquip = options.onEquip;
     this.equipped = options.value;
@@ -1188,13 +1389,14 @@ export class HullRow extends PanelControl {
 
   protected redraw(): void {
     this.paintBay();
+    this.paintIcon();
     const choice = this.current();
     const gy = this.glassY;
     drawGlass(this.g, this.glassX, gy, this.glassW, HW.glassH);
     const mid = gy + HW.glassH / 2;
     const chevron = this.focused ? this.style.accent : INK.textDim;
-    drawChevron(this.g, this.glassX - 10, mid, -1, chevron);
-    drawChevron(this.g, this.glassX + this.glassW + 10, mid, 1, chevron);
+    drawChevron(this.g, this.glassX - CHEVRON_INSET, mid, -1, chevron);
+    drawChevron(this.g, this.glassX + this.glassW + CHEVRON_INSET, mid, 1, chevron);
     drawPositionLamps(
       this.g,
       this.glassX,

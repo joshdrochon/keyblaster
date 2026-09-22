@@ -118,9 +118,21 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
   private launching = false;
   /** The blocks the reveal walks through, in the order it walks them (UR-59). */
   private typed: TypedBlock[] = [];
+  /**
+   * The pilot's name, drawn in the accent over the first word of the closing
+   * line, and the index of the block it sits on inside `typed` (UR-126).
+   *
+   * BOTH, because the overlay has to REVEAL WITH ITS LINE. Drawn once and left
+   * alone, it is a coloured word sitting on the page before the sentence under
+   * it has typed a character - which is exactly what the owner saw.
+   */
+  private nameOverlay: Phaser.GameObjects.Text | null = null;
+  private nameOverlayText = "";
+  private nameOverlayBlock = -1;
   private revealFrom = 0;
   private revealChars = 0;
   private revealed = 0;
+  private shipReadySaid = false;
   private revealing = false;
   private completeReveal: (() => void) | null = null;
 
@@ -129,13 +141,17 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
   }
 
   init(data: StoryInit): void {
-    this.story = resolveInit(data, "mars");
+    this.story = resolveInit(data, "mars", this);
     this.launching = false;
     // A restart reuses the instance, and a reveal left "in progress" from the
     // last stop would report a page that is already on screen as still typing.
     this.typed = [];
+    this.nameOverlay = null;
+    this.nameOverlayText = "";
+    this.nameOverlayBlock = -1;
     this.revealChars = 0;
     this.revealed = 0;
+    this.shipReadySaid = false;
     this.revealing = false;
   }
 
@@ -155,6 +171,10 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
       width: GAME_WIDTH,
       height: GAME_HEIGHT,
       decorate: ["sky", "celestial", "farField", "midField", "nearField"],
+      // UR-120: this stack is MASKED to the cockpit glass, so the light has to
+      // be placed inside the aperture rather than at its full-frame position -
+      // which for Earth through Saturn is behind the briefing card.
+      lightBand: { x: WINDOW.x, w: WINDOW.w },
       // A VIEW OF A MOVING BELT, NOT A PHOTOGRAPH (UR-50.4). The window used to
       // take the default `worldSpeed` of 0, so nothing fell through it: the only
       // motion in the glass was the decorative planes marching SIDEWAYS, which
@@ -210,12 +230,14 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     // out small and quiet on the left gutter. `briefingLayout` owns both boxes
     // and the measurement that sizes them.
     const btn = launchButton();
+    // The accent is the focus language; a control does not paint itself in it,
+    // or the plate's own border and the focus ring are two identical gold lines.
     plate(this, btn.x, btn.y, btn.w, btn.h, {
       fill: INK.panelRaised,
-      stroke: INK.accent,
+      stroke: INK.line,
     }).setDepth(21);
     label(this, btn.x + btn.w / 2, btn.y + btn.h / 2, text.text("briefing.start"), {
-      size: TYPE.heading,
+      size: TYPE.label,
       color: INK.text,
       align: "center",
       lang,
@@ -288,7 +310,7 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
         activate: () => this.launch(),
       },
     ];
-    const ring = createFocusRing(this, 30);
+    const ring = createFocusRing(this, 30, this.story.ctx.reducedMotion);
     this.menu = createKeyboardMenu(this, ring, targets, {
       onBack: () => this.goBack(),
     });
@@ -435,7 +457,19 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
       ),
       // THE FOOTER IS THE LAST BLOCK IN THE FLOW, not a pinned y. That single
       // change is what makes UR-20 impossible rather than fixed.
-      build("shipReady", text.text("briefing.shipReady"), TYPE.caption, INK.textDim, 0),
+      /**
+       * PART OF THE PARAGRAPH, NOT A FOOTNOTE UNDER IT (UR-126).
+       *
+       * This was `TYPE.caption` in `INK.textDim` with a zero gap - a smaller,
+       * greyer line hanging off the bottom of the card, reading as chrome
+       * rather than as something Shadow says. The owner asked for it to sit in
+       * the same text as the prose above it, so it takes the same size, the
+       * same ink and the same `STEP.tight` gap every other sentence has.
+       *
+       * The PILOT'S NAME still has to stand out inside it - see `nameOverlay`
+       * below, which is drawn after the flow has placed this row.
+       */
+      build("shipReady", text.text("briefing.shipReady"), TYPE.body, INK.text, STEP.tight),
     ];
 
     const laid = briefingLayout(blocks.map((b) => b.row));
@@ -443,6 +477,45 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     for (const [i, block] of blocks.entries()) {
       const at = laid.rows[i];
       if (at !== undefined) block.obj.setPosition(at.x, at.y);
+    }
+
+    /**
+     * THE PILOT'S NAME, IN THE STOP'S ACCENT, INSIDE A PLAIN TEXT OBJECT.
+     *
+     * Phaser's `Text` carries ONE colour, and this game has no rich-text
+     * renderer - so the usual ways to colour part of a line are to split it
+     * into two objects and lay them out by hand, which breaks the moment the
+     * line wraps, or to add a markup dependency for one word.
+     *
+     * Neither is needed. The name is always the FIRST thing in the line
+     * (`"{pilotName}, ready to..."`), so a second Text containing only the
+     * name, in the same font at the same size and position, lands its glyphs
+     * exactly over the ones already drawn. The accent copy covers the body
+     * copy, the rest of the sentence shows through, and wrapping is still the
+     * one original object's problem.
+     *
+     * Skipped when there is no name - `resolveInit` binds "" for a session
+     * with no profile (C27), and an empty overlay would be a no-op anyway.
+     */
+    const pilotName = this.story.pilotName;
+    const shipReadyIndex = blocks.findIndex((b) => b.row.id === "shipReady");
+    const shipReadyAt = laid.rows[shipReadyIndex];
+    if (pilotName.length > 0 && shipReadyAt !== undefined) {
+      this.nameOverlay = label(this, shipReadyAt.x, shipReadyAt.y, pilotName, {
+        size: TYPE.body,
+        color: accent,
+        lang,
+      }).setDepth(19);
+      this.nameOverlayText = pilotName;
+      // The index within the TYPED run, which is the blocks the reveal walks -
+      // the header is filtered out of it, so this is not `shipReadyIndex`.
+      this.nameOverlayBlock = blocks
+        .filter((b) => b.row.group !== "header")
+        .findIndex((b) => b.row.id === "shipReady");
+      // Starts empty: under the typewriter the line has not been typed yet.
+      // Reduced motion never arms the reveal, so the name stays whole there,
+      // which is the same "the page is simply there" `armTypewriter` gives.
+      if (!this.story.ctx.reducedMotion) this.nameOverlay.setText("");
     }
 
     // THE PAGE, ON THE SHARED PLATE (UR-69, standards rule 1).
@@ -600,6 +673,13 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     for (const [i, block] of this.typed.entries()) {
       block.obj.setText(block.wrapped.slice(0, counts[i] ?? 0));
     }
+    // THE ACCENT NAME TYPES WITH ITS OWN LINE. The name is the first thing in
+    // that line, so the count of characters revealed on the block is also the
+    // count revealed of the name - it just stops growing once it runs out.
+    if (this.nameOverlay !== null && this.nameOverlayBlock >= 0) {
+      const shown = counts[this.nameOverlayBlock] ?? 0;
+      this.nameOverlay.setText(this.nameOverlayText.slice(0, shown));
+    }
   }
 
   /** Put the whole page on screen, exactly as it would have been drawn. */
@@ -620,6 +700,9 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     if (event?.repeat === true) return;
     this.revealing = false;
     this.revealed = this.revealChars;
+    // Skipping the reveal restores the page exactly as it would have drawn,
+    // and the name is part of that page.
+    this.nameOverlay?.setText(this.nameOverlayText);
     for (const block of this.typed) {
       block.obj.setText(block.full);
       block.obj.setWordWrapWidth(block.wrapWidth, true);
@@ -630,7 +713,21 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     // so the AC-21.4 duck closes and the music comes back up. An impatient
     // player gets the page AND the mix back on the same keystroke.
     audioFrom(this.registry)?.endTransmission();
+    // UR-169: Shadow says the closing line once the page has finished typing
+    // itself out, whether it ran out or the player cut it short.
+    this.sayShipReady();
   };
+
+  /** Once per visit, and never while the page is still revealing. */
+  private sayShipReady(): void {
+    if (this.shipReadySaid) return;
+    this.shipReadySaid = true;
+    audioFrom(this.registry)?.speak({
+      id: "briefing.shipReadySpoken",
+      text: this.story.text.text("briefing.shipReadySpoken"),
+      kind: "scripted",
+    });
+  }
 
   /**
    * Briefing -> Pre-flight is one of the four transitions D62 asks to be

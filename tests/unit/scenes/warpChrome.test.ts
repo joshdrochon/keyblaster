@@ -67,27 +67,64 @@ describe("the focus ring leaves on the same beat as the card it is around", () =
    *   on the panel's own duration, so it is one beat and not two
    *     expected null to be truthy
    */
-  it("fades the ring with the panel, not with the scene", () => {
+  /**
+   * ============ THE FADE MOVED ONTO THE RING, AND HAD TO ============
+   *
+   * These two cases asserted a `this.tweens.add({ targets: this.ring.graphics,
+   * alpha: 0, ... })` written in `clearAndLaunch`. That tween was there, this
+   * file was green, and the ring was STILL on screen: `createFocusRing`
+   * breathes it with a `repeat: -1` tween on the same `alpha`, so the scene's
+   * fade was a second tween on one property and the breath kept winning.
+   * Measured in the served build, sampled every animation frame from the last
+   * keystroke - panel 0.000 against ring 1.000 at Pluto, 0.856 at Mars, 0.865
+   * at Neptune.
+   *
+   * SO THE CLAIM IS UNCHANGED AND THE SPELLING IS NOT. It is still "the ring
+   * leaves with the card, on the panel's own duration and ease"; what changed
+   * is that the operation belongs to the component, because the pulse's handle
+   * is the component's closure and no caller can reach it. A source guard can
+   * only ever say the call is there - `warp-chrome.spec.ts` is what asserts the
+   * ring's real alpha after the exit, and that is the case this defect needed.
+   */
+  it("hands the ring's exit to the ring, on the panel's own beat", () => {
     const s = source();
+    const call = /this\.ring\.fadeOut\((\w+),\s*(EASE\.\w+)\)/.exec(s);
     expect(
-      /targets:\s*this\.ring\.graphics,\s*alpha:\s*0,/.test(s),
+      call,
       "the focus ring is not faded by the exit; it stays painted at full alpha " +
         "over an empty frame until the scene is torn down",
-    ).toBe(true);
+    ).toBeTruthy();
+    // And NOT with a tween the scene rolls itself, which is what was wrong.
+    expect(
+      /targets:\s*this\.ring\.graphics/.test(s),
+      "the scene is fading the ring behind the component's back again; the " +
+        "breath is a repeat:-1 tween on the same alpha and it will win",
+    ).toBe(false);
+    // One beat, not two that happen to overlap. Read off the source rather
+    // than restated, so changing `PANEL_CLEAR_MS` moves both or fails here.
+    const panel = /targets:\s*this\.panelRoot,\s*alpha:\s*0,[\s\S]{0,200}?duration:\s*(\w+),\s*ease:\s*(EASE\.\w+)/.exec(s);
+    expect(panel).toBeTruthy();
+    expect(call?.[1]).toBe("PANEL_CLEAR_MS");
+    expect(call?.[1]).toBe(panel?.[1]);
+    expect(call?.[2]).toBe(panel?.[2]);
   });
 
-  it("on the panel's own duration, so it is one beat and not two", () => {
-    // The ring's tween and the panel's must not drift apart into two fades that
-    // happen to overlap. Read off the source rather than restated, so changing
-    // `PANEL_CLEAR_MS` moves both or fails here.
-    const s = source();
-    const ring = /targets:\s*this\.ring\.graphics,[\s\S]{0,200}?duration:\s*(\w+),\s*ease:\s*(EASE\.\w+)/.exec(s);
-    const panel = /targets:\s*this\.panelRoot,\s*alpha:\s*0,[\s\S]{0,200}?duration:\s*(\w+),\s*ease:\s*(EASE\.\w+)/.exec(s);
-    expect(ring).toBeTruthy();
-    expect(panel).toBeTruthy();
-    expect(ring?.[1]).toBe("PANEL_CLEAR_MS");
-    expect(ring?.[1]).toBe(panel?.[1]);
-    expect(ring?.[2]).toBe(panel?.[2]);
+  it("and the component stops the breath before it fades", () => {
+    // The half a scene cannot do. `fadeOut` must clear BOTH handles - the
+    // arrival tween and the pulse - or the fade is the second writer again.
+    const kit = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/scenes/lib/kit.ts"),
+      "utf8",
+    )
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "");
+    const body = /fadeOut\(durationMs: number, ease: string\) \{[\s\S]*?\n    \},/.exec(kit);
+    expect(body, "`FocusRing.fadeOut` is not where this test looks").toBeTruthy();
+    const fade = body?.[0] ?? "";
+    expect(fade).toContain("tween?.remove()");
+    expect(fade).toContain("pulse?.remove()");
+    expect(fade).toContain("pulse = null");
+    expect(fade).toContain("alpha: 0");
   });
 
   it("and the ring is still the thing that draws that outline", () => {
@@ -126,13 +163,18 @@ describe("Shadow is a name and the instruction is a sentence", () => {
    *     expected 'shadow' to be 'Shadow'
    *   leaves no lower-case "shadow" anywhere in the lane's copy
    *     expected [ 'warp.speaker', 'warp.composed' ] to deeply equal []
-   *   gives the bottom-left instruction a capital, and nothing else
+   *   gives the bottom-left instruction sentence case, in both languages
+   *     (then: "...a capital, and nothing else")
    *     expected 'type the sentence. a slip just asks f…' to be
-   *     'Type the sentence. a slip just asks f…'
+   *     'Type the sentence. A slip just asks f…'
    *   does not Title Case a hint, which is the other way to get this wrong
    *     expected 't' to be 'T'
    *   the rest of the screen's own copy already starts with a capital
    *     warp.speaker starts lower case: expected 's' to be 'S'
+   *
+   * UR-146 later narrowed one of UR-81's two rules; see the block above those
+   * two cases. The lower-case second sentence in the string quoted above is
+   * the thing that changed, and it changed because the owner read it.
    */
   const en = createLaneText({ lang: "en", shipName: "Lantern" });
   const es = createLaneText({ lang: "es", shipName: "Lantern" });
@@ -162,24 +204,80 @@ describe("Shadow is a name and the instruction is a sentence", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("gives the bottom-left instruction a capital, and nothing else", () => {
-    const hint = en.text("warp.hint");
-    expect(hint).toBe("Type the sentence. a slip just asks for the same letter again.");
+  /**
+   * ============ UR-146 NARROWED THE SECOND HALF OF UR-81 ============
+   *
+   * These two cases USED to pin the exact string and then assert that ONE word
+   * in it was capitalised. That second claim was wrong, and the project owner
+   * has since said so on screen: "Type the sentence. a slip just asks..." has
+   * TWO sentences in it, and a full stop ends a sentence, so the second one
+   * starts with a capital like the first. The convention UR-81 cited - that the
+   * clause after the stop stays lowercase - had no entry in
+   * `docs/decision-log.md` and its only evidence was two `ui/strings.ts`
+   * strings the owner has now had corrected.
+   *
+   * WHAT THIS CASE PROTECTS IS UNCHANGED AND IS NOT NARROWED: a hint must not
+   * be TITLE CASED. "Type The Sentence" is still a failure, and the negative
+   * control below proves the case can still see one. What moved is only which
+   * capitals count as legitimate - a word that opens a sentence, rather than
+   * the first word of the string.
+   *
+   * WATCHED FAILING, with the copy Title Cased to
+   * "Type The Sentence. A Slip Just Asks For The Same Letter Again.":
+   *   expected [ 'The', 'Slip', 'Just', 'Asks', 'For', 'The', 'Same',
+   *   'Letter', 'Again.' ] to deeply equal []
+   */
+  it("gives the bottom-left instruction sentence case, in both languages", () => {
+    expect(en.text("warp.hint")).toBe(
+      "Type the sentence. A slip just asks for the same letter again.",
+    );
     expect(es.text("warp.hint")).toBe(
-      "Escribe la frase. un desliz solo pide la misma letra otra vez.",
+      "Escribe la frase. Un desliz solo pide la misma letra otra vez.",
     );
   });
 
   it("does not Title Case a hint, which is the other way to get this wrong", () => {
-    // UR-81's rule has two halves and only one of them applies here. A hint
-    // Title Cased would read "Type The Sentence", so the check is that exactly
-    // one word is capitalised and it is the first.
+    const opensSentence = (hint: string): Set<number> => {
+      // Word 0, plus any word that follows a word ending in . ? or !
+      const words = hint.split(" ");
+      const out = new Set<number>([0]);
+      words.forEach((w, i) => {
+        if (/[.?!]$/.test(w)) out.add(i + 1);
+      });
+      return out;
+    };
     for (const hint of [en.text("warp.hint"), es.text("warp.hint")]) {
       const words = hint.split(" ");
-      expect(words[0]?.[0]).toBe(words[0]?.[0]?.toLocaleUpperCase());
-      const capitalised = words.slice(1).filter((w) => /^[A-ZÁÉÍÓÚÑ]/.test(w));
+      const starts = opensSentence(hint);
+      // Every sentence opener IS capitalised...
+      for (const i of starts) {
+        const w = words[i];
+        if (w === undefined) continue;
+        expect(w[0], `word ${i} of "${hint}"`).toBe(w[0]?.toLocaleUpperCase());
+      }
+      // ...and nothing else is, which is what rules Title Case out.
+      const capitalised = words.filter(
+        (w, i) => !starts.has(i) && /^[A-ZÁÉÍÓÚÑ]/.test(w),
+      );
       expect(capitalised).toEqual([]);
     }
+  });
+
+  it("NEGATIVE CONTROL: the Title Case check can still see a Title Cased hint", () => {
+    // Without this, narrowing the case above could have made it vacuous. It is
+    // run against a hand-written string rather than the table, because the
+    // table is the thing under test.
+    const titled = "Type The Sentence. A Slip Just Asks For The Same Letter Again.";
+    const words = titled.split(" ");
+    const starts = new Set<number>([0]);
+    words.forEach((w, i) => {
+      if (/[.?!]$/.test(w)) starts.add(i + 1);
+    });
+    const capitalised = words.filter((w, i) => !starts.has(i) && /^[A-Z]/.test(w));
+    expect(capitalised).toEqual([
+      "The", "Sentence.", "Slip", "Just", "Asks", "For", "The", "Same",
+      "Letter", "Again.",
+    ]);
   });
 
   it("the rest of the screen's own copy already starts with a capital", () => {
@@ -255,6 +353,45 @@ describe("the charge meter's label is Title Case", () => {
     expect(hi.text("warp.chargeLabel")).toBe("Beacon Charge");
   });
 
+  /**
+   * ============ AND IT IS CENTRED IN THE ELEMENT IT SITS IN ============
+   *
+   * The owner: "Beacon Charge" is not centred in its element. It was hung from
+   * the label row's TOP edge, and the row was the literal 32 while one line of
+   * `TYPE.label` is 37 in the language the rows are sized for - so the ink did
+   * not sit in the middle of the space, it hung off the bottom of it.
+   *
+   * The row is `lineBox(TYPE.label)` now (`warpLayout.test.ts` holds that half)
+   * and this is the scene's half: both ends of the line - the label and the
+   * percentage, which UR-62 made ONE line - are drawn at `rowMiddle(row)` with
+   * `originY: 0.5`. A y with a number added to it would pass the geometry case
+   * and fail this one.
+   *
+   * WATCHED FAILING, with both call sites back on `labelRow.y`:
+   *   draws the label and the readout on the row's middle, not its top edge
+   *     the charge label is hung from the row's top edge again: expected
+   *     false to be true
+   */
+  it("draws the label and the readout on the row's middle, not its top edge", () => {
+    const s = source();
+    const meter = s.slice(s.indexOf("private buildMeter("));
+    expect(
+      /const labelY = rowMiddle\(labelRow\);/.test(meter),
+      "the charge label is hung from the row's top edge again",
+    ).toBe(true);
+    // Both ends of the line, on the same middle with the same origin. The
+    // percentage keeps its own `originX: 1` - it is right-anchored to the
+    // track's end and that is UR-62's other half.
+    const label = /skyText\(\s*this,\s*chargeLabelX\(\),\s*labelY,[\s\S]{0,400}?\n    \);/.exec(meter);
+    const percent = /skyText\(\s*this,\s*labelRow\.x \+ labelRow\.w,\s*labelY,[\s\S]{0,500}?\n    \);/.exec(meter);
+    expect(label, "the charge label is not drawn at `labelY`").toBeTruthy();
+    expect(percent, "the percentage is not drawn at `labelY`").toBeTruthy();
+    for (const call of [label?.[0] ?? "", percent?.[0] ?? ""]) {
+      expect(call).toContain("originY: 0.5");
+    }
+    expect(percent?.[0] ?? "").toContain("originX: 1");
+  });
+
   it("leaves no warp drive at all in the lane's copy, in any case", () => {
     // The sweep, as an assertion rather than as a grep somebody ran once. It
     // used to look for a lower-case "warp drive"; the recast makes the stronger
@@ -280,20 +417,108 @@ describe("the charge meter's label is Title Case", () => {
  *   expected false to be true
  */
 describe("UR-104: the screen empties as one thing", () => {
-  it("fades the hint line with the panels and the ring", () => {
-    const source = readFileSync(
+  /**
+   * ============ THE HINT LINE IS GONE, SO IT CANNOT OUTLIVE ANYTHING ============
+   *
+   * This case used to assert that `clearAndLaunch` faded `this.hintLine.objects`
+   * on the panel's own beat, because the hint was outside `panelRoot` and the
+   * panel fade never reached it. Both of the screen's instruction lines are
+   * inside Shadow's card now (`warp.coachIntro`), the card is inside
+   * `panelRoot`, and `ui/hint.ts` declares the screen `placement: "none"`.
+   *
+   * SO THE CLAIM IS STRONGER, NOT NARROWER. "The object is faded with the
+   * panel" is replaced by "there is no such object", and the one thing still
+   * outside `panelRoot` - the focus ring - is asserted by the cases at the top
+   * of this file. A `drawHint` put back here fails BOTH this case and
+   * `hintLine.test.ts`'s cross-file sweep.
+   *
+   * WATCHED FAILING, with the `drawHint` call and its fade loop restored:
+   *   the warp break is drawing a hint line again; its instruction belongs in
+   *   Shadow's card: expected true to be false
+   *   expected 3 to be 2
+   */
+  const warpSource = (): string =>
+    readFileSync(
       resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/scenes/WarpScene.ts"),
       "utf8",
     )
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/\/\/[^\n]*/g, "");
-    const exit = source.slice(source.indexOf("private clearAndLaunch("));
+
+  it("has no hint line left to outlive the screen", () => {
+    const s = warpSource();
     expect(
-      /for \(const object of this\.hintLine\.objects\)/.test(exit),
-      "the hint line is not faded with the panels, so it outlives the screen",
-    ).toBe(true);
-    // One beat: the same duration token as the panels and the ring.
-    const fades = exit.match(/duration: PANEL_CLEAR_MS/g) ?? [];
-    expect(fades.length, "the exit no longer clears on one beat").toBeGreaterThanOrEqual(3);
+      /drawHint\s*\(/.test(s) || /this\.hintLine/.test(s),
+      "the warp break is drawing a hint line again; its instruction belongs " +
+        "in Shadow's card",
+    ).toBe(false);
+  });
+
+  it("and what IS outside panelRoot still leaves on the panel's beat", () => {
+    // The panel and the focus ring. Two, where it was three: the third was the
+    // hint line's, and it went with the object. The ring's is now an ARGUMENT
+    // to `FocusRing.fadeOut` rather than a tween written here - see the block
+    // over "hands the ring's exit to the ring" - so the count is of the token,
+    // not of the tween.
+    const exit = warpSource().slice(warpSource().indexOf("private clearAndLaunch("));
+    // The two that CLEAR are still one beat.
+    const clears = exit.match(/(?:duration: PANEL_CLEAR_MS|fadeOut\(PANEL_CLEAR_MS)/g) ?? [];
+    expect(clears.length, "the exit no longer clears on one beat").toBe(2);
+    expect(exit).toMatch(/duration: PANEL_CLEAR_MS/);
+    expect(exit).toMatch(/this\.ring\.fadeOut\(PANEL_CLEAR_MS,/);
+    // UR-166: Shadow is the one thing that deliberately does NOT leave on it -
+    // she cheers into the cleared frame - but her delay is MEASURED from it, so
+    // the beat is still the one number the exit is built on.
+    const held = exit.match(/delay: PANEL_CLEAR_MS \+ /g) ?? [];
+    expect(held.length, "Shadow's hold drifted off the panel's beat").toBe(1);
+  });
+});
+
+describe("the exit is driven by what is moving, not by a constant (UR-166)", () => {
+  const src = readFileSync("src/game/scenes/WarpScene.ts", "utf8");
+
+  it("fades Shadow out instead of letting the scene change take her away", () => {
+    // She is drawn at the hud depth, OUTSIDE `panelRoot`, so the panel's own
+    // fade never reached her and she cheered on alone after the card had gone.
+    expect(src).toMatch(/targets: this\.shadow\.root,\s*\n\s*alpha: 0,/);
+  });
+
+  it("collects every moving thing and cuts when the last one finishes", () => {
+    expect(src).toMatch(/const pending: Phaser\.Tweens\.Tween\[\] = \[\]/);
+    expect(src).toMatch(/waiting -= 1;\s*\n\s*if \(waiting <= 0\) this\.cutToBeacon\(\)/);
+    expect(src).toMatch(/tween\.once\("complete", done\)/);
+  });
+
+  it("still cuts when there is nothing to wait for - the overlay path has no ship", () => {
+    expect(src).toMatch(/if \(waiting === 0\) this\.time\.delayedCall\(0, done\)/);
+  });
+
+  it("clears the page BEFORE she cheers, and cuts after she has gone", () => {
+    // The owner's order: the elements go, she finishes her animation, then the
+    // next page. Neither the hop nor the fade may start before the card has
+    // cleared, and the fade may not start before the hop has finished.
+    expect(src).toMatch(/delay: PANEL_CLEAR_MS,\s*\n\s*duration: SHADOW_HOP_MS/);
+    expect(src).toMatch(
+      /delay: PANEL_CLEAR_MS \+ \(reduced \? SHADOW_CHEER_HOLD_MS : SHADOW_HOP_MS \* 2\)/,
+    );
+    expect(src).toMatch(/duration: SHADOW_CHEER_EXIT_MS/);
+  });
+
+  it("she is never left standing still on a cleared frame (UR-166b)", () => {
+    // Two hops plus a 620 ms fade left her alone for 1.2 s and read as
+    // orphaned. Her whole solo is now the hop plus the fade, both moving.
+    expect(src).toMatch(/const SHADOW_HOP_MS = 130;/);
+    expect(src).toMatch(/const SHADOW_CHEER_EXIT_MS = 300;/);
+  });
+
+  it("the cheer is a real animation, not a pose and a timer", () => {
+    // `setPose("cheering")` is static - sparks drawn once plus the ambient
+    // face-glow pulse - so "wait until she is done" had nothing to wait on.
+    expect(src).toMatch(/y: \{ from: hopY, to: hopY - SHADOW_HOP_PX \}/);
+    expect(src).toMatch(/y: \{ from: hopY, to: hopY - SHADOW_HOP_PX \},[\s\S]{0,120}yoyo: true,/);
+  });
+
+  it("reduced motion keeps the beat and drops the hop (D41)", () => {
+    expect(src).toMatch(/if \(!reduced\) \{\s*\n\s*pending\.push\(/);
   });
 });

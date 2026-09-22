@@ -27,8 +27,10 @@ import { DEFAULT_FLIGHT_CONFIG } from "@game/flight/stage.js";
  * ================== WHAT WENT WRONG ==================
  * UR-22 made the mark big enough to see: 34x20 on a fuselage 57 px across. It
  * did not account for how MANY of them a stage draws. A shipped belt is 58
- * words and `hullForStage(58)` is nine, so nine translucent near-black ellipses
- * were being stacked inside a 20 px wide strip down the middle of the hull.
+ * words and `hullForStage(58)` was nine when this was measured (six since C26),
+ * so nine translucent near-black ellipses were being stacked inside a 20 px
+ * wide strip down the middle of the hull. Nothing below is pinned to nine: the
+ * assertions read `hullForStage` and the lattice holds twelve either way.
  *
  * Measured with the gauntlet's own silhouette probe
  * (`tests/e2e/hull-scorch.spec.ts`), the Lantern's core fell from 203 to about
@@ -170,7 +172,7 @@ describe("every mark lands on the ship", () => {
 
   it("has a slot for every mark a shipped stage can take, and then some", () => {
     const shipped = hullForStage(DEFAULT_FLIGHT_CONFIG.stageWordCount);
-    expect(shipped, "a 58-word belt carries nine marks").toBe(9);
+    expect(shipped, "a 58-word belt carries six marks (C26)").toBe(6);
     expect(
       SCORCH_SLOTS.length,
       "the lattice repeats before a shipped stage runs out of hull",
@@ -292,8 +294,9 @@ describe("the marks spread instead of piling", () => {
     const overlapsWindow = (s: { x: number; y: number }): boolean =>
       Math.hypot(s.x - porthole.x, s.y - porthole.y) < porthole.r;
     const firstOnWindow = SCORCH_SLOTS.findIndex(overlapsWindow);
-    // Nine, which is exactly what a shipped 58-word stage can take, so the
-    // window is only ever reached by a fixture stage.
+    // Nine, against the six a shipped 58-word stage can take since C26, so the
+    // window is only ever reached by a fixture stage - with three slots of
+    // headroom now rather than none.
     expect(
       firstOnWindow,
       `slot ${firstOnWindow} is the first and it sits on the porthole`,

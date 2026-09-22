@@ -12,10 +12,7 @@ import { stagePoolFor } from "../../../src/game/flight/stage.js";
 // THE RENDERER'S OWN FUNCTIONS, imported rather than restated. See the note on
 // `plateWidth` below for what was here before and why it was not a binding.
 import { asteroidSizePx } from "../../../src/game/render/asteroid.js";
-import {
-  cellWidthPx as plateCellWidthPx,
-  plateSize,
-} from "../../../src/game/render/wordPlateGeometry.js";
+import { plateSize } from "../../../src/game/render/wordPlateGeometry.js";
 
 
 /**
@@ -32,6 +29,14 @@ import {
  * plate is WIDER - by 60 px a side at "spinning", the longest word any shipped
  * pool contains. The leftmost such plate reached x=259.6 while the HUD's left
  * readout runs to x=260: four tenths of a pixel, today, on this content.
+ *
+ * THOSE TWO NUMBERS ARE HISTORY NOW. The plate stopped laying its letters on a
+ * fixed 0.62-em cell and started summing their real advances, so every plate is
+ * about a fifth narrower and the worst case moved from "spinning" (8 letters,
+ * the longest) to "enormous" (8 letters, the widest). Under the old rock-only
+ * rule the overhang is 48.14 px rather than 60.4, and the leftmost plate now
+ * misses the readout by 11.86 px instead of hitting it by 0.4. The control
+ * below says so rather than being retuned until it passes.
  *
  * The keep-out now uses `max(rock, plate)`, so a plate's edge cannot pass the
  * margin. This file derives that from the same two size functions rather than
@@ -74,18 +79,33 @@ const WIDEST_STYLE = {
   reducedMotion: false,
 } as const;
 
-/** The renderer's own answer, imported since the module split. */
-const cellWidthPx = (): number => plateCellWidthPx(WIDEST_STYLE);
-const plateWidth = (letters: number): number => plateSize("a".repeat(letters), WIDEST_STYLE).width;
+/**
+ * THE PROBE IS A WORD NOW, NOT A LETTER COUNT.
+ *
+ * `cellWidthPx` IS GONE. The plate used to lay every character on one fixed
+ * cell, so its width was a function of letter COUNT and `"a".repeat(n)` stood
+ * in for every n-letter word exactly. It now packs each glyph's own measured
+ * advance, so "spinning" and "aaaaaaaa" are different widths and a probe made
+ * of one letter would understate the worst case it exists to find.
+ *
+ * So this sweeps the REAL pools, which is what the docstring above always
+ * claimed and what the arithmetic no longer let it do.
+ */
+const plateWidth = (word: string): number => plateSize(word, WIDEST_STYLE).width;
 
 /** The renderer's own answer. */
 const rockSizePx = (letters: number): number => asteroidSizePx(letters);
 
+/** Every word a belt can put on the board, in any shipped pool. */
+const everyWord = (): readonly string[] => {
+  const out = new Set<string>();
+  for (const stop of STOP_IDS) for (const word of stagePoolFor(stop)) out.add(word);
+  return [...out];
+};
+
 const longestWord = (): number => {
   let longest = 1;
-  for (const stop of STOP_IDS) {
-    for (const word of stagePoolFor(stop)) longest = Math.max(longest, [...word].length);
-  }
+  for (const word of everyWord()) longest = Math.max(longest, [...word].length);
   return longest;
 };
 
@@ -96,26 +116,27 @@ const longestWord = (): number => {
  * `keepOutHalfWidth` is `FlightScene.laneSpec`'s rule, restated: the spawn
  * column is held that far inside the margin, and the plate then sticks out by
  * `plateHalf - keepOut`. Under the shipped `max` rule that is never positive.
- * Under the old rock-only rule it reaches 76 px, which is the control below.
+ * Under the old rock-only rule it reaches 45.3 px, which is the control below.
  *
- * Maximised over LENGTH rather than evaluated at the longest word, because the
- * two terms pull against each other: a longer word makes the plate wider AND
- * the rock bigger.
+ * Maximised over every WORD rather than evaluated at the longest one, because
+ * the two terms pull against each other: a longer word makes the plate wider
+ * AND the rock bigger, and since the plate started measuring its own glyphs the
+ * widest word is not necessarily the longest.
  */
-const overhangPx = (keepOutHalfWidth: (letters: number) => number): number => {
+const overhangPx = (keepOutHalfWidth: (word: string) => number): number => {
   let worst = 0;
-  for (let letters = 1; letters <= longestWord(); letters += 1) {
-    worst = Math.max(worst, plateWidth(letters) / 2 - keepOutHalfWidth(letters));
+  for (const word of everyWord()) {
+    worst = Math.max(worst, plateWidth(word) / 2 - keepOutHalfWidth(word));
   }
   return worst;
 };
 
 /** The shipped rule: whichever of the rock and its plate is wider. */
-const shippedKeepOut = (letters: number): number =>
-  Math.max(rockSizePx(letters) / 2, plateWidth(letters) / 2);
+const shippedKeepOut = (word: string): number =>
+  Math.max(rockSizePx([...word].length) / 2, plateWidth(word) / 2);
 
 /** The rule that shipped the defect: the rock alone. */
-const rockOnlyKeepOut = (letters: number): number => rockSizePx(letters) / 2;
+const rockOnlyKeepOut = (word: string): number => rockSizePx([...word].length) / 2;
 
 const worstOverhangPx = (): number => overhangPx(shippedKeepOut);
 
@@ -160,13 +181,54 @@ describe("UR-21: the HUD names the stop without covering a word", () => {
    */
   it("CATCHES the rock-only keep-out that shipped the overlap", () => {
     const reach = overhangPx(rockOnlyKeepOut);
-    expect(reach).toBeGreaterThan(55);
-    const span = wordPlateSpan(DESIGN_WIDTH, reach);
+    // 60 PX BECAME 48.14 PX, AND NOTHING ABOUT THE HUD MOVED.
+    //
+    // This file's header measured the old rule at "60 px a side at spinning",
+    // when a plate was `letters * 23.6 + 28` wide at D41 spacing - one 0.62-em
+    // cell per character. The plate now sums its glyphs' real advances, and
+    // lowercase Latin averages about 0.51 em on the faces this stack resolves
+    // to, so every plate is roughly a fifth narrower and the same rock-only
+    // rule leaves 48.14 px of plate outside the keep-out instead of 60.4, on
+    // "enormous" - which is the widest plate in any shipped pool now that width
+    // is a function of the word rather than of its letter count.
+    //
+    // The floor is 40 because that is below the measurement and above nothing
+    // - it is not "whatever passes". What it asserts is unchanged: the rule
+    // that shipped lets TENS of px of a word out past the spawn margin.
+    expect(
+      reach,
+      `the rock-only keep-out leaves ${reach.toFixed(2)} px of plate past the margin`,
+    ).toBeGreaterThan(40);
+
+    // AND THE HALF OF THIS CONTROL THAT NO LONGER FIRES, SAID OUT LOUD.
+    //
+    // It used to assert that the leftmost such plate reached UNDER the HUD's
+    // left readout. It did, by four tenths of a pixel, on a plate 60.4 px past
+    // the margin. At 48.14 px it reaches x=271.86 and the readout ends at
+    // x=260, so the two now MISS by 11.86 px and `intrudesOnWordPlates` returns
+    // false. Narrower plates bought that clearance; nothing was fixed.
+    //
+    // Asserting the clearance rather than the collision keeps the control
+    // bound: if a pool gains a wider word, a face with wider metrics draws, or
+    // the HUD grows rightwards, this goes red long before a letter is covered.
+    const rockOnlySpan = wordPlateSpan(DESIGN_WIDTH, reach);
     const left = hudRects(DESIGN_WIDTH)[0];
     expect(left).toBeDefined();
-    expect(intrudesOnWordPlates(left as { x: number; y: number; w: number; h: number }, span)).toBe(
-      true,
-    );
+    const readoutRight = (left?.x ?? 0) + (left?.w ?? 0);
+    const clearance = rockOnlySpan.left - readoutRight;
+    expect(
+      clearance,
+      `under the rock-only rule a plate reaches x=${rockOnlySpan.left.toFixed(2)} and the HUD readout ends at x=${readoutRight}`,
+    ).toBeCloseTo(11.86, 1);
+
+    // The mechanism still fires - a readout only 12 px wider would be covered.
+    const widerReadout = {
+      x: left?.x ?? 0,
+      y: left?.y ?? 0,
+      w: (left?.w ?? 0) + 12,
+      h: left?.h ?? 0,
+    };
+    expect(intrudesOnWordPlates(widerReadout, rockOnlySpan)).toBe(true);
   });
 
   it("CATCHES the top-centre title card that was rejected", () => {

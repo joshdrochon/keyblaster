@@ -5,6 +5,7 @@ import { bootScene, settle } from "./support/lane";
 import { INSTRUMENT } from "../../src/game/scenes/support/warpLayout";
 import { PLATE_RHYTHM } from "../../src/game/ui/plateLayout";
 import { STEP } from "../../src/game/ui/theme";
+import { FOCUS_PULSE } from "../../src/game/ui/focusPop";
 
 /**
  * THE WARP BREAK'S CHROME, IN A REAL BROWSER.
@@ -87,8 +88,19 @@ test.describe("the focus ring leaves with the card it is around", () => {
     await bootScene(page, "Warp", "warp", "&stop=mars");
     await settle(page);
 
+    // IN THE BREATH'S BAND, NOT EXACTLY 1. This read `toBe(1)`, and the ring
+    // BREATHES while it holds a control (UR-112): `focusPulse` yoyos alpha
+    // between 1 and `FOCUS_PULSE.minAlpha` forever, so sampling it after a
+    // fixed settle is a coin flip on where the cycle happens to be. It came up
+    // heads often enough to look green and came up 0.9045296220433674 on a
+    // loaded machine. The claim - the ring is lit while the sentence is typed -
+    // is what the band says; the exact number never was.
     const before = await boxes(page);
-    expect(before.ring.alpha, "the ring should be lit while the sentence is typed").toBe(1);
+    expect(
+      before.ring.alpha,
+      "the ring should be lit while the sentence is typed",
+    ).toBeGreaterThanOrEqual(FOCUS_PULSE.minAlpha);
+    expect(before.ring.alpha).toBeLessThanOrEqual(1);
 
     // Sample every frame across the exit. The trace is collected IN THE PAGE:
     // a round trip per frame is slower than the tween this is measuring.
@@ -148,6 +160,123 @@ test.describe("the focus ring leaves with the card it is around", () => {
     expect(last?.ring).toBeLessThan(0.1);
     expect(last?.panel).toBeLessThan(0.1);
   });
+
+  /**
+   * ============ THE RING WAS STILL THERE, AND THE CASE ABOVE MISSED IT ============
+   *
+   * The project owner reported the gold outline round the sentence card
+   * lingering after the ceremony at Pluto, and asked whether the other stops
+   * did it too. They all did. Sampled every animation frame from the last
+   * keystroke, in the served build, with the fade the case above asserts
+   * already in place:
+   *
+   *              panelRoot.alpha   ring.graphics.alpha
+   *     Pluto       0.000               1.000   (+1413 ms)
+   *     Mars        0.000               0.856   (+1187 ms)
+   *     Neptune     0.000               0.865   (+1323 ms)
+   *
+   * THE FADE WAS NEVER THE PROBLEM; IT WAS BEING OVERWRITTEN.
+   * `scenes/lib/kit.createFocusRing` breathes the ring with a `repeat: -1`
+   * tween on `alpha` (`ui/focusPop.focusPulse`), so a fade written in the scene
+   * was a SECOND tween on one property and the breath kept putting the ring
+   * back. The fix is `FocusRing.fadeOut`, which stops the breath first - the
+   * pulse's handle is the component's closure and no caller can reach it.
+   *
+   * ============ WHY THIS IS A SECOND CASE AND NOT AN EDIT ============
+   * The case above passed, green, for the whole time the screen looked like
+   * the table. Its verdict rests on `trace[trace.length - 1]`, one frame whose
+   * timing depends on whether the cut to Beacon has already happened, and on a
+   * pairing that is satisfied while BOTH are still up. This one keys off the
+   * state instead of off the clock: take every frame where the panel is
+   * effectively gone, and require the ring to be gone in all of them. There is
+   * no frame it can be lucky about.
+   *
+   * WATCHED FAILING, with `this.ring.fadeOut(...)` in `clearAndLaunch` put back
+   * to the scene-side `this.tweens.add({ targets: this.ring.graphics, ... })`.
+   * The real printed value from that red run:
+   *   the ring is gone in every frame the panel is gone (mars)
+   *     Error: the panel is at 0 and the ring is still painted at 1,
+   *     64976 ms after the last keystroke
+   *     expect(received).toBeLessThanOrEqual(0.1)
+   *
+   * (the ms is wall time on a loaded machine, not the exit's own duration -
+   * what the number says is that the ring was STILL there a minute later.)
+   */
+  for (const stop of ["mars", "pluto", "neptune"] as const) {
+    test(`the ring is gone in every frame the panel is gone (${stop})`, async ({ page }) => {
+      const SENTENCE: Readonly<Record<string, string>> = {
+        mars: "Mars is the red planet.",
+        pluto: "Pluto is small, cold, and far away.",
+        neptune: "Neptune is deep blue and very far from the sun.",
+      };
+      await bootScene(page, "Warp", "warp", `&stop=${stop}`);
+      await settle(page);
+
+      await page.evaluate(() => {
+        const w = window as unknown as {
+          __trace: { ms: number; ring: number; visible: boolean; panel: number }[];
+          __raf: number;
+          __t0: number;
+          __kb: { warp: { boxes(): WarpBoxes } };
+        };
+        w.__trace = [];
+        w.__t0 = performance.now();
+        const tick = (): void => {
+          const b = w.__kb.warp.boxes();
+          w.__trace.push({
+            ms: Math.round(performance.now() - w.__t0),
+            ring: b.ring.alpha,
+            visible: b.ring.visible,
+            panel: b.panelAlpha,
+          });
+          w.__raf = requestAnimationFrame(tick);
+        };
+        tick();
+      });
+
+      const sentence = SENTENCE[stop] ?? "";
+      for (const ch of sentence) {
+        await page.keyboard.press(ch === " " ? "Space" : ch);
+      }
+      // The clock is restarted AFTER the last keystroke so `ms` in a failure
+      // message is "this long after the ceremony ended".
+      await page.evaluate(() => {
+        (window as unknown as { __t0: number }).__t0 = performance.now();
+      });
+      await page.waitForTimeout(1500);
+
+      const trace = await page.evaluate(() => {
+        const w = window as unknown as {
+          __trace: { ms: number; ring: number; visible: boolean; panel: number }[];
+          __raf: number;
+        };
+        cancelAnimationFrame(w.__raf);
+        return w.__trace;
+      });
+
+      // THE FRAMES THAT MATTER: the card has finished leaving. Keyed off the
+      // panel's own alpha rather than off a deadline, because how long the
+      // exit takes is the screen's business and this claim is not about that.
+      const cardGone = trace.filter((f) => f.panel <= 0.05);
+      expect(
+        cardGone.length,
+        "the panel never finished fading, so this case measured nothing",
+      ).toBeGreaterThan(3);
+
+      for (const frame of cardGone) {
+        expect(
+          frame.ring,
+          `the panel is at ${frame.panel} and the ring is still painted at ` +
+            `${frame.ring}, ${frame.ms} ms after the last keystroke`,
+        ).toBeLessThanOrEqual(0.1);
+      }
+
+      // And the ring is taken off the display list rather than left at alpha 0,
+      // which is what `FocusRing.fadeOut` does on completion.
+      const last = cardGone[cardGone.length - 1];
+      expect(last?.visible === false || (last?.ring ?? 1) <= 0.02).toBe(true);
+    });
+  }
 });
 
 test.describe("Shadow fits the card he stands in", () => {

@@ -26,7 +26,17 @@
  *
  * Nothing here knows what a scene is. Everything is a function of a word, a
  * style and a size in px.
+ *
+ * ================== ONE THING IS NO LONGER A FUNCTION OF ITS ARGUMENTS ======
+ * `plateSize` and everything downstream of it read the glyph-advance cache in
+ * `glyphAdvance.ts`, because the plate is set in a PROPORTIONAL face and a
+ * layout that assumes one width per character overlaps its own letters. This
+ * file is still Phaser-free and DOM-free and still loads under node; it is no
+ * longer referentially transparent. `glyphAdvance.ts` states the whole trade,
+ * including what still holds without it.
  */
+
+import { glyphAdvancePx } from "./glyphAdvance.js";
 
 /** Gap between the bottom of the rock and the top of the plate, in px. */
 export const PLATE_GAP_PX = 16;
@@ -116,12 +126,78 @@ export function displayWord(word: string, uppercase: boolean): string {
 }
 
 /**
- * Advance width of one glyph cell. Phaser measures text per object; the plate
- * lays characters out on a fixed cell so the underline cue can sit under the
- * NEXT letter without re-measuring the string every keystroke.
+ * The glyphs a plate draws, one `Text` object each.
+ *
+ * Code points, NOT grapheme clusters, and deliberately unchanged: this is the
+ * unit `wordPlate.ts` builds a `Text` for and the unit `WordPlate.letterCount`
+ * reports to `@engine/lock`'s typed count. Moving it is a behaviour change in
+ * the lock, not a spacing change. See `glyphAdvance.ts` for what that costs
+ * Devanagari and where it is raised.
  */
-export function cellWidthPx(style: WordPlateStyle): number {
-  return style.fontSizePx * 0.62 + style.letterSpacingPx;
+export function plateGlyphs(word: string, style: WordPlateStyle): readonly string[] {
+  return [...displayWord(word, style.uppercase)];
+}
+
+/**
+ * How far the pen moves after each glyph of `word`, px, in draw order.
+ *
+ * ================== THIS REPLACED A FIXED CELL ==================
+ * It used to be `cellWidthPx(style)` - `fontSizePx * 0.62 + letterSpacingPx`,
+ * 19.6 px at Flight's 30 px and D41-off spacing - for EVERY character, while
+ * `wordPlate.ts` drew those characters in a proportional face. Measured
+ * advances at 30 px on the plate's own stack run from 6.52 px (`l`) to 24.49 px
+ * (`m`): a spread of 17.97 px on a 19.6 px cell. `ll` got 13.08 px of air
+ * between its two letters; `mp` in "jump" was drawn with the two glyphs
+ * OVERLAPPING by 1.08 px, and `me` in "time" by 0.53 px.
+ *
+ * The advance is the font's own answer, so packing advance boxes end to end IS
+ * even optical spacing - that is what an advance width is for. The plate then
+ * adds `letterSpacingPx` between boxes, so the gap between any two adjacent
+ * letters on any plate is exactly `letterSpacingPx` whatever the word, the face
+ * or the script.
+ */
+export function letterAdvancesPx(
+  word: string,
+  style: WordPlateStyle,
+): readonly number[] {
+  return plateGlyphs(word, style).map((g) =>
+    glyphAdvancePx(g, style.fontFamily, style.fontSizePx),
+  );
+}
+
+/**
+ * Where each glyph's CENTRE sits, px from the left edge of the text run.
+ *
+ * Centres rather than left edges because `wordPlate.ts` draws its letters with
+ * `setOrigin(0.5, 0.5)` - it always has - and the underline cue is centred on
+ * the next letter. One function answers both, so the cue and the glyph cannot
+ * drift apart.
+ */
+export function letterCentresPx(
+  word: string,
+  style: WordPlateStyle,
+): readonly number[] {
+  const out: number[] = [];
+  let pen = 0;
+  for (const advance of letterAdvancesPx(word, style)) {
+    out.push(pen + advance / 2);
+    pen += advance + style.letterSpacingPx;
+  }
+  return out;
+}
+
+/**
+ * The width of the set text, px - advances plus the gaps BETWEEN them.
+ *
+ * `n - 1` gaps, not `n`. The old cell folded `letterSpacingPx` into every
+ * character including the last, so a plate carried one trailing gap of padding
+ * nobody asked for on top of `PLATE_PAD_X_PX`.
+ */
+export function textRunWidthPx(word: string, style: WordPlateStyle): number {
+  const advances = letterAdvancesPx(word, style);
+  if (advances.length === 0) return 0;
+  const ink = advances.reduce((a, b) => a + b, 0);
+  return ink + style.letterSpacingPx * (advances.length - 1);
 }
 
 export interface PlateSize {
@@ -129,10 +205,21 @@ export interface PlateSize {
   readonly height: number;
 }
 
+/**
+ * The plate's rectangle, px.
+ *
+ * NOT A PURE FUNCTION OF ITS ARGUMENTS ANY MORE, and that is a real cost of
+ * measuring glyphs rather than assuming them. The width now depends on
+ * `glyphAdvance.ts`'s process-wide cache: in node nothing is installed and
+ * every answer comes from the shipped table, so unit tests are deterministic;
+ * in the browser `boot.ts` installs a canvas measurer and the answer is the
+ * real face's. `glyphAdvance.ts` has the full argument for why that is the only
+ * honest option here and what it does and does not put at risk. The height is
+ * unchanged and still a function of the style alone.
+ */
 export function plateSize(word: string, style: WordPlateStyle): PlateSize {
-  const letters = [...word].length;
   return {
-    width: letters * cellWidthPx(style) + PLATE_PAD_X_PX * 2,
+    width: textRunWidthPx(word, style) + PLATE_PAD_X_PX * 2,
     height: style.fontSizePx * 1.25 + PLATE_PAD_Y_PX * 2,
   };
 }

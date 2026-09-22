@@ -13,6 +13,8 @@ import {
   ROCK_SPIN_MIN_RAD_PER_SEC,
   mulberry32,
   rockSpinPerSec,
+  PASS_BY_EXIT_MS,
+  passByExitPx,
 } from "@game/flight/stage.js";
 
 /**
@@ -203,5 +205,93 @@ describe("UR-83 / AC-22.8: an angled rock reserves the columns it travels throug
     // rocks that were never in each other's way.
     const later = live({ spawnedAtMs: 60_000, travelPx: ROCK_ANGLE_MAX_PX });
     expect(plateKeepOuts(track({ travelPx: -ROCK_ANGLE_MAX_PX }), [later])).toEqual([]);
+  });
+});
+
+describe("UR-92: a rock that goes past the ship does not speed up on the way out", () => {
+  /**
+   * ================== WHAT WAS REPORTED ==================
+   * The owner: "the falling rocks seem to speed up at some point when they go
+   * off screen. They should not do that."
+   *
+   * ================== THE CAUSE, MEASURED ==================
+   * The FALL is linear and cannot accelerate: `updateRocks` sets
+   * `y = fromY + (toY - fromY) * t`. The acceleration is the EXIT. A practice
+   * rock reaching the breach line is handed to `passBy`, which used to tween it
+   * from `breachY` (856) to `scale.height + 160` (1240) - a fixed 384 px - over
+   * a fixed 620 ms on `Cubic.Out`. Cubic.Out's velocity is 3x its average at
+   * t=0, so the rock left the breach line at ~1810 px/s (measured over the
+   * first 16.7 ms frame) however slowly it had been falling.
+   *
+   * Fall speeds measured from the shipped `fallTimeMs`, ease 0.5, over the real
+   * fall distance (`breachY + sizePx`):
+   *
+   *     word         letters  ikiMs   fallMs   dist px   fall px/s   x faster
+   *     at              2      180     1140      912       800.0       2.3
+   *     cold            4      320     2520      920       365.1       5.0
+   *     planet          6      320     3480      936       269.0       6.7
+   *     gravity         7      600     7050      944       133.9      13.5
+   *     atmosphere     10      600     9750      968        99.3      18.2
+   *     (clamp floor)   -        -     2500      912       364.8       5.0
+   *     (clamp ceiling) -        -    14000      968        69.1      26.2
+   *
+   * So the rock the child actually sees - six or seven letters, a school
+   * laptop's inter-key interval - left the frame between SEVEN and THIRTEEN
+   * TIMES the speed it had been falling at. That is the report exactly.
+   *
+   * ================== THE RULE NOW ==================
+   * A rock leaving the board keeps the speed it fell at. `passByExitPx` is that
+   * speed times the exit window, and the tween is `Linear`, so the px/s across
+   * the whole of a rock's life is one number. The fade is untouched: the rock
+   * is still gone in 620 ms, it simply travels its own distance in them.
+   */
+  it("UR-92: the exit rate IS the fall rate, for every rock the belt can build", () => {
+    /**
+     * WATCHED FAILING, before `passByExitPx` existed:
+     *   Error: No test suite found in file .../rockMotion.test.ts
+     *   ... Failed to resolve import "passByExitPx" from src/game/flight/stage
+     */
+    const exitMs = PASS_BY_EXIT_MS;
+    for (const [fromY, toY, fallMs] of [
+      [-56, 856, 1140],
+      [-80, 856, 3480],
+      [-112, 856, 9750],
+      [-56, 856, 14000],
+    ] as const) {
+      const fallPxPerSec = ((toY - fromY) / fallMs) * 1000;
+      const exitPxPerSec = (passByExitPx(fromY, toY, fallMs, exitMs) / exitMs) * 1000;
+      expect(
+        exitPxPerSec,
+        `a rock falling at ${fallPxPerSec.toFixed(1)} px/s left at ${exitPxPerSec.toFixed(1)} px/s`,
+      ).toBeCloseTo(fallPxPerSec, 9);
+    }
+  });
+
+  it("UR-92: it is never the old fixed 384 px in 620 ms, which is where the lurch was", () => {
+    // The shipped burst, as a number: 384 px over 620 ms on Cubic.Out is
+    // 1858 px/s at t=0. A six-letter rock on a 320 ms interval falls at 269.
+    const shipped = 384 / 620;
+    const slow = passByExitPx(-80, 856, 3480, PASS_BY_EXIT_MS) / PASS_BY_EXIT_MS;
+    expect(slow, `the exit still moves ${(shipped / slow).toFixed(1)}x the fall`)
+      .toBeLessThan(shipped);
+  });
+
+  it("UR-92: a corrupt fall time fades the rock where it is, never NaN px away", () => {
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const px = passByExitPx(-80, 856, bad, PASS_BY_EXIT_MS);
+      expect(Number.isFinite(px), String(bad)).toBe(true);
+      expect(px).toBe(0);
+    }
+  });
+
+  it("UR-92: `passBy` carries the rock out at its own rate, on a straight line", () => {
+    // WATCHED FAILING, with the shipped tween: reads
+    //   the pass-by exit is still a fixed distance on an easing curve
+    expect(FLIGHT).toMatch(/passByExitPx\(/);
+    expect(FLIGHT).toMatch(/PASS_BY_EXIT_MS/);
+    expect(
+      /y: this\.scale\.height \+ 160/.test(FLIGHT),
+      "the pass-by exit is still a fixed distance on an easing curve",
+    ).toBe(false);
   });
 });

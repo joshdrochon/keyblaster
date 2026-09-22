@@ -22,40 +22,79 @@ import {
  */
 
 export type FlightStringKey =
+  /**
+   * UR-146. Spoken, so D98 applies: `SPOKEN_FLIGHT_KEYS` renders it. Eight
+   * words, and the first four are the whole instruction - `shouldHintCanister`
+   * spends the lead clause out of the canister's own fall, so a longer line is
+   * a line that qualifies less often.
+   */
+  | "flight.canisterHint"
+  /**
+   * UR-148. Said once per run, the first time a child meets a two-layer rock.
+   * Spoken, so D98 applies. Longer than the canister hint because it teaches a
+   * mechanic rather than pointing at a colour; only the first sentence is
+   * gated on the rock's fall.
+   */
+  | "flight.nestedHint"
   | "hud.wpm"
   | "hud.combo"
   | "hud.score"
   | "stall.title"
   | "stall.line"
-  | "stall.restart";
+  | "stall.restart"
+  | "stall.quit";
+
+/** Clip ids == table keys, so a scene cannot spell one differently (D98). */
+export const CANISTER_HINT_KEY = "flight.canisterHint";
+export const NESTED_HINT_KEY = "flight.nestedHint";
+
+/**
+ * The clause that NAMES the rock - the first sentence of a hint. The rest is
+ * the reason, and a child who has heard "blast the gold ring" has what they
+ * need whether or not the rock survives the second half. `shouldHintCanister`
+ * says why the whole line cannot be waited on.
+ */
+export function hintLead(text: string): string {
+  const stop = text.search(/[.!?]/);
+  return (stop < 0 ? text : text.slice(0, stop + 1)).trim();
+}
 
 type LocalTable = Readonly<Partial<Record<FlightStringKey, string>>>;
 
 const LOCAL_EN: LocalTable = {
+  "flight.canisterHint": "Blast the gold ring! It fixes our shield.", // i18n-ignore: string table
+  "flight.nestedHint": "That rock has two layers! Blast it, then type the word inside.", // i18n-ignore: string table
   "hud.wpm": "wpm", // i18n-ignore: string table
   "hud.combo": "combo", // i18n-ignore: string table
   "hud.score": "score", // i18n-ignore: string table
   "stall.title": "The engines went quiet.", // i18n-ignore: string table
-  "stall.line": "We drifted a little, pilot. Every word you flew is still aboard, so let's take this belt again.", // i18n-ignore: string table
+  "stall.line": "We drifted a little, pilot. Every word you flew is still aboard. Let's try again. Ready when you are.", // i18n-ignore: string table
   "stall.restart": "Fly this stage again", // i18n-ignore: string table
+  "stall.quit": "Quit to Map", // i18n-ignore: string table
 };
 
 const LOCAL_ES: LocalTable = {
+  "flight.canisterHint": "¡Dispara al anillo dorado! Repara nuestro escudo.", // i18n-ignore: string table
+  "flight.nestedHint": "¡Esa roca tiene dos capas! Dispárala y escribe la palabra de dentro.", // i18n-ignore: string table
   "hud.wpm": "ppm", // i18n-ignore: string table
   "hud.combo": "racha", // i18n-ignore: string table
   "hud.score": "puntos", // i18n-ignore: string table
   "stall.title": "Los motores se quedaron en silencio.", // i18n-ignore: string table
-  "stall.line": "Nos desviamos un poco, piloto. Todas tus palabras siguen a bordo: volvamos a cruzar este cinturón.", // i18n-ignore: string table
+  "stall.line": "Nos desviamos un poco, piloto. Todas tus palabras siguen a bordo. Probemos otra vez. Cuando quieras.", // i18n-ignore: string table
   "stall.restart": "Volar esta etapa otra vez", // i18n-ignore: string table
+  "stall.quit": "Salir al mapa", // i18n-ignore: string table
 };
 
 const LOCAL_HI: LocalTable = {
+  "flight.canisterHint": "सुनहरे छल्ले को उड़ाओ! वह ढाल ठीक करता है।", // i18n-ignore: string table
+  "flight.nestedHint": "उस चट्टान की दो परतें हैं! उसे उड़ाओ, फिर अंदर वाला शब्द लिखो।", // i18n-ignore: string table
   "hud.wpm": "श/मि", // i18n-ignore: string table
   "hud.combo": "लगातार", // i18n-ignore: string table
   "hud.score": "अंक", // i18n-ignore: string table
   "stall.title": "इंजन शांत हो गए।", // i18n-ignore: string table
-  "stall.line": "हम थोड़ा बहक गए, पायलट। तुम्हारे सारे शब्द अब भी हमारे पास हैं, तो चलो यह पट्टी फिर से पार करें।", // i18n-ignore: string table
+  "stall.line": "हम थोड़ा बहक गए, पायलट। तुम्हारे सारे शब्द अब भी हमारे पास हैं। चलो फिर से कोशिश करें। जब तुम तैयार हो।", // i18n-ignore: string table
   "stall.restart": "यह चरण फिर से उड़ाओ", // i18n-ignore: string table
+  "stall.quit": "नक्शे पर लौटो", // i18n-ignore: string table
 };
 
 const LOCAL: Readonly<Record<Lang, LocalTable>> = {

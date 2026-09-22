@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { CARET, caretBreathe } from "@game/scenes/lib/typedWord";
 
 /**
  * UR-87: THE CARET SITS WHERE THE NEXT LETTER WILL GO.
@@ -55,5 +56,24 @@ describe("UR-87: an empty field carets at the start of its placeholder", () => {
     const s = source();
     expect(/setText\(next === "" \? this\.placeholder : next\)/.test(s)).toBe(true);
     expect(/setColor\(next === "" \? INK\.textDim : INK\.text\)/.test(s)).toBe(true);
+  });
+});
+
+describe("every caret in the game breathes on the same numbers (UR-161)", () => {
+  const controls = readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/ui/controls.ts"),
+    "utf8",
+  );
+
+  it("takes the field caret's timing from CARET, not from literals", () => {
+    expect(controls).toMatch(/alpha: CARET\.breatheMin/);
+    expect(controls).toMatch(/duration: CARET\.breatheMs \/ 2/);
+    expect(controls).not.toMatch(/duration: 620/);
+  });
+
+  it("swings caretBreathe across exactly that band", () => {
+    const samples = Array.from({ length: 360 }, (_, i) => caretBreathe((i / 360) * CARET.breatheMs));
+    expect(Math.min(...samples)).toBeCloseTo(CARET.breatheMin, 3);
+    expect(Math.max(...samples)).toBeCloseTo(CARET.breatheMax, 3);
   });
 });

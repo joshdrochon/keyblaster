@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { drawSpeechCard } from "@game/ui/speechCard";
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { hexToNum, paletteAt } from "@game/render/palette";
 import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
@@ -18,6 +19,7 @@ import {
 } from "./lib/kit";
 import {
   SHADOW_SCALE,
+  earthKeepClear,
   shadowOrigin,
   speechBox,
   speechRowBoxes,
@@ -64,6 +66,16 @@ const BEACON_Y = GAME_HEIGHT * 0.46;
 const BUTTON_W = 420;
 const BUTTON_H = 88;
 const BUTTON_Y = GAME_HEIGHT * 0.87;
+/**
+ * Where both status lines sit: midway between the beacon's foot and the button.
+ *
+ * Both were at `GAME_HEIGHT * 0.76` (821), which is ABOVE the mast's base at
+ * `BEACON_Y + 330` (827) - so the copy overlapped the thing it was describing
+ * and the screen read as crowded. Derived from the two objects it has to sit
+ * between rather than from a fraction, so it cannot drift from either.
+ */
+const BEACON_FOOT_Y = BEACON_Y + 330;
+const STATUS_LINE_Y = (BEACON_FOOT_Y + BUTTON_Y) / 2;
 
 /**
  * The header plate's padding. `SKY_PLATE`'s, because that is the padding
@@ -96,20 +108,6 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
    */
   private statusPlate: Phaser.GameObjects.Graphics | null = null;
   private litText!: Phaser.GameObjects.Text;
-  /**
-   * The "type launch to wake the beacon" instruction. no-user-quotes-ok: that
-   * string is shipped game copy (`earth.typePrompt` in src/content/en/ui.json),
-   * not a report's wording - UR-17 screenshotted the screen that draws it, and
-   * rewording it here would make this comment name a string the game does not
-   * have.
-   *
-   * HELD IN A FIELD BECAUSE IT HAS TO BE REMOVED. It sits at exactly the same
-   * y as `litText`, so once the beacon lights the two draw on top of each
-   * other and the result is unreadable — UR-17 caught it in play and attached a
-   * screenshot. It was a local, so nothing could reach it to take it
-   * away: the overlap was structurally guaranteed, not a timing accident.
-   */
-  private hintText!: Phaser.GameObjects.Text;
   private continueText!: Phaser.GameObjects.Text;
   private continuePlate!: Phaser.GameObjects.Graphics;
   private lit = false;
@@ -121,7 +119,7 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
   }
 
   init(data: StoryInit): void {
-    this.story = resolveInit(data, "earth");
+    this.story = resolveInit(data, "earth", this);
     this.lit = false;
     this.litAtMs = 0;
     this.prompt = null;
@@ -176,6 +174,8 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
       height: GAME_HEIGHT,
       // No debris plane: Earth has no belt (D57).
       decorate: ["sky", "celestial", "farField", "midField", "nearField"],
+      // Built before the line wraps, so reserve the tallest box it can be.
+      keepClear: earthKeepClear(GAME_WIDTH, 3),
       // NOTHING TRAVELS ON THIS SCREEN (UR-50.5). `worldSpeed: 0` never did
       // this on its own: `DRIFT_X` gives every decorative plane a px/s FLOOR
       // (+5, -8, +11, -15) that runs at any world speed, so the planes marched
@@ -186,7 +186,7 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
 
     this.beamG = this.add.graphics().setDepth(4);
     this.ringsG = this.add.graphics().setDepth(5);
-    this.drawMast(pal.accent);
+    this.drawMast();
     this.lampG = this.add.graphics().setDepth(7);
     this.paintLamp(pal.accent, 0);
 
@@ -276,13 +276,7 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
       GAME_WIDTH,
       speechLine.getWrappedText().length,
     ) as [typeof box, typeof box];
-    // Opaque, like every other card: see `lib/kit.plate`. The stroke is the
-    // coach card's, so the two places Shadow speaks are drawn the same way.
-    plate(this, box.x, box.y, box.w, box.h, {
-      fill: INK.panel,
-      stroke: INK.line,
-      alpha: 1,
-    }).setDepth(11);
+    drawSpeechCard(this, box, speechLine.getWrappedText().length, 11);
     // WHO IS SPEAKING (the warp break's `warp.speaker`, AC-33's speaker row).
     // The same key rather than a second one: it is the string "Shadow" in all
     // three languages and there is one Shadow (D91). A second key would be a
@@ -290,7 +284,11 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
     // `createLaneText`, not `story.text`: "Shadow" lives in the lane table
     // (`support/copy.ts`), which is the resolver that knows it in all three
     // languages. The shared one does not, by design.
-    const laneText = createLaneText({ lang: this.story.lang, shipName: this.story.shipName });
+    const laneText = createLaneText({
+      lang: this.story.lang,
+      shipName: this.story.shipName,
+      pilotName: this.story.pilotName,
+    });
     label(this, speakerRow.x, speakerRow.y, laneText.text("warp.speaker"), {
       size: TYPE.caption,
       color: pal.accent,
@@ -315,15 +313,6 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
     });
 
     // --- the one word -----------------------------------------------------
-    this.hintText = label(
-      this,
-      GAME_WIDTH / 2,
-      GAME_HEIGHT * 0.76,
-      text.text("earth.typePrompt", { word: this.word }),
-      { size: TYPE.label, color: INK.textDim, align: "center", lang: this.story.lang },
-    )
-      .setOrigin(0.5)
-      .setDepth(12);
 
     this.prompt = createWordPrompt(this, {
       word: this.word,
@@ -340,7 +329,7 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
     });
 
     // --- the lit copy and the one button, hidden until the light ----------
-    this.litText = label(this, GAME_WIDTH / 2, GAME_HEIGHT * 0.76, text.text("earth.lit"), {
+    this.litText = label(this, GAME_WIDTH / 2, STATUS_LINE_Y, text.text("earth.lit"), {
       size: TYPE.heading,
       color: INK.accentSoft,
       align: "center",
@@ -356,7 +345,8 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
       BUTTON_Y,
       BUTTON_W,
       BUTTON_H,
-      { fill: INK.panelRaised, stroke: INK.accent },
+      // Not the accent: that is the focus ring's colour.
+      { fill: INK.panelRaised, stroke: INK.line },
     )
       .setDepth(14)
       .setAlpha(0);
@@ -429,7 +419,7 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
   }
 
   /** The launchpad mast. Drawn once; lighting the beacon never re-tints it. */
-  private drawMast(accent: string): void {
+  private drawMast(): void {
     const g = this.add.graphics().setDepth(6);
     const x = beaconX();
     const y = BEACON_Y;
@@ -439,19 +429,16 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
     g.fillStyle(hexToNum(INK.panelRaised), 1);
     g.fillTriangle(x - 84, baseY, x + 84, baseY, x, y + 40);
     g.lineStyle(3, hexToNum(INK.line), 1);
+    // The lamp's underside: no housing, so the legs reach the lamp itself.
+    const apexY = y + 26;
     for (let i = 1; i <= 4; i += 1) {
       const t = i / 5;
       const halfW = 84 * t;
-      const yy = baseY - (baseY - (y + 40)) * (1 - t);
+      const yy = baseY - (baseY - apexY) * (1 - t);
       g.lineBetween(x - halfW, yy, x + halfW, yy);
     }
-    g.lineBetween(x - 84, baseY, x, y + 40);
-    g.lineBetween(x + 84, baseY, x, y + 40);
-    // Lamp housing: cold metal whether or not the lamp is lit.
-    g.fillStyle(hexToNum(INK.panel), 1);
-    g.fillRoundedRect(x - 48, y - 36, 96, 78, 14);
-    g.lineStyle(3, hexToNum(accent), 0.35);
-    g.strokeRoundedRect(x - 48, y - 36, 96, 78, 14);
+    g.lineBetween(x - 84, baseY, x, apexY);
+    g.lineBetween(x + 84, baseY, x, apexY);
   }
 
   /** `strength` 0 = dark, 1 = fully lit. The same drawing either way. */
@@ -497,19 +484,6 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
       onUpdate: () => this.paintLamp(accent, carrier.v),
     });
 
-    // The instruction leaves BEFORE the result arrives. It is done being true
-    // the moment the beacon lights, and it occupies the same line, so it has
-    // to be gone rather than merely behind. Faded rather than destroyed on the
-    // frame, so the beat reads as one thought replacing another; the delay is
-    // under `litText`'s 650 so the line is clear before the new copy lands.
-    this.tweens.add({
-      targets: this.hintText,
-      alpha: 0,
-      duration: 280,
-      ease: EASE.arrive,
-      onComplete: () => this.hintText.setVisible(false),
-    });
-
     this.tweens.add({
       targets: this.litText,
       alpha: { from: 0, to: 1 },
@@ -519,6 +493,18 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
       ease: EASE.arrive,
     });
 
+    // The word leaves before the result arrives: it used to sit until 1100 while
+    // the lit line faded in at 650, so the two shared the screen for 450 ms.
+    const promptRoot = this.prompt?.root;
+    if (promptRoot !== undefined && !this.story.ctx.reducedMotion) {
+      this.tweens.add({
+        targets: promptRoot,
+        alpha: 0,
+        delay: 260,
+        duration: 320,
+        ease: EASE.arrive,
+      });
+    }
     this.time.delayedCall(1100, () => {
       this.prompt?.destroy();
       this.prompt = null;
@@ -560,7 +546,7 @@ export class EarthActivationScene extends Phaser.Scene implements Snapshotable {
       duration: 380,
       ease: EASE.pop,
     });
-    const ring = createFocusRing(this, 30);
+    const ring = createFocusRing(this, 30, this.story.ctx.reducedMotion);
     this.menu = createKeyboardMenu(this, ring, [target], {
       // Back to the map. The activation is a ritual a child can leave: nothing
       // has been written yet, so leaving costs them nothing (UR-86).

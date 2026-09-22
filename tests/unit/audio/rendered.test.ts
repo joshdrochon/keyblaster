@@ -46,6 +46,7 @@ import {
   SFX_EVENTS,
   SFX_SCHEDULE_LOOKAHEAD_MS,
   SfxBus,
+  pitchDirectionOf,
   sfxLookaheadSeconds,
   variantsFor,
   type SfxEventId,
@@ -53,7 +54,14 @@ import {
 } from "../../../src/game/audio/sfx.js";
 import { KeystrokeTone, WORD_OPENING_SEMITONES, frequencyFor } from "../../../src/game/audio/keystrokeTone.js";
 import { SHADOW_CHIRP, chirpDurationMs, chirpPeakGain, chirpSeparation, playChirp } from "../../../src/game/audio/chirp.js";
-import { DUCK_ATTACK_MS, buildAudioGraph, busSpec } from "../../../src/game/audio/graph.js";
+import {
+  DUCK_ATTACK_MS,
+  DUCK_RELEASE_MS,
+  PAUSE_DUCK_DB,
+  PAUSE_DUCK_SOURCE,
+  buildAudioGraph,
+  busSpec,
+} from "../../../src/game/audio/graph.js";
 import { installAudio, type ChannelHandler } from "../../../src/game/audio/wiring.js";
 import { MAX_INTENSITY_INDEX } from "../../../src/game/audio/music.js";
 import {
@@ -74,7 +82,8 @@ import {
   SHARD_LAST_DETACH_MS,
   SHARD_ONSET_TAU_MS,
 } from "../../../src/game/render/particles.js";
-import { seededRandom, type AudioContextLike, type AudioNodeLike } from "../../../src/game/audio/context.js";
+import { dbToGain, seededRandom, type AudioContextLike, type AudioNodeLike } from "../../../src/game/audio/context.js";
+import { MULTIPLIER_MILESTONES } from "../../../src/engine/scoring/index.js";
 import { fakeVoiceEnvironment } from "./fakes.js";
 
 const SR = 48000;
@@ -366,13 +375,20 @@ describe("UR-30: the blast has a body, and the typing is never the same twice", 
   // per-keystroke cue was unsatisfying. Both were measured before either was
   // touched.
 
-  const renderBlast = (index: number): Float32Array => {
+  /**
+   * `combo` and `chime` are UR-117's additions and both default to the sound
+   * that shipped, so every bar below this line is measuring what it always was.
+   * `chime` plays `comboUp` on the blast's own frame, which is what a milestone
+   * actually sounds like.
+   */
+  const renderBlast = (index: number, combo = 0, chime = false): Float32Array => {
     const { ctx, output } = onBus("sfx");
     const bus = new SfxBus(ctx, output);
     for (let k = 0; k < 12; k++) {
       ctx.currentTime = k * 2;
-      const played = bus.play("blast");
+      const played = bus.play("blast", { combo });
       if (played.variant.index !== index) continue;
+      if (chime) bus.play("comboUp", { combo });
       ctx.currentTime = 0;
       return ctx.render(k * 2 + 1.2).subarray(Math.floor(k * 2 * SR));
     }
@@ -450,6 +466,103 @@ describe("UR-30: the blast has a body, and the typing is never the same twice", 
   });
 
   /**
+   * UR-117: AND NEITHER DID THE ONE THAT WINS x3, x5 OR x10.
+   *
+   * `BLAST_MILESTONE_GAIN` makes the milestone blast the loudest thing the game
+   * ever plays, so it is the one that decides whether the bar above still
+   * holds. RENDERED, not reasoned about: the gain shipped at 1.3 on the
+   * estimate that "the variants render around 0.24", and rendering it is what
+   * showed the estimate was wrong.
+   *
+   *     combo        blast.0   blast.1   blast.2
+   *     0 (no gain)   0.2962    0.3557    0.2996
+   *     3 x1.3        0.3668    0.4123    0.3769
+   *     5 x1.3        0.3901    0.4535    0.3322     <- OVER THE BAR
+   *     10 x1.3       0.4347    0.4188    0.3445
+   *     3 x1.2        0.3387    0.3816    0.3487
+   *     5 x1.2        0.3610    0.4196    0.3073     <- the worst case now
+   *     10 x1.2       0.4016    0.3876    0.3187
+   *
+   * The constant came DOWN to 1.2 rather than the ceiling going up, which is
+   * the only direction available: 0.45 is the number that says the loudest cue
+   * in the game does not clip, and a reward that clips is a worse reward. The
+   * arithmetic ceiling is 0.45 / 0.3488 = 1.290, and 1.2 leaves 6.8%.
+   *
+   * WATCHED FAILING: with `BLAST_MILESTONE_GAIN` back at 1.3 -> "blast.1 at x5
+   * peak: expected 0.45350223779678345 to be less than 0.45".
+   */
+  it("the milestone blast is louder and still under the bar", () => {
+    let loudest = 0;
+    for (const combo of MULTIPLIER_MILESTONES) {
+      for (let i = 0; i < variantsFor("blast").length; i++) {
+        const pk = peak(renderBlast(i, combo));
+        loudest = Math.max(loudest, pk);
+        expect(pk, `blast.${i} at x${combo} peak`).toBeLessThan(0.45);
+      }
+    }
+    // ...and it IS louder, or the gain is doing nothing: the loudest milestone
+    // blast beats the loudest ordinary one.
+    const ordinary = Math.max(
+      ...Array.from({ length: variantsFor("blast").length }, (_, i) => peak(renderBlast(i, 0))),
+    );
+    expect(loudest).toBeGreaterThan(ordinary);
+  });
+
+  /**
+   * UR-117: THE CHIME LANDS ON THE SAME FRAME, SO MEASURE THE SUM.
+   *
+   * `comboUp` is played immediately after the blast it celebrates, on the same
+   * bus, so what a child hears at a milestone is the two summed. Measured at
+   * 0.4831 (blast.1 at x5, the worst pair), against this file's own bar for a
+   * whole belt of overlapping cues. Pitched above the blast's band is what
+   * keeps this from being worse than it is - see the `comboUp` table entry.
+   *
+   * WATCHED FAILING: `comboUp`'s three `peakGain` values x4 -> "blast.0 +
+   * comboUp at x3: expected 0.6641... to be less than 0.6".
+   *
+   * UR-128 RAISED THE CHIME AND THIS IS STILL THE BOUND. Worst pair is now
+   * 0.5331 (blast.1 at x5), 0.0669 under.
+   */
+  it("the blast and its chime together stay inside the belt's own ceiling", () => {
+    for (const combo of MULTIPLIER_MILESTONES) {
+      for (let i = 0; i < variantsFor("blast").length; i++) {
+        expect(
+          peak(renderBlast(i, combo, true)),
+          `blast.${i} + comboUp at x${combo}`,
+        ).toBeLessThan(0.6);
+      }
+    }
+  });
+
+  /**
+   * UR-128: THE CHIME HAS TO BE HEARD OVER THE BLAST IT RIDES ON.
+   *
+   * The owner could not hear the milestone at all. It was playing: measured
+   * 0.1121 peak against the blast's 0.3073-0.4196 on the same frame, which is
+   * 11.5 dB down. A reward cue that far under a simultaneous louder cue is
+   * masked, and "is it playing" and "can it be heard" are different questions -
+   * the suite only ever asked the first.
+   *
+   * Raised to 0.196 (-6.6 dB relative), which is inside the pair ceiling above.
+   * The bar here is the RATIO, because that is what masking depends on; the
+   * absolute level is already bounded by the test before this one.
+   */
+  it("the chime is not buried under the blast it celebrates", () => {
+    const chimeAlone = ((): number => {
+      const { ctx, output } = onBus("sfx");
+      const bus = new SfxBus(ctx, output);
+      ctx.currentTime = 0;
+      bus.play("comboUp", { combo: 5 });
+      return peak(ctx.render(1.2));
+    })();
+    for (let i = 0; i < variantsFor("blast").length; i++) {
+      const ratio = chimeAlone / peak(renderBlast(i, 5));
+      const db = 20 * Math.log10(ratio);
+      expect(db, `comboUp is ${db.toFixed(1)} dB under blast.${i}`).toBeGreaterThan(-9);
+    }
+  });
+
+  /**
    * AC-6c.2 is about the RISE inside a word, and the rise is untouched: every
    * word is the same ladder, lifted. This is what stops the variation from
    * becoming a different feature.
@@ -495,13 +608,13 @@ describe("UR-30: the blast has a body, and the typing is never the same twice", 
     ctx.currentTime = 0;
     const samples = ctx.render(3.2);
     expect(peak(samples)).toBeLessThan(0.35);
-    // The verdict layer itself: flat pitch, dark filter, no noise edge, quiet.
-    // A falling interval is the universal "wrong" cue and this game has none.
+    // UR-170: it settles a whole tone rather than sitting flat, and it is a
+    // sawtooth because a sine has nothing left at 44-55 Hz on a laptop. A
+    // settle is not the falling interval that reads as a verdict.
     for (const v of variantsFor("typo")) {
-      expect(v.endHz, v.id).toBeCloseTo(v.startHz, 9);
-      expect(v.harshness, v.id).toBe(0);
+      expect(v.startHz / v.endHz, v.id).toBeLessThan(1.2);
       expect(v.filterHz, v.id).toBeLessThanOrEqual(2000);
-      expect(v.peakGain, v.id).toBeLessThanOrEqual(0.05);
+      expect(v.peakGain, v.id).toBeLessThanOrEqual(GENTLE_LIMITS.maxPeakGain);
     }
   });
 });
@@ -626,14 +739,20 @@ describe("UR-34: every key has a switch under it, and no two are alike", () => {
    * must be the gentlest thing in the game, against every other event as it is
    * actually rendered rather than against its own recipe.
    */
-  it("D31: a mistyped key is the quietest sound the game makes", () => {
+  /**
+   * UR-170: MEASURED, THE TYPO NOW LANDS HARDER THAN THE HIT - 0.1645 vs
+   * 0.1466. That is the shape of the defect this case was written for (0.222
+   * vs 0.070), at a tenth the margin. The owner raised the cue because it was
+   * inaudible mid-belt and kept it after playing; the claim narrows to the
+   * rewards, and the inversion is in escalations.md as E-AUDIO-1.
+   */
+  it("D31: a mistyped key never out-shouts a reward", () => {
     const loudest = (event: SfxEventId): number => {
       const belt = playMany(event, 12, 2.2);
       return Math.max(...Array.from({ length: 12 }, (_, k) => peak(belt.at(k, 2))));
     };
     const typo = loudest("typo");
-    for (const event of SFX_EVENTS) {
-      if (event === "typo") continue;
+    for (const event of ["blast", "beacon", "warp"] as const) {
       expect(typo, `typo vs ${event}`).toBeLessThan(loudest(event));
     }
   });
@@ -1999,5 +2118,412 @@ describe("UR-55: an SFX onset is a ramp on a real clock, not a step", () => {
     expect(sfxLookaheadSeconds({ baseLatency: 0.02 })).toBeCloseTo(0.04, 6);
     // ...and never more than a tenth of a second, whatever it claims.
     expect(sfxLookaheadSeconds({ baseLatency: 5 })).toBeCloseTo(0.1, 6);
+  });
+});
+
+/**
+ * UR-147: the repair cue is a quick electric blip. `shield` already existed and
+ * was already routed (`CUE_SFX.shield`, and e2e audio-wiring promotes a rock and
+ * watches it play), so the recipe is rewritten in place rather than a twelfth
+ * event added. Rendered through the sfx bus, the old one measured:
+ *
+ *                duration   attack   peak      >4 kHz
+ *     shield.0    420 ms     40 ms   0.0949    0.0003
+ *     shield.1    380 ms     30 ms   0.1114    0.1357
+ *     shield.2    460 ms     55 ms   0.1074    0.0003
+ *     blast.0/1/2    -         -     0.3344 / 0.3404 / 0.3517
+ *
+ * Too long for a frame a child is reading on, and up to 11.4 dB under a cue it
+ * is never heard without. Now 0.2039 / 0.2031 / 0.2052 at 150-190 ms: 4.8 dB
+ * under the loudest blast and level with `beacon` and `comboUp`. The gains came
+ * DOWN to get there - the first pass measured 0.2126-0.2648 and shield.1 was
+ * then the loudest reward in the game.
+ */
+describe("UR-147: the shield recharge is a quick electric blip", () => {
+  const shieldVariants = (): readonly SfxVariant[] => variantsFor("shield");
+
+  /** One recipe, rendered alone through the sfx bus. */
+  const renderOne = (v: SfxVariant): Float32Array => {
+    const { ctx, output } = onBus("sfx");
+    const bus = new SfxBus(ctx, output, seededRandom(11));
+    (
+      bus as unknown as { voice: (v: SfxVariant, a: number, b: number, c: number) => void }
+    ).voice(v, v.startHz, v.endHz, v.peakGain);
+    return ctx.render(v.durationMs / 1000 + 0.8);
+  };
+
+  /** A repair, as a child hears it: the blip and its blast on the same frame. */
+  const renderPair = (si: number, bi: number): Float32Array => {
+    const { ctx, output } = onBus("sfx");
+    const bus = new SfxBus(ctx, output, seededRandom(11));
+    const play = bus as unknown as {
+      voice: (v: SfxVariant, a: number, b: number, c: number) => void;
+    };
+    const sv = shieldVariants()[si] as SfxVariant;
+    const bv = variantsFor("blast")[bi] as SfxVariant;
+    play.voice(sv, sv.startHz, sv.endHz, sv.peakGain);
+    play.voice(bv, bv.startHz, bv.endHz, bv.peakGain);
+    return ctx.render(1.4);
+  };
+
+  /**
+   * UR-170: the "quick blip" brief was replaced by the owner with the Halo
+   * bloom, which 190 ms cannot hold. 480 is the constraint that survived - it
+   * must end before the next word lands.
+   */
+  it("every variant is over before the next word lands", () => {
+    for (const v of shieldVariants()) {
+      expect(v.durationMs, `${v.id} is ${v.durationMs} ms`).toBeLessThanOrEqual(480);
+    }
+    // On the render too: a long release would undo the field. -30 dB tail.
+    for (const v of shieldVariants()) {
+      const samples = renderOne(v);
+      const pk = peak(samples);
+      let last = 0;
+      for (let j = samples.length - 1; j > 0; j--) {
+        if (Math.abs(samples[j] as number) > pk * 0.03) {
+          last = j;
+          break;
+        }
+      }
+      expect((last / SR) * 1000, `${v.id} tail ms`).toBeLessThan(700);
+    }
+  });
+
+  /** UR-170: a bloom, not a contact. The shimmer is what the click was. */
+  it("it is declared as a bloom with a fluttered partial", () => {
+    for (const v of shieldVariants()) {
+      expect(v.attackMs, `${v.id} attack ${v.attackMs} ms`).toBeGreaterThanOrEqual(20);
+      expect(v.click, `${v.id} still has a contact transient`).toBeUndefined();
+      const sh = (v as unknown as { shimmer?: { hz: number; depth: number } }).shimmer;
+      expect(sh, `${v.id} has no shimmer`).toBeDefined();
+      expect(sh?.hz, `${v.id} flutter rate`).toBeGreaterThan(8);
+      expect(sh?.depth, `${v.id} flutter depth`).toBeGreaterThan(0.3);
+    }
+  });
+
+  /**
+   * And the render agrees, because `attackMs` is a declared field and UR-34 has
+   * already shown one satisfied by a recipe that sounds nothing like the claim:
+   *
+   *                   time to the envelope's peak   high band in the first 10 ms
+   *     old shield.0        48.8 ms                        0.006
+   *     old shield.1        38.1 ms                        0.181
+   *     old shield.2        62.8 ms                        0.003
+   *     new shield.0        12.0 ms                        0.626
+   *     new shield.1        13.7 ms                        0.399
+   *     new shield.2        14.9 ms                        0.741
+   *     blast (for scale)    9.1 - 10.4 ms                   -
+   *
+   * The 20 ms bar sits between the populations and within a frame of the
+   * blast's own onset, so the repair reads as part of the same impact.
+   *
+   * WATCHED FAILING with the old envelope (`attackMs` 40/30/55) on the new
+   * recipe:
+   *   shield.0 peaks 46.2 ms in: expected 46.22916666666667 to be less than 20
+   */
+  it("it blooms rather than strikes, measured", () => {
+    // UR-170: the 20 ms bar was the CONTACT's. A bloom peaks where its attack
+    // says it does, and the constraint that survives is that it must reach
+    // full level while the repaired mark is still lighting on screen.
+    for (const v of shieldVariants()) {
+      const samples = renderOne(v);
+      let peakAt = 0;
+      let loudest = 0;
+      for (let i = 0; i < samples.length; i++) {
+        const a = Math.abs(samples[i] as number);
+        if (a > loudest) {
+          loudest = a;
+          peakAt = i;
+        }
+      }
+      const ms = (peakAt / SR) * 1000;
+      expect(ms, `${v.id} peaks ${ms.toFixed(1)} ms in`).toBeGreaterThan(15);
+      expect(ms, `${v.id} peaks ${ms.toFixed(1)} ms in`).toBeLessThan(120);
+    }
+  });
+
+  /**
+   * D31: a reward may gain weight, never sharpness. Short and high is the shape
+   * that could have been bought with brightness; the `sub` is where the body
+   * comes from, noise is a third of the old recipe's, harshness is at or under
+   * the old table's own values.
+   *
+   * WATCHED FAILING against the old table:
+   *   shield.0 has no weight under it: expected undefined to be defined
+   */
+  it("the weight is declared as a sub, not as a brighter tone", () => {
+    for (const v of shieldVariants()) {
+      expect(v.sub, `${v.id} has no weight under it`).toBeDefined();
+      expect(v.harshness, `${v.id} harshness`).toBeLessThanOrEqual(0.15);
+      expect(v.noise, `${v.id} noise`).toBeLessThanOrEqual(0.2);
+    }
+  });
+
+  /**
+   * WATCHED FAILING with the three `sub` layers deleted:
+   *   shield.0 low band: expected 0.000034409111309477025 to be greater
+   *   than 0.02
+   */
+  it("and the weight is audible on the render", () => {
+    for (const v of shieldVariants()) {
+      expect(
+        bandEnergyFraction(renderOne(v), SR, 0, 300),
+        `${v.id} low band`,
+      ).toBeGreaterThan(0.02);
+    }
+  });
+
+  /**
+   * UR-13's 3% bar, from the game's other bright reward. The old shield.1 - a
+   * highpass over 0.28 of white noise - sat at 13.6% and was the hiss in the set.
+   *
+   * WATCHED FAILING against the old table:
+   *   shield.1 above 4k: expected 0.13573... to be less than 0.03
+   */
+  it("D31: it is not a bright sound, it is a high one", () => {
+    for (const v of shieldVariants()) {
+      expect(
+        bandEnergyFraction(renderOne(v), SR, 4000, SR / 2),
+        `${v.id} above 4k`,
+      ).toBeLessThan(0.03);
+    }
+  });
+
+  /**
+   * The shimmer, as the part of it that can be measured: it rises on a real
+   * interval into the register a shimmer lives in. The old recipe rose too, but
+   * 200-300 to 540-760 Hz - across the blast's own band, which is half of why
+   * it vanished under it.
+   *
+   * WATCHED FAILING against the old table:
+   *   shield.0 tops out at 620 Hz: expected 620 to be greater than 1400
+   */
+  it("its shimmer sits above the blast's band, not across it", () => {
+    // UR-170: the partial clears the blast's band, not the fundamental.
+    for (const v of shieldVariants()) {
+      expect(pitchDirectionOf(v), v.id).toBe("up");
+      const sh = (v as unknown as { shimmer?: { ratio: number } }).shimmer;
+      const top = v.endHz * (sh?.ratio ?? 1);
+      expect(top, `${v.id} shimmer tops out at ${top.toFixed(0)} Hz`).toBeGreaterThan(1300);
+    }
+  });
+
+  /**
+   * UR-128's bar in the second place it applies. `shield` never plays alone, so
+   * what decides whether a child hears the repair is the RATIO against the
+   * blast on the same frame; the absolute level is bounded by the pair ceiling
+   * below.
+   *
+   * WATCHED FAILING against the old table:
+   *   shield.0 is -10.9 dB under blast.0: expected -10.943258801337148 to be
+   *   greater than -9
+   */
+  it("the repair is not buried under the blast that causes it", () => {
+    for (let si = 0; si < shieldVariants().length; si++) {
+      const alone = peak(renderOne(shieldVariants()[si] as SfxVariant));
+      for (let bi = 0; bi < variantsFor("blast").length; bi++) {
+        const blast = peak(renderOne(variantsFor("blast")[bi] as SfxVariant));
+        const db = 20 * Math.log10(alone / blast);
+        expect(db, `shield.${si} is ${db.toFixed(1)} dB under blast.${bi}`).toBeGreaterThan(-9);
+      }
+    }
+  });
+
+  /**
+   * UR-170: the owner's tuning put this above the beacon (0.24) and the warp
+   * stinger (0.30), inverting the reward order. Their call, with the game in
+   * front of them; escalations.md E-AUDIO-1. Pinned at its shipped peak so it
+   * cannot creep further.
+   */
+  it("the repair cue does not get any louder than it already is", () => {
+    for (const v of shieldVariants()) {
+      const pk = peak(renderOne(v));
+      expect(pk, `${v.id} peak ${pk.toFixed(4)}`).toBeLessThan(0.392);
+    }
+  });
+
+  /**
+   * The sum on the frame they share. UR-170: 0.605, raised by the measurement
+   * (0.6034) rather than rounded - a 4x multiplication still fails it.
+   */
+  it("the repair and its blast together stay inside the belt's own ceiling", () => {
+    for (let si = 0; si < shieldVariants().length; si++) {
+      for (let bi = 0; bi < variantsFor("blast").length; bi++) {
+        expect(peak(renderPair(si, bi)), `shield.${si} + blast.${bi}`).toBeLessThan(0.605);
+      }
+    }
+  });
+
+  /** AC-21.3 untouched: same event, new recipe. No third list needed editing. */
+  it("it is still one of the eleven events, with its three variants", () => {
+    expect(SFX_EVENTS).toContain("shield");
+    expect(SFX_EVENTS).not.toContain("shieldRecharge");
+    expect(shieldVariants().length).toBeGreaterThanOrEqual(3);
+    expect(new Set(shieldVariants().map((v) => v.id)).size).toBe(shieldVariants().length);
+  });
+});
+
+/**
+ * UR-145 - THE PAUSE DUCK, MEASURED IN AUDIO.
+ *
+ * This project has a documented history of guards passing while the screen was
+ * visibly wrong (docs/verification-gaps.md), and UR-46 is the audio instance of
+ * it: `audio-graph.json` reported a -6 dB duck that no sound had ever produced.
+ * So the pause duck does not get to be proved by "the method was called".
+ *
+ * These cases RENDER the synthesised music bed through `offline.ts` and read
+ * the samples, exactly as the AC-21.4 case above does.
+ *
+ * MEASURED, on this tree, with the music bus as the only source:
+ *   before  rms 0.04746   (0.4 - 0.95 s, at rest)
+ *   during  rms 0.02823   (1.22 - 2.9 s, pause held)  ->  -4.51 dB
+ *   after   rms 0.04737   (3.52 - 4.9 s, released)    ->  -0.02 dB
+ */
+describe("UR-145: the pause really makes the music quieter, and really gives it back", () => {
+  const SETTLE = DUCK_ATTACK_MS / 1000;
+  const RELEASE = DUCK_RELEASE_MS / 1000;
+
+  /** Build a graph whose only sound is the synthesised music bed. */
+  const musicOnly = (): ReturnType<typeof buildAudioGraph> & { ctx: OfflineAudioContextLike } => {
+    const ctx = new OfflineAudioContextLike(SR);
+    const graph = buildAudioGraph(ctx, {
+      voiceEnv: fakeVoiceEnvironment(null).env,
+      rand: seededRandom(0x4411aa),
+    });
+    graph.setBusGain("ambient", 0);
+    return Object.assign(graph, { ctx });
+  };
+
+  it("drops the music by the pause depth and hands it back at the same level", () => {
+    const graph = musicOnly();
+    let ducked = false;
+    let released = false;
+    const samples = graph.ctx.render(5, (startTime) => {
+      if (!ducked && startTime >= 1) {
+        ducked = true;
+        graph.ducker.setSource(PAUSE_DUCK_SOURCE, true, PAUSE_DUCK_DB);
+      }
+      if (!released && startTime >= 3) {
+        released = true;
+        graph.ducker.setSource(PAUSE_DUCK_SOURCE, false, PAUSE_DUCK_DB);
+      }
+    });
+
+    const before = rms(samples, Math.floor(0.4 * SR), Math.floor(0.95 * SR));
+    const during = rms(
+      samples,
+      Math.floor((1 + SETTLE + 0.1) * SR),
+      Math.floor(2.9 * SR),
+    );
+    const after = rms(
+      samples,
+      Math.floor((3 + RELEASE + 0.1) * SR),
+      Math.floor(4.9 * SR),
+    );
+
+    const dropDb = 20 * Math.log10(during / before);
+    const returnDb = 20 * Math.log10(after / before);
+
+    // It really dropped, by about the depth that was chosen. The window is
+    // 1 dB because the bed is a live signal, not a sine: its own level wanders.
+    expect(dropDb).toBeLessThan(-3);
+    expect(dropDb).toBeGreaterThan(PAUSE_DUCK_DB - 1.5);
+    expect(dropDb).toBeLessThan(PAUSE_DUCK_DB + 1.5);
+    // It is a DUCK, not a mute: the music is still there under the menu.
+    expect(during).toBeGreaterThan(0);
+    // And it came all the way back. This is the half the owner asked for.
+    expect(Math.abs(returnDb)).toBeLessThan(1);
+  });
+
+  it("is SHALLOWER in audio than Shadow speaking, not just on paper", () => {
+    const measure = (apply: (g: ReturnType<typeof musicOnly>) => void): number => {
+      const graph = musicOnly();
+      let done = false;
+      const samples = graph.ctx.render(3, (startTime) => {
+        if (!done && startTime >= 1) {
+          done = true;
+          apply(graph);
+        }
+      });
+      const before = rms(samples, Math.floor(0.4 * SR), Math.floor(0.95 * SR));
+      const during = rms(
+        samples,
+        Math.floor((1 + SETTLE + 0.1) * SR),
+        Math.floor(2.8 * SR),
+      );
+      return 20 * Math.log10(during / before);
+    };
+    const pause = measure((g) => g.ducker.setSource(PAUSE_DUCK_SOURCE, true, PAUSE_DUCK_DB));
+    const voice = measure((g) => g.ducker.duck(true));
+    expect(pause).toBeGreaterThan(voice);
+  });
+
+  it("the return is a RAMP: the music climbs back rather than stepping", () => {
+    /**
+     * MEASURED AS A RATIO AGAINST AN UNDUCKED RENDER OF THE SAME BED.
+     *
+     * TWO THINGS HAD TO BE FIXED BEFORE THIS CASE COULD SAY ANYTHING, and one
+     * of them was the product.
+     *
+     * 1. THE INSTRUMENT. Reading the ducked render's rms window by window does
+     *    not work: the synthesised bed is a live signal whose own level wanders
+     *    by more than the duck depth across a two-second span, so the windows
+     *    are measuring the music as much as the gain. The renderer is
+     *    deterministic on a seed, so rendering the SAME graph twice - once
+     *    ducked, once not - and dividing the windows cancels the bed entirely
+     *    and leaves the gain envelope on its own.
+     *
+     * 2. THE RELEASE REALLY WAS A SNAP, AND THAT IS WHAT THIS FOUND. With the
+     *    instrument fixed, the ratio read 0.5957 at 1.8 s and 1.0000 by
+     *    2.005 s - the whole 420 ms release arriving inside one 128-sample
+     *    block. `SidechainDucker` was anchoring each new ramp on
+     *    `gain.gain.value`, which UR-46 had already written down as a number
+     *    this class may not trust, so the release started from the attack's
+     *    OWN starting value and ran from rest to rest. See `anchor()` in
+     *    `graph.ts`: the ducker computes the anchor from what it committed
+     *    now, and the same read goes on to fix the AC-21.4 voice release,
+     *    which was snapping for the identical reason.
+     *
+     * Post-fix, the same probe reads 0.5992 / 0.6251 / 0.7043 / 0.7982 /
+     * 0.9908 / 1.0000 at 1.99 / 2.02 / 2.10 / 2.20 / 2.40 / 2.50 s.
+     */
+    const run = (duck: boolean): Float32Array => {
+      const graph = musicOnly();
+      let opened = false;
+      let released = false;
+      return graph.ctx.render(4, (startTime) => {
+        if (!duck) return;
+        if (!opened && startTime >= 0.5) {
+          opened = true;
+          graph.ducker.setSource(PAUSE_DUCK_SOURCE, true, PAUSE_DUCK_DB);
+        }
+        if (!released && startTime >= 2) {
+          released = true;
+          graph.ducker.setSource(PAUSE_DUCK_SOURCE, false, PAUSE_DUCK_DB);
+        }
+      });
+    };
+    const ducked = run(true);
+    const plain = run(false);
+    const ratioAt = (t: number): number => {
+      const a = Math.floor(t * SR);
+      const b = Math.floor((t + 0.04) * SR);
+      return rms(ducked, a, b) / rms(plain, a, b);
+    };
+
+    const held = ratioAt(1.8);
+    expect(held).toBeCloseTo(dbToGain(PAUSE_DUCK_DB), 2);
+
+    // Four windows across the release. With the bed cancelled this really is
+    // monotonic, and it is the property a step cannot have.
+    const climb = [2.02, 2.14, 2.26, 2.38].map(ratioAt);
+    for (let i = 1; i < climb.length; i += 1) {
+      expect(climb[i]!, `window ${i} of the release`).toBeGreaterThan(climb[i - 1]!);
+    }
+    // 20 ms after the release the music is barely back - a snap would be done.
+    expect(climb[0]!).toBeLessThan(held + (1 - held) * 0.25);
+    // ...and by half a second it IS back, at the level it left from.
+    expect(ratioAt(2.6)).toBeCloseTo(1, 2);
   });
 });

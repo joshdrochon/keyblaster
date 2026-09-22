@@ -1,10 +1,11 @@
 import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { hexToNum, paletteAt } from "@game/render/palette";
+import { audioFrom } from "@game/audio/wiring";
 import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
 import { ensureTextures, fillShape, starPoints } from "@game/render/textures";
-import { DUR, INK, SKY_PLATE, SPACE, TYPE } from "@game/ui/theme";
-import { headerText } from "@game/ui/grid";
+import { DUR, INK, SKY_PLATE, SPACE, STEP, TYPE } from "@game/ui/theme";
+import { paintPlate } from "@game/ui/plate";
 import { drawHint } from "@game/ui/hintLine";
 import { paintLockGlyph } from "@game/ui/chrome";
 import { typographyOf } from "./lib/typography";
@@ -17,7 +18,20 @@ import {
   CHIP,
   LAMP_RISE,
   LOCK_SIZE,
-  MAP_HEADER_PAD_Y,
+  BADGE_COUNT_GAP,
+  BADGE_LABEL_GAP,
+  BADGE_LINE_SIZE,
+  BADGE_MISSION_SIZE,
+  BADGE_PLATE,
+  SEGMENT_UNLIT_ALPHA,
+  SEGMENT_UNLIT_INK,
+  SEGMENT_UNLIT_WIDTH,
+  badgeBox,
+  badgeGoalY,
+  badgeInkLeft,
+  badgeMissionY,
+  barSegments,
+  segmentInk,
   GLOW_ALPHA,
   GLOW_ALPHA_LOCKED,
   GLOW_DEPTH,
@@ -45,6 +59,7 @@ import {
   panelBox,
   panelInkLeft,
   panelInkRight,
+  panelBoardY,
   panelStarsY,
   routeX1,
   shadowAt,
@@ -63,6 +78,7 @@ import {
   visibleText,
   type FocusTarget,
   type KeyboardMenu,
+  type PlatedText,
   type SceneSnapshot,
   type Snapshotable,
 } from "./lib/kit";
@@ -117,6 +133,32 @@ import { drawPlayerLantern, playerLivery } from "./lib/livery";
 const BLINK_PERIOD_MS = 2600;
 const BLINK_STAGGER = 0.085;
 
+/**
+ * What the badge DREW, kept as one record (UR-48's rule, applied here).
+ *
+ * The same object the drawing was made from, never a second computation beside
+ * it: `snapshot()` reports this, so a bar that paints six segments and a
+ * snapshot that says seven cannot both be true.
+ */
+interface BadgeView {
+  readonly rect: PanelBox;
+  /** The ink the card's BORDER was painted in. Asserted never to be the accent. */
+  readonly borderInk: string;
+  readonly mission: string;
+  readonly goal: string;
+  readonly count: string;
+  readonly segments: readonly BadgeSegmentView[];
+}
+
+interface BadgeSegmentView {
+  readonly stopId: StopId;
+  readonly x: number;
+  readonly w: number;
+  readonly lit: boolean;
+  /** The colour this segment was filled or outlined in. */
+  readonly ink: string;
+}
+
 interface NodeView {
   readonly stopId: StopId;
   readonly x: number;
@@ -134,6 +176,17 @@ interface NodeView {
   readonly caption: { readonly halfW: number; readonly bottom: number };
 }
 
+const ARROW_GAP = 26;
+const ARROW_GLIMMER_ALPHA = 0.7;
+const ARROW_GLIMMER_MS = 2400;
+const ACTION_POP_FROM = 1.06;
+const ACTION_POP_MS = 420;
+/** One step down the type scale from the word, like the caption chips. */
+const ACTION_LOCK_SIZE = TYPE.label;
+const ACTION_LOCK_ADVANCE = ACTION_LOCK_SIZE + STEP.hair;
+const SHAKE_PX = 10;
+const SHAKE_MS = 620;
+
 export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   private story!: ResolvedInit;
   private parallax!: Parallax;
@@ -147,6 +200,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   private panelChapter!: Phaser.GameObjects.Text;
   private panelBoard!: Phaser.GameObjects.Text;
   private panelAction!: Phaser.GameObjects.Text;
+  private panelArrow!: Phaser.GameObjects.Text;
+  private panelLock!: Phaser.GameObjects.Graphics;
   private panelStars!: Phaser.GameObjects.Graphics;
   /** UR-53: the Lantern, hovering over whichever stop is selected. */
   private lantern: LanternRig | null = null;
@@ -167,6 +222,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   private glow: Phaser.GameObjects.Graphics | null = null;
   /** How many star glyphs the screen has actually drawn (D27 evidence). */
   private starGlyphs = 0;
+  /** The mission badge, as drawn. Null before `create` has painted it. */
+  private badge: BadgeView | null = null;
 
   constructor() {
     super(SCENE_KEYS.map);
@@ -184,9 +241,10 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     //
     // A supplied payload still wins, which is what keeps the screen-inventory
     // variants ("Mars only unlocked", "mid-run", "all seven") mountable.
-    this.story = resolveInit(withStoredProgress(this, data), "earth");
+    this.story = resolveInit(withStoredProgress(this, data), "earth", this);
     this.nodes = [];
     this.starGlyphs = 0;
+    this.badge = null;
     this.lantern = null;
     this.shipLivery = undefined;
     this.shipTween = null;
@@ -229,46 +287,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     this.view = routeView(progress, STOP_IDS);
     const lit = litCount(progress);
 
-    // THE HEADER SITS ON A PLATE (AC-22.8). Sky-borne chrome was the one place
-    // the contrast rubric never looked, and five screens shipped at 1.2-1.7:1.
-    const head = headerText(0, undefined, 14);
-    skyText(this, head.x, head.y, text.text("map.heading"), {
-      screen: "map",
-      id: "map.heading",
-      size: TYPE.heading,
-      color: INK.text,
-      lang: this.story.lang,
-      depth: 10,
-      padY: 14,
-    });
-    const sub = headerText(1, undefined, MAP_HEADER_PAD_Y);
-    skyText(this, sub.x, sub.y, text.text("map.subheading"), {
-      screen: "map",
-      id: "map.subheading",
-      size: TYPE.caption,
-      // `textFaint` measures 3.4:1 even on the plate, so the subheading is
-      // `textDim` and the hierarchy is carried by SIZE instead of by dimness.
-      color: INK.textDim,
-      lang: this.story.lang,
-      depth: 10,
-      padY: 8,
-    });
-    const third = headerText(2, undefined, MAP_HEADER_PAD_Y);
-    skyText(
-      this,
-      third.x,
-      third.y,
-      text.text("map.progress", { lit, total: STOP_IDS.length }),
-      {
-        screen: "map",
-        id: "map.progress",
-        size: TYPE.caption,
-        color: INK.lit,
-        lang: this.story.lang,
-        depth: 10,
-        padY: 8,
-      },
-    );
+    // ONE BADGE WHERE THREE PLATES WERE. `paintBadge` is the whole header.
+    this.paintBadge(lit);
 
     // UR-105 again: the route is the map's ink too, so it rides with the discs
     // rather than staying at 3, under the mote plane the discs just left.
@@ -298,7 +318,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       color: INK.textDim,
       lang: this.story.lang,
     }).setDepth(10);
-    this.panelBoard = label(this, inkLeft, PANEL.y + 146, "", {
+    // UR-176: named, because the star row is derived from it.
+    this.panelBoard = label(this, inkLeft, panelBoardY(), "", {
       size: TYPE.body,
       color: INK.textDim,
       lang: this.story.lang,
@@ -309,8 +330,31 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     // right-hand ink line now; `drawStars` is given the centre that puts the
     // cluster's right EDGE on it (`starsCentreForRight`), which is the 42.4 px
     // the two were out by.
-    this.panelAction = label(this, panelInkRight(), PANEL.y + 40, "", {
-      size: TYPE.label,
+    // UR-180: an arrow says "this takes you somewhere"; a name does not.
+    this.panelArrow = label(this, panelInkRight(), PANEL.y + 40, "\u25B8", {
+      size: TYPE.body,
+      color: INK.accent,
+      align: "right",
+      lang: this.story.lang,
+    })
+      .setOrigin(1, 0)
+      .setDepth(10);
+    if (!this.story.ctx.reducedMotion) {
+      // UR-180: light on it, not it moving.
+      this.tweens.add({
+        targets: [this.panelArrow, this.panelAction],
+        alpha: { from: 1, to: ARROW_GLIMMER_ALPHA },
+        duration: ARROW_GLIMMER_MS,
+        ease: "Sine.InOut",
+        yoyo: true,
+        repeat: -1,
+      });
+    }
+
+    this.panelLock = this.add.graphics().setDepth(10);
+
+    this.panelAction = label(this, panelInkRight() - ARROW_GAP, PANEL.y + 40, "", {
+      size: TYPE.body,
       color: INK.accent,
       align: "right",
       lang: this.story.lang,
@@ -393,7 +437,11 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     //
     // The ship is a POSITION cue, not a colour one, so it still reads for a
     // colour-blind child - which is the property the ring was carrying.
-    const painted = createFocusRing(this, 40);
+    // The ring breathes on this screen (UR-112). The map's Beacon Log and
+    // Settings chips are the treatment the owner named as the standard for a
+    // focused control, so they are the first screen wired to the shared pulse -
+    // and the flag is handed over so a calm-motion child never sees it move.
+    const painted = createFocusRing(this, 40, this.story.ctx.reducedMotion);
     const stopTargets = new Set<string>(this.nodes.map((n) => n.stopId));
     const ring: FocusRing = {
       graphics: painted.graphics,
@@ -401,6 +449,11 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
         const overAStop = stopTargets.has(target.id);
         painted.graphics.setVisible(!overAStop);
         if (!overAStop) painted.moveTo(target);
+      },
+      // Straight through: the wrapper only decides WHETHER the ring is drawn
+      // over a stop disc, never how it leaves.
+      fadeOut: (durationMs, ease) => {
+        painted.fadeOut(durationMs, ease);
       },
       destroy: () => {
         painted.destroy();
@@ -432,7 +485,166 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     });
     this.select(targets[this.menu.index]?.id ?? "earth");
 
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.teardown());
+    // UR-172: the map is a chart, not a place. It keeps Earth's track as its
+    // hub theme and holds the bed back under it.
+    audioFrom(this.registry)?.setAmbientTrim(true);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      audioFrom(this.registry)?.setAmbientTrim(false);
+      this.teardown();
+    });
+  }
+
+  /**
+   * THE MISSION BADGE: this screen's entire header, as ONE card.
+   *
+   * ================== WHAT WAS REPORTED ==================
+   * The top-left was three stacked sky plates and the owner called it too
+   * busy:
+   *
+   *   [ Route to Pluto ]
+   *   [ Seven stops, one lit path ]
+   *   [ 6 of 7 beacons lit ]
+   *
+   * Three plates, three borders, three left edges, all answering one question.
+   * It is one badge now - mission, goal, and a bar with one segment per beacon
+   * - and it ends 27 px higher than the block it replaced.
+   *
+   * ================== WHAT IS A LABEL AND WHAT IS A SENTENCE ==================
+   * "Mission: Pluto" and "Goal:" are LABELS and are Title Case, like "Personal
+   * Best", "Beacon Log" and "Mission Briefing" already are. "Light all 7
+   * beacons" is a SENTENCE - an instruction with a verb - so it is sentence
+   * case, like the hint line under it. The count is numerals in every
+   * language, which is why it needs no translation.
+   *
+   * ================== WHY THE STARS WENT ==================
+   * The reference draws seven stars, filled for lit. This screen already draws
+   * STARS UNDER EVERY CHARTED PLANET and they mean something else: how well
+   * that stop was flown, nought to three (D27). One glyph, two meanings, on
+   * one screen - and a child counting stars in the badge would be counting the
+   * wrong thing. A bar also answers "how far along am I" at a glance, which is
+   * what the badge is for. The per-stop tint the stars were carrying did not
+   * go with them: it is on the SEGMENTS (`mapLayout.segmentInk`).
+   *
+   * ================== THE ROW OF THREE PARTS ==================
+   * The goal row is a label, a sentence and a count laid out left to right
+   * with the scale's own gaps, and the gaps are what make it ONE run to
+   * `ui/alignment` - so the row is judged on its left edge (118) like every
+   * other line on this screen. A count right-anchored on the badge's right
+   * edge would read well and would be a fourth off-model element on a screen
+   * `left-edge-conformance.spec.ts` budgets at three.
+   */
+  private paintBadge(lit: number): void {
+    const { text, ctx, lang } = this.story;
+    const box = badgeBox();
+    const total = STOP_IDS.length;
+
+    // THE CARD, through the one plate component (UR-69). Its border is
+    // `BADGE_PLATE.stroke` - `INK.line`, never the accent - because the
+    // surface is declared in `mapLayout` rather than assembled here.
+    plate(this, box.x, box.y, box.w, box.h, {
+      fill: BADGE_PLATE.fill,
+      alpha: BADGE_PLATE.alpha,
+      stroke: BADGE_PLATE.stroke,
+      strokeAlpha: BADGE_PLATE.strokeAlpha,
+      radius: BADGE_PLATE.radius,
+      rhythm: "chip",
+    }).setDepth(9);
+
+    // `plated: true` with the badge's own fill NAMED: the rows still register
+    // their colour pair for V-22.8. "It is on a panel, trust me" is how 1.19:1
+    // shipped on five screens (`lib/kit.skyText`).
+    const row = (
+      id: string,
+      x: number,
+      y: number,
+      copy: string,
+      size: number,
+      color: string,
+    ): PlatedText =>
+      skyText(this, x, y, copy, {
+        screen: "map",
+        id,
+        size,
+        color,
+        lang,
+        depth: 10,
+        plated: true,
+        plateFill: BADGE_PLATE.fill,
+      });
+
+    const mission = text.text("map.heading");
+    row("map.heading", badgeInkLeft(), badgeMissionY(), mission, BADGE_MISSION_SIZE, INK.text);
+
+    const goalY = badgeGoalY();
+    const goalLabel = text.text("map.goalLabel");
+    const goalCopy = text.text("map.goal", { total });
+    const count = text.text("map.progress", { lit, total });
+    // MEASURED, NOT DECLARED, for the reason `nodeRingBox` gives about the
+    // captions: "Goal:" and "Meta:" are not the same width, and a declared
+    // column would give one language its gap and the other a hole.
+    const labelInk = row(
+      "map.goalLabel",
+      badgeInkLeft(),
+      goalY,
+      goalLabel,
+      BADGE_LINE_SIZE,
+      INK.textDim,
+    );
+    const goalInk = row(
+      "map.goal",
+      labelInk.text.getBounds().right + BADGE_LABEL_GAP,
+      goalY,
+      goalCopy,
+      BADGE_LINE_SIZE,
+      INK.text,
+    );
+    row(
+      "map.progress",
+      goalInk.text.getBounds().right + BADGE_COUNT_GAP,
+      goalY,
+      count,
+      BADGE_LINE_SIZE,
+      // `INK.lit` is the token this product already uses for "earned", and it
+      // is what the third header plate was drawn in before this.
+      INK.lit,
+    );
+
+    // THE BAR. One segment per stop, in route order, each one a PILL drawn by
+    // the shared plate component - which is how an 8 px mark reaches
+    // `ui/plate.ts` instead of `arch/platePainters.test.ts`'s allowlist.
+    const g = this.add.graphics().setDepth(10);
+    const segments = barSegments(this.view).map((seg) => {
+      const beaconLit = seg.lit;
+      const ink = beaconLit
+        ? segmentInk(seg.stopId, ctx.colorblindPalette)
+        : SEGMENT_UNLIT_INK;
+      paintPlate(
+        g,
+        seg,
+        beaconLit
+          ? { fill: ink, alpha: 1, corner: "pill", strokeWidth: 0 }
+          : {
+              // The empty segment is an OUTLINE on the card, exactly as the
+              // empty star is an outline on the sky: filled means earned.
+              fill: BADGE_PLATE.fill,
+              alpha: 1,
+              corner: "pill",
+              stroke: SEGMENT_UNLIT_INK,
+              strokeAlpha: SEGMENT_UNLIT_ALPHA,
+              strokeWidth: SEGMENT_UNLIT_WIDTH,
+            },
+      );
+      return { stopId: seg.stopId, x: seg.x, w: seg.w, lit: beaconLit, ink };
+    });
+
+    this.badge = {
+      rect: box,
+      borderInk: BADGE_PLATE.stroke,
+      mission,
+      goal: `${goalLabel} ${goalCopy}`,
+      count,
+      segments,
+    };
   }
 
   /**
@@ -775,11 +987,70 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     // The board is a plate, but INK.locked on INK.panel is 1.6:1 - the same
     // failure as the map labels, indoors. `textDim` is 7.9:1 on the panel.
     this.panelAction.setColor(locked ? INK.textDim : INK.accent);
+    this.panelArrow.setVisible(!locked);
+    this.panelLock.clear();
+    if (locked) {
+      // Centred on the word's own middle, not on a number beside it.
+      const mid = this.panelAction.y + this.panelAction.height / 2;
+      paintLockGlyph(
+        this.panelLock,
+        {
+          x: panelInkRight() - ACTION_LOCK_SIZE,
+          y: mid - ACTION_LOCK_SIZE / 2,
+          w: ACTION_LOCK_SIZE,
+          h: ACTION_LOCK_SIZE,
+        },
+        INK.textDim,
+      );
+    } else {
+      // Only an available stop answers: a bulge on a dead end invites the press.
+      this.popAction();
+    }
+    this.panelArrow.setX(panelInkRight());
+    this.panelAction.setX(panelInkRight() - (locked ? ACTION_LOCK_ADVANCE : ARROW_GAP));
+  }
+
+  private shakeAction(): void {
+    if (this.story.ctx.reducedMotion) return;
+    // The word and its mark move as ONE: the lock is drawn in absolute
+    // coordinates, so its Graphics rides from -SHAKE_PX back to 0.
+    const home = panelInkRight() - ACTION_LOCK_ADVANCE;
+    for (const [obj, base] of [
+      [this.panelAction, home],
+      [this.panelLock, 0],
+    ] as const) {
+      this.tweens.killTweensOf(obj);
+      obj.setX(base);
+      this.tweens.add({
+        targets: obj,
+        x: { from: base - SHAKE_PX, to: base },
+        duration: SHAKE_MS,
+        ease: "Elastic.Out",
+        easeParams: [1, 0.55],
+      });
+    }
+  }
+
+  /** UR-180: the selection landed, so the action answers once. */
+  private popAction(): void {
+    if (this.story.ctx.reducedMotion) return;
+    for (const obj of [this.panelAction, this.panelArrow]) {
+      this.tweens.killTweensOf(obj);
+      obj.setScale(1);
+      this.tweens.add({
+        targets: obj,
+        scale: { from: ACTION_POP_FROM, to: 1 },
+        duration: ACTION_POP_MS,
+        ease: "Sine.Out",
+      });
+    }
   }
 
   private travel(node: NodeView): void {
     if (node.locked) {
-      // Nothing happens, and nothing tells the child off for asking (D31).
+      // UR-181: an answer, not a telling-off. Silence left the child unable to
+      // tell a locked stop from a broken key.
+      this.shakeAction();
       return;
     }
     if (node.stopId === "earth") {
@@ -874,6 +1145,11 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       focusIndex: this.menu.index,
       focusId: this.menu.targets[this.menu.index]?.id ?? null,
       litCount: this.nodes.filter((n) => n.charted).length,
+      // THE BADGE, AS DRAWN. The three header plates used to be visible to a
+      // spec only as three strings in `text`; the badge reports its own
+      // rectangle, its border ink and one row per segment, so "one card, seven
+      // segments, six of them lit" is checkable rather than inferred from copy.
+      badge: this.badge,
       // UR-53 evidence: where the ship IS, and where the selected planet is.
       // Two numbers taken in one read, so they describe one moment (rule 7).
       ship:

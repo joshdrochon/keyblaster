@@ -82,11 +82,13 @@ describe("UR-22: one hit has to be visible", () => {
    */
   it("applies its step to a surface the player is already looking at", () => {
     const max = hullForStage(58);
-    expect(max).toBe(9);
+    expect(max).toBe(6);
 
-    // Read out of the shipped function, not recomputed: three marks over nine
-    // hull means the mark carrying the hit moves by a third of its own range,
-    // which is 0.28 and not (1 - HULL_MARK_DIM) / 9.
+    // Read out of the shipped function, not recomputed: three marks over six
+    // hull means the mark carrying the hit moves by HALF of its own range,
+    // which is 0.42 and not (1 - HULL_MARK_DIM) / 6. At nine marks it was a
+    // third of a mark and 0.28; the hull shrank (C26) and the HUD's step grew
+    // with it, which is the direction UR-22 wanted and still not enough.
     const markStep = hullMarkAlpha(2, max, max) - hullMarkAlpha(2, hullAfterStrike(max, max), max);
     expect(markStep).toBeGreaterThan(HULL_MARK_DIM);
     const markAreaPx = 16 * 16;
@@ -132,9 +134,12 @@ describe("UR-22: one hit has to be visible", () => {
     const before = hullMarkAlpha(2, max, max);
     const after = hullMarkAlpha(2, hullAfterStrike(max, max), max);
     const step = before - after;
-    // The exact number a player looked at and called infinite.
+    // The exact number a player looked at and called infinite - 0.72 at the
+    // nine-mark hull UR-22 was raised against, 0.58 at the six that ship (C26).
+    // The pip moves FURTHER now and the claim below is unchanged: a 16x16
+    // square is still not where a damage moment can live.
     expect(before).toBeCloseTo(1, 10);
-    expect(after).toBeCloseTo(0.72, 2);
+    expect(after).toBeCloseTo(0.58, 2);
     expect(step * 16 * 16).toBeLessThan(hullLampStep(max) * Math.PI * 132 * 132 * 0.02);
   });
 });

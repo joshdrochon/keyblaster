@@ -1,5 +1,7 @@
-import { GAME_HEIGHT } from "@game/sceneKeys";
+import { GAME_HEIGHT, GAME_WIDTH } from "@game/sceneKeys";
+import { BACK_CORNER_BOTTOM, GUTTER } from "@game/ui/grid";
 import type { Rect } from "@game/ui/layout";
+import { KEEP_CLEAR_PAD, keepClear, type KeepClearShape } from "@game/render/keepClear";
 import { PLATE_RHYTHM, lineBox, plateHeight, stackRows } from "@game/ui/plateLayout";
 import { TYPE } from "@game/ui/theme";
 
@@ -93,7 +95,14 @@ export const SHADOW_SCALE = 1.05;
  * nothing moves at the artboard width.
  */
 export function shadowOrigin(width: number): { x: number; y: number } {
-  return { x: width / 2 - 660, y: GAME_HEIGHT * 0.63 };
+  // Bottom left on the app's margins at the artboard, expressed as a centre
+  // offset so the screen stays on its declared centred model.
+  const r = SHADOW_R * SHADOW_SCALE;
+  const atArtboard = GUTTER + SHADOW_LEFT_R * r;
+  return {
+    x: width / 2 - (GAME_WIDTH / 2 - atArtboard),
+    y: BACK_CORNER_BOTTOM - SHADOW_BELOW_R * r,
+  };
 }
 
 /** His drawn footprint on this screen, in screen pixels. */
@@ -148,12 +157,9 @@ export function speechRows(lines: number): readonly number[] {
 export function speechBox(width: number, lines: number): Rect {
   const h = plateHeight(speechRows(lines), "card");
   const figure = shadowBox(width);
-  return {
-    x: width / 2 - 760,
-    y: figure.y - SPEECH_TAIL_GAP - h,
-    w: SPEECH_W,
-    h,
-  };
+  // Shadow's column, clamped so a gutter of sky always clears the tower.
+  const w = Math.min(SPEECH_W, beaconBounds(width).x - GUTTER - figure.x);
+  return { x: figure.x, y: figure.y - SPEECH_TAIL_GAP - h, w, h };
 }
 
 /** The speaker label's row and the line's row, inside the box. */
@@ -164,4 +170,18 @@ export function speechRowBoxes(width: number, lines: number): readonly Rect[] {
 /** The wrap width the line is measured and drawn at. */
 export function speechWrapWidth(): number {
   return SPEECH_W - PLATE_RHYTHM.card.padX * 2;
+}
+
+/** Where drifting rocks may not go: Shadow, his box, and the left margin. */
+export function earthKeepClear(width: number, lines: number): readonly KeepClearShape[] {
+  const k = keepClear();
+  const figure = shadowBox(width);
+  const box = speechBox(width, lines);
+  k.rect(figure.x, figure.y, figure.w, figure.h);
+  k.rect(box.x, box.y, box.w, box.h);
+  k.rect(0, 0, GUTTER, GAME_HEIGHT, KEEP_CLEAR_PAD);
+  // Everything right of the tower: nothing out there was doing any work.
+  const tower = beaconBounds(width);
+  k.rect(tower.x + tower.w, 0, width - (tower.x + tower.w), GAME_HEIGHT, KEEP_CLEAR_PAD);
+  return k.zones();
 }

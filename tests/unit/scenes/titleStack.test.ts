@@ -5,7 +5,9 @@ import {
   FRAME_BOTTOM,
   MARK_GAP,
   MARK_GAP_MIN,
+  LOCKUP_INNER_GAP,
   MIN_CLEAR,
+  QUIET_RING_OFFSET,
   PRIMARY_H,
   SECONDARY_GAP,
   STACK_FLOOR,
@@ -123,7 +125,9 @@ describe("UR-68: the Title's menu column is a budget, not four constants", () =>
     });
     expect(gaps).toHaveLength(2);
     for (const g of gaps) expect(g).toBeGreaterThanOrEqual(MIN_CLEAR);
-    expect(gaps).toEqual([STATUS_GAP, SECONDARY_GAP]);
+    // SECONDARY_GAP + (FOCUS_PAD - QUIET_RING_OFFSET): the quiet row's ring is
+    // struck at 6, not 14, so the clear gap to it is 8 px wider than the budget.
+    expect(gaps).toEqual([STATUS_GAP, SECONDARY_GAP + FOCUS_PAD - QUIET_RING_OFFSET]);
   });
 
   it("a NEW pilot's column keeps MIN_CLEAR, with no status line at all", () => {
@@ -134,9 +138,12 @@ describe("UR-68: the Title's menu column is a budget, not four constants", () =>
      * looked fine, and that is the whole trap: the screen is only crowded in
      * the state nobody photographs.
      */
+    // UR-151: with no caption this gap is the LOCKUP's own rule-to-tagline 6,
+    // so the two halves of the column breathe alike. Ring to plate, and only
+    // one ring is ever drawn, so the two never meet on screen.
     const { gaps } = gapsFor({ markBottom: MARK_BOTTOM_NEPTUNE, statusH: null });
     expect(gaps).toHaveLength(1);
-    expect(gaps[0]).toBeGreaterThanOrEqual(MIN_CLEAR);
+    expect(gaps[0]).toBe(LOCKUP_INNER_GAP);
   });
 
   it("the status line claims its own space instead of borrowing the settings gap", () => {
@@ -192,9 +199,10 @@ describe("UR-68: the Title's menu column is a budget, not four constants", () =>
     for (const markBottom of [...measured, ...extremes]) {
       for (const statusH of [null, MEASURED.status]) {
         const { gaps } = gapsFor({ markBottom, statusH });
+        const floor = statusH === null ? LOCKUP_INNER_GAP : MIN_CLEAR;
         for (const g of gaps) {
           expect(g, `markBottom ${markBottom}, statusH ${statusH}`).toBeGreaterThanOrEqual(
-            MIN_CLEAR,
+            floor,
           );
         }
       }
@@ -264,7 +272,9 @@ describe("UR-68: the Title's menu column is a budget, not four constants", () =>
         statusBottom: (tops.statusY ?? 0) + dev(TYPE.label),
         settingsTop: tops.settingsY,
       });
-      for (const g of gaps) expect(g).toBeGreaterThanOrEqual(MIN_CLEAR);
+      // No caption means the LOCKUP gap (UR-151); with one, MIN_CLEAR.
+      const floor = tops.statusY === null ? LOCKUP_INNER_GAP : MIN_CLEAR;
+      for (const g of gaps) expect(g).toBeGreaterThanOrEqual(floor);
     }
   });
 
@@ -308,7 +318,7 @@ describe("UR-68: the Title's menu column is a budget, not four constants", () =>
       statusBottom: (low.statusY ?? 0) + MEASURED.status,
       settingsTop: low.settingsY,
     });
-    expect(gaps).toEqual([STATUS_GAP, SECONDARY_GAP]);
+    expect(gaps).toEqual([STATUS_GAP, SECONDARY_GAP + FOCUS_PAD - QUIET_RING_OFFSET]);
   });
 
   it("says so in pixels when it still does not fit", () => {
@@ -349,6 +359,6 @@ describe("UR-68: the Title's menu column is a budget, not four constants", () =>
     const plateOnly = { primaryTop: 0, primaryBottom: 100, statusTop: 110, settingsTop: 200 };
     const gaps = clearGaps({ ...plateOnly, statusBottom: 150 });
     expect(gaps[0]).toBe(110 - (100 + FOCUS_PAD));
-    expect(gaps[1]).toBe(200 - FOCUS_PAD - 150);
+    expect(gaps[1]).toBe(200 - QUIET_RING_OFFSET - 150);
   });
 });

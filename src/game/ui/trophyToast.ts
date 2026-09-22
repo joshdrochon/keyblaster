@@ -6,6 +6,8 @@ import { audioFrom } from "@game/audio/wiring";
 import { TROPHIES } from "./catalog.js";
 import { plate, strokePlate } from "./chrome.js";
 import { publishToasts } from "./mirror.js";
+import { createMenuTranslator } from "./i18n.js";
+import type { UiStringKey } from "./strings.js";
 import { uiText } from "./text.js";
 import { EASE, INK } from "./theme.js";
 import { playTrophyCue } from "./trophyCue.js";
@@ -231,7 +233,10 @@ export function listenForTrophies(
     const opts = options();
     showTrophyToasts(
       scene,
-      ids.map((id) => opts.message ?? trophyNameKey(id)),
+      // UR-186: the NAME, not the key. This was `trophyNameKey(id)`, which
+      // returns "ui.trophy.firstLight" - and nothing translated it, so the chip
+      // printed the key at a child.
+      ids.map((id) => opts.message ?? createMenuTranslator(opts.lang, "").t(trophyNameKey(id) as UiStringKey)),
       opts,
     );
   };

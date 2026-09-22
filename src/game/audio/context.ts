@@ -41,7 +41,9 @@ export interface AudioParamLike {
 }
 
 export interface AudioNodeLike {
-  connect(destination: AudioNodeLike): void;
+  // An AudioParam is a legal destination in the real Web Audio API, and it is
+  // how an LFO modulates anything (UR-147b's shimmer). The shim narrowed it out.
+  connect(destination: AudioNodeLike | AudioParamLike): void;
   disconnect(): void;
 }
 

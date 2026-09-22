@@ -160,3 +160,53 @@ describe("the reveal walks the page from the start to the end", () => {
     expect(revealPerBlock([10], -5)).toEqual([0]);
   });
 });
+
+/**
+ * UR-126: THE ACCENT NAME IS PART OF THE LINE, NOT A LABEL OVER IT.
+ *
+ * The pilot's name is drawn as a second Text in the stop's accent, sitting
+ * exactly over the first word of the closing line - Phaser's `Text` carries one
+ * colour and this game has no rich-text renderer, so an overlay is how one word
+ * in a wrapped sentence gets a different ink.
+ *
+ * THE DEFECT: it was drawn once and left alone, so the coloured name was on the
+ * page before the sentence under it had typed a character. The owner: "it
+ * appears first before the letters show up, so think you're building it wrong".
+ *
+ * `paintReveal` now slices the overlay by the SAME character count it slices
+ * that block with. The name is the first thing in the line, so those counts are
+ * the same number until the name runs out.
+ */
+describe("UR-126: the pilot's name reveals with the line it sits on", () => {
+  const SRC = readFileSync("src/game/scenes/BriefingScene.ts", "utf8");
+
+  it("the overlay starts empty under the typewriter", () => {
+    // THE DEFECT ITSELF. Drawn at full text and never sliced is what put a
+    // coloured word on an otherwise blank page.
+    expect(SRC).toMatch(/if \(!this\.story\.ctx\.reducedMotion\) this\.nameOverlay\.setText\(""\)/);
+  });
+
+  it("paintReveal slices it by its own block's revealed count", () => {
+    expect(SRC).toMatch(
+      /const shown = counts\[this\.nameOverlayBlock\] \?\? 0;[\s\S]{0,120}nameOverlay\.setText\(\s*this\.nameOverlayText\.slice\(0, shown\)/,
+    );
+  });
+
+  it("the block index is taken from the TYPED run, not the full block list", () => {
+    // The header is filtered out before `armTypewriter` sees it, so indexing
+    // into `blocks` would slice the name against the wrong sentence's count.
+    expect(SRC).toMatch(
+      /nameOverlayBlock = blocks[\s\S]{0,140}filter\(\(b\) => b\.row\.group !== "header"\)[\s\S]{0,80}findIndex/,
+    );
+  });
+
+  it("skipping the reveal restores the whole name", () => {
+    expect(SRC).toMatch(/this\.nameOverlay\?\.setText\(this\.nameOverlayText\)/);
+  });
+
+  it("re-entering the scene clears the handles", () => {
+    // Phaser builds a scene once and re-runs `create`; a stale overlay from the
+    // previous visit is an object on a dead display list.
+    expect(SRC).toMatch(/this\.nameOverlay = null;[\s\S]{0,120}this\.nameOverlayBlock = -1;/);
+  });
+});

@@ -798,7 +798,7 @@ describe("UR-51 / margin: the throttle, and the floor that is not one", () => {
      * hands the next one back easier. Under FR-10's rules alone that only
      * worked when the rolling rate had already fallen under 0.80, and a stall
      * does not guarantee it: the window is the last 20 outcomes, the hull is
-     * `hullForStage(58)` = 9 marks taken anywhere across 58 words, and a belt
+     * `hullForStage(58)` = 6 marks taken anywhere across 58 words (C26), and a belt
      * that took its marks EARLY leaves a window of nothing but blasts. The
      * decision there is `d18-guard` - a hold - so the child who just lost the
      * hull is handed the same belt back. Proven by the control below.
@@ -812,7 +812,7 @@ describe("UR-51 / margin: the throttle, and the floor that is not one", () => {
      * "d18-guard", identical to the control, with the knob still on maxLive 6.
      */
     const MARKS = hullForStage(DEFAULT_FLIGHT_CONFIG.stageWordCount);
-    expect(MARKS).toBe(9);
+    expect(MARKS).toBe(6);
 
     /** A belt that took every hull mark early, then flew 20 clean words. */
     const stalledBelt = (blastMargin: number): ControllerState => {
@@ -821,7 +821,7 @@ describe("UR-51 / margin: the throttle, and the floor that is not one", () => {
       for (let i = 0; i < MARKS; i += 1) s = recordOutcome(s, "missed", 0);
       for (let i = 0; i < WINDOW_SIZE; i += 1) s = recordOutcome(s, "blasted", blastMargin);
       // UR-84 / C21, AND THIS IS THE TEST WHERE THE WITHIN-BELT ARM SHOWS ITS
-      // VALUE MOST PLAINLY. Nine hull marks at margin 0 now loosen the belt
+      // VALUE MOST PLAINLY. Six hull marks at margin 0 now loosen the belt
       // WHILE it is being lost, so by the time this helper returns the knob is
       // already down - `expected { maxLive: 2, lengthBias: -1 } to deeply equal
       // { maxLive: 6, lengthBias: 0 }` is what the boundary assertion below
@@ -840,12 +840,15 @@ describe("UR-51 / margin: the throttle, and the floor that is not one", () => {
     };
 
     // THE CONTROL FIRST. A pilot whose rocks were comfortable: the window is
-    // 1.0, the stage rate is 20/29 = 0.69, D18 refuses the tighten - and that
-    // is the whole decision. Nothing moves.
+    // 1.0, the stage rate is `WINDOW_SIZE / (WINDOW_SIZE + MARKS)` - 20/26 =
+    // 0.77 at the six-mark hull C26 shipped, 20/29 = 0.69 at the nine it
+    // replaced - D18 refuses the tighten, and that is the whole decision.
+    // Nothing moves. Written as the relation rather than as the fraction,
+    // because the fraction is a function of the hull size and moved with it.
     const comfortable = stalledBelt(COMFORTABLE);
     const control = decideStage(comfortable);
     expect(control.windowRate).toBe(1);
-    expect(control.stageRate).toBeCloseTo(20 / 29, 10);
+    expect(control.stageRate).toBeCloseTo(WINDOW_SIZE / (WINDOW_SIZE + MARKS), 10);
     expect(control.action).toBe("hold");
     expect(control.holdReason).toBe("d18-guard");
     expect(endStage(comfortable).knobs).toEqual(knobs(6, 0));

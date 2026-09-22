@@ -28,7 +28,7 @@ const bus = (rand = seededRandom(7)): { ctx: NullAudioContext; sfx: SfxBus } => 
 };
 
 describe("AC-21.3: every event has >= 3 SFX variants", () => {
-  it("AC-21.3: names exactly the ten events the PRD names", () => {
+  it("AC-21.3: names exactly the events the PRD names", () => {
     expect([...SFX_EVENTS]).toEqual([
       "lock",
       "keystroke",
@@ -40,10 +40,14 @@ describe("AC-21.3: every event has >= 3 SFX variants", () => {
       "warp",
       "beacon",
       "uiNav",
+      // UR-117. AC-21.3 was edited in the same change that added this, which is
+      // the point of listing them here rather than counting: an event cannot
+      // appear in the game without somebody writing it into the AC first.
+      "comboUp",
     ]);
   });
 
-  it("AC-21.3: each of the ten events has at least three variants", () => {
+  it("AC-21.3: each event has at least three variants", () => {
     for (const event of SFX_EVENTS) {
       expect(variantsFor(event).length).toBeGreaterThanOrEqual(MIN_VARIANTS_PER_EVENT);
     }
@@ -95,18 +99,28 @@ describe("AC-21.3: every event has >= 3 SFX variants", () => {
 });
 
 describe("D31: nothing reads as failure", () => {
-  it("D31: the typo sound is a soft NEUTRAL tick, never a buzzer", () => {
+  it("D31: the typo cue sits in the register the play-through settled on", () => {
+    // UR-170: it demanded a flat sine at ~330 Hz. At the 44-55 Hz the owner
+    // settled on, a sine has nothing left on a laptop - the harmonics carry
+    // the pitch. What D31 forbids is asserted below, not here.
     for (const v of variantsFor("typo")) {
-      // Flat pitch. A falling interval is the universal "wrong" cue and this
-      // game does not have one.
-      expect(pitchDirectionOf(v)).toBe("flat");
-      expect(v.harshness).toBe(0);
-      expect(["sine", "triangle"]).toContain(v.wave);
+      expect(v.startHz).toBeLessThan(80);
+      const fall = v.startHz / v.endHz;
+      expect(fall).toBeGreaterThanOrEqual(1);
+      expect(fall, "a falling interval this wide reads as a verdict").toBeLessThan(1.2);
       expect(v.peakGain).toBeLessThanOrEqual(GENTLE_LIMITS.maxPeakGain);
       expect(v.durationMs).toBeLessThanOrEqual(GENTLE_LIMITS.maxDurationMs);
       expect(v.filterHz).toBeLessThanOrEqual(2000);
       expect(v.noise).toBeLessThanOrEqual(0.05);
     }
+  });
+
+  it("D31: the typo cue still never lands harder than a hull hit", () => {
+    // The ORDER is the rule the budget exists to serve, and it survived the
+    // owner's tuning: both cues moved and the gap between them did not close.
+    const loudestTypo = Math.max(...variantsFor("typo").map((v) => v.peakGain));
+    const quietestHit = Math.min(...variantsFor("hit").map((v) => v.peakGain));
+    expect(loudestTypo).toBeLessThan(quietestHit);
   });
 
   it("D31: the typo tick is quieter than the reward sounds around it", () => {
@@ -118,11 +132,19 @@ describe("D31: nothing reads as failure", () => {
   });
 
   it("D31: a hull hit is a warm low thud, not an alarm", () => {
+    // The bounds were 160 Hz / 600 Hz, which put the whole sound under what a
+    // laptop speaker reproduces - the owner reported hearing nothing at all on
+    // a hit or a fly-by. Raised on their call. Loudness and harshness, which
+    // are what "not an alarm" actually protects, are unchanged below.
     for (const v of variantsFor("hit")) {
-      expect(v.startHz).toBeLessThan(160);
-      expect(v.filterHz).toBeLessThanOrEqual(600);
+      expect(v.startHz).toBeLessThan(400);
+      expect(v.filterHz).toBeLessThanOrEqual(1100);
       expect(v.harshness).toBeLessThanOrEqual(GENTLE_LIMITS.maxHarshness);
       expect(v.peakGain).toBeLessThanOrEqual(GENTLE_LIMITS.maxPeakGain);
+      // UR-170: raised by the owner across a play-through because a fly-by was
+      // inaudible. "Not an alarm" is a claim about the SOUND, and `blast` is
+      // three layers to `hit`'s one, so the comparison against the reward is
+      // made on the render in `rendered.test.ts`, never on declared gains.
     }
   });
 

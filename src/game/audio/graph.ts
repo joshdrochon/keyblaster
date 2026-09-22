@@ -93,6 +93,44 @@ export const DUCK_ATTACK_MS = 120;
 /** Slower than the attack, so the world comes back rather than snapping back. */
 export const DUCK_RELEASE_MS = 420;
 
+/**
+ * ============ THE PAUSE MENU'S DUCK (UR-145) ============
+ *
+ * The project owner: the pause menu should make the music QUIETER, it should
+ * STAY quieter if Settings is opened from inside it, and coming out of pause
+ * should feel like dropping back into the action.
+ *
+ * WHY -4.5 AND NOT SOMETHING ELSE.
+ *
+ *   It must be SHALLOWER THAN THE VOICE DUCK. `DUCK_DB` is -6 and that number
+ *   is a specification: AC-21.4 says Shadow talking pulls the world down at
+ *   least 6 dB. A pause that ducked harder would say the menu is a bigger
+ *   interruption than the character speaking, and worse, it would make the
+ *   voice duck inaudible on top of it - Shadow would start a line and nothing
+ *   in the mix would move.
+ *
+ *   It must be DEEPER THAN 3 dB. A 3 dB step on a sustained bed sits around the
+ *   threshold where a listener notices a level change at all, and the owner's
+ *   report is that the drop should be obvious. 4.5 dB is 0.6x amplitude - a
+ *   plain, unmistakable drop.
+ *
+ *   It must NOT be a mute. The whole request is about the RETURN; you cannot
+ *   return to something that was switched off. At -4.5 the music is still
+ *   playing under the menu and the release is a swell rather than a power-on.
+ *
+ * THE RAMPS ARE THE EXISTING ONES, deliberately. `DUCK_ATTACK_MS` (120) lands
+ * the drop with the freeze - a pause that dips over half a second reads as lag
+ * - and `DUCK_RELEASE_MS` (420) is already the constant whose whole reason for
+ * being slower than the attack is "the world comes back rather than snapping
+ * back", which is the owner's sentence in different words. A second pair of
+ * pause-specific constants would be two more numbers to keep in step with
+ * nothing gained; see CLAUDE.md on shared values.
+ */
+export const PAUSE_DUCK_DB = -4.5;
+
+/** The name the pause menu holds its duck under. One holder, one name. */
+export const PAUSE_DUCK_SOURCE = "pause";
+
 interface DuckTarget {
   readonly id: BusId;
   readonly gain: GainNodeLike;
@@ -122,6 +160,55 @@ interface DuckTarget {
 export class SidechainDucker implements Ducker {
   private depth = 0;
 
+  /**
+   * NAMED DUCKS, EACH WITH ITS OWN DEPTH (UR-145).
+   *
+   * `duck(active)` is the VOICE sidechain and is counted, because two
+   * overlapping lines are two events. A pause is not an event, it is a STATE: a
+   * screen is up or it is not, and the same screen asking twice must not need
+   * two releases. So it is held by name at its own dB, and dropped by name.
+   *
+   * THE REDUCTIONS DO NOT ADD UP, and that is the decision in this design.
+   * Shadow can be mid-sentence when a child hits Escape, and stacking -6 on
+   * -4.5 would put the music 10.5 dB down - quieter than either claim asked
+   * for, and the resume would then ramp back to a level the voice duck had not
+   * finished with. The DEEPEST claim in force wins instead, which is the same
+   * rule the voice counter already implements for nested lines: two lines duck
+   * exactly as far as one.
+   */
+  private readonly sources = new Map<string, number>();
+
+  /** The reduction currently applied, so a move knows which way it is going. */
+  private appliedDb = 0;
+
+  /**
+   * ============ WHERE THE NEXT RAMP STARTS FROM (UR-145) ============
+   *
+   * This used to be `target.gain.gain.value`, and UR-46 already wrote down why
+   * that is not a number this class may trust: a scheduled ramp does not move
+   * `.value` on every context, so the read can hand back the anchor of the
+   * PREVIOUS ramp instead of where the param actually is. UR-46 applied the
+   * lesson to the evidence artifact and left the anchor alone.
+   *
+   * It is the same bug and it is worse here, because it is not a report - it
+   * is the mix. Measured on `tests/unit/audio/offline.ts`, which renders:
+   * duck at 0.5 s, release at 2.0 s, and the release ARRIVED IN ONE BLOCK.
+   * The attack ramped (0.6348 of rest at 0.6 s, settling to 0.5957) and then
+   * `setValueAtTime(gain.value, now)` anchored the release at 0.7 - the
+   * attack's own starting value, still sitting in `.value` - so the ramp ran
+   * from rest to rest and the music snapped back. The owner's whole request
+   * for this ticket is that it must NOT do that.
+   *
+   * So the ducker computes the anchor from what it COMMITTED, the same way
+   * `scheduledReductionDb` reports from what it committed: the previous ramp
+   * was a straight line from `from` to `target` over `rampSeconds`, so where
+   * it had got to at `now` is arithmetic this class already has every term of.
+   * No context is asked anything, which is the property that makes it true on
+   * all of them.
+   */
+  private rampStartedAt = 0;
+  private rampSeconds = 0;
+
   constructor(
     private readonly ctx: AudioContextLike,
     private readonly targets: readonly DuckTarget[],
@@ -129,7 +216,85 @@ export class SidechainDucker implements Ducker {
   ) {}
 
   get ducking(): boolean {
-    return this.depth > 0;
+    return this.depth > 0 || this.sources.size > 0;
+  }
+
+  /** The named ducks in force. Read by the wiring snapshot and the evidence. */
+  activeSources(): readonly string[] {
+    return [...this.sources.keys()];
+  }
+
+  /** The reduction in force right now, in dB. Never the sum; see `sources`. */
+  reductionDb(): number {
+    let db = this.depth > 0 ? this.duckDb : 0;
+    for (const value of this.sources.values()) db = Math.min(db, value);
+    return db;
+  }
+
+  private multiplier(): number {
+    return dbToGain(this.reductionDb());
+  }
+
+  /**
+   * Hold or release a named duck. Idempotent on both sides: asking for a duck
+   * that is already held, or releasing one that is not, does nothing at all -
+   * which is what lets a scene call this from `create`, from `wake` and from
+   * `shutdown` without counting.
+   */
+  setSource(id: string, active: boolean, db: number): void {
+    if (active) {
+      const level = Math.min(0, db);
+      if (this.sources.get(id) === level) return;
+      this.sources.set(id, level);
+    } else if (!this.sources.delete(id)) {
+      return;
+    }
+    this.move();
+  }
+
+  /**
+   * Ramp every target to whatever the reduction now is.
+   *
+   * The DIRECTION picks the ramp, not the boolean that caused it: going deeper
+   * is an attack, coming back up is a release. That matters exactly once and it
+   * is the case this design exists for - Shadow finishing a line while the
+   * pause menu is still up moves the mix from -6 to -4.5, which is a partial
+   * RETURN and must not snap in at attack speed.
+   */
+  private move(): void {
+    const next = this.reductionDb();
+    const rampMs = next < this.appliedDb ? DUCK_ATTACK_MS : DUCK_RELEASE_MS;
+    this.appliedDb = next;
+    const multiplier = dbToGain(next);
+    const now = this.ctx.currentTime;
+
+    for (const target of this.targets) {
+      const from = this.anchor(target, now);
+      const to = target.base * multiplier;
+      target.gain.gain.cancelScheduledValues(now);
+      target.gain.gain.setValueAtTime(from, now);
+      target.gain.gain.linearRampToValueAtTime(to, now + rampMs / 1000);
+      // UR-46: remember what was committed, because a real `AudioParam` cannot
+      // be asked afterwards. See `scheduledReductionDb` - and `anchor`, which
+      // is the second reader this record now has.
+      this.committed.set(target.id, { base: target.base, from, target: to });
+    }
+    // AFTER the loop: `anchor` above reads the PREVIOUS ramp's window.
+    this.rampStartedAt = now;
+    this.rampSeconds = rampMs / 1000;
+  }
+
+  /** Where the ramp this class last scheduled for `target` had got to at `now`. */
+  private anchor(target: DuckTarget, now: number): number {
+    const last = this.committed.get(target.id);
+    // Nothing committed yet: the node has only ever held its resting gain, and
+    // reading it is safe precisely because no automation has run on it.
+    if (last === undefined) return target.gain.gain.value;
+    const t =
+      this.rampSeconds <= 0
+        ? 1
+        : clamp((now - this.rampStartedAt) / this.rampSeconds, 0, 1);
+    return last.from + (last.target - last.from) * t;
   }
 
   /** The buses this ducker moves. Read by the graph tests and the evidence. */
@@ -148,30 +313,25 @@ export class SidechainDucker implements Ducker {
     const target = this.targets.find((t) => t.id === id);
     if (target === undefined) return false;
     target.base = clamp(base, 0, 1);
-    const multiplier = this.depth > 0 ? dbToGain(this.duckDb) : 1;
+    // EVERY duck in force, not just the voice one (UR-145). A child dragging
+    // the Music knob inside Settings-from-pause is the case: the knob must land
+    // at the level they will hear when the menu closes, which means the write
+    // has to carry the pause reduction the same way it carries the voice one.
+    const multiplier = this.multiplier();
     const now = this.ctx.currentTime;
+    const level = target.base * multiplier;
     target.gain.gain.cancelScheduledValues(now);
-    target.gain.gain.setValueAtTime(target.base * multiplier, now);
-    target.gain.gain.value = target.base * multiplier;
+    target.gain.gain.setValueAtTime(level, now);
+    target.gain.gain.value = level;
+    // The node is AT this level with no ramp in flight, so the next `move`
+    // must anchor here and not on a ramp this write just cancelled.
+    this.committed.set(id, { base: target.base, from: level, target: level });
     return true;
   }
 
   duck(active: boolean): void {
     this.depth = active ? this.depth + 1 : Math.max(0, this.depth - 1);
-    const ducked = this.depth > 0;
-    const rampMs = ducked ? DUCK_ATTACK_MS : DUCK_RELEASE_MS;
-    const multiplier = ducked ? dbToGain(this.duckDb) : 1;
-    const now = this.ctx.currentTime;
-
-    for (const target of this.targets) {
-      const to = target.base * multiplier;
-      target.gain.gain.cancelScheduledValues(now);
-      target.gain.gain.setValueAtTime(target.gain.gain.value, now);
-      target.gain.gain.linearRampToValueAtTime(to, now + rampMs / 1000);
-      // UR-46: remember what was committed, because a real `AudioParam` cannot
-      // be asked afterwards. See `scheduledReductionDb`.
-      this.committed.set(target.id, { base: target.base, target: to });
-    }
+    this.move();
   }
 
   /**
@@ -201,7 +361,10 @@ export class SidechainDucker implements Ducker {
    * catch a ramp that never arrives; this one cannot, and no longer says it can.
    */
   scheduledReductionDb(): Record<string, number> {
-    const wasDucking = this.ducking;
+    // The VOICE depth, not `ducking` (UR-145). `ducking` now also reports a
+    // named duck, and reading it here would leave the probe's own `duck(true)`
+    // un-released for as long as the pause menu happened to be up.
+    const wasDucking = this.depth > 0;
     this.duck(true);
     const out: Record<string, number> = {};
     for (const t of this.targets) {
@@ -218,7 +381,10 @@ export class SidechainDucker implements Ducker {
   }
 
   /** What the last ramp on each bus was aimed at, and where from. */
-  private readonly committed = new Map<BusId, { base: number; target: number }>();
+  private readonly committed = new Map<
+    BusId,
+    { base: number; from: number; target: number }
+  >();
 }
 
 // ---------------------------------------------------------------------------

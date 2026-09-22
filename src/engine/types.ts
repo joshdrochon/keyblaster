@@ -126,6 +126,21 @@ export interface Settings {
   colorblindPalette: boolean;
   /** Opt-in, default off (D43). */
   relativeBoard: boolean;
+  /**
+   * THE PILOT'S DASH COLOUR (UR-123): what Ship Controls is dressed in.
+   *
+   * An OPAQUE ID, never a hex. The engine may not import the game layer, and
+   * the set of colours is a presentation table (`game/ui/dash.DASH_COLORS`) the
+   * same way `avatar` and `shipId` are - so what is stored is a name the
+   * catalogue resolves, and `decodeProfile` bounds it as an id like the other
+   * two rather than validating a colour it has no list for.
+   *
+   * `"amber"` is `INK.accent` to the byte, which is what this screen already
+   * wore before the control existed, so a save made before it opens on exactly
+   * the colour it had. `tests/unit/ui/dash.test.ts` holds this string and the
+   * game layer's `DEFAULT_DASH_COLOR` together.
+   */
+  dashColor: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -140,6 +155,7 @@ export const DEFAULT_SETTINGS: Settings = {
   reducedMotion: false,
   colorblindPalette: false,
   relativeBoard: false,
+  dashColor: "amber",
 };
 
 /** Star rating for a cleared stage, from hull hits (D27, AC-4.4). */

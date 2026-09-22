@@ -434,6 +434,13 @@ export const SETTINGS_CONSOLE = {
   minRowGap: 6,
   /** How far the console face extends past the stack on every side. */
   bezel: 26,
+  /**
+   * How far in from the face's edge a control row starts is NOT here: it is
+   * `controlSurfaceLayout.consoleContentInset()`, because it is a fact about
+   * the console's own furniture (UR-122) and not about this screen. Putting it
+   * beside `bezel` is what made the two the same number by accident, which is
+   * the defect it fixes.
+   */
   /** The gap between the last toggle and the one destructive key. */
   keyGap: 28,
   /** Unused here: the column has no glyph to shrink. Text is NEVER shrunk. */

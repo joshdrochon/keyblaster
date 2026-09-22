@@ -76,11 +76,13 @@ import type { BudgetKnobs, Knobs } from "@engine/controller/knobs.js";
 import { expectedClearMs, observedBiasMs, spawnGapMs } from "@engine/pacing/index.js";
 import { refineCalibration } from "@engine/calibration/index.js";
 import {
+  CANISTER_SPAWN_CHANCE,
   HULL_PASS_COST,
   HULL_STRIKE_COST,
   hullAfterShield,
   hullAfterStrike,
   hullForStage,
+  hullMarksLit,
   isStalled,
   maySpawnCanister,
 } from "@game/flight/shield.js";
@@ -398,6 +400,17 @@ export interface BeltConfig {
    */
   canisters?: boolean;
   /**
+   * Override `CANISTER_SPAWN_CHANCE` for this belt. Measurement only: the
+   * canister rate is the lever the owner's "we have the repair rocks" argument
+   * depends on, so it has to be a number a sweep can move.
+   */
+  canisterChance?: number;
+  /**
+   * How many canisters may be live at once. Measurement only; the shipped rule
+   * (`maySpawnCanister`) is one.
+   */
+  canisterMaxLive?: number;
+  /**
    * Hull marks for this belt. Defaults to `@engine/hull.hullForStage`, i.e. the
    * real rule. A test overrides it ONLY to reproduce the old fixed 3, which is
    * how the D27/D17 defect is shown to be fixed rather than asserted to be.
@@ -514,6 +527,48 @@ export interface BeltResult {
   coresBreached: number;
   /** D101: rocks that reached the ship with the shell still on. */
   shellsBreached: number;
+  /**
+   * AC-5.1/AC-5.2: shield canisters this belt SPAWNED, and how many the pilot
+   * actually typed in time.
+   *
+   * Two numbers, not one, because the repair only happens on the second. A
+   * canister is an ordinary rock with an ordinary fall time: the pilot who
+   * needed it most is the pilot least likely to reach it, so a hull budget that
+   * counts spawns as repairs is counting a rescue that did not arrive. The
+   * difference is what `hullForStage`'s comment block now quotes.
+   */
+  canistersSpawned: number;
+  canistersCleared: number;
+  /**
+   * Marks the belt SUBTRACTED, and marks a canister gave back.
+   *
+   * Neither is derivable from `hull`: `hullAfterShield` rounds the running hull
+   * up to a whole mark before adding one, so a repair on a half-damaged hull is
+   * worth 1.5 marks and not 1, and a belt that stalls stops charging partway
+   * through. "Damage minus repair" is the quantity the hull size is chosen
+   * from, so it is counted where it happens rather than reconstructed.
+   */
+  hullDamage: number;
+  hullRepaired: number;
+  /**
+   * `HULL_PASS_COST`, MEASURED RATHER THAN REASONED ABOUT (C26 follow-up).
+   *
+   * Half-mark damage is real in the arithmetic and invisible on both surfaces
+   * that read `hullMarksLit`, because that function CEILS:
+   *
+   * - `silentHullEvents` - charges to the hull after which `hullMarksLit` did
+   *   not move, so the Lantern (`hullLampLevel`) held its light although the
+   *   ship had just taken damage. Every one of these is a pass-by.
+   * - `canisterGateShutWhileDamaged` - spawn decisions taken with `hull` below
+   *   `maxHull` but reading as a FULL hull, so `maySpawnCanister` refused a
+   *   repair rock over a damaged ship.
+   *
+   * Counted here because the quantity is per-EVENT and cannot be recovered
+   * from the belt's totals: `passedBy` says how many rocks sailed past, not how
+   * many of them the child got no feedback for.
+   */
+  silentHullEvents: number;
+  canisterGateShutWhileDamaged: number;
   /** Hull marks this belt was flown with. */
   maxHull: number;
   /** AC-4.3: the hull emptied and the stage stalled before it finished. */
@@ -707,7 +762,14 @@ export function simulateBelt(
   let nextSpawnAtMs = 0;
   /** When the player last became free; a rock's service starts no earlier. */
   let freeSinceMs = 0;
-  let canisterLive = false;
+  let canistersLive = 0;
+  const canisterCap = Math.max(1, Math.floor(cfg.canisterMaxLive ?? 1));
+  let canistersSpawned = 0;
+  let canistersCleared = 0;
+  let hullDamage = 0;
+  let hullRepaired = 0;
+  let silentHullEvents = 0;
+  let canisterGateShutWhileDamaged = 0;
   let maxDeadMs = 0;
   let deadSinceMs: number | null = null;
   let peakLive = 0;
@@ -824,8 +886,11 @@ export function simulateBelt(
         residuals.push(nowMs - (rock.startedAtMs ?? nowMs) - rock.clearEstimateMs);
       }
       if (rock.isCanister && !cracking) {
+        const before = hull;
         hull = hullAfterShield(hull, maxHull);
-        canisterLive = false;
+        hullRepaired += hull - before;
+        canistersLive = Math.max(0, canistersLive - 1);
+        canistersCleared += 1;
       }
       const spawn = byWord.get(rock.word + rock.spawnedAtMs);
       if (spawn !== undefined) {
@@ -881,7 +946,7 @@ export function simulateBelt(
           }),
         ),
       );
-      if (due.isCanister) canisterLive = false;
+      if (due.isCanister) canistersLive = Math.max(0, canistersLive - 1);
       const spawn = byWord.get(due.word + due.spawnedAtMs);
       if (spawn !== undefined) spawn.clearedAtMs = nowMs;
       breaches += 1;
@@ -921,11 +986,21 @@ export function simulateBelt(
       // `FlightScene.passBy` charges `HULL_PASS_COST` and `FlightScene.strike`
       // charges the nested cost or `HULL_STRIKE_COST`. Both arms charge here,
       // because both arms charge there.
+      const hullBeforeStrike = hull;
       hull = hullAfterStrike(
         hull,
         maxHull,
         passes ? HULL_PASS_COST : (nestedCost ?? HULL_STRIKE_COST),
       );
+      hullDamage += hullBeforeStrike - hull;
+      // The Lantern reads `hullMarksLit`, so a charge that does not move it is
+      // a hit the big damage surface never showed (UR-22, C26 follow-up).
+      if (
+        hull !== hullBeforeStrike &&
+        hullMarksLit(hull, maxHull) === hullMarksLit(hullBeforeStrike, maxHull)
+      ) {
+        silentHullEvents += 1;
+      }
       if (busy !== null && busy.rock === due) {
         busy = null;
         freeSinceMs = nowMs;
@@ -1062,9 +1137,19 @@ export function simulateBelt(
                 calibration,
               }),
             );
+      if (hull < maxHull && hullMarksLit(hull, maxHull) >= maxHull) {
+        // Damaged, and `maySpawnCanister` cannot tell: the repair window AC-5.1
+        // opens on damage stays shut over a ship that has taken half a mark.
+        canisterGateShutWhileDamaged += 1;
+      }
       const isCanister =
-        (cfg.canisters ?? false) && maySpawnCanister(hull, maxHull, canisterLive) && rng() < 0.5;
-      if (isCanister) canisterLive = true;
+        (cfg.canisters ?? false) &&
+        maySpawnCanister(hull, maxHull, canistersLive >= canisterCap) &&
+        rng() < (cfg.canisterChance ?? CANISTER_SPAWN_CHANCE);
+      if (isCanister) {
+        canistersLive += 1;
+        canistersSpawned += 1;
+      }
       const rock: BeltRock = {
         word,
         core: coreWord,
@@ -1189,6 +1274,12 @@ export function simulateBelt(
     breaches,
     blasted,
     spawned,
+    canistersSpawned,
+    canistersCleared,
+    hullDamage,
+    hullRepaired,
+    silentHullEvents,
+    canisterGateShutWhileDamaged,
     durationMs: nowMs,
     maxDeadMs,
     hitRate: spawns.length === 0 ? 1 : blasted / spawns.length,

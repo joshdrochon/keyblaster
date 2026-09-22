@@ -14,6 +14,8 @@ import {
   SHIP_BELOW,
   SHIP_DESIGN_HALF_W,
   SENTENCE_MAX_LINES,
+  sentenceLineCount,
+  sentenceTop,
   SENTENCE_PX,
   SENTENCE_STEP,
   SHIP_HALF_W,
@@ -37,6 +39,7 @@ import {
   instrumentChargedRow,
   instrumentContains,
   instrumentLabelRow,
+  rowMiddle,
   lanternBox,
   lanternStand,
   lanternPlumeBox,
@@ -52,6 +55,7 @@ import {
   plateFooter,
   plateHeight,
 } from "@game/ui/plateLayout";
+import { HEADING_TOP } from "@game/ui/grid";
 import { STEP, TYPE } from "@game/ui/theme";
 import { EDGE_TOLERANCE, legalLefts, offGrid } from "@game/ui/alignment";
 
@@ -223,29 +227,15 @@ describe("the three cards still read as one column", () => {
     }
   });
 
-  it("fit two lines of sentence inside the card", () => {
-    // A composed sentence (D09) can be longer than any shipped one, so the card
-    // has to hold a second line without printing it through the hint. Read off
-    // the rows now rather than off `PANEL.y + 78` and `PANEL.h - 44`, which
-    // were the two literals the card was laid out with before UR-70.
-    //
-    // AND THE SECOND LINE IS REACHABLE, which is why this is not paranoia. The
-    // coach's gate caps a composed sentence at 56 characters
-    // (`engine/coach/sentence.SENTENCE_LIMITS.maxChars`) and this card's
-    // content box is 1648 px, which at the scene's own 0.58-em estimate holds
-    // about 54 - so the reserved line is a case the screen really can reach,
-    // and the card is sized for it whatever the sentence on screen is.
-    //
-    // THE HINT IS NO LONGER THE THING IT MUST CLEAR. It moved to the product's
-    // hint line at the bottom left with the rest of the product's hints, so the
-    // card's own foot is what the second line must stay above. Watched failing
-    // with `SENTENCE_BLOCK` back on `2 * SENTENCE_STEP - SENTENCE_LEADING`:
-    // `expected 445 to be greater than or equal to 453`.
+  it("fits the sentence it actually draws", () => {
+    // UR-165, the owner's call: English only for now, and a card sized for a
+    // line it never draws is 68 px of hole under every sentence in the game.
+    // The longest shipped sentence is Neptune's at 46 characters against a
+    // ~54 character line, so one line is the real case. A composed sentence
+    // that would wrap is refused by `fitsOneLine`, not absorbed by padding.
     const band = sentenceRow();
-    const secondLineBottom = band.y + SENTENCE_STEP + Math.round(SENTENCE_PX * 1.3);
-    expect(bottom(PANEL) - PLATE_RHYTHM.card.padY).toBeGreaterThanOrEqual(
-      secondLineBottom,
-    );
+    const lineBottom = band.y + Math.round(SENTENCE_PX * 1.3);
+    expect(bottom(PANEL) - PLATE_RHYTHM.card.padY).toBeGreaterThanOrEqual(lineBottom);
   });
 
   it("do not overlap each other", () => {
@@ -333,22 +323,27 @@ describe("UR-70: the column is condensed, and the gap is not a function of the s
     // card gap above it went with it: 265 - 31 - 12 = 222. Read off the red run
     // this change produced - `expected 222 to be 265`.
     expect(PANEL.h).toBe(222);
-    expect(PANEL.h).toBeLessThan(265);
   });
 
   it("the three plates are one unit apart, and the column got shorter", () => {
     expect(INSTRUMENT.y - bottom(PANEL)).toBe(PLATE_STACK_GAP);
     expect(COACH.y - bottom(INSTRUMENT)).toBe(PLATE_STACK_GAP);
     // 236..820 before UR-70, 236..808 after its first pass, 236..805 with the
-    // hint still in the card, 236..762 once it left it.
+    // hint still in the card, 236..762 once it left it, 236..795 once the
+    // coach card grew to the 173 its figure actually needs.
     //
-    // 236..795 NOW, and this is the one change in the sequence that made the
-    // column LONGER: the coach card grew from a hand-picked 140 to the 173 its
-    // figure actually needs (see the Shadow block below). Read off the red run
-    // this change produced - `expected 795 to be 762`. The clearance over the
-    // Lantern's band is spent down from 75.6 px to 42.6 px and is still well
-    // over the 32 px floor, which is what this pair of lines is for.
-    expect(bottom(COACH)).toBe(795);
+    // 84..648 NOW, and the 152 px came off the TOP. `PANEL_Y` was
+    // `CONTENT_TOP` (236), which is where content starts on a screen that has
+    // drawn a heading and a subline; this screen's one header line moved into
+    // Shadow's card, so the panel was clearing a header that is not there and
+    // the gap above it was 94 px against a column whose every other gap is 20.
+    // `PANEL_Y` is `HEADING_TOP` (84) now - the line every screen's first
+    // element starts on. Read off the red run this change produced -
+    // `expected 648 to be 795`. The clearance over the Lantern's band goes
+    // from 42.6 px to 189.6, which is what this pair of lines is for.
+    expect(PANEL.y).toBe(HEADING_TOP);
+    expect(PANEL.y).toBe(84);
+    expect(bottom(COACH)).toBe(648);
     expect(shipBandTop() - bottom(COACH)).toBeGreaterThan(32);
   });
 
@@ -492,6 +487,78 @@ describe("UR-70: the column is condensed, and the gap is not a function of the s
 
   it("the lead is one whole vertical unit, so the words stay on a named line", () => {
     expect(chargeLabelX() - instrumentLabelRow().x).toBe(STEP.unit);
+  });
+
+  /**
+   * ============ "BEACON CHARGE" IS CENTRED IN ITS ELEMENT ============
+   *
+   * ================== THE DEFECT ==================
+   * The label row was the literal 32, and one line of `TYPE.label` is 37 in the
+   * language every row in this file is sized for (rule 5: the Devanagari line
+   * box, not the Latin one). So the label was not centred in the space it sits
+   * in - it OVERFLOWED it by 5 px, hanging off the row's bottom edge into the
+   * 8 px the instrument puts between its rows.
+   *
+   * ================== THE FIX IS THE VOCABULARY, NOT A NUDGE ==================
+   * Two halves, and neither is a y with a number added to it. The row is
+   * `lineBox(TYPE.label)`, the way `PANEL_ROWS` has always derived its label
+   * row, so the space IS one line of the type in it; and the scene draws both
+   * ends of the line at `rowMiddle(row)` with `originY: 0.5`, so the ink is
+   * centred at any type size and in any of the three languages. The instrument
+   * pays 5 px for it: 124 -> 129.
+   *
+   * THE BOLT COMES WITH THEM FOR FREE. `boltBesideLabel` centres the mark on
+   * the label's MEASURED bounds, so it follows the words rather than needing a
+   * second correction - which is the property that note was written for.
+   *
+   * ================== WATCHED FAILING (rule 4) ==================
+   * Real printed values, from the red run with the row back at the literal 32:
+   *   gives the charge label a row as tall as a line of its own type
+   *     the label row is 32 and one line of TYPE.label is 37, so the ink hangs
+   *     off it: expected 32 to be 37
+   *   centres the label in that row rather than hanging it from the top
+   *     expected 16 to be 18.5
+   *   and the instrument is exactly its rows plus its rhythm
+   *     expected 124 to be 129
+   */
+  it("gives the charge label a row as tall as a line of its own type", () => {
+    const row = instrumentLabelRow();
+    expect(
+      row.h,
+      `the label row is ${row.h} and one line of TYPE.label is ` +
+        `${lineBox(TYPE.label)}, so the ink hangs off it`,
+    ).toBe(lineBox(TYPE.label));
+  });
+
+  it("centres the label in that row rather than hanging it from the top", () => {
+    const row = instrumentLabelRow();
+    // `rowMiddle` is what the scene draws at, with `originY: 0.5`. Half a line
+    // of type above the middle and half below is the whole claim.
+    expect(rowMiddle(row)).toBe(row.y + row.h / 2);
+    expect(rowMiddle(row) - row.y).toBe(lineBox(TYPE.label) / 2);
+    // The row itself is still where the rhythm puts it: first row, one `padY`
+    // inside the plate. A "centred" label that moved the row would be the same
+    // defect one level up.
+    expect(row.y).toBe(INSTRUMENT.y + PLATE_RHYTHM.instrument.padY);
+    // And the mark rides the words: handed the label's box, the bolt's own
+    // middle is the row's middle too.
+    const bolt = boltBesideLabel({
+      x: chargeLabelX(),
+      y: rowMiddle(row) - row.h / 2,
+      w: 114,
+      h: row.h,
+    });
+    expect(bolt.y + bolt.h / 2).toBe(rowMiddle(row));
+  });
+
+  it("and the instrument is exactly its rows plus its rhythm", () => {
+    // Derived, never picked: 124 was the number this instrument "was already
+    // drawn at", which is how the 32 survived. The track and the charged line
+    // are unchanged at 26 each.
+    expect(INSTRUMENT.h).toBe(
+      plateHeight([lineBox(TYPE.label), 26, 26], "instrument"),
+    );
+    expect(INSTRUMENT.h).toBe(129);
   });
 
   it("the words are still on a line the alignment model names", () => {
@@ -712,7 +779,7 @@ describe("Shadow's card is built round Shadow", () => {
     const at = shadowOrigin();
     const top = at.y - SHADOW_ABOVE_R * SHADOW_R * SHADOW_SCALE;
     const foot = at.y + SHADOW_BELOW_R * SHADOW_R * SHADOW_SCALE;
-    expect(at.y).toBeCloseTo(712.88, 1);
+    expect(at.y).toBeCloseTo(565.88, 1);
     expect(top).toBeGreaterThanOrEqual(innerTop());
     expect(foot).toBeLessThanOrEqual(innerBottom());
     // NOT the old placement, stated as a number so the literal cannot come back.
@@ -757,68 +824,52 @@ describe("Shadow's card is built round Shadow", () => {
   });
 });
 
-describe("the sentence card's reserved second line", () => {
+describe("the sentence card reserves the worst case and centres in it (UR-175)", () => {
   /**
-   * ================== THE REPORT, AND THE MEASUREMENT ==================
-   * The project owner reported the sentence card as too big for the sentences
-   * it holds. It is, and the slack is entirely the reserved second line.
+   * THE OWNER'S CALL, MADE AFTER THE MEASUREMENT BELOW WAS PUT IN FRONT OF
+   * THEM: English only for now, and elements size to their content.
    *
-   * MEASURED IN THE SERVED BUILD, every belted stop, both letter-spacing
-   * settings - twelve screens, read off the live `Text` objects' bounds:
+   * Measured in the served build, every belted stop, both letter-spacing
+   * settings - twelve screens, read off the live `Text` objects' bounds: all
+   * twelve lay out in ONE line, 60.2 px of ink, in a band reserving 149. The
+   * card carried 88.8 px it never drew anywhere.
    *
-   *   stop       lines   ink top   ink bottom   ink height
-   *   mars         1       297        357.2        60.2
-   *   jupiter      1       297        357.2        60.2
-   *   saturn       1       297        357.2        60.2
-   *   uranus       1       297        357.2        60.2
-   *   neptune      1       297        357.2        60.2
-   *   pluto        1       297        357.2        60.2
+   * The 68 px of that which was the reserved line is now gone. The remaining
+   * ~21 px is `lineBox`'s Devanagari metric, which is global to every plate in
+   * the game and is not this file's to change.
    *
-   * Identical with D41's increased letter spacing on: the setting widens the
-   * line, and none of the six comes near the 1648 px content box, so nothing
-   * wraps. 60.2 px of ink in a 149 px band - the card carries 88.8 px it never
-   * draws on any of the twelve.
-   *
-   * ================== AND IT STILL CANNOT SHRINK ==================
-   * Because the 149 IS the two lines: `(2 - 1) * SENTENCE_STEP + lineBox(52)`,
-   * 68 + 81. There is no third thing in the band to take, which is what this
-   * case exists to say - a one-line card would be 154 and the 68 px saved is
-   * exactly the reserved line, not padding beside it.
-   *
-   * Dropping it is a change to D09's composed-sentence behaviour and not this
-   * lane's to make; it is in gauntlet/escalations.md with the numbers and a
-   * lean. `SENTENCE_MAX_LINES` is asserted here so it cannot be quietly
-   * lowered instead.
-   *
-   * WATCHED FAILING, with `SENTENCE_MAX_LINES` set to 1 - the real printed
-   * values, and note how far the damage reaches for one number:
-   *   reserves exactly one extra line and nothing beside it
-   *     expected 1 to be 2
-   *   is the whole of the card's slack, and nothing else
-   *     expected 154 to be 222
-   *   fit two lines of sentence inside the card
-   *     expected 378 to be greater than or equal to 433
-   *   the three plates are one unit apart, and the column got shorter
-   *     expected 727 to be 795
-   *   stands him so the DRAWING is centred, not his origin
-   *     expected 644.8768 to be close to 712.88, received difference is
-   *     68.00319999999999, but expected 0.05
+   * A composed sentence (D09) is the only string that can exceed one line.
+   * `fitsOneLine` refuses to swap one in, which is the third case of
+   * `useComposedSentence`'s existing "may not be swapped" rule.
    */
-  it("reserves exactly one extra line and nothing beside it", () => {
+  it("reserves two lines so a composed sentence cannot resize the card", () => {
+    // A composed sentence (D09) arrives from the coach a moment after the
+    // screen opens. Sizing the card to the sentence on screen would resize it
+    // under the child; refusing the long ones cost the feature instead.
     expect(SENTENCE_MAX_LINES).toBe(2);
-    const oneLine = plateHeight([lineBox(TYPE.label), lineBox(SENTENCE_PX)], "card");
-    expect(PANEL.h - oneLine).toBe(SENTENCE_STEP);
-    expect(sentenceRow().h - lineBox(SENTENCE_PX)).toBe(SENTENCE_STEP);
+    expect(PANEL.h).toBe(222);
   });
 
-  it("is the whole of the card's slack, and nothing else", () => {
-    // 222 today, 154 with the reserve gone. The difference is one 68 px step,
-    // so there is no smaller card available that keeps two lines.
-    expect(PANEL.h).toBe(222);
-    expect(plateHeight([lineBox(TYPE.label), lineBox(SENTENCE_PX)], "card")).toBe(154);
-    // The gate that makes the second line reachable, restated from
-    // `engine/coach/sentence.ts`: 56 characters at the scene's own 0.58-em
-    // estimate is 1697 px, which does not fit the 1648 px content box.
+  it("centres the block, so a one-line sentence has padding and not a hole", () => {
+    const band = sentenceRow();
+    const oneLine = sentenceTop(1);
+    const twoLine = sentenceTop(2);
+    expect(twoLine).toBe(band.y);
+    expect(oneLine).toBeGreaterThan(band.y);
+    // Equal above and below: that is what makes it read as padding.
+    const used = lineBox(SENTENCE_PX);
+    expect(oneLine - band.y).toBeCloseTo(band.y + band.h - (oneLine + used), 6);
+  });
+
+  it("counts lines the way the scene lays them out", () => {
+    expect(sentenceLineCount("Mars is the red planet.")).toBe(1);
+    expect(sentenceLineCount("Neptune is deep blue and very far from the sun.")).toBe(1);
+    expect(
+      sentenceLineCount("the quick brown fox jumped over the lazy dog and kept on going"),
+    ).toBe(2);
+  });
+
+  it("still knows where the line runs out", () => {
     const contentW = plateContent(PANEL, "card").w;
     expect(contentW).toBe(1648);
     expect(56 * SENTENCE_PX * 0.58).toBeGreaterThan(contentW);

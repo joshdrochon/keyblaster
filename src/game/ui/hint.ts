@@ -74,8 +74,14 @@ export const SCREEN_HINTS: readonly ScreenHint[] = [
   {
     file: "ProfilePickerScene.ts",
     placement: "grid",
-    hintKey: "ui.common.hintKeys",
-    actionKeys: ["common.back"],
+    hintKey: "ui.pick.hint",
+    actionKeys: ["common.back", "ui.pick.newPilot"],
+    note:
+      "UR-146. The picker's line is its OWN key because Delete removes a pilot " +
+      "on this screen and does nothing on the three others that render " +
+      "`ui.common.hintKeys`. The row names the longer of the two lines this " +
+      "scene can draw: the empty hangar falls back to the shared one, since " +
+      "with no pilots on screen there is nobody to remove.",
   },
   {
     file: "ProfileCreateScene.ts",
@@ -160,10 +166,16 @@ export const SCREEN_HINTS: readonly ScreenHint[] = [
   },
   {
     file: "WarpScene.ts",
-    placement: "grid",
-    hintKey: "warp.hint",
+    placement: "none",
+    hintKey: null,
     actionKeys: [],
-    note: "no button: the sentence is the control.",
+    note:
+      "the screen said the same thing twice: a banner across the top of the " +
+      "frame and this line at the foot, with Shadow's card empty between them " +
+      "until his note arrived. Both are one line in that card now " +
+      "(`warp.coachIntro`), which is where a child is already looking, and a " +
+      "grid line repeating it is rule 1's defect with a card in place of a " +
+      "button. `warp.hint` is kept unused in `scenes/support/copy.ts`.",
   },
   {
     file: "BeaconScene.ts",
@@ -202,8 +214,13 @@ export const HINT_STOPWORDS: ReadonlySet<string> = new Set([
   "a", "an", "and", "at", "for", "from", "in", "is", "it", "of", "on", "or",
   "that", "the", "this", "to", "with", "you", "your",
   // key names - what a hint exists to say
-  "arrows", "backspace", "down", "enter", "esc", "escape", "key", "keys",
-  "left", "press", "return", "right", "space", "tab", "up",
+  //
+  // UR-144 added "arrow". The list had the plural only, so the moment the copy
+  // sweep wrote "Arrow Keys to Move" the singular became a SIGNIFICANT word and
+  // a key name started counting as something a hint teaches - which is the one
+  // thing this list exists to prevent.
+  "arrow", "arrows", "backspace", "delete", "down", "enter", "esc", "escape",
+  "key", "keys", "left", "press", "return", "right", "space", "tab", "up",
 ]);
 
 /** A label's words, lowercased, punctuation stripped, stopwords dropped. */

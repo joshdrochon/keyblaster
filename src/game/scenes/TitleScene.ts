@@ -39,7 +39,7 @@ import { SHIPPED_LANGS } from "../../engine/i18n/index.js";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
 import { DUR, INK, SKY_PLATE, SPACE, STEP, TYPE, chromeCase } from "@game/ui/theme";
 import { paintFocusRing, paintPlate } from "@game/ui/plate";
-import { POP_NAME_PREFIX, focusPopScale, focusPopShift } from "@game/ui/focusPop";
+import { focusArrive, focusPopScale, focusPopShift, focusPulse, POP_NAME_PREFIX } from "@game/ui/focusPop";
 import { skyText, skyTextSamples, type SceneSnapshot } from "./lib/kit.js";
 import { WORDMARK_X, WORDMARK_Y, titleKeepClear } from "./support/titleLayout.js";
 import {
@@ -261,6 +261,21 @@ export class TitleScene extends Phaser.Scene {
   private popTweens = new Map<string, Phaser.Tweens.Tween>();
   private focusRing!: Phaser.GameObjects.Graphics;
   /**
+   * THE RING'S ARRIVAL AND ITS BREATH (UR-113).
+   *
+   * This screen had NEITHER. `drawFocusRing` clears and repaints every frame
+   * and never touched alpha, so the home screen - the first screen anybody
+   * sees, and the one the owner reported - drew a ring that snapped between
+   * items at a flat alpha while every other screen in the game faded onto the
+   * new control and then breathed. Held as fields for the same reason the pops
+   * are: two tweens writing `alpha` at once is a ring that flickers, so the
+   * arrival owns the first `DUR.focus` ms and hands over when it is done.
+   */
+  private ringArriveTween: Phaser.Tweens.Tween | null = null;
+  private ringPulseTween: Phaser.Tweens.Tween | null = null;
+  /** Calm motion suppresses the breath, never the arrival (D41, AC-19.3). */
+  private reducedMotion = false;
+  /**
    * THE CHROME ACCENT IS FIXED (UR-49, coding-standards rule 1).
    *
    * `readonly`, and that is the fix rather than a detail of it. This used to be
@@ -329,6 +344,13 @@ export class TitleScene extends Phaser.Scene {
       // (+5, -8, +11, -15) that runs at any world speed, so the planes marched
       // across the frame while the comment next to them said they did not.
       crossDrift: false,
+      // UR-152: the sun is the lockup's light source, so it holds still behind
+      // it. `celestial` scrolls at worldSpeed otherwise and walks into the mark.
+      pin: ["celestial"],
+      // UR-153: top right, fully in frame - clear of the wordmark and above the
+      // ship's nose. Only the DISC moves; rim lighting still reads from
+      // `lightPositionOf`, so the two disagree on this screen by choice.
+      lightNudge: { x: 0.621, y: -0.09 },
       seed: 0x1a17e,
       keepClear: textKeepClear,
     });
@@ -361,6 +383,12 @@ export class TitleScene extends Phaser.Scene {
     hud.add(mark.root);
 
     // --- menu -------------------------------------------------------------
+    // Phaser builds a scene ONCE and re-runs `create` on the same instance, so
+    // the handles from the previous visit are stale objects on a dead display
+    // list. Cleared here rather than only on shutdown.
+    this.reducedMotion = context.reducedMotion;
+    this.ringArriveTween = null;
+    this.ringPulseTween = null;
     this.focusRing = this.add.graphics();
     hud.add(this.focusRing);
 
@@ -432,6 +460,10 @@ export class TitleScene extends Phaser.Scene {
     }
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.ringArriveTween?.remove();
+      this.ringArriveTween = null;
+      this.ringPulseTween?.remove();
+      this.ringPulseTween = null;
       this.lantern.destroy();
       this.parallax.destroy();
     });
@@ -867,7 +899,10 @@ export class TitleScene extends Phaser.Scene {
       this.ringBox(item),
       this.accent,
       {
-        offset: item.id === "primary" ? FOCUS_PAD : 0,
+        // The quiet row's ring used to be struck at 0, i.e. ON its own plate
+        // edge, so half the stroke was hidden behind it and it read as thinner
+        // than every other control's. The app's stand-off shows all 4 px.
+        offset: item.id === "primary" ? FOCUS_PAD : SPACE.focusRingOffset,
         radius: item.id === "primary" ? SPACE.radiusCard : SPACE.radius,
       },
     );
@@ -921,10 +956,56 @@ export class TitleScene extends Phaser.Scene {
     );
   }
 
+  /**
+   * Fade the ring onto the item that has just taken focus, then breathe.
+   *
+   * The same two steps, from the same two specs, as `scenes/lib/kit`'s ring and
+   * `ui/chrome.FocusRing` - `ui/focusPop.focusArrive` then `focusPulse`. The
+   * breath belongs to the item the ring is ON, so it stops when the ring leaves
+   * and starts again on arrival; a ring mid-exhale on the item it is leaving is
+   * the defect the other two kits already fixed.
+   */
+  private animateFocusRing(): void {
+    this.ringArriveTween?.remove();
+    this.ringArriveTween = null;
+    this.ringPulseTween?.remove();
+    this.ringPulseTween = null;
+    const pulse = focusPulse(this.reducedMotion);
+    const breathe = (): void => {
+      if (pulse === null) {
+        // FULL STRENGTH, never the low end of the breath: a calm-motion player
+        // loses the movement and keeps every static cue there is.
+        this.focusRing.setAlpha(1);
+        return;
+      }
+      this.ringPulseTween = this.tweens.add({
+        targets: this.focusRing,
+        alpha: { from: pulse.alpha.from, to: pulse.alpha.to },
+        duration: pulse.duration,
+        ease: pulse.ease,
+        yoyo: pulse.yoyo,
+        repeat: pulse.repeat,
+      });
+    };
+    const arrive = focusArrive();
+    this.focusRing.setAlpha(arrive.alpha.from);
+    this.ringArriveTween = this.tweens.add({
+      targets: this.focusRing,
+      alpha: arrive.alpha.to,
+      duration: arrive.duration,
+      ease: arrive.ease,
+      onComplete: () => {
+        this.ringArriveTween = null;
+        breathe();
+      },
+    });
+  }
+
   private setFocus(index: number): void {
     this.focusIndex = index;
     const item = this.items[index];
     this.drawFocusRing();
+    this.animateFocusRing();
     // Every item is told, and exactly one is told true - so two items can never
     // both be grown however fast the pointer moves, and an item that loses
     // focus comes down at the same instant the next one goes up.

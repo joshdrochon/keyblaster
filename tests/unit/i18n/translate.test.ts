@@ -59,9 +59,21 @@ describe("string tables (FR-14, D45)", () => {
   });
 
   it("C07: the ship is referred to as {shipName} where it is named at all", () => {
-    expect(EN["briefing.shipReady"]).toContain("{shipName}");
-    expect(ES["briefing.shipReady"]).toContain("{shipName}");
-    expect(HI["briefing.shipReady"]).toContain("{shipName}");
+    // MOVED OFF `briefing.shipReady` (C27). That line now addresses the PILOT
+    // by name - "{pilotName}, our ship is fuelled and ready." - because the
+    // ship-name beat of profile creation is switched off
+    // (`support/createFlow.ENABLED_CREATE_STEPS`) while the pilot beat is on,
+    // so `{shipName}` there only ever rendered the default. `results.shipIntact`
+    // still carries it, and carries this claim with it.
+    expect(EN["results.shipIntact"]).toContain("{shipName}");
+    expect(ES["results.shipIntact"]).toContain("{shipName}");
+    expect(HI["results.shipIntact"]).toContain("{shipName}");
+  });
+
+  it("C27: the briefing addresses the pilot by the name they typed", () => {
+    expect(EN["briefing.shipReady"]).toContain("{pilotName}");
+    expect(ES["briefing.shipReady"]).toContain("{pilotName}");
+    expect(HI["briefing.shipReady"]).toContain("{pilotName}");
   });
 });
 
@@ -132,8 +144,8 @@ describe("createTranslator", () => {
 
   it("resolves Hindi and interpolates the ship name (C07)", () => {
     const t = createTranslator({ lang: "hi", mode: "dev" });
-    expect(t.t("briefing.shipReady", { shipName: "दीप" })).toContain("दीप");
-    expect(t.t("briefing.shipReady", { shipName: "दीप" })).not.toContain("{");
+    expect(t.t("results.shipIntact", { shipName: "दीप" })).toContain("दीप");
+    expect(t.t("results.shipIntact", { shipName: "दीप" })).not.toContain("{");
   });
 
   it("has() reports only own-language coverage", () => {
@@ -144,7 +156,7 @@ describe("createTranslator", () => {
 
   it("raw() returns the uninterpolated template, or null", () => {
     const t = createTranslator({ lang: "es", mode: "prod", tables: PARTIAL });
-    expect(t.raw("briefing.shipReady")).toBe(EN["briefing.shipReady"]);
+    expect(t.raw("results.shipIntact")).toBe(EN["results.shipIntact"]);
     expect(t.raw("nope.at.all" as StringKey)).toBeNull();
   });
 });
@@ -172,17 +184,17 @@ describe("C07: {shipName} is bound once, not at every call site", () => {
   });
 
   it("C07: the bound ship name reaches the copy", () => {
-    expect(forProfile("Faro").t("briefing.shipReady")).toBe(
-      "The Faro is fuelled and ready.",
+    expect(forProfile("Faro").t("results.shipIntact")).toBe(
+      "The Faro came through without a scratch.",
     );
     expect(forProfile("Faro", "es").t("results.shipIntact")).toContain("Faro");
-    expect(forProfile("दीप", "hi").t("briefing.shipReady")).toContain("दीप");
+    expect(forProfile("दीप", "hi").t("results.shipIntact")).toContain("दीप");
   });
 
   it("C07: a call-site param overrides the bound default", () => {
     expect(
-      forProfile("Faro").t("briefing.shipReady", { shipName: "Lantern" }),
-    ).toBe("The Lantern is fuelled and ready.");
+      forProfile("Faro").t("results.shipIntact", { shipName: "Lantern" }),
+    ).toBe("The Lantern came through without a scratch.");
   });
 
   it("C07: the default ship name is itself an i18n key, not a literal", () => {
@@ -211,7 +223,7 @@ describe("C07: {shipName} is bound once, not at every call site", () => {
       tables: partial,
       defaults: { shipName: "Faro" },
     });
-    expect(t.t("briefing.shipReady")).toBe("The Faro is fuelled and ready.");
+    expect(t.t("results.shipIntact")).toBe("The Faro came through without a scratch.");
   });
 });
 
@@ -278,14 +290,14 @@ describe("missing-key policy (FR-14)", () => {
 
   it("prod leaves an unsupplied placeholder readable, not 'undefined'", () => {
     const t = createTranslator({ lang: "en", mode: "prod" });
-    expect(t.t("briefing.shipReady")).toContain("{shipName}");
-    expect(t.t("briefing.shipReady")).not.toContain("undefined");
+    expect(t.t("results.shipIntact")).toContain("{shipName}");
+    expect(t.t("results.shipIntact")).not.toContain("undefined");
   });
 
   it("the English fallback is still interpolated", () => {
     const t = createTranslator({ lang: "es", mode: "prod", tables: PARTIAL });
-    expect(t.t("briefing.shipReady", { shipName: "Lantern" })).toBe(
-      "The Lantern is fuelled and ready.",
+    expect(t.t("results.shipIntact", { shipName: "Lantern" })).toBe(
+      "The Lantern came through without a scratch.",
     );
   });
 });

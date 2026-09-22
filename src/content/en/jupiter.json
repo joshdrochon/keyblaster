@@ -134,6 +134,7 @@
   "activationWord": null,
   "warpSentence": "Jupiter is the biggest planet of all.",
   "beaconHeadline": "Jupiter Beacon",
-  "beaconState": "placed",
-  "beaconFlavor": "Big enough to hide the whole map. We found it anyway."
+  "beaconState": "lit",
+  "beaconFlavor": "Big enough to hide the whole map. We found it anyway.",
+  "beaconSpoken": "Jupiter Beacon, lit. Big enough to hide the whole map. We found it anyway."
 }

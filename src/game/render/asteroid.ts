@@ -1,4 +1,5 @@
 // TYPE-ONLY, and it matters. Nothing in this file calls into Phaser at runtime -
+import { INK } from "@game/ui/theme";
 // every drawing entry point is handed the Graphics or the Scene it draws on - so
 // importing the namespace as a value was the only thing that made this module
 // unloadable in Vitest ("window is not defined"). With the import erased, the
@@ -873,6 +874,9 @@ export const CANISTER_BAND_HALF_W = 0.14;
 /** Alpha of the accent band. Unchanged; the fix is where it is, not how strong. */
 export const CANISTER_BAND_ALPHA = 0.85;
 
+/** Halo rings around the canister's marker (UR-157). */
+export const CANISTER_GLOW_RINGS = 10;
+
 export function drawShieldCanister(
   g: Phaser.GameObjects.Graphics,
   options: DebrisDrawOptions & { readonly accent: string },
@@ -881,9 +885,20 @@ export function drawShieldCanister(
   const radius = options.sizePx / 2;
   const accent = hexToInt(options.accent);
 
-  g.lineStyle(Math.max(2, options.sizePx * 0.05), accent, 0.9);
+  // UR-157: GOLD, not the stop's accent. At Mars the accent is the same orange
+  // as the sky and the rock, which is why the marker was hard to pick out. Gold
+  // is the product's reward ink and reads on all seven skies.
+  const ring = hexToInt(INK.accent);
+  // A soft halo outside each ring, widest and faintest first, so the marker
+  // glows rather than just being a thicker line.
+  for (let i = CANISTER_GLOW_RINGS - 1; i >= 0; i -= 1) {
+    const t = i / (CANISTER_GLOW_RINGS - 1);
+    g.lineStyle(options.sizePx * 0.06 * (1 + t), ring, 0.1 * (1 - t) ** 2);
+    g.strokeCircle(0, 0, radius * (0.62 + t * 0.34));
+  }
+  g.lineStyle(Math.max(3, options.sizePx * 0.07), ring, 1);
   g.strokeCircle(0, 0, radius * 0.62);
-  g.lineStyle(Math.max(1, options.sizePx * 0.03), accent, 0.55);
+  g.lineStyle(Math.max(2, options.sizePx * 0.045), ring, 0.75);
   g.strokeCircle(0, 0, radius * 0.86);
 
   const strapW = radius * CANISTER_BAND_HALF_W * 2;

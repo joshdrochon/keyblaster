@@ -305,10 +305,10 @@ export class HudScene extends Phaser.Scene {
    * D31: THREE marks that dim. Never a bar, never a counter of what was lost.
    *
    * THREE, and not one per hull mark, now that the hull scales with stage
-   * length (`@engine/hull`: a 58-word belt carries nine). Nine pips in a row on
-   * the HUD is a lives counter, which AC-22b.1 forbids by name, and it would
-   * have arrived as a side effect of a difficulty fix rather than as anybody's
-   * decision about the surface.
+   * length (`@engine/hull`: a 58-word belt carries six, C26). A pip per mark is
+   * a lives counter, which AC-22b.1 forbids by name, and it would have arrived
+   * as a side effect of a difficulty fix rather than as anybody's decision
+   * about the surface.
    *
    * So the three marks stay and each one is a THIRD of the hull. That is the
    * same division the star rating uses (`starsForHullHits`), so what the child
@@ -341,9 +341,10 @@ export class HudScene extends Phaser.Scene {
     /**
      * UR-22, the corner's half of it.
      *
-     * The marks still dim by a third of a hit, because three marks over a
-     * nine-mark hull is the division `starsForHullHits` uses and changing it
-     * would make the stage and its results screen disagree. What was missing is
+     * The marks still dim by a fraction of a hit, because three marks over the
+     * stage's own hull is the division `starsForHullHits` uses and changing it
+     * would make the stage and its results screen disagree. At the shipped six
+     * marks each hit is half a mark on the HUD, where at nine it was a third. What was missing is
      * that a fraction of a fade on a 16 px square is not an event: the player
      * reported the hull as taking infinite damage because nothing on screen
      * MOVED when it was hit.

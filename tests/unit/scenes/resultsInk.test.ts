@@ -11,6 +11,7 @@ import {
   type TextSample,
 } from "@engine/contrast/index.js";
 import { PALETTE_STOP_IDS, paletteAt, skyStops } from "@game/render/palette";
+import { ACTION_INK } from "@game/ui/plate";
 import { INK, SKY_PLATE } from "@game/ui/theme";
 
 /**
@@ -62,8 +63,17 @@ const SKY_SURFACE = compositeOver(SKY_PLATE.fill, SKY_PLATE.alpha, WORST_CASE_SK
  */
 const PANEL_ALPHA = 1;
 const PANEL_SURFACE = compositeOver(INK.panel, PANEL_ALPHA, WORST_CASE_SKY);
-const BUTTON_FILL = "#32445E";
-const BUTTON_STROKE = "#5A7195";
+/**
+ * THE BUTTON SURFACES, IMPORTED RATHER THAN RETYPED (UR-112).
+ *
+ * These were three hexes copied out of `ResultsScene.ts` into this file, which
+ * is how a test comes to measure a pair the screen has stopped drawing. They
+ * are `ui/plate.ACTION_INK` now, so the numbers here move when the component
+ * moves and this file cannot pass green about a colour nobody paints.
+ */
+/** The Title's primary is still an accent plate with dark ink on it - see the
+ * report for UR-112: that screen is the one action button NOT yet on
+ * `ACTION_INK`, and this is the pair it draws. */
 const BUTTON_INK = INK.panelSunken;
 
 function sample(
@@ -106,17 +116,15 @@ function inventory(stop: (typeof PALETTE_STOP_IDS)[number], colorblind: boolean)
     p("results.faster.word", INK.text),
     p("results.retention.heading", accent),
     p("results.retention.line", INK.text),
-    p("results.board.heading", accent),
-    p("results.board.prompt", INK.text),
-    p("results.board.empty", INK.textDim),
-    p("results.board.row", INK.text),
-    p("results.board.you", accent),
 
     // --- on a button surface ---------------------------------------------
-    sample("results", "results.replay", INK.text, BUTTON_FILL),
-    sample("results", "results.board.yes", INK.text, BUTTON_FILL),
-    sample("results", "results.board.no", INK.text, BUTTON_FILL),
-    sample("results", "results.continue", BUTTON_INK, accent),
+    // THE STAGE REPORT'S BUTTONS ARE NO LONGER THEMED (UR-112). `continue` was
+    // `INK.panelSunken` on the STOP ACCENT - a pair that measured fine as text
+    // and made the gold focus ring invisible, because `INK.accent` on the Earth
+    // accent is 1.00:1. Both emphases are `ACTION_INK` now and both labels are
+    // `ACTION_INK.label`, so there is one pair here instead of two.
+    sample("results", "results.replay", ACTION_INK.label, ACTION_INK.secondaryFill),
+    sample("results", "results.continue", ACTION_INK.label, ACTION_INK.primaryFill),
 
     // --- the Title -------------------------------------------------------
     sample("title", "title.tagline", INK.textDim, SKY_SURFACE),
@@ -191,27 +199,51 @@ describe("results + title ink clears 4.5:1 on the surface it sits on", () => {
 });
 
 describe("a button on the stage report reads as pressable", () => {
-  it("has a surface and a border that separate it from the panel behind it", () => {
-    // THE DEFECT: the button plate was INK.panelRaised on an INK.panel panel -
-    // 1.08:1, which is no edge at all - with the label in the stop accent, so
-    // the whole control read as disabled text rather than as a thing to press.
+  it("has a surface you can see against the sky it sits on", () => {
+    // THE ORIGINAL DEFECT: the button plate was INK.panelRaised on an INK.panel
+    // panel - 1.08:1, which is no edge at all - with the label in the stop
+    // accent, so the whole control read as disabled text rather than as a thing
+    // to press.
     expect(contrastRatio(INK.panelRaised, INK.panel)).toBeLessThan(1.2);
 
-    // The fix: a lifted fill you can see, and a border you can definitely see.
-    expect(contrastRatio(BUTTON_FILL, PANEL_SURFACE)).toBeGreaterThan(1.5);
-    expect(contrastRatio(BUTTON_STROKE, PANEL_SURFACE)).toBeGreaterThan(3);
+    // WHAT CHANGED IN UR-112. These buttons are drawn BELOW the panels, on the
+    // stop's own sky, so the surface that matters is the sky and not the panel.
+    // Both emphases clear it comfortably at the brightest sky in the game,
+    // which is what the old lifted blue was buying against the panel.
+    expect(contrastRatio(ACTION_INK.primaryFill, WORST_CASE_SKY)).toBeGreaterThan(3);
+    expect(contrastRatio(ACTION_INK.secondaryFill, WORST_CASE_SKY)).toBeGreaterThan(3);
   });
 
-  it("makes the primary action the filled one", () => {
-    // Continue is a filled accent button and replay is an outlined one, so
-    // which action the screen expects is legible before the ring lands on it.
+  it("lets the FOCUS RING say which action the screen expects", () => {
+    // THE REVERSAL (UR-112). This used to assert that `continue` was a filled
+    // STOP-ACCENT button - "which action the screen expects is legible before
+    // the ring lands on it". It was, and it cost the ring: the owner reported
+    // that this screen's buttons "do not have the right yellow outline", and
+    // `INK.accent` on the Earth accent is 1.00:1.
+    //
+    // Emphasis is the ring's job now. The ring opens on the forward action
+    // (AC-18.1, `tests/e2e/default-focus.spec.ts`), so it is ALWAYS on one of
+    // these two, and what this file has to prove is that it can be seen there.
     for (const stop of PALETTE_STOP_IDS) {
       for (const colorblind of [false, true]) {
         const accent = paletteAt(stop, colorblind).accent;
-        expect(contrastRatio(accent, BUTTON_FILL), stop).toBeGreaterThan(3);
-        expect(contrastRatio(BUTTON_INK, accent), stop).toBeGreaterThanOrEqual(
-          TEXT_MIN_CONTRAST,
-        );
+        // The old treatment, as the negative control: a button wearing the
+        // stop accent cannot show a gold ring.
+        expect(contrastRatio(INK.accent, accent), `${stop} accent-filled`).toBeLessThan(3);
+        // The new one, at both emphases.
+        expect(
+          contrastRatio(INK.accent, ACTION_INK.primaryFill),
+          `${stop} primary`,
+        ).toBeGreaterThan(3);
+        expect(
+          contrastRatio(INK.accent, ACTION_INK.secondaryFill),
+          `${stop} secondary`,
+        ).toBeGreaterThan(3);
+        // The label still reads, which is what this file is for.
+        expect(
+          contrastRatio(ACTION_INK.label, ACTION_INK.primaryFill),
+          stop,
+        ).toBeGreaterThanOrEqual(TEXT_MIN_CONTRAST);
       }
     }
   });

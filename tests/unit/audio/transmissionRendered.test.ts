@@ -161,7 +161,7 @@ describe("UR-91: a whole briefing stays inside the belt's budget", () => {
    *   AssertionError: tick vs quietest key press:
    *   expected 0.18080022931098938 to be less than 0.12420383840799332
    */
-  it("a tick lands between a typo and a key press, rendered", () => {
+  it("a tick stays under a key press, rendered", () => {
     const tick = peak(renderOneTick().all);
 
     const loudest = (event: "keystroke" | "typo"): { lo: number; hi: number } => {
@@ -180,10 +180,10 @@ describe("UR-91: a whole briefing stays inside the belt's budget", () => {
       return { lo: Math.min(...peaks), hi: Math.max(...peaks) };
     };
 
-    // D31: the mistyped key stays the quietest sound in the game, and this
-    // does not become the exception that makes that rule untrue.
-    expect(tick, "tick vs loudest typo").toBeGreaterThan(loudest("typo").hi);
-    // ...and it is never mistaken for the player's own keyboard.
+    // UR-170: the typo cue is no longer the quietest thing in the game - the
+    // owner raised it because it could not be heard mid-belt. The half of this
+    // that still holds, and is what the tick is for, is that it is never
+    // mistaken for the player's own keyboard.
     expect(tick, "tick vs quietest key press").toBeLessThan(loudest("keystroke").lo);
   });
 

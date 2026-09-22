@@ -86,6 +86,89 @@ export const PANEL = {
 export const SHADOW_ALPHA = 0.45;
 
 // ---------------------------------------------------------------------------
+// The dash colour: the one thing on this panel the PILOT chooses (UR-123)
+// ---------------------------------------------------------------------------
+
+/**
+ * HOW HARD THE DASH COLOUR IS ALLOWED TO PUSH ON THE METAL.
+ *
+ * ================== WHY THERE IS A NUMBER AT ALL ==================
+ * The dash colour has to be VISIBLE on the dashboard or it is not a dash
+ * colour, and it has to not cost this panel AC-22.8 or it is a defect wearing a
+ * feature's coat. Those pull in opposite directions and the number is where
+ * they meet, so it is derived rather than picked: `LIT_MIX` is the largest
+ * blend at which EVERY colour in the shipped dash set still clears 4.5:1
+ * against BOTH `labelInk` answers, measured as a cross product in
+ * `tests/unit/ui/cockpit.test.ts` with a negative control beside it.
+ *
+ * MEASURED, and the first guess was wrong by a factor of two. `INK.textDim` is
+ * the weaker of the two label inks and reads 6.09:1 on the untinted lit band;
+ * every dash colour in the set is LIGHTER than `PANEL.faceLit`, so mixing one
+ * in raises the surface toward the ink and the ratio falls. Swept over the six
+ * shipped colours, worst cell:
+ *
+ *   mix    0.06  0.08  0.09  0.10  0.11  0.12  0.13
+ *   worst  5.23  5.01  4.86  4.73  4.59  4.47  4.39
+ *
+ * 0.11 is the LAST value that clears 4.5 and 0.12 is the first that does not
+ * (lime, 4.468). So 0.10 ships - one step below the cliff rather than on it, so
+ * a seventh colour has somewhere to land - and the number is a measurement
+ * rather than a preference. The test asserts the BAR and not the blend, so
+ * quieting the tint is free and pushing it is red.
+ *
+ * ================== WHY THE LIGHT AND NOT THE PAINT ==================
+ * The tint goes on the CABIN LIGHT falling across the top of the face and on
+ * the engraved seam under it - the two marks on this surface that describe the
+ * light rather than the metal. Repainting the face itself would have been the
+ * obvious move and it is the wrong one twice: `PANEL.face` is the surface
+ * `TEXT_SURFACES` measures every label against, and a console whose metal
+ * changes colour stops being one milled object (`PANEL`'s own four-value rule).
+ * A dashboard lit in your colour is a dashboard; a dashboard painted in your
+ * colour is a toy.
+ */
+export const DASH = {
+  /** How much of the dash colour the top-lit band carries. */
+  litMix: 0.1,
+  /** The engraved seam under that light carries more: it is a line, not a field. */
+  seamMix: 0.5,
+} as const;
+
+/** One channel of a hex colour, 0..255. */
+function channel(hex: string, i: number): number {
+  return Number.parseInt(hex.replace("#", "").slice(i * 2, i * 2 + 2), 16);
+}
+
+/**
+ * Mix `b` into `a` by `t`, in sRGB, and return a hex string.
+ *
+ * sRGB rather than linear light on purpose: the result is handed to
+ * `contrast()` and to `lightness()`, both of which take a hex and do their own
+ * linearisation, so mixing in linear here would measure one colour and draw
+ * another. The value this returns IS the value the pen is given.
+ */
+export function blendHex(a: string, b: string, t: number): string {
+  const k = Math.min(1, Math.max(0, t));
+  const mix = (i: number): string =>
+    Math.round(channel(a, i) + (channel(b, i) - channel(a, i)) * k)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${mix(0)}${mix(1)}${mix(2)}`.toUpperCase();
+}
+
+/**
+ * The top-lit band of a console face under a given dash colour. This is the
+ * SURFACE a label can be read against, so it is what the contrast test measures.
+ */
+export function dashLitSurface(dash: string): string {
+  return blendHex(PANEL.faceLit, dash, DASH.litMix);
+}
+
+/** The engraved seam under that light. A line, never a text surface. */
+export function dashSeam(dash: string): string {
+  return blendHex(PANEL.lip, dash, DASH.seamMix);
+}
+
+// ---------------------------------------------------------------------------
 // The hull the pilot is sitting inside
 // ---------------------------------------------------------------------------
 

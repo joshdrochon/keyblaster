@@ -1,6 +1,7 @@
-import { BACK_CORNER_BOTTOM, GUTTER, HEADING_TOP, backCorner } from "@game/ui/grid";
+import { ACTION_BUTTON, BACK_CORNER_BOTTOM, GUTTER, HEADING_TOP, backCorner } from "@game/ui/grid";
 import { CONSOLE_STRIP, consoleStripBelow } from "@game/ui/controlSurfaceLayout";
 import type { Rect } from "@game/ui/layout";
+import { VIEWPORT_APERTURE } from "@game/ui/viewportWindowLayout";
 import { DESIGN_WIDTH, GAME_HEIGHT } from "@game/sceneKeys";
 import { SPACE } from "@game/ui/theme";
 
@@ -133,7 +134,8 @@ export const PAGE_MIN_H = 620;
  * the 92 px below it, which is what sizes the launch button (standards rule 8 -
  * the bar does not move to make a number pass).
  */
-export const PAGE_MAX_BOTTOM = 988;
+/** The page stops 10 px above launch, as it always has. */
+export const PAGE_MAX_BOTTOM = ACTION_BUTTON.y - 10;
 
 /** How far the gaps may be squeezed before the page has to grow instead. */
 export const GAP_FLOOR_SCALE = 0.3;
@@ -278,7 +280,10 @@ export function columnBottom(layout: BriefingLayout): number {
  * which is within 4 px of the 640 it has always been - the window did not have
  * to shrink to gain the alignment, it only had to move.
  */
-export const WINDOW = { x: 1012, y: PAGE_TOP, w: 812, h: 636, r: 56 } as const;
+// UR-121: ONE APERTURE, in `ui/viewportWindowLayout`. This screen's rect is
+// the standard, so the constant moved there rather than being copied - the
+// Pre-flight's glass was cut 112 px wider at a different x, y and radius.
+export const WINDOW = VIEWPORT_APERTURE;
 
 /** The right edge of the glass, which is this screen's right margin. */
 export const RIGHT_MARGIN = WINDOW.x + WINDOW.w;
@@ -429,7 +434,10 @@ export const ACTION_BOTTOM = BACK_CORNER_BOTTOM;
  * margin on a claim about two controls' relative weight is not margin, it is
  * the next silent breakage.
  */
-export const LAUNCH = { w: 488, h: ACTION_BOTTOM - 998, y: 998 } as const;
+// THE SHARED ACTION BUTTON, not this screen's own box. Every forward action in
+// the game is 420x88 on the same foot line; launch was 488x50 at y 998, so it
+// was both the odd size and the odd margin. The page above gives up the height.
+export const LAUNCH = { w: ACTION_BUTTON.w, h: ACTION_BUTTON.h, y: ACTION_BUTTON.y } as const;
 
 /**
  * THE WAY OUT, SMALL AND ON THE LEFT (UR-60).

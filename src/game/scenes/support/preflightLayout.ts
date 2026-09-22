@@ -1,8 +1,9 @@
-import { GUTTER, HINT_CONTRACT, backCorner, headerText } from "@game/ui/grid";
+import { GUTTER, HEADING_TOP, HINT_CONTRACT, backCorner, headerText } from "@game/ui/grid";
 import { SPACE, STEP, TYPE } from "@game/ui/theme";
 import type { Rect } from "@game/ui/layout";
 import { CONSOLE_STRIP, consoleStripBelow } from "@game/ui/controlSurfaceLayout";
-import { VIEWPORT_WINDOW } from "@game/ui/viewportWindowLayout";
+import { VIEWPORT_APERTURE, VIEWPORT_WINDOW } from "@game/ui/viewportWindowLayout";
+import { PAGE_W as BRIEFING_PAGE_W } from "@game/scenes/support/briefingLayout";
 import {
   atmospheric,
   lightness,
@@ -62,13 +63,25 @@ export const RACK_PAD = SPACE.rowPadX;
  * arguably worse to look at than honestly misaligned, and "jenky" was a
  * whole-screen judgement rather than a note about one rectangle.
  *
- * 760 is the dialogue plate's existing width, so the plate that was already
- * right keeps its number and the rack comes to it - the same move UR-76 made
- * when it picked the back chip's line over launch's. The rows are then this
- * less the rack's padding on each side, which is what makes the column ONE
+ * 760 was the dialogue plate's existing width, so the plate that was already
+ * right kept its number and the rack came to it. The rows are then this less
+ * the rack's padding on each side, which is what makes the column ONE
  * declaration instead of three that have to be kept in step by hand.
+ *
+ * ================== AND NOW IT IS THE BRIEFING'S (UR-124) ==================
+ * That reasoning settled the column against ITSELF and never against the
+ * screen before it. Measured: the Briefing's card is `x 96 w 884` and this
+ * column was `x 96 w 760` - the same left gutter, right edges 124 px apart.
+ * With the glass now shared at x 1012 that left the Briefing 32 px of air
+ * beside its window and this screen 156 px, which is what the owner saw
+ * walking between them.
+ *
+ * Sourced from `briefingLayout.PAGE_W` rather than typed as 884, for the same
+ * reason the aperture moved to one constant: two numbers that match today are
+ * not one number. The import is one-way - `briefingLayout` does not know this
+ * module exists - so there is no cycle to unpick later.
  */
-export const COLUMN_W = 760;
+export const COLUMN_W = BRIEFING_PAGE_W;
 
 /**
  * The three system rows, down the left.
@@ -103,7 +116,17 @@ export const RACK_BOTTOM = ROW.y + 3 * ROW.h + 2 * ROW.gap + RACK_PAD_Y;
 
 /** The cockpit window: the only hole in the hull. */
 /** The cockpit window. Its right edge is the right gutter (`ui/grid.ts`). */
-export const WINDOW = { x: 900, y: 170, w: 924, h: 600, r: 48 } as const;
+/**
+ * UR-121: THE SAME GLASS THE BRIEFING HAS.
+ *
+ * This was `{ x: 900, y: 170, w: 924, h: 600, r: 48 }` against the Briefing's
+ * `{ 1012, 84, 812, 636, 56 }` - 112 px further left, 112 px wider, 36 px
+ * shorter, on a tighter corner. The owner walked one screen to the other and
+ * saw the window jump. Everything below derives from this rect (the prompt
+ * plate, the console strip, the ritual panel's clearance), so they all follow
+ * it to the shared aperture rather than each needing a nudge.
+ */
+export const WINDOW = VIEWPORT_APERTURE;
 
 /**
  * Where the typed word's plate is CENTRED.
@@ -115,7 +138,14 @@ export const WINDOW = { x: 900, y: 170, w: 924, h: 600, r: 48 } as const;
  */
 export const PROMPT = {
   x: WINDOW.x + WINDOW.w / 2,
-  y: WINDOW.y + WINDOW.h - 130,
+  // UR-121: 100 rather than 130. The glass is the shared aperture now, and the
+  // plate has to sit clear of the Briefing's OWN horizontal strut so that this
+  // window can carry the identical crosshatch instead of a per-screen one. At
+  // 130 the plate's top was 537 against a strut bottom of 541 - four pixels of
+  // overlap, which is what forced `mullionHorizontalAt` to ride up to 0.65 and
+  // made the two windows visibly different. At 100 the top is 567, and the
+  // derived fraction clamps at the Briefing's 0.7 on its own.
+  y: WINDOW.y + WINDOW.h - 100,
 } as const;
 
 /** Where the "type the word you see" line sits, under the glass. */
@@ -147,9 +177,26 @@ export const MAX_PROMPT_GLYPHS = 12;
  * restated: `padX = round(size * 0.55)`, `padY = round(size * 0.3)`,
  * `gap = round(size * 0.1)`, `plateH = size * 1.36 + padY`.
  */
+/**
+ * THE TYPED WORD'S OWN SIZE, and why it is not `TYPE.display` (UR-121).
+ *
+ * The glass is the shared aperture now, which is 812 px wide where this
+ * screen's private rect was 924. At `TYPE.display` (72) the longest word the
+ * ritual can show is a 848 px plate, and `preflightLayout.test.ts` insets the
+ * glass by 24 px on every side before asking whether the plate is inside it -
+ * air the corner radius needs, and needs MORE of now that the radius went 48
+ * to 56. 848 against 764 of usable width.
+ *
+ * 64 is the largest step that clears it (750 px, 31 px of air each side at the
+ * worst word). `TYPE.display` itself is untouched: `blast-radius` names eight
+ * source files and two suites on that token, and seven of those screens have
+ * no 812 px window to fit a twelve-letter word into.
+ */
+export const PROMPT_SIZE = 64;
+
 export function promptPlate(
   glyphs: number,
-  size: number = TYPE.display,
+  size: number = PROMPT_SIZE,
   at: { readonly x: number; readonly y: number } = PROMPT,
 ): Rect {
   const gap = Math.round(size * 0.1);
@@ -213,9 +260,78 @@ export function windowRect(): Rect {
  * `tests/unit/scenes/preflightLayout.test.ts` can assert it without a browser.
  */
 
-/** The screen's title and the stop under it, on the product's header lines. */
-export const HEADING = headerText(0, undefined, 14);
-export const SUBHEADING = headerText(1, undefined, 8);
+/**
+ * ================== ONE MASTHEAD, NOT TWO CHIPS (UR-124) ==================
+ *
+ * This screen drew its title and its stop name as two separate `skyText`
+ * plates - each auto-sized to its own string, stacked, with nothing relating
+ * them. The owner, looking at the pair: they should be integrated better.
+ *
+ * The Briefing next door already solved it and is the standard: ONE card, with
+ * a ribbon of the stop's accent down the spine and a run of three lines inside
+ * it - an eyebrow, the planet's name, a chapter. So this is that treatment,
+ * with the same tokens (`SPACE.radiusCard`, `STEP.inset`, `STEP.hair`) and the
+ * same order of importance.
+ *
+ * THE ORDER FLIPS, AND THAT IS THE POINT. The two chips made "Pre-flight" the
+ * big word and "Mars" the small one underneath. The Briefing does the reverse:
+ * the PLANET is the heading because it is where the child is, and the screen's
+ * own name is the quiet eyebrow above it. A child walking Briefing ->
+ * Pre-flight should not watch the planet demote itself.
+ */
+/**
+ * THE TEXT DOES NOT MOVE - THE PLATE GOES BEHIND IT.
+ *
+ * A first version put the run inside the plate the way the Briefing's card
+ * does, with the spine inset `STEP.inset` and the text clear of it at x 156.
+ * Two of this file's own guards caught it, and both were right:
+ *
+ *   "the whole screen is TWO left edges, not four"  -> [118, 156]
+ *   "puts its title on the product's header lines"  -> y 116, not 98
+ *
+ * UR-101.1 settled this screen on ONE inner line (`ROW.x`, 118) and the title
+ * belongs on `ui/grid`'s header lines, which is a product-wide rule rather than
+ * this screen's taste. So the masthead keeps both: the text stays exactly where
+ * it was, and the plate is drawn AROUND it with the spine living in the gutter
+ * padding the rack rows already leave empty. Same integrated look, no third
+ * edge, no title off the grid.
+ */
+/**
+ * UR-168, the owner's call: UR-124 is "one masthead, the Briefing's", so the
+ * SPACING is the Briefing's too. There the spine sits `STEP.inset` in from the
+ * page edge and the text another `STEP.inset` clear of it, putting both runs on
+ * x 168. Here the spine was centred in the rack's 22 px padding with the text
+ * 7 px off it, so one component read as two things on two screens.
+ *
+ * This is the SECOND inner line on the screen and that is deliberate - see the
+ * note on `HEADER_SPINE` and `preflightLayout.test.ts`.
+ */
+const MASTHEAD_TEXT_PAD = STEP.inset + STEP.hair + STEP.inset;
+export const HEADING = headerText(0, MASTHEAD_TEXT_PAD, 14);
+// UR-154: stacked under the eyebrow, not on header LINE 1 - those lines are
+// spaced for separate plates and left 78 px of air inside one masthead.
+export const SUBHEADING = {
+  x: HEADING.x,
+  y: HEADING.y + Math.round(TYPE.caption * 1.25) + STEP.tight,
+};
+
+/** The masthead's plate, sized around the two header lines it sits behind. */
+export const HEADER_PLATE: Rect = {
+  // `GUTTER`, which is what `BULKHEAD.x` is - written directly because the rack
+  // is declared further down this file and a masthead cannot wait for it.
+  x: GUTTER,
+  y: HEADING_TOP,
+  w: COLUMN_W,
+  h: SUBHEADING.y - HEADING_TOP + TYPE.heading + STEP.unit,
+};
+
+/** The accent ribbon, `STEP.inset` in from the plate's edge - the Briefing's. */
+export const HEADER_SPINE: Rect = {
+  x: GUTTER + STEP.inset,
+  y: HEADER_PLATE.y + STEP.tight,
+  w: STEP.hair,
+  h: HEADER_PLATE.h - STEP.tight * 2,
+};
 
 /**
  * Shadow's dialogue plate.
@@ -334,12 +450,18 @@ export function controlStrip(): Rect {
  * is a property of this screen rather than a taste: only this glass has
  * something printed on it.
  *
- * The typed word's plate is up to 848 px wide and sits low on the glass. The
- * Briefing's 0.7 puts the strut at y 590, and the widest plate's top edge is at
- * 580 - the strut would run along the top of the one thing the child is asked
- * to read. So the fraction is DERIVED from the plate it has to clear rather
- * than typed in: change the display size, the word pool or the plate's padding
- * and this moves with them.
+ * The typed word's plate sits low on the glass, and the strut must not run
+ * along the top of the one thing the child is asked to read. So the fraction is
+ * DERIVED from the plate it has to clear rather than typed in: change the
+ * prompt size, the word pool or the plate's padding and this moves with them.
+ *
+ * UR-121: IT NOW CLAMPS AT THE BRIEFING'S OWN 0.7 AND STAYS THERE. The owner
+ * named the Briefing's window as the standard and asked for the two to be the
+ * same glass. They are: this returns `VIEWPORT_WINDOW.horizontalAt` for every
+ * word the ritual can show. The derivation is KEPT rather than replaced by
+ * that constant, because it is what makes the claim true instead of asserted -
+ * shrink the glass or grow the prompt and the strut moves off the plate again,
+ * loudly, instead of quietly crossing it.
  */
 export const MULLION_CLEARANCE = 24;
 

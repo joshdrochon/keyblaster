@@ -8,6 +8,7 @@ import { hexToNum } from "@game/render/palette";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { needsOwnBackdrop } from "@game/ui/layout";
 import { uiText } from "@game/ui/text";
+import { audioFrom } from "@game/audio/wiring";
 
 /**
  * SCREEN 13 - PAUSE (design brief 13: "Esc during flight: asteroids freeze, dim
@@ -108,6 +109,7 @@ export class PauseScene extends MenuScene {
   protected build(): void {
     const standalone = this.wantsBackdrop;
     this.freezeBelow();
+    this.duckWorld();
 
     // The dim overlay. Dark enough that the menu reads, light enough that the
     // player can still see where their ship was - it is a pause, not an exit.
@@ -148,7 +150,7 @@ export class PauseScene extends MenuScene {
     this.shadows.push(
       // Inside the panel, so he sits ON the plate rather than under it.
       drawShadow(this, px + panelW - 110, py + 96, "idle", {
-        scale: 120 / SHADOW_HEIGHT,
+        scale: (120 * 0.9) / SHADOW_HEIGHT,
         reducedMotion: this.reducedMotion,
         facing: -1,
         depth: this.depth,
@@ -178,9 +180,71 @@ export class PauseScene extends MenuScene {
     // existed, so the one overlay a child reaches by pressing a key they may
     // have pressed by accident said nothing about which keys get them out.
     // `tests/unit/ui/hintLine.test.ts` is the guard that now asks every screen.
-    this.addHint();
+    // THE ONE SCREEN WHOSE HINT IS NOT ON THE GRID LINE, by the owner's call.
+    // `ui/hint.ts` puts every screen's hint at (GUTTER, HINT_TOP) and says
+    // plainly that it takes no positional parameter. That rule stands - this
+    // moves the objects it returns, rather than adding a hole to the contract.
+    // A modal is a card floating over a frozen belt, and a line pinned to the
+    // screen's bottom-left corner reads as orphaned from it.
+    const hint = this.addHint();
+    const hintBounds = hint.text.getBounds();
+    const hintY = py + panelH - 40 - hintBounds.height;
+    const hintDx = Math.round(px + panelW / 2 - hintBounds.centerX);
+    const hintDy = Math.round(hintY - hintBounds.y);
+    for (const obj of hint.objects) {
+      const o = obj as Phaser.GameObjects.Text | Phaser.GameObjects.Graphics;
+      o.setPosition(o.x + hintDx, o.y + hintDy);
+    }
 
     this.setControls(controls);
+  }
+
+  /**
+   * ============ PAUSING MAKES THE WORLD QUIETER (UR-145) ============
+   *
+   * The project owner: the pause menu should duck the music, it should STAY
+   * ducked if Settings is opened from inside it, and coming out of pause should
+   * feel like dropping back into the action.
+   *
+   * THE LIFECYCLE IS WHY THIS IS THREE LINES AND NOT ONE. The three exits from
+   * this overlay are three different Phaser events and they do NOT want the
+   * same answer:
+   *
+   *   Resume      `scene.stop()`  -> SHUTDOWN -> release. The return.
+   *   Quit to map `scene.stop()`  -> SHUTDOWN -> release. A different exit, and
+   *                                  the owner called it out as one: the belt
+   *                                  is over, so the map gets its music back.
+   *   Settings    `scene.sleep()` -> SLEEP, which is NOT shutdown -> HELD.
+   *                                  This is the half that was asked for
+   *                                  explicitly, and it is free precisely
+   *                                  because the release hangs off SHUTDOWN
+   *                                  rather than off "the menu lost focus".
+   *
+   * The WAKE re-assert is belt and braces: `create` does not run again when
+   * Settings hands this scene back, so if anything had released the duck in the
+   * meantime - a replaced audio service disposes the old one, which releases it
+   * - the player would be looking at a pause menu with full-level music. The
+   * service call is idempotent, so re-asserting a duck that is still held is a
+   * no-op rather than a second duck.
+   */
+  private duckWorld(): void {
+    this.setWorldDucked(true);
+    this.events.on(Phaser.Scenes.Events.WAKE, this.onWake);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.events.off(Phaser.Scenes.Events.WAKE, this.onWake);
+      this.setWorldDucked(false);
+    });
+  }
+
+  private readonly onWake = (): void => this.setWorldDucked(true);
+
+  /**
+   * Null is a supported answer: this overlay is booted standalone by the
+   * capture harness and by `?scene=Pause`, neither of which has an audio
+   * service. A pause with no music to duck is a pause.
+   */
+  private setWorldDucked(active: boolean): void {
+    audioFrom(this.registry)?.setPauseDuck(active);
   }
 
   /**
@@ -249,6 +313,9 @@ export class PauseScene extends MenuScene {
       confirmLabel: this.t.t("ui.pause.quitYes"),
       cancelLabel: this.t.t("ui.pause.quitNo"),
       onConfirm: () => this.quitToMap(),
+      // "Keep Flying" means keep flying: it resumes the belt rather than
+      // dropping the child back onto the pause menu they were leaving.
+      onCancel: () => this.resumeFlight(),
     });
   }
 
@@ -289,6 +356,9 @@ export class PauseScene extends MenuScene {
       // overlay therefore have to dress the screen itself?
       belowVisible: this.below().visible,
       ownBackdrop: needsOwnBackdrop(this.below()),
+      // UR-145. Read off the SERVICE, not off a field this scene set, so the
+      // e2e cannot pass on a pause that told itself it had ducked.
+      musicDucked: audioFrom(this.registry)?.snapshot().pauseDucked ?? false,
     };
   }
 }

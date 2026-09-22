@@ -208,18 +208,49 @@ describe("UR-51 / D31 / AC-10.3: ending a belt at a stall never tightens", () =>
   const WORDS = DEFAULT_FLIGHT_CONFIG.stageWordCount;
   const MARKS = hullForStage(WORDS);
 
-  /** A controller fed `spawned` outcomes of which `missed` were misses, in the
-   * worst order for this claim: every miss LAST, so the rolling window is as
-   * flattering as the arithmetic allows. */
-  function afterBelt(spawned: number, missed: number): ControllerState {
+  /** A controller fed `spawned` outcomes of which `missed` were misses.
+   *
+   * THE ORDER IS A PARAMETER BECAUSE THE TWO ORDERS TEST DIFFERENT GUARDS, and
+   * before C26 shrank the hull only one of them was swept. Misses LAST leaves
+   * them inside the rolling window, so the WINDOW rule refuses the tighten;
+   * misses FIRST leaves a window of nothing but blasts, so the window rule has
+   * nothing to say and the stage rate is the only thing left. That second
+   * ordering is the one a child who lost the hull early actually flies.
+   */
+  function afterBelt(
+    spawned: number,
+    missed: number,
+    missesFirst = false,
+    blastMargin?: number,
+  ): ControllerState {
     let c: ControllerState = createController({ knobs: { maxLive: MAX_LIVE_MIN + 2 } });
-    const outcomes: SpawnOutcome[] = [
-      ...Array<SpawnOutcome>(spawned - missed).fill("blasted"),
-      ...Array<SpawnOutcome>(missed).fill("missed"),
-    ];
-    for (const o of outcomes) c = recordOutcome(c, o);
+    const blasts = Array<SpawnOutcome>(spawned - missed).fill("blasted");
+    const misses = Array<SpawnOutcome>(missed).fill("missed");
+    const outcomes: SpawnOutcome[] = missesFirst
+      ? [...misses, ...blasts]
+      : [...blasts, ...misses];
+    for (const o of outcomes) {
+      c =
+        blastMargin === undefined
+          ? recordOutcome(c, o)
+          : recordOutcome(c, o, o === "blasted" ? blastMargin : 0);
+    }
     return c;
   }
+
+  /**
+   * A clearance margin a pilot who is coping would post (C17's second input).
+   *
+   * IT IS PASSED ON PURPOSE AND IT IS WHAT MAKES THE SWEEP BELOW MEAN
+   * ANYTHING. `decideStage` needs the margin arm to AGREE before it tightens,
+   * so a controller fed outcomes with no margins at all can never tighten from
+   * any state - measured, zero tightens over the whole sweep including belts
+   * that did not stall. With a comfortable margin recorded the tighten is
+   * reachable (the negative control below produces one), so a sweep that finds
+   * none over stalled belts is reporting the guard rather than the absence of
+   * an input.
+   */
+  const COMFORTABLE_MARGIN = 0.5;
 
   it("a stall means the hull emptied, so at least that many rocks were missed", () => {
     // The premise, stated so the sweep below is not sweeping a fiction. The
@@ -250,12 +281,57 @@ describe("UR-51 / D31 / AC-10.3: ending a belt at a stall never tightens", () =>
     expect(checked).toBeGreaterThan(40);
   });
 
-  it("UR-51: the guard that stops it is D18's, and it is the stage rate that trips", () => {
-    // Not a coincidence worth leaving unnamed. A belt that stalls has taken
-    // MARKS misses, so its own hit rate is at most (WORDS - MARKS) / WORDS,
-    // and AC-10.3 refuses a tighten below TIGHTEN_FLOOR.
+  it("UR-51 / C26: D18's floor no longer covers the worst case ALONE, and the sweep does", () => {
+    // THIS ASSERTION IS INVERTED ON PURPOSE AND THE OLD ONE WAS TRUE.
+    //
+    // It used to read `worstCaseStageRate < TIGHTEN_FLOOR` and say that a belt
+    // which stalls can never tighten because its own hit rate cannot reach
+    // D18's floor. That was arithmetic about the HULL SIZE: nine marks lost out
+    // of 58 words is 0.845, just under the 0.85 floor. C26 took the hull to six
+    // (`@engine/hull`, the owner's decision), and six marks lost out of 58 is
+    // 0.897 - OVER the floor. The old sentence is now false, and a comfortable
+    // margin of 0.005 was never a guarantee to begin with; it was a number that
+    // happened to fall the right side of a threshold nobody had related to it.
+    //
+    // WHAT IS STILL TRUE is the thing the test is for, and it is swept rather
+    // than argued: no reachable stalled belt tightens, in EITHER miss ordering,
+    // including the one the old argument covered and the one it did not.
+    // Measured, the blocking reason on the misses-first belts is the margin
+    // arm (`on-relief`, `at-loosen-floor`), not `d18-guard`.
+    //
+    // WATCHED FAILING with the old assertion restored at the six-mark hull:
+    //   "expected 0.896551724137931 to be less than 0.85"
     const worstCaseStageRate = (WORDS - MARKS) / WORDS;
-    expect(worstCaseStageRate).toBeLessThan(TIGHTEN_FLOOR);
+    expect(
+      worstCaseStageRate,
+      `a stalled belt's own hit rate can reach ${worstCaseStageRate.toFixed(3)} at ${MARKS} marks, against D18's floor of ${TIGHTEN_FLOOR} - if this is BELOW the floor again the hull grew back and the sweep below is the only guard that still earns its place`,
+    ).toBeGreaterThan(TIGHTEN_FLOOR);
+  });
+
+  it("UR-51 / AC-10.3: a belt that lost the hull EARLY still never tightens", () => {
+    // The ordering the old arithmetic argument was really about: the marks go
+    // early, the child recovers, and the rolling window closes on 20 clean
+    // words. `d18-guard` used to catch this at nine marks by 0.005; at six it
+    // does not, so the claim is swept over every reachable stall point with the
+    // misses placed first.
+    //
+    // WATCHED FAILING, with the real text: sweep `missed = 1` instead of
+    // `MARKS` - a belt that did NOT stall - and it reads
+    //   "stalled at spawn 11 of 58, marks taken first: stage rate
+    //    0.9090909090909091, window 0.9090909090909091
+    //    expected 'tighten' not to be 'tighten' // Object.is equality"
+    // That is the step this proves a stall cannot buy, and it is also the
+    // control that says the sweep CAN produce a tighten at all.
+    let checked = 0;
+    for (let spawned = MARKS; spawned <= WORDS; spawned += 1) {
+      const decision = decideStage(afterBelt(spawned, MARKS, true, COMFORTABLE_MARGIN));
+      expect(
+        decision.action,
+        `stalled at spawn ${spawned} of ${WORDS}, marks taken first: stage rate ${decision.stageRate}, window ${decision.windowRate}`,
+      ).not.toBe("tighten");
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(40);
   });
 
   it("UR-51: a stalled belt that was going badly LOOSENS, which is the point", () => {

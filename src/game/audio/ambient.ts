@@ -77,16 +77,16 @@ export interface AmbientBedSpec {
 
 const BED_SEEDS: Readonly<Record<StopId, Omit<AmbientBedSpec, "stopId">>> = Object.freeze({
   earth: {
-    droneHz: 98,
+    droneHz: 132,
     partials: [1, 1.5, 2, 3],
-    droneLevel: 0.12,
+    droneLevel: 0.012,
     filterHz: 1200,
     windLevel: 0.7,
-    windFilterHz: 900,
+    windFilterHz: 1000,
     shimmerHz: 0.09,
     shimmerDepth: 0.1,
     level: 0.24,
-    note: "home: warm, close, a little city hum under it",
+    note: "the launchpad, outdoors: night air, no engine",
   },
   mars: {
     droneHz: 87,
@@ -179,6 +179,9 @@ export function bedSpec(stopId: StopId): AmbientBedSpec {
  * not change in 200 ms. Short enough that the warp does not outlast it.
  */
 export const AMBIENT_CROSSFADE_MS = 2200;
+
+/** Only used when no crossfade is in flight; see `BedVoice.trim`. */
+export const AMBIENT_TRIM_EASE_MS = 900;
 
 /** Gains of the outgoing and incoming bed at a point in the transition. */
 export function ambientCrossfade(elapsedMs: number, durationMs: number): { out: number; in: number } {
@@ -354,6 +357,17 @@ interface BedVoice {
    * exact level the crossfade put it at.
    */
   readonly breath: GainNodeLike | null;
+  /**
+   * UR-174: the trim this bed was INTRODUCED at, 0..1.
+   *
+   * The map wants a quieter bed without a quieter mix. Held per voice rather
+   * than on the bus because a bus attenuation has to be released at the moment
+   * of transition, and any mismatch between that release and the crossfade is
+   * the old bed getting LOUDER on its way out - a blip on entering any stop.
+   * Captured when the voice starts fading in, so an outgoing bed can only ever
+   * decrease.
+   */
+  trim: number;
 }
 
 /**
@@ -369,6 +383,8 @@ interface BedVoice {
 export class AmbientBus {
   private readonly voices = new Map<StopId, BedVoice>();
   private current: StopId | null = null;
+  /** The trim the NEXT bed to fade in will be introduced at (UR-174). */
+  private trim = 1;
   private incoming: StopId | null = null;
   /** Clock for `bedBreath`. One phase for every bed, so a crossfade is in step. */
   private breathMs = 0;
@@ -431,10 +447,23 @@ export class AmbientBus {
     if (this.incoming !== null) this.settle();
     if (stopId === this.current) return;
 
-    this.voiceFor(stopId).gain.gain.value = 0;
+    const voice = this.voiceFor(stopId);
+    voice.gain.gain.value = 0;
+    voice.trim = this.trim;
     this.incoming = stopId;
     this.durationMs = Math.max(1, durationMs);
     this.elapsedMs = 0;
+  }
+
+  /**
+   * How loud a bed introduced from now on should be, 0..1.
+   *
+   * Takes effect on the next transition. With no crossfade in flight the
+   * current bed eases to it over `advance`, which is the only case that needs
+   * a ramp - there is no competing fade to disagree with.
+   */
+  setTrim(trim: number): void {
+    this.trim = Math.max(0, Math.min(1, trim));
   }
 
   /** Step the crossfade and the beds' slow movement. From the frame loop. */
@@ -454,14 +483,26 @@ export class AmbientBus {
       );
     }
 
-    if (this.incoming === null) return;
+    if (this.incoming === null) {
+      // No crossfade to disagree with, so the standing bed may follow the trim.
+      const voice = this.current === null ? null : this.voices.get(this.current);
+      if (voice && voice.trim !== this.trim) {
+        const step = (dtMs / AMBIENT_TRIM_EASE_MS) * 1;
+        voice.trim =
+          voice.trim < this.trim
+            ? Math.min(this.trim, voice.trim + step)
+            : Math.max(this.trim, voice.trim - step);
+        voice.gain.gain.value = voice.spec.level * voice.trim;
+      }
+      return;
+    }
     this.elapsedMs = Math.min(this.durationMs, this.elapsedMs + dtMs);
     const fade = ambientCrossfade(this.elapsedMs, this.durationMs);
 
     const outVoice = this.current === null ? null : this.voices.get(this.current);
     const inVoice = this.voices.get(this.incoming);
-    if (outVoice) outVoice.gain.gain.value = outVoice.spec.level * fade.out;
-    if (inVoice) inVoice.gain.gain.value = inVoice.spec.level * fade.in;
+    if (outVoice) outVoice.gain.gain.value = outVoice.spec.level * outVoice.trim * fade.out;
+    if (inVoice) inVoice.gain.gain.value = inVoice.spec.level * inVoice.trim * fade.in;
 
     if (this.elapsedMs >= this.durationMs) this.settle();
   }
@@ -475,7 +516,7 @@ export class AmbientBus {
     this.elapsedMs = this.durationMs;
 
     const inVoice = this.voices.get(this.current);
-    if (inVoice) inVoice.gain.gain.value = inVoice.spec.level;
+    if (inVoice) inVoice.gain.gain.value = inVoice.spec.level * inVoice.trim;
     if (finished !== null && finished !== this.current) {
       const outVoice = this.voices.get(finished);
       if (outVoice) outVoice.gain.gain.value = 0;
@@ -561,7 +602,7 @@ export class AmbientBus {
       }
     }
 
-    return { spec, gain, breath };
+    return { spec, gain, breath, trim: this.trim };
   }
 
   private static sharedWind: WeakMap<object, Map<string, AudioBufferLike>> = new WeakMap();

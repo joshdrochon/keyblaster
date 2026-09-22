@@ -157,6 +157,55 @@ export const hitStopMs = (reducedMotion: boolean, holdMs: number = HIT_STOP_MS):
   reducedMotion ? 0 : Math.max(0, holdMs);
 
 // ---------------------------------------------------------------------------
+// HOW A ROCK LEAVES THE BOARD (UR-92)
+// ---------------------------------------------------------------------------
+
+/**
+ * How long a rock that went past the ship is still on screen, ms.
+ *
+ * Unchanged from the tween it replaces: the fade was never the problem and a
+ * rock is still gone in the same 620 ms it always was.
+ */
+export const PASS_BY_EXIT_MS = 620;
+
+/**
+ * ================== A ROCK DOES NOT SPEED UP ON ITS WAY OUT (UR-92) ========
+ *
+ * Reported as "the falling rocks seem to speed up at some point when they go
+ * off screen". The FALL cannot accelerate - `FlightScene.updateRocks` is
+ * `y = fromY + (toY - fromY) * t`, linear in `t`, and nothing mutates `fallMs`
+ * or `spawnedAtMs` while a rock is alive (`crackShell` deliberately reuses the
+ * container and touches neither). The acceleration was the EXIT.
+ *
+ * `passBy` tweened the rock from the breach line (856) to `height + 160` (1240)
+ * - a FIXED 384 px, independent of how the rock had been falling - over a fixed
+ * 620 ms on `Cubic.Out`, whose velocity at t=0 is three times its average. So
+ * every practice rock left the breach line at about 1810 px/s (measured over
+ * the first 16.7 ms frame) however slowly it had arrived there:
+ *
+ *     word         ikiMs   fallMs   fall px/s   exit px/s   x faster
+ *     at            180     1140      800.0       1810        2.3
+ *     planet        320     3480      269.0       1810        6.7
+ *     gravity       600     7050      133.9       1810       13.5
+ *     atmosphere    600     9750       99.3       1810       18.2
+ *
+ * The distance is therefore no longer a constant: it is the rock's OWN rate
+ * times the exit window, so the px/s across the whole of a rock's life is one
+ * number and the tween is `Linear`. A corrupt or absent fall time returns 0 -
+ * the rock fades where it is, which is wrong but is not a lurch and is not NaN.
+ */
+export const passByExitPx = (
+  fromY: number,
+  toY: number,
+  fallMs: number,
+  exitMs: number = PASS_BY_EXIT_MS,
+): number => {
+  if (!Number.isFinite(fallMs) || fallMs <= 0) return 0;
+  if (!Number.isFinite(fromY) || !Number.isFinite(toY) || !Number.isFinite(exitMs)) return 0;
+  return ((toY - fromY) / fallMs) * exitMs;
+};
+
+// ---------------------------------------------------------------------------
 // HOW FAST A ROCK TUMBLES (UR-83)
 // ---------------------------------------------------------------------------
 
@@ -646,6 +695,8 @@ export const FLIGHT_EVENTS = {
   stageComplete: "kb:flight:stage-complete",
   stall: "kb:flight:stall",
   restart: "kb:flight:restart",
+  /** The stall card's second way out: abandon the belt for the map. */
+  quit: "kb:flight:quit",
   /**
    * D30. The warp break is an OVERLAY on the live belt, not a different screen,
    * so the thing that accelerates at the end of it is Flight's own world. Warp
@@ -692,4 +743,18 @@ export type FlightCue =
   | "hit"
   | "shield"
   | "park"
-  | "stall";
+  | "stall"
+  /**
+   * UR-117: the multiplier crossed x3, x5 or x10 - and ONLY then.
+   *
+   * It is a cue rather than a HUD reading because it is an EVENT: it is true
+   * for one instant, on the word that crossed the line, and the HUD stream
+   * carries a multiplier that is equally 5 on the next five words. `FlightScene`
+   * compares the multiplier either side of the combo reducer and the rationing
+   * rule lives in `flight/celebration.ts`.
+   *
+   * (No quoted words in this comment on purpose: `tests/unit/audio/wiring.test.ts`
+   * pins this union against the audio lane by reading the quoted strings out of
+   * this block, so a cue name in prose would read as a cue.)
+   */
+  | "comboUp";

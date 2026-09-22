@@ -126,6 +126,9 @@ async function openComposedWarp(
  * pins the snapshot to the restarted scene.
  */
 async function waitForRun(page: Page): Promise<void> {
+  // UR-166: the note holds until the child starts. A test that never types is
+  // waiting on a note that is correctly refusing to arrive.
+  await page.keyboard.press("q");
   await page.waitForFunction(() => {
     const w = (window as unknown as { __kb: Record<string, unknown> }).__kb["warp"] as {
       snapshot: () => { missedWords: string[]; coach: { settled: boolean } };
