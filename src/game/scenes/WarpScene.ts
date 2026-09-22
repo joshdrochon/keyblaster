@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import {
+  COACH_TIMEOUT_MS,
   createCoachGate,
   type CoachClient,
   type CoachGate,
@@ -615,6 +616,8 @@ export class WarpScene extends Phaser.Scene {
     this.input.keyboard?.on("keydown", this.onKey, this);
 
     void this.askShadow();
+    // Whatever happens to that request, the card gets its sentence.
+    this.time.delayedCall(COACH_TIMEOUT_MS + 600, () => this.settleSentence());
     this.publish();
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -906,23 +909,9 @@ export class WarpScene extends Phaser.Scene {
     this.caret = this.add.graphics();
     made.push(this.caret);
 
-    made.push(...this.layoutLetters());
-    this.paintLetters();
-
-    if (!this.lane.reducedMotion) {
-      for (const [i, letter] of this.letters.entries()) {
-        const target = letter.alpha;
-        letter.setAlpha(0);
-        this.tweens.add({
-          targets: letter,
-          alpha: target,
-          duration: DUR.panel,
-          delay: 8 * i,
-          ease: EASE.pop,
-        });
-      }
-    }
-
+    // UR-189: drawn by `settleSentence`, not here. The shipped string used to
+    // go up immediately and be replaced when the coach landed, so the child
+    // read one sentence and then watched it become another.
     return made;
   }
 
@@ -1586,9 +1575,7 @@ export class WarpScene extends Phaser.Scene {
     this.coachCalls = gate.calls;
     if (!this.scene.isActive()) return;
     this.useComposedSentence(result);
-    // `gate.request` falls back rather than rejecting, so this is reached on
-    // every path and the screen can never be left untypeable.
-    this.sentenceSettled = true;
+    this.settleSentence();
     // AFTER the composed sentence, never before: a live model's sentence is
     // built to contain this child's own hard words (gate 6 of `sentence.ts`),
     // so on the deployed path the promise is usually already kept and this is a
@@ -1761,6 +1748,31 @@ export class WarpScene extends Phaser.Scene {
    * objects are rebuilt, because there is one per character and the character
    * count changed.
    */
+  /**
+   * Draw the sentence, once, when it is the one the child will actually type.
+   *
+   * Reached from the coach result on every path - `gate.request` falls back
+   * rather than rejecting - and from a safety timer, so a scene that loses its
+   * request can never be left with an empty card.
+   */
+  private settleSentence(): void {
+    if (this.sentenceSettled) return;
+    this.sentenceSettled = true;
+    if (this.letters.length === 0) this.relayoutSentence(this.sentence.text);
+    if (this.lane.reducedMotion) return;
+    for (const [i, letter] of this.letters.entries()) {
+      const target = letter.alpha;
+      letter.setAlpha(0);
+      this.tweens.add({
+        targets: letter,
+        alpha: target,
+        duration: DUR.panel,
+        delay: 8 * i,
+        ease: EASE.pop,
+      });
+    }
+  }
+
   private relayoutSentence(text: string): void {
     // Before the Texts go. A live pulse holds references to them and writes to
     // them every frame; destroying them out from under it is the same crash as

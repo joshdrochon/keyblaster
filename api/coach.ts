@@ -109,11 +109,18 @@ export function pickSentence(
   candidates: readonly string[],
   allowed: ReadonlySet<string>,
 ): string | undefined {
-  const onList = (s: string): boolean => {
+  return onListOnly(candidates, allowed)[0] ?? candidates[0];
+}
+
+/** Just the candidates whose every word is on the list, in order. */
+export function onListOnly(
+  candidates: readonly string[],
+  allowed: ReadonlySet<string>,
+): string[] {
+  return candidates.filter((s) => {
     const words = s.toLowerCase().match(/[a-z]+/g) ?? [];
     return words.length > 0 && words.every((w) => allowed.has(w));
-  };
-  return candidates.find((c) => typeof c === "string" && onList(c)) ?? candidates[0];
+  });
 }
 
 /** The model marks named words with *stars*; the screen reads double quotes. */
@@ -228,7 +235,9 @@ function systemPrompt(req: CoachRequest): string {
     '- Never use the word "wrong", or any synonym for failure, mistake, error or bad.',
     "- Never mention scores, percentages, ranks or how many were missed.",
     "- Only use simple words a 7-year-old reads, plus the named words themselves.",
-    "- No emoji. No exclamation stacking. One sentence is usually enough.",
+    "- No emoji. No exclamation stacking. ONE sentence, ten words or fewer.",
+    "- No contractions: write \"we will\", never \"we'll\". Every word outside the",
+    "  starred ones must be one a 7-year-old reads - the shorter the safer.",
     "",
     `The pilot is at ${req.stopId}. Reply as JSON only:`,
     '{"note": "<=20 words", "variants": ["<sentence>", "<sentence>"]}',
@@ -415,11 +424,17 @@ export default async function handler(request: Request): Promise<Response> {
       ...parsed.pool.map((w) => w.toLowerCase()),
       ...(parsed.lang === "en" ? WARP_SIGHT_WORDS : []),
     ]);
-    const sentence = warp && candidates.length > 0 ? pickSentence(candidates, allowed) : undefined;
+    const clean = onListOnly(candidates, allowed);
+    const sentence = warp && candidates.length > 0 ? (clean[0] ?? candidates[0]) : undefined;
+    // The client rejects the WHOLE payload - note included - if EITHER variant
+    // is off the allowlist, so one loose variant costs a perfectly good note.
+    // A clean sentence repeated beats a dirty one: both slots have to pass.
+    const fallbackVariant = clean[0] ?? candidates[0] ?? "";
+    const variants = [fallbackVariant, clean[1] ?? fallbackVariant];
     return json(
       sentence === undefined
-        ? { note: starsToQuotes(p["note"]), variants: p["variants"] }
-        : { note: starsToQuotes(p["note"]), variants: p["variants"], sentence },
+        ? { note: starsToQuotes(p["note"]), variants }
+        : { note: starsToQuotes(p["note"]), variants, sentence },
       200,
     );
   } catch {
