@@ -330,7 +330,11 @@ test("the control rule can fail (negative control for the two tests below)", () 
   });
 
   test("C07 the ship is named from the profile, never hard-coded", async ({ page }) => {
-    await mount(page, KEY, { stopId: "mars", shipName: "Nomad" });
+    // EARTH, NOT MARS. `{shipName}` appears in exactly one briefing in the
+    // game - `src/content/en/earth.json`, "Your ship is the {shipName}" - and
+    // mars has never carried it, so this mounted a screen that could not have
+    // named the ship however well the binding worked.
+    await mount(page, KEY, { stopId: "earth", shipName: "Nomad" });
     await revealed(page);
     const s = await snapshot(page, KEY);
     const screen = s.text.join(" ");
@@ -436,53 +440,63 @@ test("the control rule can fail (negative control for the two tests below)", () 
     after: { enabled: boolean; complete: boolean; revealed: number; total: number };
     observed: boolean;
   }> {
-    return page.evaluate(
-      async ([stop, pressed]) => {
-        interface Typewriter {
-          enabled: boolean;
-          complete: boolean;
-          revealed: number;
-          total: number;
+    interface Typewriter {
+      enabled: boolean;
+      complete: boolean;
+      revealed: number;
+      total: number;
+    }
+
+    // A REAL KEYSTROKE, THROUGH THE REAL PIPELINE.
+    //
+    // This used to `window.dispatchEvent(new KeyboardEvent("keydown", { key }))`
+    // from inside `page.evaluate`, so that the read-back could be synchronous.
+    // It cost the test its subject. Phaser's catch-all `on("keydown")` fires
+    // for any event and finished the reveal, but a binding routed by
+    // `event.keyCode` never saw an Enter, because a KeyboardEvent built from
+    // `{ key }` alone carries keyCode 0. The half-skip this test exists to
+    // catch - page finishes, ship does not fly - was being manufactured by the
+    // test rather than found in the game. `page.keyboard.press` goes through
+    // CDP and arrives the way a child's Enter does.
+    const before = await page.evaluate(async (stop) => {
+      const scene = window.__kb?.game.scene.getScene("Briefing") as unknown as {
+        scene: { restart(data: unknown): void };
+        snapshot(): { typewriter: Typewriter };
+      };
+      const read = (): Typewriter | null => {
+        try {
+          return { ...scene.snapshot().typewriter };
+        } catch {
+          return null;
         }
-        const scene = window.__kb?.game.scene.getScene("Briefing") as unknown as {
-          scene: { restart(data: unknown): void };
-          snapshot(): { typewriter: Typewriter };
-        };
-        const read = (): Typewriter | null => {
-          try {
-            return { ...scene.snapshot().typewriter };
-          } catch {
-            return null;
-          }
-        };
-        scene.scene.restart({ stopId: stop });
+      };
+      scene.scene.restart({ stopId: stop });
 
-        // Wait for the reveal to BE RUNNING - not for a number of milliseconds.
-        const deadline = performance.now() + 25_000;
-        let before: Typewriter | null = null;
-        while (performance.now() < deadline) {
-          const now = read();
-          if (now !== null && now.enabled && !now.complete) {
-            before = now;
-            break;
-          }
-          await new Promise((done) => requestAnimationFrame(() => done(null)));
-        }
-        const observed = before !== null;
-        const opening = before ?? read();
+      // Wait for the reveal to BE RUNNING - not for a number of milliseconds.
+      const deadline = performance.now() + 25_000;
+      while (performance.now() < deadline) {
+        const now = read();
+        if (now !== null && now.enabled && !now.complete) return now;
+        await new Promise((done) => requestAnimationFrame(() => done(null)));
+      }
+      return null;
+    }, stopId);
 
-        // A real DOM keydown on the target Phaser's keyboard plugin listens to.
-        window.dispatchEvent(new KeyboardEvent("keydown", { key: pressed, bubbles: true }));
+    await page.keyboard.press(key);
 
-        // Read back SYNCHRONOUSLY: no frame passes between the key and this.
-        return {
-          before: opening ?? { enabled: false, complete: true, revealed: 0, total: 0 },
-          after: read() ?? { enabled: false, complete: true, revealed: 0, total: 0 },
-          observed,
-        };
-      },
-      [stopId, key] as [string, string],
-    );
+    const after = await page.evaluate(() => {
+      const scene = window.__kb?.game.scene.getScene("Briefing") as unknown as {
+        snapshot(): { typewriter: Typewriter };
+      };
+      try {
+        return { ...scene.snapshot().typewriter };
+      } catch {
+        return null;
+      }
+    });
+
+    const empty = { enabled: false, complete: true, revealed: 0, total: 0 };
+    return { before: before ?? empty, after: after ?? empty, observed: before !== null };
   }
 
   test("UR-59 ANY key finishes it instantly", async ({ page }) => {
