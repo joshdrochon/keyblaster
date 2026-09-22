@@ -629,8 +629,22 @@ test("AC-21.3 / AC-21.6: the warp spools, stings, and speaks its note after the 
   );
   expect(sentence.length).toBeGreaterThan(0);
 
-  // Wait for the coach note so the AC-21.6 ordering is observed on the real
-  // screen rather than on a stub.
+  // TYPE FIRST, THEN WAIT FOR THE NOTE - which is the order AC-21.6 names.
+  //
+  // This waited for `coach.received` BEFORE typing, and UR-166 holds Shadow's
+  // card until the child's first keystroke, so it waited thirty seconds for a
+  // note that was correctly refusing to arrive. The claim is that the note is
+  // spoken AFTER the text, so the text going in first is not a workaround, it
+  // is the sequence under test.
+  // ONE CHARACTER, THEN THE NOTE, THEN THE REST.
+  //
+  // This waited for `coach.received` before typing anything, and UR-166 holds
+  // Shadow's card until the child's first keystroke - thirty seconds of
+  // waiting for a note that was correctly refusing to arrive. Typing the whole
+  // sentence first does not work either: it charges the drive, the scene jumps
+  // and the note is read off a screen that has left. The first keystroke is
+  // what releases it, which is the sequence a child produces.
+  await typeText(page, sentence.slice(0, 1));
   await page.waitForFunction(
     () =>
       (
@@ -641,8 +655,7 @@ test("AC-21.3 / AC-21.6: the warp spools, stings, and speaks its note after the 
     null,
     { timeout: 30_000 },
   );
-
-  await typeText(page, sentence);
+  await typeText(page, sentence.slice(1));
   await page.waitForTimeout(800);
 
   const after = await snap(page);

@@ -226,8 +226,20 @@ test.describe("D09 - the warp sentence is built from the blast history", () => {
     // AC-15.5: Shadow is handed the word that got through, so the note can
     // name it. Before the hand-off carried `missed`, it never could.
     expect(warp.coach.calls).toBe(1);
-    // D87: the build loop never makes a live paid call.
-    expect(warp.coach.transport).toBe("mock");
+    // D87: the build loop never makes a live paid call. `transport` is read off
+    // the RELEASED note and UR-166 holds Shadow's card until the child starts,
+    // so the note has to be let out before this can be read - after every
+    // assertion above it, which is about the sentence as the child first sees
+    // it, untyped.
+    await page.keyboard.press("q");
+    await page.waitForFunction(() => {
+      const bag = (window as unknown as { __kb: Record<string, unknown> }).__kb[
+        "warp"
+      ] as { snapshot(): { coach: { settled: boolean } } };
+      return bag.snapshot().coach.settled;
+    });
+    const released = await snap<WarpSnapshot>(page, "warp");
+    expect(released.coach.transport).toBe("mock");
 
     writeEvidence(
       "warp-blast-history.json",

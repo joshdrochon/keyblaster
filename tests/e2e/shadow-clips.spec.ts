@@ -233,9 +233,14 @@ test.describe("D63: Shadow's rendered lines reach the player", () => {
     expect(await musicGain()).toBeCloseTo(resting, 2);
   });
 
-  test("the beacon screen speaks its three lines from files", async ({ page }) => {
-    // The emotional beat of the whole loop, and it was silent: the three lines
-    // were drawn and never spoken, so their renders could not be reached.
+  test("the beacon screen speaks its line from a file", async ({ page }) => {
+    // The emotional beat of the whole loop, and it was silent: the lines were
+    // drawn and never spoken, so their renders could not be reached.
+    //
+    // ONE LINE, NOT THREE (1a839ee). The screen used to stitch "Mars Beacon" /
+    // "placed" / the flavour line into something being read aloud. Every stop
+    // now carries a written `beaconSpoken` sentence and speaks that instead,
+    // so the clip to look for is `<stop>.beaconSpoken`.
     await fakeAudioElement(page);
     await page.goto("/?scene=Beacon&stop=mars");
     await expect(page.getByTestId("app")).toHaveAttribute("data-booted", "true");
@@ -252,13 +257,13 @@ test.describe("D63: Shadow's rendered lines reach the player", () => {
       { timeout: 30_000 },
     );
     const played = await clips(page);
-    expect(played[0]?.src).toMatch(/mars\.beaconHeadline/);
+    expect(played[0]?.src).toMatch(/mars\.beaconSpoken/);
 
     const history = await page.evaluate(() => {
       const kb = (window as unknown as { __kb: Record<string, unknown> }).__kb;
       const audio = kb["audio"] as { graph: { voice: { history(): { id: string }[] } } };
       return audio.graph.voice.history().map((l) => l.id);
     });
-    expect(history[0]).toBe("mars.beaconHeadline");
+    expect(history[0]).toBe("mars.beaconSpoken");
   });
 });

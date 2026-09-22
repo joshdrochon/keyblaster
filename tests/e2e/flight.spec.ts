@@ -15,6 +15,7 @@ import {
   freezeFlight,
   spawnAt,
 } from "./support/flightBoot.js";
+import { wordBaseScore } from "../../src/engine/scoring/index.js";
 // @ts-expect-error - .mjs tooling module, no type declarations by design
 import { CORE, measureSilhouettes } from "../gauntlet/silhouette.mjs";
 
@@ -373,7 +374,11 @@ test.describe("Flight - screen 6", () => {
     expect(run.hits).toBe(1);
     expect(run.combo).toBe(1);
     expect(run.multiplier).toBe(1); // never x0 on screen
-    expect(run.score).toBe(run.word.length * 20);
+    // NOT `length * 20`. `wordBaseScore` is `len * 20 + 10 * max(0, len - 4)^2`
+    // - the length curve that pays a longer word for being longer - so a
+    // five-letter rock is 110, not 100. Imported rather than re-declared: a
+    // copy of the formula in a spec is a spec that agrees with itself.
+    expect(run.score).toBe(wordBaseScore(run.word.length));
     expect(run.stillLive).toBe(false);
   });
 
