@@ -122,6 +122,25 @@ const describeBox = (t: TextView): string =>
   `"${t.text}" [${t.box.x},${t.box.y} ${t.box.w}x${t.box.h}]`;
 
 /**
+ * THE ONE DELIBERATE OVERPRINT (1a839ee, `BriefingScene`).
+ *
+ * The briefing's "{pilotName}, ready to prepare the ship..." line is one
+ * wrapped Text, and the pilot's name is drawn a second time on top of it in
+ * the stop's accent - "the accent copy covers the body copy, the rest of the
+ * sentence shows through, and wrapping is still the one original object's
+ * problem". Two Texts at one origin is exactly what that looks like from here.
+ *
+ * Recognised by its SHAPE rather than exempted by id, so it cannot cover a
+ * real collision: same origin to the pixel, and one string is a prefix of the
+ * other. Any other pair of overlapping Texts is still the defect.
+ */
+function isNameOverlay(a: TextView, b: TextView): boolean {
+  if (a.box.x !== b.box.x || a.box.y !== b.box.y) return false;
+  const [short, long] = a.text.length <= b.text.length ? [a.text, b.text] : [b.text, a.text];
+  return short.length > 0 && long.startsWith(short);
+}
+
+/**
  * The claim, in one place so every screen makes exactly the same one.
  *
  * ONE PIXEL OF SLACK, and no more: two Text objects whose ink boxes touch on a
@@ -140,6 +159,7 @@ function assertNoCollisions(frame: FrameView, where: string): void {
       const a = shrunk[i];
       const b = shrunk[j];
       if (a === undefined || b === undefined) continue;
+      if (isNameOverlay(a, b)) continue;
       if (intersects(a.box, b.box)) {
         hits.push(`${describeBox(frame.texts[i] as TextView)}  x  ${describeBox(frame.texts[j] as TextView)}`);
       }
