@@ -733,7 +733,11 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     g.fillStyle(hexToNum(INK.line), 0.55);
     g.fillRoundedRect(barX, barY, barW, barH, 4);
     if (row.barShown > 0) {
-      g.fillStyle(hexToNum(pal.accent), 0.85);
+      // UR-178: the bar wears the LAMP's colour, not the stop's. Drawn in
+      // `pal.accent` it read gold at Jupiter and blue at Neptune beside a lamp
+      // that is blue at every stop - the rack is one instrument, so it does not
+      // change colour by destination.
+      g.fillStyle(hexToNum(row.state === "lit" ? INK.lit : INK.accentSoft), 0.85);
       // Floored at the bar's own height so the FIRST accepted keystroke moves
       // something visible rather than drawing a 3 px sliver of a rounded rect.
       g.fillRoundedRect(barX, barY, Math.max(barH, barW * row.barShown), barH, 4);

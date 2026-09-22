@@ -266,6 +266,7 @@ function wireAudioToFrames(
   audio: AudioService,
   context: SceneContext,
   backdrop: ViewportBackdrop | null,
+  openAt: StopId,
 ): void {
   let lastStop: StopId | null = null;
 
@@ -283,9 +284,14 @@ function wireAudioToFrames(
     }
   });
 
-  // Earth's bed opens the game so the title screen is not silent while it waits
-  // for a scene that knows where it is.
-  audio.ambientFor("earth");
+  // UR-173: THE PROFILE ALREADY KNOWS WHERE THE PLAYER IS.
+  //
+  // This was `ambientFor("earth")` - "so the title screen is not silent while
+  // it waits for a scene that knows where it is". The wait is real, but Earth
+  // is not the only answer available during it: `furthestBeacon` reads the
+  // saved profile and is known before any scene loads. A pilot at Pluto heard
+  // Earth's bed on every refresh and then a crossfade to their own.
+  audio.ambientFor(openAt);
 
   // Browsers refuse to start an AudioContext before a gesture. The context is
   // already built and already wired; it just has to be told it may run, and the
@@ -1046,7 +1052,7 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
       ? audioService?.uiDetent(amount ?? 0)
       : audioService?.uiNav(),
   );
-  wireAudioToFrames(game, audioService, context, backdrop);
+  wireAudioToFrames(game, audioService, context, backdrop, furthestBeacon(store) ?? "earth");
 
   const registered = new Set<string>();
   for (const { key, klass } of discovered) {

@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { hexToNum, paletteAt } from "@game/render/palette";
+import { audioFrom } from "@game/audio/wiring";
 import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
 import { ensureTextures, fillShape, starPoints } from "@game/render/textures";
 import { DUR, INK, SKY_PLATE, SPACE, TYPE } from "@game/ui/theme";
@@ -58,6 +59,7 @@ import {
   panelBox,
   panelInkLeft,
   panelInkRight,
+  panelBoardY,
   panelStarsY,
   routeX1,
   shadowAt,
@@ -303,7 +305,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       color: INK.textDim,
       lang: this.story.lang,
     }).setDepth(10);
-    this.panelBoard = label(this, inkLeft, PANEL.y + 146, "", {
+    // UR-176: named, because the star row is derived from it.
+    this.panelBoard = label(this, inkLeft, panelBoardY(), "", {
       size: TYPE.body,
       color: INK.textDim,
       lang: this.story.lang,
@@ -446,7 +449,13 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     });
     this.select(targets[this.menu.index]?.id ?? "earth");
 
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.teardown());
+    // UR-172: the map is a chart, not a place. It keeps Earth's track as its
+    // hub theme and holds the bed back under it.
+    audioFrom(this.registry)?.setAmbientTrim(true);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      audioFrom(this.registry)?.setAmbientTrim(false);
+      this.teardown();
+    });
   }
 
   /**

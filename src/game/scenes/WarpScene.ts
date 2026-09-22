@@ -210,7 +210,8 @@ import {
   shipBandTop,
   SENTENCE_PX,
   SENTENCE_STEP,
-  fitsOneLine,
+  sentenceLineCount,
+  sentenceTop,
   WORD_PULSE_MS,
   WORD_PULSE_SCALE,
   completedWordRange,
@@ -971,13 +972,11 @@ export class WarpScene extends Phaser.Scene {
     const size = SENTENCE_PX;
     const pal = this.lane.palette;
 
-    // UR-70. TOP OF THE BAND, not centred in it. The block used to be centred,
-    // which put half a one-line sentence's slack ABOVE it - 70 px between
-    // "destination: saturn" and the sentence a child is there to type. The card
-    // keeps its shape (`relayoutSentence` must not move it) and the slack now
-    // falls below the hint, at the card's foot, rather than between the
-    // sentence and the hint - see `hintRow`.
-    const top = band.y;
+    // UR-175: CENTRED in the reserved band. The band holds two lines so the
+    // card cannot resize when a composed sentence lands mid-screen; top-
+    // aligning put all of that slack under a one-line sentence, which reads as
+    // a hole rather than as padding.
+    const top = sentenceTop(sentenceLineCount(this.sentence.text));
 
     let x = left;
     let y = top;
@@ -1739,13 +1738,6 @@ export class WarpScene extends Phaser.Scene {
       return;
     }
     if (composed.text === this.sentence.text) return;
-    // UR-165: the card reserves one line. A composed sentence that would wrap
-    // is refused rather than kept by force, which is the third case of the
-    // rule above and the same shape as the other two.
-    if (!fitsOneLine(composed.text)) {
-      this.composedRefused = "would-wrap";
-      return;
-    }
 
     this.composedText = composed.text;
     this.composedReused = [...composed.reused];

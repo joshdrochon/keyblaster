@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { GAME_WIDTH } from "@game/sceneKeys";
-import { SKY_PLATE, SPACE, STEP, TYPE, TYPE_SIZES } from "@game/ui/theme";
+import { LINE_HEIGHT, SKY_PLATE, SPACE, STEP, TYPE, TYPE_SIZES } from "@game/ui/theme";
 import { GUTTER, HINT_CONTRACT, contentRight, contentWidth, headerText } from "@game/ui/grid";
 import { rectsOverlap } from "@game/ui/layout";
 import { hintInk } from "@game/ui/hintLine";
@@ -52,6 +52,8 @@ import {
   panelBox,
   panelInkLeft,
   panelInkRight,
+  PANEL_PAD_Y,
+  panelBoardY,
   panelStarsY,
   routeX1,
   shadowBox,
@@ -699,5 +701,42 @@ describe("the focus ring's box", () => {
     // are not the same width, and a declared half-width would give one of them
     // even air and the other a margin.
     expect(src).toContain("cap.text.getBounds()");
+  });
+});
+
+describe("UR-176: the stars sit on the line they belong to", () => {
+  it("centres the star row on the personal-best line, not on the board's foot", () => {
+    // It was `panelBox().h - 62` - measured from the FOOT, so the stars and the
+    // line were two independent numbers. Measured live, 24.6 px apart.
+    const lineMid = panelBoardY() + Math.round(TYPE.body * LINE_HEIGHT.latin) / 2;
+    expect(panelStarsY()).toBeCloseTo(lineMid, 6);
+  });
+
+  it("the scene draws the line where the layout says it does", () => {
+    const src = readFileSync("src/game/scenes/DirectorMapScene.ts", "utf8");
+    expect(src).toMatch(/label\(this, inkLeft, panelBoardY\(\)/);
+    expect(src).not.toMatch(/label\(this, inkLeft, PANEL\.y \+ 146/);
+  });
+});
+
+describe("UR-177: the board is sized to its rows and pinned at the foot", () => {
+  it("leaves the same pad under the last ink as above the first", () => {
+    // It was y700/h250 with the lowest ink 70 px above the foot - dead space
+    // the owner reported. The top pad is the title row's own offset.
+    const box = panelBox();
+    const lastInk = panelBoardY() + Math.round(TYPE.body * LINE_HEIGHT.latin);
+    expect(box.y + box.h - lastInk).toBe(PANEL_PAD_Y);
+    expect(PANEL_PAD_Y).toBe(34);
+  });
+
+  it("keeps the foot exactly where it has always been", () => {
+    // The card shrinks upward: judges are looking at this screen and its
+    // bottom edge is what sits above the hint line.
+    expect(panelBox().y + panelBox().h).toBe(950);
+  });
+
+  it("the star row is still inside the card it hangs in", () => {
+    const box = panelBox();
+    expect(panelStarsY() + PANEL_STAR_R).toBeLessThan(box.y + box.h);
   });
 });

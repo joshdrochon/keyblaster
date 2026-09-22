@@ -14,7 +14,8 @@ import {
   SHIP_BELOW,
   SHIP_DESIGN_HALF_W,
   SENTENCE_MAX_LINES,
-  fitsOneLine,
+  sentenceLineCount,
+  sentenceTop,
   SENTENCE_PX,
   SENTENCE_STEP,
   SHIP_HALF_W,
@@ -321,8 +322,7 @@ describe("UR-70: the column is condensed, and the gap is not a function of the s
     // product's hint line (`ui/hintLine.drawHint`), so the third row and the
     // card gap above it went with it: 265 - 31 - 12 = 222. Read off the red run
     // this change produced - `expected 222 to be 265`.
-    expect(PANEL.h).toBe(154);
-    expect(PANEL.h).toBeLessThan(222);
+    expect(PANEL.h).toBe(222);
   });
 
   it("the three plates are one unit apart, and the column got shorter", () => {
@@ -343,7 +343,7 @@ describe("UR-70: the column is condensed, and the gap is not a function of the s
     // from 42.6 px to 189.6, which is what this pair of lines is for.
     expect(PANEL.y).toBe(HEADING_TOP);
     expect(PANEL.y).toBe(84);
-    expect(bottom(COACH)).toBe(580);
+    expect(bottom(COACH)).toBe(648);
     expect(shipBandTop() - bottom(COACH)).toBeGreaterThan(32);
   });
 
@@ -779,7 +779,7 @@ describe("Shadow's card is built round Shadow", () => {
     const at = shadowOrigin();
     const top = at.y - SHADOW_ABOVE_R * SHADOW_R * SHADOW_SCALE;
     const foot = at.y + SHADOW_BELOW_R * SHADOW_R * SHADOW_SCALE;
-    expect(at.y).toBeCloseTo(497.88, 1);
+    expect(at.y).toBeCloseTo(565.88, 1);
     expect(top).toBeGreaterThanOrEqual(innerTop());
     expect(foot).toBeLessThanOrEqual(innerBottom());
     // NOT the old placement, stated as a number so the literal cannot come back.
@@ -824,7 +824,7 @@ describe("Shadow's card is built round Shadow", () => {
   });
 });
 
-describe("the sentence card carries no line it does not draw (UR-165)", () => {
+describe("the sentence card reserves the worst case and centres in it (UR-175)", () => {
   /**
    * THE OWNER'S CALL, MADE AFTER THE MEASUREMENT BELOW WAS PUT IN FRONT OF
    * THEM: English only for now, and elements size to their content.
@@ -842,19 +842,31 @@ describe("the sentence card carries no line it does not draw (UR-165)", () => {
    * `fitsOneLine` refuses to swap one in, which is the third case of
    * `useComposedSentence`'s existing "may not be swapped" rule.
    */
-  it("reserves exactly the one line it draws", () => {
-    expect(SENTENCE_MAX_LINES).toBe(1);
-    expect(PANEL.h).toBe(154);
+  it("reserves two lines so a composed sentence cannot resize the card", () => {
+    // A composed sentence (D09) arrives from the coach a moment after the
+    // screen opens. Sizing the card to the sentence on screen would resize it
+    // under the child; refusing the long ones cost the feature instead.
+    expect(SENTENCE_MAX_LINES).toBe(2);
+    expect(PANEL.h).toBe(222);
   });
 
-  it("refuses a composed sentence that would wrap rather than padding for it", () => {
-    expect(fitsOneLine("Pluto is small, cold, and far away.")).toBe(true);
-    expect(fitsOneLine("Neptune is deep blue and very far from the sun.")).toBe(true);
-    // Mirrors `layoutLetters`: the break is on word boundaries, so the case
-    // that wraps is a long SENTENCE, not a long token.
-    expect(fitsOneLine("the quick brown fox jumped over the lazy dog and kept on going")).toBe(
-      false,
-    );
+  it("centres the block, so a one-line sentence has padding and not a hole", () => {
+    const band = sentenceRow();
+    const oneLine = sentenceTop(1);
+    const twoLine = sentenceTop(2);
+    expect(twoLine).toBe(band.y);
+    expect(oneLine).toBeGreaterThan(band.y);
+    // Equal above and below: that is what makes it read as padding.
+    const used = lineBox(SENTENCE_PX);
+    expect(oneLine - band.y).toBeCloseTo(band.y + band.h - (oneLine + used), 6);
+  });
+
+  it("counts lines the way the scene lays them out", () => {
+    expect(sentenceLineCount("Mars is the red planet.")).toBe(1);
+    expect(sentenceLineCount("Neptune is deep blue and very far from the sun.")).toBe(1);
+    expect(
+      sentenceLineCount("the quick brown fox jumped over the lazy dog and kept on going"),
+    ).toBe(2);
   });
 
   it("still knows where the line runs out", () => {

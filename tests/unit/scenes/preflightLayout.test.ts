@@ -829,3 +829,18 @@ describe("UR-101.4: the typed word sounds like the belt", () => {
     for (const call of calls) expect(call.startsWith("audio?.")).toBe(true);
   });
 });
+
+describe("UR-178: the rack is one instrument at every stop", () => {
+  const src = readFileSync("src/game/scenes/PreflightScene.ts", "utf8");
+
+  it("fills the bar in the lamp's colour, not the stop's", () => {
+    // In `pal.accent` it read gold at Jupiter and blue at Neptune, beside a
+    // lamp that is blue at every stop.
+    expect(src).toMatch(/row\.state === "lit" \? INK\.lit : INK\.accentSoft/);
+  });
+
+  it("the bar and the lamp change on the same state", () => {
+    // Both read `row.state`, so they cannot disagree about which step is done.
+    expect(src).toMatch(/row\.state === "lit" \? INK\.lit : row\.state === "active"/);
+  });
+});

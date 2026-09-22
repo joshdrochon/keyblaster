@@ -186,3 +186,51 @@ describe("a menu does not move the ambient bed (UR-171)", () => {
     }
   });
 });
+
+describe("the map holds the bed back but keeps its music (UR-172)", () => {
+  const map = readFileSync("src/game/scenes/DirectorMapScene.ts", "utf8");
+  const wiring = readFileSync("src/game/audio/wiring.ts", "utf8");
+
+  it("trims the ambient bus on entry and releases it on shutdown", () => {
+    expect(map).toMatch(/setAmbientTrim\(true\)/);
+    expect(map).toMatch(/SHUTDOWN[\s\S]{0,120}setAmbientTrim\(false\)/);
+  });
+
+  it("touches the ambient bus only - the hub theme is unchanged", () => {
+    expect(wiring).toMatch(/graph\.ambient\.setTrim\(active \? AMBIENT_TRIM : 1\)/);
+    expect(map).not.toMatch(/setBusGain\("music"/);
+  });
+
+  it("survives the Sound knob moving while the map is open", () => {
+    // The trim lives on the BED now, so the Sound knob writes the bus plainly
+    // and cannot undo it.
+    expect(wiring).toMatch(/graph\.setBusGain\("ambient", volumes\.sfx\)/);
+  });
+
+  it("UR-174: the trim is a property of the bed, not of the bus", () => {
+    // A bus attenuation has to be released at the moment of transition, and
+    // any mismatch is the OLD bed getting louder on its way out - the blip on
+    // entering a stop. Held per voice, an outgoing bed can only decrease.
+    const ambient = readFileSync("src/game/audio/ambient.ts", "utf8");
+    expect(ambient).toMatch(/voice\.trim = this\.trim;/);
+    expect(ambient).toMatch(
+      /outVoice\.gain\.gain\.value = outVoice\.spec\.level \* outVoice\.trim \* fade\.out/,
+    );
+    expect(wiring).not.toMatch(/AMBIENT_TRIM_RAMP_MS/);
+  });
+});
+
+describe("the game opens on the bed for where the player actually is (UR-173)", () => {
+  const boot = readFileSync("src/game/boot.ts", "utf8");
+
+  it("does not open on Earth regardless of the saved profile", () => {
+    // A pilot at Pluto heard Earth's bed on every refresh, then a crossfade to
+    // their own. `furthestBeacon` is known before any scene loads.
+    expect(boot).toMatch(/audio\.ambientFor\(openAt\)/);
+    expect(boot).not.toMatch(/audio\.ambientFor\("earth"\)/);
+  });
+
+  it("falls back to Earth for a profile that has lit nothing", () => {
+    expect(boot).toMatch(/furthestBeacon\(store\) \?\? "earth"/);
+  });
+});

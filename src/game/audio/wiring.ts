@@ -43,6 +43,10 @@ import { clamp } from "./context.js";
 import { NullAudioContext } from "./nullContext.js";
 import { AMBIENT_CROSSFADE_MS } from "./ambient.js";
 import { PAUSE_DUCK_DB, PAUSE_DUCK_SOURCE, type AudioGraph, type BusId } from "./graph.js";
+
+/** How far the bed drops on a chart rather than a place. The owner set this by ear. */
+export const AMBIENT_TRIM = 0.18;
+
 import {
   detentSemitones,
   SFX_EVENTS,
@@ -416,6 +420,12 @@ export interface AudioService {
    * UR-134 for why `ambient` is on the Sound knob at all.
    */
   setPauseDuck(active: boolean): void;
+  /**
+   * Hold the ambient bed back without touching the music (UR-172). The map is
+   * a chart, not a place: it keeps Earth's track as its hub theme and drops
+   * the hum under it.
+   */
+  setAmbientTrim(active: boolean): void;
   /** Reset the D75 pitched layer at the start of a stage. */
   resetTone(): void;
   /** Everything the running game did, for the evidence artifact. */
@@ -518,6 +528,7 @@ export function installAudio(options: InstallAudioOptions): AudioService {
   let transmitting = false;
   /** UR-145: the pause menu's named duck, held as a state rather than counted. */
   let pauseDucked = false;
+  let ambientTrimmed = false;
   let pauseDucks = 0;
   let transmissionTicks = 0;
   let volumes = {
@@ -782,6 +793,12 @@ export function installAudio(options: InstallAudioOptions): AudioService {
       pauseDucked = active;
       if (active) pauseDucks += 1;
       graph.ducker.setSource(PAUSE_DUCK_SOURCE, active, PAUSE_DUCK_DB);
+    },
+
+    setAmbientTrim(active): void {
+      if (ambientTrimmed === active) return;
+      ambientTrimmed = active;
+      graph.ambient.setTrim(active ? AMBIENT_TRIM : 1);
     },
 
     /**

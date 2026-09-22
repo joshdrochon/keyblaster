@@ -141,10 +141,11 @@ export const SENTENCE_STEP = SENTENCE_PX + SENTENCE_LEADING;
  * sentence (D09) can be longer than any shipped one, so this is the case the
  * card must survive rather than the case it usually draws.
  */
-export const SENTENCE_MAX_LINES = 1;
+export const SENTENCE_MAX_LINES = 2;
 
 /**
- * The sentence block, at the line count the screen actually draws.
+ * The sentence block at its worst case, so the card cannot resize under a
+ * child when a composed sentence arrives mid-screen (UR-175).
  *
  * IT WAS TWO, AND THE SECOND LINE WAS ALWAYS EMPTY. Every shipped sentence
  * fits one line - the longest is Neptune's at 46 characters against a 54
@@ -159,16 +160,33 @@ const SENTENCE_BLOCK =
 /** The wrap estimate `WarpScene.layoutLetters` lays the sentence out with. */
 export const SENTENCE_CHAR_W = SENTENCE_PX * 0.58;
 
-/** Would this string stay on one line in the sentence band? */
-export function fitsOneLine(text: string): boolean {
+/** How many lines this string takes in the sentence band. Mirrors `layoutLetters`. */
+export function sentenceLineCount(text: string): number {
   const width = sentenceRow().w;
   let x = 0;
+  let lines = 1;
   for (const word of text.split(" ")) {
     const w = (word.length + 1) * SENTENCE_CHAR_W;
-    if (x > 0 && x + w > width) return false;
+    if (x > 0 && x + w > width) {
+      lines += 1;
+      x = 0;
+    }
     x += w;
   }
-  return true;
+  return Math.min(SENTENCE_MAX_LINES, lines);
+}
+
+/**
+ * The top of a `lines`-tall block, CENTRED in the reserved band (UR-175).
+ *
+ * The band holds the worst case so the card cannot resize under a child when a
+ * composed sentence lands mid-screen. Top-aligning it put all the slack under
+ * one-line sentences, which reads as a hole; centred, it is padding.
+ */
+export function sentenceTop(lines: number): number {
+  const band = sentenceRow();
+  const used = (lines - 1) * SENTENCE_STEP + lineBox(SENTENCE_PX);
+  return band.y + Math.max(0, (band.h - used) / 2);
 }
 
 /**
@@ -240,16 +258,6 @@ export function sentenceRow(): Rect {
  */
 export function badgeRow(): Rect {
   return badgeBox(PANEL, MARK.badge, "card");
-}
-
-/**
- * Where the first line of the sentence starts.
- *
- * NO LONGER A FUNCTION OF THE LINE COUNT, which is the fix. It used to centre
- * the block in a fixed band; see the note above `PANEL`.
- */
-export function sentenceTop(): number {
-  return sentenceRow().y;
 }
 
 /**

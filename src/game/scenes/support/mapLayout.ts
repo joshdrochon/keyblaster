@@ -720,9 +720,22 @@ export const SHADOW_BAY_GAP = 24;
  */
 export const panelRight = (): number => shadowBox().x - SHADOW_BAY_GAP;
 
-export const PANEL_Y = 700;
-export const PANEL_H = 250;
-export const PANEL_BOTTOM = PANEL_Y + PANEL_H;
+/** The personal-best line's top, inside the board. The scene draws it here. */
+export const PANEL_BOARD_DY = 146;
+
+/**
+ * UR-177: the board is SIZED TO ITS ROWS, with its foot pinned.
+ *
+ * It was `y 700, h 250` - two literals - and the lowest ink (the board line and
+ * the star row) ended 70 px above the foot, which is the dead space the owner
+ * reported. The top pad is the title's own offset, so the bottom now matches it
+ * and the card keeps the same bottom edge it always had.
+ */
+export const PANEL_BOTTOM = 950;
+export const PANEL_PAD_Y = 34;
+export const PANEL_H =
+  PANEL_BOARD_DY + Math.round(TYPE.body * LINE_HEIGHT.latin) + PANEL_PAD_Y;
+export const PANEL_Y = PANEL_BOTTOM - PANEL_H;
 
 export const panelBox = (): PanelBox => ({
   x: GUTTER,
@@ -758,8 +771,19 @@ export const panelInkRight = (): number => panelBox().x + panelBox().w - PANEL_P
 export const starsCentreForRight = (right: number, r: number): number => right - r * 2.6 - r;
 
 export const PANEL_STAR_R = 16;
-/** The star row's baseline inside the board. */
-export const panelStarsY = (): number => panelBox().y + panelBox().h - 62;
+
+export const panelBoardY = (): number => panelBox().y + PANEL_BOARD_DY;
+
+/**
+ * The star row's centre: the personal-best line's own centre (UR-176).
+ *
+ * It was `panelBox().h - 62`, measured from the board's FOOT, so the stars and
+ * the line they belong to were two independent numbers that happened to land
+ * near each other - 24.6 px apart, measured. UR-54 tied their right edges
+ * together and left the vertical arbitrary; this is the other half.
+ */
+export const panelStarsY = (): number =>
+  panelBoardY() + Math.round(TYPE.body * LINE_HEIGHT.latin) / 2;
 
 // ---------------------------------------------------------------------------
 // The chips, top right
