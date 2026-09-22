@@ -2,9 +2,6 @@ import { expect, test } from "@playwright/test";
 import {
   activeProfile,
   assertVisibleFocus,
-  focusItem,
-  item,
-  open,
   press,
   screen,
   seed,
@@ -61,131 +58,68 @@ async function wornHull(page: import("@playwright/test").Page): Promise<unknown>
   return (await activeProfile(page))?.["shipId"];
 }
 
-/** Walk the row's cursor to a hull by pressing Right, and say where it got to. */
-async function cursorTo(
-  page: import("@playwright/test").Page,
-  label: string,
-): Promise<void> {
-  await focusItem(page, SETTINGS, HULL);
-  // Four hulls, so at most four presses gets anywhere from anywhere. Polled on
-  // the mirror rather than counted blindly: the row opens on whichever hull is
-  // WORN, which is not a fixed starting index (rule 6 - wait for the thing).
-  for (let i = 0; i < 5; i += 1) {
-    const value = await item(page, SETTINGS, HULL).getAttribute("data-value");
-    if (value === label) return;
-    await press(page, "ArrowRight");
-  }
-  throw new Error(`the hull row's cursor never reached ${label}`);
-}
+/**
+ * ================== WHY THIS FILE NO LONGER PRESSES KEYS ==================
+ * UR-132: `SettingsScene.SHOW_HULL_ROW` is `false` on the owner's instruction,
+ * so the row this file was written to drive is not built. Four tests here were
+ * waiting 90s for `settings.hull` to attach and then timing out.
+ *
+ * The RULE and the STORE round trip are unaffected and still covered, by the
+ * sixteen tests in `tests/unit/ui/hulls.test.ts` and
+ * `tests/unit/unlocks/equip.test.ts`. What is gone is the browser half - real
+ * arrow keys on the row, the canvas ring, the reload - because there is no row
+ * to press. Asserting it anyway would be a test of a fixture.
+ *
+ * So this file now measures THE CUT: the row is absent, the console still laps
+ * cleanly without it, and the worn hull is untouched by a visit to Settings.
+ * It fails the day the flag flips, which is when the four tests above it in
+ * git history should come back. See gauntlet/escalations.md (UR-132-e2e).
+ */
 
-test.describe("UR-48: equipping a hull from the ship-controls console", () => {
-  // Software WebGL under parallel workers, same as the rest of the menu lane.
+test.describe("UR-132: the hull row is not on the console", () => {
   test.slow();
 
-  test("AC-18.1 the hull row is reachable by keyboard, with a visible ring", async ({
+  test("the hull row is not built, and nothing else lost its place", async ({
     page,
   }) => {
     await seed(page, [FIVE_BEACONS], SETTINGS);
-    await item(page, SETTINGS, HULL).waitFor({ state: "attached" });
 
-    // Reached by arrow keys alone - `focusItem` walks the real focus list with
-    // real keystrokes, it does not call into the scene.
-    await focusItem(page, SETTINGS, HULL);
-    await expect(screen(page, SETTINGS)).toHaveAttribute("data-focus", HULL);
-    // AC-18.1's other half: the ring is DRAWN on the canvas, not merely a DOM
-    // attribute. `assertVisibleFocus` reads both, and the scene's own snapshot.
-    await assertVisibleFocus(page, SETTINGS);
-
-    // The arrows belong to the row: Right moves its cursor and does NOT move
-    // focus off it, which is what `adjustable` means in `focus.ts`.
-    const first = await item(page, SETTINGS, HULL).getAttribute("data-value");
-    await press(page, "ArrowRight");
-    await expect(screen(page, SETTINGS)).toHaveAttribute("data-focus", HULL);
-    expect(
-      await item(page, SETTINGS, HULL).getAttribute("data-value"),
-      "Right did not move the hull cursor",
-    ).not.toBe(first);
-  });
-
-  test("D73/D79 a locked hull is visible, dim, and says what unlocks it", async ({
-    page,
-  }) => {
-    await seed(page, [FIVE_BEACONS], SETTINGS);
-    // The same treatment the create screen gives a locked tile, asserted the
-    // same way `profile.spec.ts` asserts it there - one vocabulary, two screens.
-    await cursorTo(page, "albatross");
-    await expect(item(page, SETTINGS, HULL)).toHaveAttribute("data-locked", "true");
-    await expect(item(page, SETTINGS, HULL)).toContainText("unlocks after 7 beacons");
-    // And it is still focusable while locked, so a screen reader can read it.
-    await assertVisibleFocus(page, SETTINGS);
-  });
-
-  test("AC-6d.1b a locked hull cannot be equipped by any input", async ({ page }) => {
-    await seed(page, [FIVE_BEACONS], SETTINGS);
-    expect(await wornHull(page)).toBe("ship-1");
-
-    await cursorTo(page, "albatross");
-    // Enter, Space and a click on the row are the three ways a control in this
-    // kit is operated (`focus.ts`: Enter and Space both call `activate`, and
-    // `bindPointer` gives every focusable a hit area). None of them may wear a
-    // ship this pilot has not earned.
-    await press(page, "Enter");
-    await press(page, " ");
-    expect(await wornHull(page), "a locked hull was equipped by the keyboard").toBe("ship-1");
-    expect((await snapshot(page, SETTINGS))["shipId"]).toBe("ship-1");
-    // The row did not quietly move on either - it is still showing the locked
-    // hull with its sentence, which is the state a child is left in.
-    await expect(item(page, SETTINGS, HULL)).toHaveAttribute("data-locked", "true");
-  });
-
-  test("AC-19.1 an earned hull is equipped and survives a real reload", async ({
-    page,
-  }) => {
-    await seed(page, [FIVE_BEACONS], SETTINGS);
-    expect(await wornHull(page)).toBe("ship-1");
-
-    await cursorTo(page, "harrier");
-    await expect(item(page, SETTINGS, HULL)).toHaveAttribute("data-locked", "false");
-    await press(page, "Enter");
-
-    // The write, through the real store.
-    await expect
-      .poll(() => wornHull(page), { message: "Enter did not equip the earned hull" })
-      .toBe("ship-3");
-    // The row now says this one is being flown, which is the feedback the press
-    // gives - there is no toast and no dialog (D31: calm).
-    await expect(item(page, SETTINGS, HULL)).toContainText("flying now");
-
-    // THE RELOAD. A new page, a new boot, a new store over what localStorage
-    // actually holds. This is the half a value assertion cannot see, and it is
-    // the half that matters: a hull that resets when a child closes the tab is
-    // worse than a knob that does, because they earned it.
-    await open(page, SETTINGS);
-    expect(await wornHull(page), "the equipped hull did not survive the reload").toBe(
-      "ship-3",
-    );
-    expect((await snapshot(page, SETTINGS))["shipId"]).toBe("ship-3");
-    // And the row comes back OPEN ON IT, so the screen and the save agree.
-    await expect(item(page, SETTINGS, HULL)).toHaveAttribute("data-value", "harrier");
-    await expect(item(page, SETTINGS, HULL)).toContainText("flying now");
-  });
-
-  test("AC-18.1 the console still walks end to end with the hull row on it", async ({
-    page,
-  }) => {
-    // The row is a twelfth control on a panel that already had eleven, and the
-    // column is flowed rather than stacked at a fixed pitch. A lap of the list
-    // that comes back to where it started is what says nothing fell off the
-    // focus order (the frame itself is measured in tests/unit/ui/cockpit.test.ts,
-    // in Devanagari, where this column runs out of room first).
-    await seed(page, [FIVE_BEACONS], SETTINGS);
-    const count = await screen(page, SETTINGS)
+    const ids = await screen(page, SETTINGS)
       .locator('[data-testid="ui-item"]')
-      .count();
-    expect(count).toBeGreaterThanOrEqual(11);
+      .evaluateAll((nodes) => nodes.map((n) => n.getAttribute("data-id") ?? ""));
+
+    expect(ids, "the hull row is drawn again - restore this file").not.toContain(
+      HULL,
+    );
+    // UR-185 turned the other one-choice row off in the same column.
+    expect(ids).not.toContain("settings.uiLang");
+    expect(ids).toContain("settings.keyboardLayout");
+
+    // A lap of the list that comes back where it started is what says nothing
+    // fell off the focus order when the two rows went. Counted off the rows
+    // actually drawn rather than a fixed number, which is what broke here.
     const first = await screen(page, SETTINGS).getAttribute("data-focus");
-    await press(page, "ArrowDown", count);
+    await press(page, "ArrowDown", ids.length);
     expect(await screen(page, SETTINGS).getAttribute("data-focus")).toBe(first);
     await assertVisibleFocus(page, SETTINGS);
+  });
+
+  test("a visit to the console cannot change the hull a pilot is wearing", async ({
+    page,
+  }) => {
+    await seed(page, [FIVE_BEACONS], SETTINGS);
+    expect(await wornHull(page)).toBe("ship-1");
+
+    // Every key the kit operates a control with, on a panel that has no equip
+    // surface. AC-6d.1b's claim survives the cut: no input wears a hull.
+    await press(page, "Enter");
+    await press(page, " ");
+    await press(page, "ArrowRight");
+    await press(page, "ArrowDown");
+
+    expect(await wornHull(page), "Settings equipped a hull with no hull row").toBe(
+      "ship-1",
+    );
+    expect((await snapshot(page, SETTINGS))["shipId"]).toBe("ship-1");
   });
 });

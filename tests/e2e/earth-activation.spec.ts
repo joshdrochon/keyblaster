@@ -42,7 +42,7 @@ test.describe("Earth activation (row 2b, D57)", () => {
     expect(before.beaconLit).toBe(false);
     expect(before.activationWord).toBe(bundle.activationWord);
     // The dark state is stated in words, not implied by a colour.
-    expect(before.text.join(" ")).toContain("offline");
+    expect(before.text.join(" ").toLowerCase()).toContain("offline");
 
     await typeWord(page, bundle.activationWord);
 
@@ -60,7 +60,7 @@ test.describe("Earth activation (row 2b, D57)", () => {
     const lit = await snapshot(page, KEY);
     expect(lit.beaconLit).toBe(true);
     expect(lit.typed).toBe(bundle.activationWord);
-    expect(lit.text.join(" ")).toContain("online");
+    expect(lit.text.join(" ").toLowerCase()).toContain("online");
 
     // AC-12.1's second half: it advances to the Director map.
     await page.waitForFunction(

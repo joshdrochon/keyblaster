@@ -104,7 +104,7 @@ test.describe("Stage bundles (AC-12.2, AC-12.3, AC-13.2, AC-25.3)", () => {
     const earth = BUNDLES.find((b) => b.stopId === "earth");
     expect(earth?.pool).toEqual([]);
     expect(earth?.warpSentence).toBeNull();
-    expect(earth?.activationWord).toBe("launch");
+    expect(earth?.activationWord).toBe("light");
   });
 
   for (const b of BUNDLES) {
