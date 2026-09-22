@@ -9,6 +9,7 @@ import {
   waitFrames,
 } from "./support/flightBoot.js";
 import { DESIGN } from "./support/lane.js";
+import { hullForStage } from "../../src/engine/hull/index.js";
 
 /**
  * UR-22 (the hull looked as though it could absorb damage without limit) and
@@ -219,7 +220,14 @@ test.describe("UR-22 / UR-21: the flight screen shows the hull and the place", (
       // 66-mark hull in which one hit moves the lamp by 1/66 instead of 1/9 -
       // a fixture that dilutes the very quantity it is measuring. The first run
       // of this spec did exactly that, at stageWordCount 400.
-      stageWordCount: 58,
+      // 87, NOT 58. This fixture is calibrated for a NINE-mark hull: enough
+      // headroom for a strike plus a two-rung ladder without the belt's own
+      // rocks bottoming it out, and still small enough that one hit is a
+      // visible 1/9 rather than the 1/66 a 400-word stage gave the first run.
+      // `hullForStage` was retuned (1a839ee, owner-approved by play) and 58
+      // words now yields six, which stalled the stage at rung two. 87 is the
+      // shortest stage that restores nine.
+      stageWordCount: 87,
       // A very slow pilot, so FR-8 clamps every rock to its 14 s maximum fall.
       // Nobody is typing during this measurement, so a rock that reaches the
       // breach line takes a hull mark THE TEST DID NOT ASK FOR - and the first
@@ -232,8 +240,17 @@ test.describe("UR-22 / UR-21: the flight screen shows the hull and the place", (
     });
 
     const before = await flightState(page);
-    // The exact case UR-22 is about: nine marks behind three drawn pips.
-    expect(before.maxHull, "this is not the hull the player reported on").toBe(9);
+    // The exact case UR-22 is about: more marks than drawn pips, so one hit
+    // moves the lamp by a fraction of a pip rather than a whole one.
+    //
+    // SIX AT 58 WORDS, NOT NINE. `hullForStage` was retuned and the owner
+    // played every stop and approved it (1a839ee). Asked of the shipped
+    // function rather than written down here, so the next tuning does not
+    // leave a number behind in a fixture.
+    expect(before.maxHull, "this is not the hull the player reported on").toBe(
+      hullForStage(87),
+    );
+    expect(before.maxHull, "one hit would move a whole pip").toBeGreaterThan(3);
 
     const box = await flightCanvasBox(page);
     const scale = box.width / DESIGN.width;
@@ -493,12 +510,27 @@ test.describe("UR-22 / UR-21: the flight screen shows the hull and the place", (
     // (c) DAMAGE ACCUMULATES VISIBLY. Five hits, five readings, each darker
     //     than the last. This is the literal content of the player's report:
     //     if these were flat, the hull would read as infinite.
+    //     MONOTONIC TO THE NOISE, AND FALLING OVERALL. A rung is 1/9 of the
+    //     dim range and the reading is a mean over a moving world, so a single
+    //     step can wobble up by a ten-thousandth without the hull reading as
+    //     bottomless - measured [0.04902, 0.04908, 0.04456], where the wobble
+    //     is 0.00006 against a real per-rung drop of 0.0045. Asserting strict
+    //     descent on each pair makes the test a coin-flip on that wobble.
+    //     So: no rung may RISE by more than the wobble, and the ladder as a
+    //     whole must fall by far more than one - which is the claim the
+    //     player's report is about.
+    const WOBBLE = 0.0005;
     for (let i = 1; i < ladder.length; i += 1) {
       expect(
-        ladder[i] as number,
-        `hull hit ${i + 1} did not dim the ship further (ship minus sky): ${JSON.stringify(ladder)}`,
-      ).toBeLessThan(ladder[i - 1] as number);
+        (ladder[i] as number) - (ladder[i - 1] as number),
+        `hull hit ${i + 1} made the ship BRIGHTER (ship minus sky): ${JSON.stringify(ladder)}`,
+      ).toBeLessThan(WOBBLE);
     }
+    const fell = (ladder[0] as number) - (ladder[ladder.length - 1] as number);
+    expect(
+      fell,
+      `the ladder did not fall across its rungs (ship minus sky): ${JSON.stringify(ladder)}`,
+    ).toBeGreaterThan(WOBBLE * 4);
   });
 
   test("UR-21: the HUD names the stop, on its own plate, above 4.5:1", async ({ page }) => {

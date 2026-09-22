@@ -231,7 +231,14 @@ test.describe("UR-49: a theme is a skin", () => {
       resolve(dirname(fileURLToPath(import.meta.url)), "../../src/game/scenes/TitleScene.ts"),
       "utf8",
     );
-    const ringArg = /this\.focusRing\.lineStyle\(\s*4,\s*hexToNum\(([^)]+)\)/.exec(src)?.[1] ?? null;
+    // UR-69 replaced this screen's third bespoke rounded rect with the shared
+    // `paintFocusRing`, so there is no `lineStyle(4, hexToNum(...))` here to
+    // read any more and the old regex matched nothing. The CLAIM has not
+    // moved - the colour handed to the painter is still the scene's accent
+    // field - so the third argument is what to read.
+    const ringArg =
+      /paintFocusRing\(\s*this\.focusRing,\s*[^,]+,\s*([^,]+),/.exec(src)?.[1]?.trim() ??
+      null;
     const accentField = /private readonly accent = ([^;]+);/.exec(src)?.[1] ?? null;
     const token = await page.evaluate(async (url) => {
       const theme = (await import(/* @vite-ignore */ url)) as { INK: { accent: string } };

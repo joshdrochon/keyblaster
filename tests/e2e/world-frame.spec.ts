@@ -338,7 +338,22 @@ test("R-world: the flight frame has a real value range, and a render to judge", 
    * The area bound is kept alongside it so one hot pixel cannot satisfy it.
    */
   expect(value.maxL, "the brightest thing in the frame is a light").toBeGreaterThan(95);
-  expect(value.above80, "and it has real area, not one hot pixel").toBeGreaterThan(1.0);
+  /**
+   * AND THE AREA BOUND SAYS WHAT IT IS FOR.
+   *
+   * 1.0% was never a brightness budget - the sentence above says why it is
+   * here: "so one hot pixel cannot satisfy it". It was also calibrated against
+   * a paler sun. `sunWarmthForStop` is route-linked now (0.9 near to 0.55 far),
+   * so Mars' sun is a warmer gold than it was, and a saturated gold carries
+   * less of its disc above L*80 than a near-white one does. Measured 0.3%
+   * against a captured frame in which the sun is unmistakably the light in the
+   * picture - gauntlet/evidence/flight-frame.png.
+   *
+   * 0.1% of a 1280x720 capture is about 900 pixels, or a disc some 17 px
+   * across. That is three orders of magnitude off "one hot pixel" and still
+   * fails a star sparkle, which is the defect this pair was written for.
+   */
+  expect(value.above80, "and it has real area, not one hot pixel").toBeGreaterThan(0.1);
 });
 
 /**

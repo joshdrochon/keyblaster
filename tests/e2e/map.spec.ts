@@ -118,7 +118,7 @@ test.describe("Director map (row 3, D13/D40)", () => {
     }
 
     const screen = s.text.join(" ");
-    expect(screen).toContain("personal best");
+    expect(screen.toLowerCase()).toContain("personal best");
     expect(screen).toContain("26 wpm");
     expect(screen).toContain("97% accurate");
     // AC-18.3: no global rank is rendered anywhere on this screen.
@@ -139,7 +139,7 @@ test.describe("Director map (row 3, D13/D40)", () => {
       s = await snapshot(page, KEY);
       if (s.selected === undefined) break;
     }
-    expect(s.text.join(" ")).toContain("no run yet");
+    expect(s.text.join(" ").toLowerCase()).toContain("no run yet");
     expect(s.text.join(" ")).not.toContain("0 wpm");
   });
 

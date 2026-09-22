@@ -3,6 +3,7 @@ import { freezeReloads } from "./support/lane";
 import {
   CHROME_PAD_Y,
   FOCUS_PAD,
+  LOCKUP_INNER_GAP,
   MIN_CLEAR,
   PRIMARY_H,
   SECONDARY_GAP,
@@ -415,8 +416,14 @@ test("UR-68: a NEW pilot's lockup has air between its two controls", async ({ pa
     expect(column.hasStatus, "a fresh profile draws no status line").toBe(false);
     expect(column.gaps).toHaveLength(1);
     for (const gap of column.gaps) {
+      // UR-151, NOT `MIN_CLEAR`. `SECONDARY_GAP` existed to separate the
+      // settings row from the CAPTION; with no caption it was sizing itself
+      // against an absent object - 78 px of empty sky - and the owner asked
+      // for the lockup's own 6 px rule-to-tagline gap plus 4. That is
+      // `LOCKUP_INNER_GAP`, and it is 10, so a floor of 20 here is asserting
+      // against a decision rather than against crowding.
       expect(gap, `${view.width}x${view.height}: ${JSON.stringify(column.gaps)}`)
-        .toBeGreaterThanOrEqual(MIN_CLEAR);
+        .toBeGreaterThanOrEqual(LOCKUP_INNER_GAP);
     }
     expect(column.bottom).toBeLessThanOrEqual(STACK_FLOOR);
     expect(reported).toBe(0);
@@ -427,15 +434,26 @@ test("UR-68: a NEW pilot's lockup has air between its two controls", async ({ pa
   expect(Object.keys(seen)).toHaveLength(WINDOWS.length);
 });
 
-test("UR-68: a RETURNING pilot's lockup has air around the status line", async ({ page }) => {
+test("UR-68: a RETURNING pilot's lockup is the same column, at every stop", async ({
+  page,
+}) => {
   /**
-   * RULE 5: SWEEP, DO NOT SAMPLE. Seven stops times five windows. The stop
-   * matters because the Title wears the furthest beacon's palette and dodges
-   * that stop's light, and the window matters because the light is placed as a
-   * fraction of a world whose width is the window's aspect - Neptune and Pluto
-   * never move the lockup at all, Mars moves it furthest, and at 32:9 every
-   * stop stops moving it. That is five distinct lockup positions hiding behind
-   * "the Title screen".
+   * THE STATUS LINE IS GONE, AND SO IS WHAT THIS TEST USED TO ASK.
+   *
+   * `TitleScene.primarySub` has been a hardcoded `null` since 3632601
+   * (UR-88/UR-89): "null is the path a first-time pilot always took, so this
+   * removes a branch rather than adding one". No pilot draws a status line any
+   * more, so "no status line was drawn" was reporting the decision, and the
+   * `STATUS_GAP` / `SECONDARY_GAP` budget below it was measuring a block that
+   * is not on the screen.
+   *
+   * RULE 5 STILL APPLIES, and it is the reason this test is restated rather
+   * than deleted. Seven stops times five windows is not redundant with the
+   * new-pilot test: the Title wears the furthest beacon's palette and dodges
+   * that stop's light, and the light is placed as a fraction of a world whose
+   * width is the window's aspect - Mars moves the lockup furthest, Neptune and
+   * Pluto not at all, and at 32:9 no stop moves it. Those are the positions
+   * that could crowd the column, and they are still swept.
    */
   const report: Record<string, number[]> = {};
   for (const stop of STOPS) {
@@ -443,16 +461,10 @@ test("UR-68: a RETURNING pilot's lockup has air around the status line", async (
       const at = `${stop} ${view.width}x${view.height}`;
       const { column, reported, furthest } = await openTitle(page, stop, view);
       expect(furthest, `${at}: the profile did not load`).toBe(stop);
-      expect(column.hasStatus, `${at}: no status line was drawn`).toBe(true);
-      expect(column.gaps).toHaveLength(2);
-      for (const gap of column.gaps) {
-        expect(gap, `${at}: gaps ${JSON.stringify(column.gaps)}`).toBeGreaterThanOrEqual(
-          MIN_CLEAR,
-        );
-      }
-      // The caption belongs to the button above it, so the break BELOW it has
-      // to be the bigger one. Pre-fix both were negative and this was 10 vs 0.
-      expect(column.gaps[1], `${at}`).toBeGreaterThan(column.gaps[0] ?? 0);
+      expect(column.hasStatus, `${at}: a status line came back`).toBe(false);
+      expect(column.gaps, `${at}`).toHaveLength(1);
+      expect(column.gaps[0], `${at}: gaps ${JSON.stringify(column.gaps)}`)
+        .toBeGreaterThanOrEqual(LOCKUP_INNER_GAP);
       expect(column.bottom, `${at}`).toBeLessThanOrEqual(STACK_FLOOR);
       expect(reported, `${at}: the column reported overflow`).toBe(0);
       report[at] = column.gaps;
@@ -462,7 +474,6 @@ test("UR-68: a RETURNING pilot's lockup has air around the status line", async (
   // The budget the module publishes is the budget the screen draws, within the
   // pixel a measured line box can round by.
   for (const [at, gaps] of Object.entries(report)) {
-    expect(Math.abs((gaps[0] ?? 0) - STATUS_GAP), at).toBeLessThanOrEqual(1);
-    expect(Math.abs((gaps[1] ?? 0) - SECONDARY_GAP), at).toBeLessThanOrEqual(1);
+    expect(Math.abs((gaps[0] ?? 0) - LOCKUP_INNER_GAP), at).toBeLessThanOrEqual(1);
   }
 });

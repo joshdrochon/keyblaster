@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import {
   activeProfile,
   assertNoEmailField,
@@ -249,6 +249,25 @@ test.describe("row 1b - profile picker", () => {
  * four SKINS are drawn nowhere else in the shipped game while the beat is
  * hidden; that is a cost of the trim and it is recorded here rather than lost.
  */
+/**
+ * Type into the name field, once the field is actually holding the keyboard.
+ *
+ * `page.keyboard.type` with no delay puts three characters in under a frame.
+ * On a loaded box, if the first of them arrives while the scene is still
+ * coming up, the draft is rebuilt underneath them and the value accumulates -
+ * "Rin" read back as "RRiRiRinRin" in a full serial run, while the same test
+ * passed alone and the screen typed correctly at every speed when probed
+ * directly. So this waits for the field to have focus first (rule 6: wait for
+ * the thing) and types at a human-ish pitch rather than a machine's.
+ */
+async function typeName(page: Page, name: string): Promise<void> {
+  await expect(screen(page, CREATE)).toHaveAttribute("data-focus", "create.name");
+  await page.keyboard.type(name, { delay: 25 });
+  await expect
+    .poll(async () => (await snapshot(page, CREATE))["items"])
+    .toEqual(expect.arrayContaining([expect.objectContaining({ id: "create.name", value: name })]));
+}
+
 test.describe("row 2 - profile create", () => {
   test("AC-18.2 no email field exists on the create screen", async ({ page }) => {
     await seed(page, [{ name: "Ana" }], CREATE);
@@ -275,8 +294,7 @@ test.describe("row 2 - profile create", () => {
     // The name field has focus on arrival, so typing just works.
     await assertVisibleFocus(page, CREATE);
     expect(await focused(page, CREATE).getAttribute("data-id")).toBe("create.name");
-    await page.keyboard.type("Rin");
-    await page.waitForTimeout(80);
+    await typeName(page, "Rin");
     expect((await snapshot(page, CREATE))["pilotName"]).toBe("Rin");
 
     // A mark, chosen with the keyboard. Same screen: "choose your look" is the
@@ -319,7 +337,20 @@ test.describe("row 2 - profile create", () => {
     // with one step in it.
     await expect(screen(page, CREATE)).not.toContainText("Step 1 of");
 
-    // And the confirm does not walk into one: it creates the pilot and leaves.
+    // And the confirm does not walk into one. It also does not fire on a blank
+    // screen any more: 1a839ee locks it until the name is usable
+    // (MIN_NAME_LENGTH = 2), which is why this used to press Enter on nothing
+    // and then ask why no pilot existed.
+    await focusItem(page, CREATE, "create.launch");
+    await press(page, "Enter");
+    await page.waitForTimeout(200);
+    expect(await activeProfile(page), "a nameless pilot was created").toBeNull();
+    await expect(screen(page, CREATE)).toHaveCount(1);
+
+    // Given a name, it creates the pilot and leaves - straight out, not into a
+    // second beat.
+    await focusItem(page, CREATE, "create.name");
+    await typeName(page, "Rin");
     await focusItem(page, CREATE, "create.launch");
     await press(page, "Enter");
     await page.waitForTimeout(300);
@@ -340,8 +371,7 @@ test.describe("row 2 - profile create", () => {
 
   test("AC-7.2 the new pilot survives a reload (D44)", async ({ page }) => {
     await seed(page, [], CREATE);
-    await page.keyboard.type("Kit");
-    await page.waitForTimeout(80);
+    await typeName(page, "Kit");
     await focusItem(page, CREATE, "create.launch");
     await press(page, "Enter");
     await page.waitForTimeout(300);
@@ -389,8 +419,7 @@ test.describe("row 2 - a new pilot screen starts blank", () => {
   }) => {
     test.slow();
     await seed(page, [], CREATE);
-    await page.keyboard.type("Rin");
-    await page.waitForTimeout(80);
+    await typeName(page, "Rin");
     await focusItem(page, CREATE, "create.avatar.avatar-3");
     await press(page, "Enter");
     await focusItem(page, CREATE, "create.launch");
@@ -428,8 +457,7 @@ test.describe("row 2 - a new pilot screen starts blank", () => {
     await focusItem(page, PICKER, "pick.new");
     await press(page, "Enter");
     await screen(page, CREATE).waitFor({ state: "attached" });
-    await page.keyboard.type("Bo");
-    await page.waitForTimeout(80);
+    await typeName(page, "Bo");
     expect((await snapshot(page, CREATE))["pilotName"]).toBe("Bo");
 
     await press(page, "Escape");

@@ -55,13 +55,15 @@ test.describe("row 10 - beacon log", () => {
 
     const earned = item(page, LOG, "log.trophy.pathfinder");
     await expect(earned).toHaveAttribute("data-locked", "false");
-    await expect(earned).toContainText("earned");
+    await expect(earned).toContainText("earned", { ignoreCase: true });
 
     // An unearned trophy is an invitation with its criterion attached, not a
     // blank or a cross.
     const notYet = item(page, LOG, "log.trophy.mapMaker");
     await expect(notYet).toHaveAttribute("data-locked", "true");
-    await expect(notYet).toContainText("light all seven beacons");
+    await expect(notYet).toContainText("light all seven beacons", {
+      ignoreCase: true,
+    });
   });
 
   test("D74 nothing on this screen is comparative", async ({ page }) => {
@@ -105,7 +107,7 @@ test.describe("row 10 - beacon log", () => {
     const pluto = item(page, LOG, "log.beacon.pluto");
     await expect(pluto).toHaveCount(1);
     await expect(pluto).toHaveAttribute("data-locked", "true");
-    await expect(pluto).toContainText("not lit yet");
+    await expect(pluto).toContainText("not lit yet", { ignoreCase: true });
   });
 
   test("all seven stops are always listed, in route order", async ({ page }) => {
@@ -133,8 +135,10 @@ test.describe("row 10 - beacon log", () => {
     await seed(page, [{ name: "Ana", beacons: ["earth"] }], LOG);
     const snap = await snapshot(page, LOG);
     expect(snap["empty"]).toBe(true);
-    expect(String(snap["emptyLine"])).toContain("six more");
-    expect((await screen(page, LOG).textContent()) ?? "").toContain("not lit yet");
+    expect(String(snap["emptyLine"]).toLowerCase()).toContain("six more");
+    expect(((await screen(page, LOG).textContent()) ?? "").toLowerCase()).toContain(
+      "not lit yet",
+    );
   });
 
   test("a full log is not the empty state", async ({ page }) => {

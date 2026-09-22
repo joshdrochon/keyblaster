@@ -176,7 +176,12 @@ test.describe("row 13 - pause", () => {
     await press(page, "Enter");
 
     await expect(dialog(page, PAUSE)).toHaveCount(1);
-    await expect(dialog(page, PAUSE)).toContainText("quit to the map");
+    // The dialog element carries the QUESTION; the two labels are controls
+    // beside it, not text inside it. What "asks once, in plain words" means is
+    // that the belt's fate is stated here (`ui.pause.quitAsk`).
+    await expect(dialog(page, PAUSE)).toContainText("starts over", {
+      ignoreCase: true,
+    });
     expect(browserDialogs).toBe(0);
     // The safe answer has focus: Enter on reflex keeps you flying.
     expect(await screen(page, PAUSE).getAttribute("data-focus")).toBe(
@@ -184,7 +189,9 @@ test.describe("row 13 - pause", () => {
     );
   });
 
-  test("quit confirm: cancelling returns to the paused belt", async ({ page }) => {
+  test("quit confirm: cancelling keeps flying, it does not go back a menu", async ({
+    page,
+  }) => {
     await seed(page, [{ name: "Ana" }], BELOW);
     await pauseOver(page, BELOW);
     await focusItem(page, PAUSE, "pause.quit");
@@ -193,8 +200,16 @@ test.describe("row 13 - pause", () => {
 
     await press(page, "Escape");
     await expect(dialog(page, PAUSE)).toHaveCount(0);
-    await expect(screen(page, PAUSE)).toHaveCount(1);
-    expect((await snapshot(page, PAUSE))["belowPaused"]).toBe(true);
+    // `PauseScene.askQuit`: "Keep Flying" means keep flying. Cancelling resumes
+    // the belt rather than dropping the child back onto the menu they were
+    // leaving, so the overlay goes with the dialog. This spec asserted the
+    // older two-step return for long enough that it read as a regression.
+    await screen(page, PAUSE).waitFor({ state: "detached" });
+    const running = await page.evaluate(
+      (key) => (window as any).__kb.game.scene.isActive(key) as boolean,
+      BELOW,
+    );
+    expect(running, "cancelling the quit did not resume the belt").toBe(true);
   });
 
   test("quit confirm: confirming stops the belt and leaves the overlay", async ({

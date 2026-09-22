@@ -478,7 +478,11 @@ async function lightEarth(
 ): Promise<void> {
   for (let i = 0; i < 8; i++) {
     if (!(await activeScenes(page)).includes("EarthActivation")) return;
-    await typeWord(page, "launch");
+    // "light", not "launch": 1a839ee rewrote Earth's activation word along
+    // with the beacon copy ("Type light to switch it on"). Read from the
+    // bundle rather than repeated here would be better still, but the word is
+    // one string and `src/content/en/earth.json` is where it lives.
+    await typeWord(page, "light");
     await settle(page, 700);
     await press(page, "Enter");
     await page.waitForTimeout(900);
@@ -545,9 +549,25 @@ test("a player can get from the Title to a placed beacon using only the keyboard
   // --- Profile, if this build shows one ----------------------------------
   if (afterTitle === "ProfilePicker" || afterTitle === "ProfileCreate") {
     // Walk the create flow with real keys until something else is on screen.
+    //
+    // GIVE IT A NAME FIRST. 1a839ee locks the confirm until the name reaches
+    // MIN_NAME_LENGTH, so a walk that only presses Enter presses a locked
+    // button forty times and reports "profile flow ended on ProfileCreate".
+    // The create screen opens with the name field focused.
+    let named = false;
     for (let i = 0; i < 40; i++) {
       const here = (await activeScenes(page))[0];
       if (here !== "ProfilePicker" && here !== "ProfileCreate") break;
+      if (here === "ProfileCreate" && !named) {
+        await page.keyboard.type("Pip", { delay: 25 });
+        await settle(page, 200);
+        named = true;
+      }
+      // The create screen opens with the NAME FIELD focused, and Enter on a
+      // field does not advance - so a walk that only presses Enter sits there
+      // for all forty turns. Arrow down first, which is how a child reaches
+      // the confirm and how `focusItem` walks this kit elsewhere.
+      if (here === "ProfileCreate") await press(page, "ArrowDown");
       await press(page, "Enter");
     }
   }

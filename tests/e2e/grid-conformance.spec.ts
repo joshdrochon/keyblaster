@@ -241,7 +241,37 @@ const HEADER_BY_DESIGN: Readonly<Record<string, string>> = {
  * screen's model - the Briefing's back chip (right-anchored on a fixed screen)
  * and Earth activation's Shadow line (fixed on a centred screen).
  */
-type AnchorModel = "fixed" | "centred" | "composite";
+type AnchorModel = "fixed" | "centred" | "composite" | "distributed";
+
+/**
+ * SEVEN STOPS ACROSS THE WIDTH (the Ending's route recap).
+ *
+ * The Ending lays the route out end to end, so its labels sit at k/6 of the
+ * frame and each one moves by k/6 of whatever the frame grew by - measured at
+ * 107, 213, 321, 428, 534, 641 against a delta of 641, which is k x 106.83.
+ *
+ * NOT "composite", which would switch the check off. A distributed screen has
+ * a model and it is checkable: every element must land on one of the seven
+ * stations, so a label that drifts to 250 is still a failure.
+ */
+const DISTRIBUTED_STATIONS = 7;
+
+/**
+ * How many elements on a CENTRED screen sit on the gutter instead, and which.
+ *
+ * EarthActivation centres its stack - heading, state word, the letters of the
+ * word being typed, the button - and draws SHADOW'S CARD on the left gutter,
+ * which is where her card sits on the warp break and everywhere else she
+ * speaks. Two Texts: her name label and her line.
+ *
+ * A COUNT RATHER THAN A SKIP. Declaring the screen "composite" would switch
+ * its check off entirely, which is how an exemption list stops shrinking. Each
+ * drift still has to be ON one of the two models, and the number on the gutter
+ * has to be exactly this - so a third element wandering onto it fails here.
+ */
+const GUTTER_ANCHORED: Readonly<Record<string, number>> = {
+  EarthActivation: 2,
+};
 
 const ANCHOR_MODEL: Readonly<Record<string, AnchorModel>> = {
   Title: "fixed",
@@ -252,7 +282,7 @@ const ANCHOR_MODEL: Readonly<Record<string, AnchorModel>> = {
   Warp: "fixed",
   Beacon: "fixed",
   Results: "fixed",
-  Ending: "fixed",
+  Ending: "distributed",
 };
 
 /**
@@ -522,7 +552,28 @@ test("UR-19: every page follows suit - header, hint and anchoring", async ({ pag
     const model = ANCHOR_MODEL[screen.key];
     const delta = 2561 - 1920;
     const expected = model === "centred" ? delta / 2 : 0;
-    const off = model === "composite" ? [] : drifts.filter((d) => Math.abs(d - expected) > 6);
+    const onGutter = drifts.filter((d) => Math.abs(d) <= 6);
+    const station = delta / (DISTRIBUTED_STATIONS - 1);
+    const offStation = (d: number): boolean =>
+      Math.abs(d / station - Math.round(d / station)) * station > 6 ||
+      Math.round(d / station) < 0 ||
+      Math.round(d / station) > DISTRIBUTED_STATIONS - 1;
+    const off =
+      model === "composite"
+        ? []
+        : model === "distributed"
+          ? drifts.filter(offStation)
+          : drifts.filter(
+            (d) =>
+              Math.abs(d - expected) > 6 &&
+              !(GUTTER_ANCHORED[screen.key] !== undefined && Math.abs(d) <= 6),
+          );
+    if (GUTTER_ANCHORED[screen.key] !== undefined) {
+      expect(
+        onGutter.length,
+        `${screen.key}: ${onGutter.length} elements on the gutter, ${GUTTER_ANCHORED[screen.key]} declared`,
+      ).toBe(GUTTER_ANCHORED[screen.key]);
+    }
     anchorReport[screen.key] = `${model}: ${drifts.length - off.length}/${drifts.length} on model`;
     expect(
       off,

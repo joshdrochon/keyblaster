@@ -629,8 +629,22 @@ test("AC-21.3 / AC-21.6: the warp spools, stings, and speaks its note after the 
   );
   expect(sentence.length).toBeGreaterThan(0);
 
-  // Wait for the coach note so the AC-21.6 ordering is observed on the real
-  // screen rather than on a stub.
+  // TYPE FIRST, THEN WAIT FOR THE NOTE - which is the order AC-21.6 names.
+  //
+  // This waited for `coach.received` BEFORE typing, and UR-166 holds Shadow's
+  // card until the child's first keystroke, so it waited thirty seconds for a
+  // note that was correctly refusing to arrive. The claim is that the note is
+  // spoken AFTER the text, so the text going in first is not a workaround, it
+  // is the sequence under test.
+  // ONE CHARACTER, THEN THE NOTE, THEN THE REST.
+  //
+  // This waited for `coach.received` before typing anything, and UR-166 holds
+  // Shadow's card until the child's first keystroke - thirty seconds of
+  // waiting for a note that was correctly refusing to arrive. Typing the whole
+  // sentence first does not work either: it charges the drive, the scene jumps
+  // and the note is read off a screen that has left. The first keystroke is
+  // what releases it, which is the sequence a child produces.
+  await typeText(page, sentence.slice(0, 1));
   await page.waitForFunction(
     () =>
       (
@@ -641,8 +655,7 @@ test("AC-21.3 / AC-21.6: the warp spools, stings, and speaks its note after the 
     null,
     { timeout: 30_000 },
   );
-
-  await typeText(page, sentence);
+  await typeText(page, sentence.slice(1));
   await page.waitForTimeout(800);
 
   const after = await snap(page);
@@ -901,9 +914,46 @@ test("UR-91 / AC-21.4: the briefing's reveal really sounds, and really ducks the
     null,
     { timeout: 30_000 },
   );
-  // The boot's own reveal runs out first, so the fader is back up and the
-  // resting number below is honest.
-  await page.waitForTimeout(2500);
+  // THE BOOT'S OWN REVEAL HAS TO BE OVER FIRST, and 2500 ms was a guess at
+  // when. Earth is the longest briefing in the game (~1.8 s of typing plus a
+  // 420 ms duck release), so on a cold boot the opening reveal is STILL
+  // DUCKING at 2500 ms - `resting` is then read at the ducked gain, the fresh
+  // reveal ducks to the same place, and the ratio is 1: "deepest music duck in
+  // dB: 0" on a fader that is working perfectly. Probed directly, the same
+  // screen ducks 0.70 -> 0.351, which is -5.99 dB.
+  //
+  // So it waits for the thing: the page finished, and the music bus back at a
+  // level it has held for three consecutive frames.
+  await page.waitForFunction(
+    () => {
+      const kb = window as unknown as {
+        __kb?: {
+          game: { scene: { getScene(k: string): { snapshot?: () => { typewriter: { complete: boolean } } } | null } };
+          audio: { snapshot(): { busGains: Record<string, number>; transmitting: boolean } };
+        };
+        __duck?: number[];
+      };
+      const scene = kb.__kb?.game.scene.getScene("Briefing");
+      if (scene?.snapshot === undefined) return false;
+      if (!scene.snapshot().typewriter.complete) return false;
+      // `transmitting` is the duck itself, and it is the thing to wait for.
+      // The page completing is NOT the fader coming back: there is a beat
+      // between the last character and the release starting, and the gain is
+      // flat at the DUCKED level across it - stable, non-zero, and wrong.
+      // Waited on stability alone, this read `resting` as 0.3508, which is the
+      // ducked value, and the test then measured a perfect fader as 0 dB.
+      const snap = kb.__kb?.audio.snapshot();
+      if (snap === undefined || snap.transmitting) return false;
+      const music = snap.busGains["music"] ?? 0;
+      const seen = (kb.__duck ??= []);
+      seen.push(music);
+      if (seen.length < 3) return false;
+      const last = seen.slice(-3);
+      return last.every((v) => v > 0 && Math.abs(v - (last[0] as number)) < 1e-6);
+    },
+    null,
+    { timeout: 30_000 },
+  );
 
   const seen = await page.evaluate(async () => {
     const kb = window as unknown as {
@@ -960,7 +1010,7 @@ test("UR-91 / AC-21.4: the briefing's reveal really sounds, and really ducks the
   // AC-21.4: the world got out of Shadow's way while he transmitted...
   expect(
     20 * Math.log10(seen.quietest / seen.resting),
-    "deepest music duck in dB",
+    `deepest music duck in dB (resting ${seen.resting}, quietest ${seen.quietest}, samples ${String((seen as unknown as { samples?: number }).samples)})`,
   ).toBeLessThanOrEqual(-6 + FLOAT32_DB_SLOP);
 
   // ...and it was handed straight back. A duck left open is a game that plays

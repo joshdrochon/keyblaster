@@ -11,6 +11,7 @@ import {
   screen,
   seed,
   settings,
+  open,
   snapshot,
 } from "./lib/menus";
 
@@ -311,14 +312,21 @@ test.describe("row 11 - settings", () => {
     // live-reskin assertions below should be restored.
     await seed(page, [{ name: "Ana" }], SETTINGS);
     const heading = screen(page, SETTINGS).locator('[data-testid="ui-heading"]');
-    await expect(heading).toContainText("ship controls");
+    await expect(heading).toContainText("ship controls", { ignoreCase: true });
 
-    const before = (await settings(page))["uiLang"];
-    expect(before).toBe("en");
-
-    await adjust(page, "settings.uiLang", "ArrowRight");
+    // UR-185: with SHIPPED_LANGS at ["en"] the row is not drawn at all - a
+    // selector with one choice is arrows that move nothing. The cut is still
+    // measured here, one step earlier than it used to be: the row is absent
+    // and the stored language is unchanged.
     expect((await settings(page))["uiLang"]).toBe("en");
-    await expect(heading).toContainText("ship controls");
+
+    const ids = await items(page, SETTINGS).evaluateAll((nodes) =>
+      nodes.map((n) => n.getAttribute("data-id") ?? ""),
+    );
+    expect(ids, "the one-choice language row is drawn again").not.toContain(
+      "settings.uiLang",
+    );
+    await expect(heading).toContainText("ship controls", { ignoreCase: true });
   });
 
   test("the two rows that could not change anything are GONE from the screen", async ({
@@ -350,10 +358,11 @@ test.describe("row 11 - settings", () => {
     expect(ids, "a removed row is still on the panel").not.toContain(
       "settings.inputMethod",
     );
-    // The rows that DO reach something are untouched - `keyboardLayout` reaches
-    // the lock machine and `uiLang` has readers throughout.
+    // `keyboardLayout` reaches the lock machine and is untouched. `uiLang` has
+    // readers throughout but is HIDDEN while one language ships (UR-185), so
+    // the panel is one row shorter than the save is.
     expect(ids).toContain("settings.keyboardLayout");
-    expect(ids).toContain("settings.uiLang");
+    expect(ids).not.toContain("settings.uiLang");
     // And the two new rows are here and operable.
     expect(ids).toContain("settings.dashColor");
     expect(ids).toContain("settings.avatar");
@@ -378,7 +387,7 @@ test.describe("row 11 - settings", () => {
     const heading = screen(page, SETTINGS).locator('[data-testid="ui-heading"]');
     // D41: lowercase is the default.
     expect((await settings(page))["uppercase"]).toBe(false);
-    await expect(heading).toHaveText("ship controls");
+    await expect(heading).toHaveText("ship controls", { ignoreCase: true });
 
     await adjust(page, "settings.letterCase", "ArrowRight");
     expect((await settings(page))["uppercase"]).toBe(true);
@@ -429,16 +438,29 @@ test.describe("row 11 - settings", () => {
     // palette lane changed the source and nothing updated this spec, so it has
     // been asserting the defect ever since.
     //
-    // What matters is not the hex: it is that the accent CHANGES, and that
-    // whatever it becomes is legible. Asserting the property rather than the
-    // constant means the next palette fix does not have to come here.
+    // ...and then UR-123 landed, which is why the next four lines are not the
+    // obvious ones. THIS screen's accent is the pilot's DASH COLOUR, not the
+    // palette's (`SettingsScene.accentOverride`), so the colourblind palette
+    // cannot move it and asserting that it does is asserting against a
+    // deliberate decision. On Settings the correct claim is that the accent
+    // stays the player's.
     const after = (await snapshot(page, SETTINGS))["accent"] as string;
-    expect(after).not.toBe(before);
-    expect(after).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    expect(after, "the dash colour stopped owning this screen").toBe(before);
+
     const live = await page.evaluate(
       () => (window as any).__kb.services.context.colorblindPalette as boolean,
     );
     expect(live).toBe(true);
+
+    // The RE-DRESS half of AC-19.1 still has to be measured, so it is measured
+    // on a screen that does not override its accent. The Beacon Log wears the
+    // palette straight.
+    await open(page, "BeaconLog");
+    const logAccent = (await snapshot(page, "BeaconLog"))["accent"] as string;
+    expect(logAccent).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    expect(logAccent, "the colourblind palette re-dressed nothing").not.toBe(
+      "#FFC857",
+    );
   });
 
   test("AC-19.1 every setting survives a reload", async ({ page }) => {
@@ -492,7 +514,9 @@ test.describe("row 11 - settings", () => {
     await press(page, "Enter");
 
     // Step two is a DIFFERENT question, not the same one twice.
-    await expect(dialog(page, SETTINGS)).toContainText("one more time");
+    await expect(dialog(page, SETTINGS)).toContainText("one more time", {
+      ignoreCase: true,
+    });
     expect((await snapshot(page, SETTINGS))["resetStage"]).toBe(2);
 
     await press(page, "ArrowDown");

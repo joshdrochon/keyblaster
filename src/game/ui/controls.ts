@@ -133,7 +133,7 @@ export abstract class Control implements Focusable {
     this.redraw();
   }
 
-  private lockedValue = false;
+  protected lockedValue = false;
   adjustable = false;
   /**
    * True for a control with exactly two states, where a click anywhere flips
@@ -547,7 +547,7 @@ export class ListRow extends Control {
     options: ListRowOptions,
   ) {
     super(scene, style, id, x, y, depth);
-    this.locked = options.locked ?? false;
+    this.lockedValue = options.locked ?? false;
     this.onPress = options.onPress;
     this.role = options.role ?? "listitem";
     this.boxW = options.width;
@@ -703,7 +703,7 @@ export class Tile extends Control {
     options: TileOptions,
   ) {
     super(scene, style, id, x, y, depth);
-    this.locked = options.locked ?? false;
+    this.lockedValue = options.locked ?? false;
     this.selected = options.selected ?? false;
     this.onPress = options.onPress;
     this.boxW = options.width;
