@@ -288,6 +288,9 @@ function warpSystemPrompt(req: CoachRequest): string {
     "- Spell every word EXACTLY as it appears in the list. Do not add -s, -es,",
     "  -ed or -ing, and do not change any ending. If the list says \"plain\" you",
     "  may not write \"plains\"; if it says \"moons\" you may not write \"moon\".",
+    "- NO PAST TENSE unless the list has that exact form. The list has \"run\",",
+    "  so \"ran\" is not allowed. Words like \"once\", \"ancient\" and \"cover\" are",
+    "  not on any list - if it is not printed below, you may not use it.",
     "- It MUST contain at least one word from HARD. Those words are the point:",
     "  the pilot just struggled with them and this is how they meet them again.",
     `- ${WARP_MIN_WORDS} to ${WARP_MAX_WORDS} words, at most ${WARP_MAX_CHARS} characters, one plain sentence.`,
@@ -299,7 +302,9 @@ function warpSystemPrompt(req: CoachRequest): string {
     '    "Saturn wears rings made of ice and rock."',
     "",
     "Reply as JSON only:",
-    '{"note": "<=20 words", "variants": ["<sentence>", "<sentence>"], "sentence": "<the practice sentence>"}',
+    '{"note": "<=10 words", "variants": ["<sentence>", "<sentence>", "<sentence>"], "sentence": "<the practice sentence>"}',
+    "Give THREE different variants. Each one must obey every rule above on its",
+    "own, so that if one slips there is another that holds.",
   ].join("\n");
 }
 
@@ -400,7 +405,9 @@ export default async function handler(request: Request): Promise<Response> {
     if (
       typeof p["note"] !== "string" ||
       !Array.isArray(p["variants"]) ||
-      p["variants"].length !== 2 ||
+      // The model is asked for three so a slip has siblings; the client's
+      // schema wants exactly two, and `variants` below sends two.
+      p["variants"].length < 2 ||
       !p["variants"].every((v) => typeof v === "string")
     ) {
       return json({ error: "schema" }, 502);

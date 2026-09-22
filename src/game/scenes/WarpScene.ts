@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import {
   COACH_TIMEOUT_MS,
+  DEFAULT_FALLBACK_BUNDLE,
   createCoachGate,
   type CoachClient,
   type CoachGate,
@@ -165,6 +166,13 @@ const PANEL_CLEAR_LIFT_PX = 28;
  * orphaned rather than celebrating. She is now moving for the whole time she
  * is on her own.
  */
+/**
+ * What the coach card holds. `COACH.h` is derived from Shadow's figure rather
+ * than from the text, and the note's word cap is 20 - enough to wrap past the
+ * plate. Two is what the shipped instruction and every shipped fallback draw.
+ */
+const NOTE_MAX_LINES = 2;
+
 const SHADOW_CHEER_HOLD_MS = 260;
 /** One half of one hop. One hop is `* 2`. */
 const SHADOW_HOP_MS = 130;
@@ -1758,7 +1766,12 @@ export class WarpScene extends Phaser.Scene {
   private settleSentence(): void {
     if (this.sentenceSettled) return;
     this.sentenceSettled = true;
-    if (this.letters.length === 0) this.relayoutSentence(this.sentence.text);
+    // NOT `relayoutSentence`: that resets the meter, and the meter has been at
+    // zero since create - an ease frame here is one AC-22.5 counts.
+    if (this.letters.length === 0) {
+      this.panelRoot.add(this.layoutLetters());
+      this.paintLetters();
+    }
     if (this.lane.reducedMotion) return;
     for (const [i, letter] of this.letters.entries()) {
       const target = letter.alpha;
@@ -1818,8 +1831,28 @@ export class WarpScene extends Phaser.Scene {
    * voice is local, so D63's actual concern - no runtime network TTS, the LLM
    * call stays the only runtime dependency (D32) - is untouched.
    */
+  /**
+   * UR-190: a note that would not fit the card is not drawn.
+   *
+   * `COACH.h` is derived from Shadow's figure, not from the text, and the word
+   * cap is 20 - enough to wrap past the plate on a long one. The gates upstream
+   * judge the words; this judges the LINES, which is the only thing that can
+   * overflow, and it measures them after Phaser has wrapped rather than
+   * guessing from the string. There is no retry: one call per break (AC-15.3),
+   * and a note that does not fit is simply the shipped one instead.
+   */
+  private fitNote(note: string): string {
+    this.noteText.setText(note);
+    if (this.noteText.getWrappedText().length <= NOTE_MAX_LINES) return note;
+    const byLang = DEFAULT_FALLBACK_BUNDLE.byLang[this.lane.lang];
+    const shipped = byLang.byStop[this.stopId]?.note ?? byLang.base.note;
+    this.noteText.setText(shipped);
+    return shipped;
+  }
+
   private showNote(result: CoachResult, note: string): void {
     this.coachResult = result;
+    note = this.fitNote(note);
     const settle = (): void => {
       this.coachSettled = true;
     };
