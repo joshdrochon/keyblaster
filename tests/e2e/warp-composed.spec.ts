@@ -126,15 +126,45 @@ async function openComposedWarp(
  * pins the snapshot to the restarted scene.
  */
 async function waitForRun(page: Page): Promise<void> {
-  // UR-166: the note holds until the child starts. A test that never types is
-  // waiting on a note that is correctly refusing to arrive.
+  // AND IT MUST NOT TYPE TO GET THERE (D09 vs UR-166).
+  //
+  // `coach.settled` is only true once the note has been RELEASED, and UR-166
+  // holds the note until the child's first keystroke - so the obvious way to
+  // satisfy it is to press a key. That press is fatal here:
+  // `useComposedSentence` refuses a composed sentence once typing has started
+  // (`sentence.index > 0`), so a helper that types is a helper that guarantees
+  // the fallback and then asserts the feature is missing. AC-16.3 also types
+  // the whole sentence itself, and a stray "q" costs it the charge.
+  //
+  // `coach.calls` rises the moment the request resolves, on every path -
+  // composed, gated to fallback, or transport down - and before anything can
+  // be typed. Paired with the run's own words it pins the snapshot to the
+  // RESTARTED break rather than the boot's, which is what this helper is for.
+  await page.waitForFunction(() => {
+    const w = (window as unknown as { __kb: Record<string, unknown> }).__kb["warp"] as {
+      snapshot: () => { missedWords: string[]; coach: { calls: number } };
+    };
+    const s = w.snapshot();
+    return s.missedWords.length === 2 && s.coach.calls >= 1;
+  });
+}
+
+/**
+ * Put the note on screen, AFTER the sentence has been decided.
+ *
+ * `coach.transport`, `coach.source` and `composed.outcome` are read off the
+ * RELEASED result, so a test that asserts any of them has to let UR-166's
+ * instruction hand the card back - which takes a keystroke. Called after
+ * `waitForRun`, never before: by then `useComposedSentence` has already
+ * accepted or refused, and a keystroke can no longer change which.
+ */
+async function releaseNote(page: Page): Promise<void> {
   await page.keyboard.press("q");
   await page.waitForFunction(() => {
     const w = (window as unknown as { __kb: Record<string, unknown> }).__kb["warp"] as {
-      snapshot: () => { missedWords: string[]; coach: { settled: boolean } };
+      snapshot: () => { coach: { settled: boolean } };
     };
-    const s = w.snapshot();
-    return s.missedWords.length === 2 && s.coach.settled;
+    return w.snapshot().coach.settled;
   });
 }
 
@@ -145,6 +175,7 @@ test("D09 the child types a sentence composed from the words THEY just practised
 }) => {
   test.setTimeout(90_000);
   await openComposedWarp(page, { note: NOTE, variants: VARIANTS, sentence: COMPOSED });
+  await releaseNote(page);
 
   const s = await snap<WarpSnapshot>(page, "warp");
 
@@ -216,6 +247,7 @@ test("AC-15.2 a generated sentence that fails a gate falls back to the shipped o
     variants: VARIANTS,
     sentence: "The rivers on mars are sand and dust.",
   });
+  await releaseNote(page);
 
   const s = await snap<WarpSnapshot>(page, "warp");
   expect(s.sentence).toBe(SHIPPED);
@@ -229,6 +261,7 @@ test("AC-15.1 an endpoint that is down leaves the shipped sentence and no marker
 }) => {
   test.setTimeout(90_000);
   await openComposedWarp(page, null);
+  await releaseNote(page);
 
   const s = await snap<WarpSnapshot>(page, "warp");
   // The whole warp beat is intact: a sentence to type, a note from Shadow.
@@ -256,6 +289,7 @@ test("E-AI-1 the DEFAULT build shows no marker, because nothing wrote the senten
     game.scene.getScene("Warp").scene.restart(run);
   }, RUN);
   await waitForRun(page);
+  await releaseNote(page);
 
   const s = await snap<WarpSnapshot>(page, "warp");
   expect(s.coach.transport).toBe("mock");

@@ -44,8 +44,19 @@ function writeEvidence(name: string, body: string | Buffer): void {
   writeFileSync(join(EVIDENCE, name), body);
 }
 
+/**
+ * THE STOPS THAT HAVE A WARP BREAK - SIX, NOT SEVEN.
+ *
+ * Earth is lit by one word on `EarthActivation`, not by flying a belt, so
+ * `src/content/en/earth.json` carries `"warpSentence": null` and has since
+ * b4d2774. A Warp scene booted at earth has no sentence to type and never asks
+ * the coach for a note, so `openWarp` waited the full minute for a
+ * `coach.settled` that is correctly never coming - three times over.
+ *
+ * Six is also the number the route actually charges: one coach call per belt,
+ * Earth->Mars through Neptune->Pluto.
+ */
 const STOPS = [
-  "earth",
   "mars",
   "jupiter",
   "saturn",
@@ -419,6 +430,10 @@ for (const [stop, word] of [
       hitRate: 1,
       blasted: [word],
     });
+    // UR-166 again: the restart is a NEW scene, so the note is holding for a
+    // first keystroke exactly as it does on a fresh boot. `openWarp`'s press
+    // belongs to the scene this one replaced.
+    await page.keyboard.press("q");
     await page.waitForFunction(() => {
       const bag = (window as unknown as { __kb: Record<string, unknown> }).__kb["warp"] as {
         snapshot(): { coach: { settled: boolean; note: string } };
