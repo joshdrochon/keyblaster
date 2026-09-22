@@ -242,6 +242,7 @@ describe("practisedWords orders the run missed-first (E-AI-1)", () => {
         pool: [],
         sightWords: [],
         blasted: ["dust", "across"],
+        sentence: true,
       }),
     ).toEqual(["rivers", "across", "dust"]);
   });

@@ -35,6 +35,16 @@ export interface LangFallback {
   /** Used when the stop has no entry. Never absent. */
   readonly base: CoachPayload;
   readonly byStop: Readonly<Partial<Record<StopId, CoachPayload>>>;
+  /**
+   * What Shadow says when the belt was PERFECT (UR-191).
+   *
+   * A clean run has no missed word for a live note to name, so the model has
+   * nothing to say that is about this child - and a live note cannot be
+   * spoken, because D98 only lets a rendered clip through the voice bus.
+   * These are authored and rendered, so a perfect run is both personal and
+   * heard. Optional: es and hi are cut (D95) and fall back to `byStop`.
+   */
+  readonly cleanByStop?: Readonly<Partial<Record<StopId, CoachPayload>>>;
 }
 
 export interface FallbackBundle {
@@ -91,6 +101,42 @@ const EN: LangFallback = {
         "Pluto is small, cold, and far away.",
         "This is the last stop on the map.",
       ],
+    },
+  },
+  cleanByStop: {
+    earth: {
+      note: "Beacon is awake and not one letter got away. Let's go draw the map.",
+      variants: ["Earth already has a beacon.", "Every map starts with a home."],
+    },
+    mars: {
+      note: "Not one word got past you, pilot. The red dust never even slowed you down.",
+      variants: ["Mars is the red planet.", "Its dust is full of rust."],
+    },
+    jupiter: {
+      note: "Every word, first try. The big storm never once took your eyes off the line.",
+      variants: [
+        "Jupiter is the biggest planet of all.",
+        "It has no ground to land on.",
+      ],
+    },
+    saturn: {
+      note: "Clean the whole way through. You held the line while the rings went by.",
+      variants: [
+        "Saturn wears rings made of ice and rock.",
+        "Fly between the rings, not through them.",
+      ],
+    },
+    uranus: {
+      note: "Not one word got past you. You flew a whole belt on its side with me.",
+      variants: ["Uranus spins on its side.", "Everything out here is tilted."],
+    },
+    neptune: {
+      note: "Every single word. Out here in the deep dark, that is real flying.",
+      variants: ["Neptune is deep blue and very far.", "The wind out here is the fastest."],
+    },
+    pluto: {
+      note: "The last belt, and not one word got past you. Look how far you have come.",
+      variants: ["Pluto is small and very cold.", "This is the last stop on the map."],
     },
   },
 };
@@ -172,6 +218,9 @@ export function fallbackFor(
  */
 export const FALLBACK_CLIP_PREFIX = "coach.fallback";
 
+/** UR-191: the perfect-run lines live in their own id space. */
+export const CLEAN_CLIP_PREFIX = "coach.clean";
+
 /** The key the LANGUAGE DEFAULT is rendered under; `byStop` uses the stop id. */
 export const FALLBACK_CLIP_BASE_KEY = "base";
 
@@ -188,6 +237,20 @@ export interface FallbackNoteLine {
 /** The id for one slot of the bundle. The ONE place the shape becomes a string. */
 export function fallbackClipId(lang: Lang, stopId: StopId | null): string {
   return `${FALLBACK_CLIP_PREFIX}.${lang}.${stopId ?? FALLBACK_CLIP_BASE_KEY}`;
+}
+
+/** UR-191: the clip for a perfect run at this stop. */
+export function cleanClipId(lang: Lang, stopId: StopId): string {
+  return `${CLEAN_CLIP_PREFIX}.${lang}.${stopId}`;
+}
+
+/** What Shadow says for a perfect belt here, or undefined if none is authored. */
+export function cleanNoteFor(
+  lang: Lang,
+  stopId: StopId,
+  bundle: FallbackBundle = DEFAULT_FALLBACK_BUNDLE,
+): string | undefined {
+  return bundle.byLang[lang].cleanByStop?.[stopId]?.note;
 }
 
 /**
@@ -210,6 +273,12 @@ export function fallbackNoteLines(
       const entry = forLang.byStop[stopId];
       if (entry === undefined) continue;
       lines.push({ id: fallbackClipId(lang, stopId), lang, stopId, note: entry.note });
+    }
+    // UR-191: rendered like any other shipped line, so D98 holds for them too.
+    for (const stopId of STOP_IDS) {
+      const entry = forLang.cleanByStop?.[stopId];
+      if (entry === undefined) continue;
+      lines.push({ id: cleanClipId(lang, stopId), lang, stopId, note: entry.note });
     }
   }
   return lines;

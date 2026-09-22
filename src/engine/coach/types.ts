@@ -19,6 +19,14 @@ export interface ComposeContext {
   readonly sightWords: readonly string[];
   /** Words the child actually shot down this run (D09, `blastHistory`). */
   readonly blasted: readonly string[];
+  /**
+   * False when there is nothing to compose a sentence OUT of - a run with no
+   * missed word, no slow word and no blast history (D09). The pool still goes
+   * over the wire so the proxy can keep the reply's unused variants on the
+   * allowlist; a variant that misses it fails the whole payload and takes the
+   * NOTE with it, and nothing on screen ever shows a variant.
+   */
+  readonly sentence: boolean;
 }
 
 /**

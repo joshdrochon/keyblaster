@@ -67,7 +67,7 @@ function wireBody(safe: SanitizedCoachRequest): Record<string, unknown> {
   if (safe.compose === undefined) return base;
   return {
     ...base,
-    mode: "warp",
+    mode: safe.compose.sentence ? "warp" : "note",
     pool: safe.compose.pool,
     blasted: safe.compose.blasted,
   };

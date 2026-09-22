@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { LANGS, STOP_IDS } from "@engine/types.js";
 import {
+  CLEAN_CLIP_PREFIX,
   DEFAULT_FALLBACK_BUNDLE,
   FALLBACK_CLIP_BASE_KEY,
   FALLBACK_CLIP_PREFIX,
+  cleanClipId,
   MAX_NOTE_WORDS,
   fallbackClipId,
   fallbackFor,
@@ -162,8 +164,14 @@ describe("D63: the shipped fallback notes have stable, structural clip ids", () 
     expect(fallbackClipId("en", "mars")).toBe("coach.fallback.en.mars");
     expect(fallbackClipId("en", null)).toBe(`coach.fallback.en.${FALLBACK_CLIP_BASE_KEY}`);
     expect(fallbackClipId("hi", null)).toBe("coach.fallback.hi.base");
+    // UR-191 added a second id space for the perfect-run lines. Both are
+    // structural; neither is a free-form string.
+    expect(cleanClipId("en", "mars")).toBe("coach.clean.en.mars");
     for (const line of fallbackNoteLines()) {
-      expect(line.id.startsWith(`${FALLBACK_CLIP_PREFIX}.`)).toBe(true);
+      const known =
+        line.id.startsWith(`${FALLBACK_CLIP_PREFIX}.`) ||
+        line.id.startsWith(`${CLEAN_CLIP_PREFIX}.`);
+      expect(known, line.id).toBe(true);
     }
   });
 
@@ -171,7 +179,9 @@ describe("D63: the shipped fallback notes have stable, structural clip ids", () 
     const lines = fallbackNoteLines();
     // en carries a per-stop entry for all seven stops plus its base; es and hi
     // carry the language default only (see the bundle's own comment).
-    expect(lines.filter((l) => l.lang === "en")).toHaveLength(STOP_IDS.length + 1);
+    // en: a base, a per-stop entry for all seven, and a perfect-run line for
+    // all seven (UR-191).
+    expect(lines.filter((l) => l.lang === "en")).toHaveLength(STOP_IDS.length * 2 + 1);
     expect(lines.filter((l) => l.lang === "es")).toHaveLength(1);
     expect(lines.filter((l) => l.lang === "hi")).toHaveLength(1);
     expect(new Set(lines.map((l) => l.id)).size).toBe(lines.length);

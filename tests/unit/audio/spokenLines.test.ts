@@ -313,9 +313,13 @@ describe("AC-21.8 / D98: the speak sites are the ones this guard knows about", (
     // hops are asserted rather than one: the rule still runs on `result.note`
     // at arrival, and what is queued is exactly what is shown.
     const warp = readFileSync(join(SCENES, "WarpScene.ts"), "utf8");
-    expect(warp).toContain(
-      "this.pendingNote = { result, note: this.applyRetryRule(result.note) };",
-    );
+    // UR-191 put a second source in front of the retry rule: a perfect belt
+    // uses its own authored, RENDERED line, because a live note cannot be
+    // spoken. Both branches still feed `pendingNote.note`, which is the one
+    // string the renderer and the bus are both handed - so the claim is
+    // unchanged and only the way it is written is.
+    expect(warp).toMatch(/note:\s*clean \?\? this\.applyRetryRule\(result\.note\)/);
+    expect(warp).toMatch(/this\.pendingNote = \{\s*result,/);
     expect(warp).toContain("this.showNote(pending.result, pending.note);");
     expect(warp).toContain("private showNote(result: CoachResult, note: string): void");
     expect(warp).toContain("render({ text: note })");
