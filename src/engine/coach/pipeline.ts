@@ -24,8 +24,15 @@ import type {
  * on `source`.
  */
 
-/** AC-15.1, CLAUDE.md, architecture 4.6. Not a suggestion, not per-transport. */
-export const COACH_TIMEOUT_MS = 1500;
+/**
+ * AC-15.1, CLAUDE.md, architecture 4.6. Not a suggestion, not per-transport.
+ *
+ * 4500, not 1500 (D33 revised). A warp reply measures 1.75-2.8 s, so at 1500
+ * the client gave up on every call. UR-166 pays for the wait: the instruction
+ * holds Shadow's card until the first keystroke, so the model works while the
+ * child reads.
+ */
+export const COACH_TIMEOUT_MS = 4500;
 
 /**
  * Build a fallback result. `note` is never empty (see fallback.ts).

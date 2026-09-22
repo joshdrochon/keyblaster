@@ -4,7 +4,7 @@
  *
  * D32 is the frame for everything here: the LLM is the last possible option,
  * and it never touches the game loop. It runs ONCE, during the calm warp break
- * between belts, with a 1500 ms deadline and a shipped fallback behind it. If
+ * between belts, with a 4500 ms deadline and a shipped fallback behind it. If
  * it is slow, broken, offline or off-voice, the child sees a good coach note
  * anyway and nothing about the screen tells them which one they got.
  *

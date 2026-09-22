@@ -82,8 +82,8 @@ describe("AC-15.4: three transports behind one interface", () => {
     }
   });
 
-  it("AC-15.1: all three carry the same 1500 ms deadline", () => {
-    expect(COACH_TIMEOUT_MS).toBe(1500);
+  it("AC-15.1: all three carry the same 4500 ms deadline", () => {
+    expect(COACH_TIMEOUT_MS).toBe(4500);
   });
 });
 
@@ -106,7 +106,7 @@ describe("pipeline helpers", () => {
       postJson({
         fetchImpl: createFakeFetch(answer as never).fetchImpl,
         timer: clock.timer,
-        timeoutMs: 1500,
+        timeoutMs: 4500,
         url: "/api/coach",
         headers: {},
         body: {},
@@ -128,7 +128,7 @@ describe("pipeline helpers", () => {
     const pending = postJson({
       fetchImpl: createFakeFetch(respondHang as never).fetchImpl,
       timer: clock.timer,
-      timeoutMs: 1500,
+      timeoutMs: 4500,
       url: "/api/coach",
       headers: {},
       body: {},

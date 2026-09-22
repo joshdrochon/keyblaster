@@ -1,5 +1,7 @@
 import Phaser from "phaser";
 import {
+  COACH_TIMEOUT_MS,
+  DEFAULT_FALLBACK_BUNDLE,
   createCoachGate,
   type CoachClient,
   type CoachGate,
@@ -24,7 +26,7 @@ import { hexToNum, mixHex } from "@game/render/palette";
 import { LANTERN_DESIGN_HEIGHT, type LanternRig } from "@game/render/lantern";
 import { drawPlayerLantern, playerLivery } from "./lib/livery.js";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
-import { DUR, INK, TYPE } from "@game/ui/theme";
+import { DUR, INK, STEP, TYPE } from "@game/ui/theme";
 import type { Rect } from "@game/ui/layout";
 import { highlightSpans, prefixOf, quotedWords } from "./support/coachHighlight";
 import { hasStageBundle, stageBundle } from "./lib/content";
@@ -164,6 +166,13 @@ const PANEL_CLEAR_LIFT_PX = 28;
  * orphaned rather than celebrating. She is now moving for the whole time she
  * is on her own.
  */
+/**
+ * What the coach card holds. `COACH.h` is derived from Shadow's figure rather
+ * than from the text, and the note's word cap is 20 - enough to wrap past the
+ * plate. Two is what the shipped instruction and every shipped fallback draw.
+ */
+const NOTE_MAX_LINES = 2;
+
 const SHADOW_CHEER_HOLD_MS = 260;
 /** One half of one hop. One hop is `* 2`. */
 const SHADOW_HOP_MS = 130;
@@ -329,6 +338,8 @@ export class WarpScene extends Phaser.Scene {
   private introShownAtMs = 0;
   /** The instruction holds the card until the child has typed (UR-163). */
   private typedSinceIntro = false;
+  /** False until the coach has answered (or given up) and the sentence is final. */
+  private sentenceSettled = false;
   /** UR-24: the accent-coloured copies of the words Shadow names. */
   private namedWords: Phaser.GameObjects.Text[] = [];
   /**
@@ -473,6 +484,7 @@ export class WarpScene extends Phaser.Scene {
     this.composedText = null;
     this.composedReused = [];
     this.composedRefused = null;
+    this.sentenceSettled = false;
     this.retry = null;
     // A restart IS a new warp break (a new stage ended), so the gate is new.
     this.gate = null;
@@ -612,6 +624,8 @@ export class WarpScene extends Phaser.Scene {
     this.input.keyboard?.on("keydown", this.onKey, this);
 
     void this.askShadow();
+    // Whatever happens to that request, the card gets its sentence.
+    this.time.delayedCall(COACH_TIMEOUT_MS + 600, () => this.settleSentence());
     this.publish();
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -872,10 +886,12 @@ export class WarpScene extends Phaser.Scene {
     // here would only ever have shown up on the one path that puts a string in
     // it - a live composed sentence, i.e. the path with no shipped fallback to
     // notice it.
+    // UR-189: sharing the destination line's y put the mark against the
+    // plate's top edge.
     this.composedMark = label(
       this,
       badge.x - PLATE_STEP.glass,
-      destination.y,
+      destination.y + STEP.hair,
       "",
       {
         size: TYPE.caption,
@@ -901,23 +917,9 @@ export class WarpScene extends Phaser.Scene {
     this.caret = this.add.graphics();
     made.push(this.caret);
 
-    made.push(...this.layoutLetters());
-    this.paintLetters();
-
-    if (!this.lane.reducedMotion) {
-      for (const [i, letter] of this.letters.entries()) {
-        const target = letter.alpha;
-        letter.setAlpha(0);
-        this.tweens.add({
-          targets: letter,
-          alpha: target,
-          duration: DUR.panel,
-          delay: 8 * i,
-          ease: EASE.pop,
-        });
-      }
-    }
-
+    // UR-189: drawn by `settleSentence`, not here. The shipped string used to
+    // go up immediately and be replaced when the coach landed, so the child
+    // read one sentence and then watched it become another.
     return made;
   }
 
@@ -1581,6 +1583,7 @@ export class WarpScene extends Phaser.Scene {
     this.coachCalls = gate.calls;
     if (!this.scene.isActive()) return;
     this.useComposedSentence(result);
+    this.settleSentence();
     // AFTER the composed sentence, never before: a live model's sentence is
     // built to contain this child's own hard words (gate 6 of `sentence.ts`),
     // so on the deployed path the promise is usually already kept and this is a
@@ -1753,6 +1756,36 @@ export class WarpScene extends Phaser.Scene {
    * objects are rebuilt, because there is one per character and the character
    * count changed.
    */
+  /**
+   * Draw the sentence, once, when it is the one the child will actually type.
+   *
+   * Reached from the coach result on every path - `gate.request` falls back
+   * rather than rejecting - and from a safety timer, so a scene that loses its
+   * request can never be left with an empty card.
+   */
+  private settleSentence(): void {
+    if (this.sentenceSettled) return;
+    this.sentenceSettled = true;
+    // NOT `relayoutSentence`: that resets the meter, and the meter has been at
+    // zero since create - an ease frame here is one AC-22.5 counts.
+    if (this.letters.length === 0) {
+      this.panelRoot.add(this.layoutLetters());
+      this.paintLetters();
+    }
+    if (this.lane.reducedMotion) return;
+    for (const [i, letter] of this.letters.entries()) {
+      const target = letter.alpha;
+      letter.setAlpha(0);
+      this.tweens.add({
+        targets: letter,
+        alpha: target,
+        duration: DUR.panel,
+        delay: 8 * i,
+        ease: EASE.pop,
+      });
+    }
+  }
+
   private relayoutSentence(text: string): void {
     // Before the Texts go. A live pulse holds references to them and writes to
     // them every frame; destroying them out from under it is the same crash as
@@ -1798,8 +1831,28 @@ export class WarpScene extends Phaser.Scene {
    * voice is local, so D63's actual concern - no runtime network TTS, the LLM
    * call stays the only runtime dependency (D32) - is untouched.
    */
+  /**
+   * UR-190: a note that would not fit the card is not drawn.
+   *
+   * `COACH.h` is derived from Shadow's figure, not from the text, and the word
+   * cap is 20 - enough to wrap past the plate on a long one. The gates upstream
+   * judge the words; this judges the LINES, which is the only thing that can
+   * overflow, and it measures them after Phaser has wrapped rather than
+   * guessing from the string. There is no retry: one call per break (AC-15.3),
+   * and a note that does not fit is simply the shipped one instead.
+   */
+  private fitNote(note: string): string {
+    this.noteText.setText(note);
+    if (this.noteText.getWrappedText().length <= NOTE_MAX_LINES) return note;
+    const byLang = DEFAULT_FALLBACK_BUNDLE.byLang[this.lane.lang];
+    const shipped = byLang.byStop[this.stopId]?.note ?? byLang.base.note;
+    this.noteText.setText(shipped);
+    return shipped;
+  }
+
   private showNote(result: CoachResult, note: string): void {
     this.coachResult = result;
+    note = this.fitNote(note);
     const settle = (): void => {
       this.coachSettled = true;
     };
@@ -1869,11 +1922,19 @@ export class WarpScene extends Phaser.Scene {
     if (event.key.length !== 1) return;
     event.preventDefault();
 
+    // UR-189: the coach takes 1.75-2.8 s and `useComposedSentence` will not
+    // swap text under a reader, so a child who started in that window lost the
+    // composed sentence for good. Early keys are dropped, not queued - they
+    // would land on different letters. `typedSinceIntro` is set before the
+    // gate because it means "a pilot is at the keyboard", which is what UR-166
+    // hands Shadow's card back on.
+    this.typedSinceIntro = true;
+    if (!this.sentenceSettled) return;
+
     const before = this.sentence;
     this.sentence = typeChar(before, event.key);
     if (this.sentence.lastEvent === "none") return;
 
-    this.typedSinceIntro = true;
     this.soundCharge(chargeFraction(this.sentence));
 
     this.paintLetters();

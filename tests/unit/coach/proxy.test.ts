@@ -23,7 +23,7 @@ import {
 } from "./fixtures.js";
 
 /**
- * AC-15.1: 1500 ms timeout; on timeout / error / invalid JSON the fallback
+ * AC-15.1: 4500 ms timeout; on timeout / error / invalid JSON the fallback
  * bundle is used and the UI is identical. Every failure mode below is produced
  * by an injected fake - there is no network in this file and no real time
  * passes (CLAUDE.md HARD RULES).
@@ -92,11 +92,11 @@ describe("ProxyCoach happy path (AC-15.4, architecture 4.6)", () => {
     expect(fetch.calls[0]?.body).toMatchObject({ missed: ["rivers"], slow: [] });
   });
 
-  it("uses the documented 1500 ms deadline by default", async () => {
+  it("uses the documented 4500 ms deadline by default", async () => {
     const { coach, clock } = build(respondJson(livePayload));
     await coach.request(marsRequest);
-    expect(COACH_TIMEOUT_MS).toBe(1500);
-    expect(clock.handles[0]?.ms).toBe(1500);
+    expect(COACH_TIMEOUT_MS).toBe(4500);
+    expect(clock.handles[0]?.ms).toBe(4500);
   });
 
   it("cancels the deadline once an answer arrives, so no timer outlives the call", async () => {
