@@ -291,6 +291,7 @@ export abstract class MenuScene extends Phaser.Scene {
     // state on every interactive element, and a locked tile you can read is
     // one of them.
     const b = current.ringBounds();
+    this.ring.setDimmed(current.locked);
     this.ring.moveTo(b.x, b.y, b.w, b.h);
   }
 

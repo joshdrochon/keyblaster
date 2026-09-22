@@ -465,6 +465,11 @@ export class FocusRing {
     });
   }
 
+  /** UR-188: dim on a locked control - visible for AC-18.1, not an invitation. */
+  setDimmed(dimmed: boolean): void {
+    this.g.setAlpha(dimmed ? 0.4 : 1);
+  }
+
   moveTo(x: number, y: number, w: number, h: number, instant = false): void {
     const o = this.ringOffset;
     const target = { x: x - o, y: y - o, w: w + o * 2, h: h + o * 2 };

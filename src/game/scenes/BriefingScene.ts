@@ -237,7 +237,7 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
       stroke: INK.line,
     }).setDepth(21);
     label(this, btn.x + btn.w / 2, btn.y + btn.h / 2, text.text("briefing.start"), {
-      size: TYPE.heading,
+      size: TYPE.label,
       color: INK.text,
       align: "center",
       lang,

@@ -118,7 +118,22 @@ export abstract class Control implements Focusable {
   static readonly POP_NAME_PREFIX = POP_NAME_PREFIX;
 
   readonly id: string;
-  locked = false;
+  /** UR-188: a setter, because assigning it has to repaint. */
+  get locked(): boolean {
+    return this.lockedValue;
+  }
+
+  set locked(value: boolean) {
+    if (this.lockedValue === value) return;
+    this.lockedValue = value;
+    // `setInteractive` returns early on an already-interactive object, so the
+    // cursor is written on the input object itself.
+    const input = this.pointerZone?.input;
+    if (input) input.cursor = value ? "" : "pointer";
+    this.redraw();
+  }
+
+  private lockedValue = false;
   adjustable = false;
   /**
    * True for a control with exactly two states, where a click anywhere flips
@@ -417,6 +432,7 @@ export abstract class Control implements Focusable {
 export interface ButtonOptions {
   readonly label: string;
   readonly minWidth?: number;
+  readonly minHeight?: number;
   readonly size?: number;
   readonly onPress: () => void;
 }
@@ -447,7 +463,7 @@ export class MenuButton extends Control {
       increasedLetterSpacing: style.increasedLetterSpacing,
     });
     this.boxW = plateWidth(this.text, SPACE.rowPadX, options.minWidth ?? 220);
-    this.boxH = rowHeight(size, style.lang);
+    this.boxH = Math.max(rowHeight(size, style.lang), options.minHeight ?? 0);
     this.text.setPosition(
       Math.round((this.boxW - this.text.width) / 2),
       Math.round((this.boxH - this.text.height) / 2),

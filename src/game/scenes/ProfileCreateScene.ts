@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { ACTION_BUTTON } from "@game/ui/grid";
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { MAX_NAME_LENGTH, MIN_NAME_LENGTH } from "@engine/persistence";
 import { CONTENT_TOP, HEADING_EYEBROW_TOP, HEADING_TOP, MenuScene } from "@game/ui/MenuScene";
@@ -468,13 +469,16 @@ export class ProfileCreateScene extends MenuScene {
       commits
         ? {
             label: this.t.t("ui.create.launch"),
-            size: TYPE.heading,
-            minWidth: 360,
+            size: TYPE.label,
+            minWidth: ACTION_BUTTON.w,
+            minHeight: ACTION_BUTTON.h,
             onPress: () => this.advance(),
           }
         : {
             label: this.t.t("ui.create.next"),
-            minWidth: 280,
+            size: TYPE.label,
+            minWidth: ACTION_BUTTON.w,
+            minHeight: ACTION_BUTTON.h,
             onPress: () => this.advance(),
           },
     );
