@@ -18,14 +18,8 @@
 const MODEL = "claude-haiku-4-5-20251001";
 
 /**
- * Measured, not guessed: a warp reply lands in 1.5-2.3 s on the deployed
- * function, so the old 1200 ms killed the call every single time and the AI
- * never once reached a player. With the full pool restored the prompt is
- * larger and a reply measures 1.75-2.8 s, so 2500 was still cutting two calls
- * in three. Kept inside `COACH_TIMEOUT_MS` (4500) so it is
- * still the SERVER that gives up first and the client falls back right behind
- * it - and both are far inside the time a child spends typing a sentence, so
- * nothing on screen ever waits on this.
+ * Measured: a warp reply lands in 1.75-2.8 s, so the old 1200 ms killed every
+ * call. Kept inside `COACH_TIMEOUT_MS` (4500) so the server gives up first.
  */
 const UPSTREAM_TIMEOUT_MS = 4000;
 const MAX_TOKENS = 300;
@@ -80,18 +74,10 @@ export interface CoachRequest {
 }
 
 /**
- * Read the model's JSON, fence or no fence.
- *
- * THE SECOND HALF OF WHY THE COACH NEVER SHIPPED. Once the timeout was wide
- * enough for a reply to arrive, every reply was still thrown away: the model
- * returns well-formed JSON wrapped in a ```json fence, and `JSON.parse` does
- * not eat fences. Measured on the deployed function - stop_reason "end_turn",
- * 274 characters, valid inside the fence.
- *
- * Tolerated rather than prompted away. A prompt can ask for bare JSON and
- * usually get it; a parser that accepts both cannot be talked out of it by a
- * model having an off day, and this is the one call in the game that a child
- * is waiting on.
+ * Read the model's JSON, fence or no fence. It returns valid JSON wrapped in a
+ * ```json fence, which `JSON.parse` will not eat - so every reply that made it
+ * this far used to be thrown away. Tolerated rather than prompted away: a
+ * parser cannot be talked out of it by a model having an off day.
  */
 export function parseModelJson(raw: string): unknown | null {
   const text = raw.trim();
@@ -113,24 +99,11 @@ export function parseModelJson(raw: string): unknown | null {
 }
 
 /**
- * Of the sentences the model returned, the one most likely to survive.
- *
- * NOT A GATE, AND THE DISTINCTION MATTERS. The note above is right that this
- * function cannot judge a sentence: it has no compiled allowlist, no banned
- * list, no reuse history, and half-checking here would invite someone to
- * believe it had been checked. The client's gates stay the only guardrail and
- * every candidate still goes through all of them.
- *
- * This only CHOOSES between candidates the model already produced, using the
- * one thing this function does know because it sent it - POOL and SIGHT. A
- * warp reply carries three sentences and the old code kept the first and threw
- * the other two away. Measured live, about half of first choices carry one
- * outside word ("cover", where the pool has no verb for it), so roughly half
- * of all warp breaks lost a composed sentence that a sibling in the same reply
- * would have passed.
- *
- * Returns the first candidate whose every word is on the list, or the model's
- * own first choice when none is - which is exactly what shipped before.
+ * Of the three sentences a warp reply carries, the one most likely to survive
+ * the client's gates. NOT a gate itself - this function has no compiled
+ * allowlist and the client still checks everything. It only picks, using the
+ * POOL and SIGHT lists it sent. About half of first choices carry one outside
+ * word, and the old code kept the first and threw the other two away.
  */
 export function pickSentence(
   candidates: readonly string[],
@@ -141,6 +114,11 @@ export function pickSentence(
     return words.length > 0 && words.every((w) => allowed.has(w));
   };
   return candidates.find((c) => typeof c === "string" && onList(c)) ?? candidates[0];
+}
+
+/** The model marks named words with *stars*; the screen reads double quotes. */
+export function starsToQuotes(note: string): string {
+  return note.replace(/\*([^*\n]+)\*/g, '"$1"');
 }
 
 const STOPS = ["mars", "jupiter", "saturn", "uranus", "neptune", "pluto"];
@@ -191,22 +169,10 @@ function parseRequest(body: unknown): CoachRequest | null {
   if (!missed || !slow) return null;
 
   /**
-   * THE CAP THAT SILENTLY KILLED EVERY WARP BREAK.
-   *
-   * This read 48 on the note that "a stage pool is ~26 words; 48 is headroom".
-   * The pools grew and the note did not. Measured in `src/content/en`:
-   *
-   *     mars 100 · jupiter 115 · saturn 115 · uranus 115 · neptune 115 · pluto 115
-   *
-   * `composeContextFor` sends `bundle.pool` whole, so EVERY compose request
-   * the game has ever made was refused here with a 400 before a single token
-   * was spent - which is exactly why the credit balance never moved and why
-   * every warp break showed the stop's shipped sentence. Only the note-only
-   * calls, which carry no pool, ever reached the model.
-   *
-   * 160 is headroom over the largest shipped pool, and a pool that size is
-   * about 150 prompt tokens - cheap next to the reply. `blasted` stays at one
-   * run's worth of a single belt.
+   * This read 48 on a stale note that a stage pool is ~26 words. Shipped pools
+   * are 100 (mars) to 115, so EVERY compose request was refused with a 400
+   * before a token was spent - the reason the coach never worked in
+   * production. 160 clears the largest pool at ~150 prompt tokens.
    */
   const POOL_CAP = 160;
   const rawMode = b["mode"];
@@ -251,6 +217,12 @@ function systemPrompt(req: CoachRequest): string {
     "",
     "Write ONE coach note of at most 20 words about the words the pilot found hard.",
     "Name the specific words. Sound like a friend noticing something, not a teacher marking work.",
+    // The accent highlight and UR-64's retry promise both read double-quoted
+    // runs, so an unquoted note gets neither. Asked for as *stars* because a
+    // double quote inside a JSON string value is what the model forgets to
+    // escape - it broke its own reply every time. `starsToQuotes` converts.
+    "- Wrap every named word in stars, like: You found *rusty* and *dim* hard.",
+    "  Star the word only, never a phrase, and star nothing else.",
     "",
     "Absolute rules:",
     '- Never use the word "wrong", or any synonym for failure, mistake, error or bad.',
@@ -446,8 +418,8 @@ export default async function handler(request: Request): Promise<Response> {
     const sentence = warp && candidates.length > 0 ? pickSentence(candidates, allowed) : undefined;
     return json(
       sentence === undefined
-        ? { note: p["note"], variants: p["variants"] }
-        : { note: p["note"], variants: p["variants"], sentence },
+        ? { note: starsToQuotes(p["note"]), variants: p["variants"] }
+        : { note: starsToQuotes(p["note"]), variants: p["variants"], sentence },
       200,
     );
   } catch {

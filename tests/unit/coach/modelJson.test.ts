@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseModelJson, pickSentence } from "../../../api/coach.js";
+import { parseModelJson, pickSentence, starsToQuotes } from "../../../api/coach.js";
 
 /**
  * THE BUG THAT MADE THE AI PART OF AN AI GAME NEVER HAPPEN.
@@ -94,5 +94,23 @@ describe("pickSentence keeps the sibling the client would have accepted", () => 
 
   it("an empty candidate list yields nothing to send", () => {
     expect(pickSentence([], allowed)).toBeUndefined();
+  });
+});
+
+describe("starsToQuotes gives the screen the runs it highlights", () => {
+  it("stars become the double quotes the accent painter reads", () => {
+    expect(starsToQuotes("You found *rusty* and *dim* hard.")).toBe(
+      'You found "rusty" and "dim" hard.',
+    );
+  });
+
+  it("a note with no stars is untouched", () => {
+    expect(starsToQuotes("Good flying, pilot.")).toBe("Good flying, pilot.");
+  });
+
+  it("an unpaired star is left alone rather than eating the rest of the line", () => {
+    expect(starsToQuotes("You found *rusty and dim hard.")).toBe(
+      "You found *rusty and dim hard.",
+    );
   });
 });

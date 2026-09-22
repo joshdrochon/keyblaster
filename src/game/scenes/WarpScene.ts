@@ -24,7 +24,7 @@ import { hexToNum, mixHex } from "@game/render/palette";
 import { LANTERN_DESIGN_HEIGHT, type LanternRig } from "@game/render/lantern";
 import { drawPlayerLantern, playerLivery } from "./lib/livery.js";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
-import { DUR, INK, TYPE } from "@game/ui/theme";
+import { DUR, INK, STEP, TYPE } from "@game/ui/theme";
 import type { Rect } from "@game/ui/layout";
 import { highlightSpans, prefixOf, quotedWords } from "./support/coachHighlight";
 import { hasStageBundle, stageBundle } from "./lib/content";
@@ -329,6 +329,8 @@ export class WarpScene extends Phaser.Scene {
   private introShownAtMs = 0;
   /** The instruction holds the card until the child has typed (UR-163). */
   private typedSinceIntro = false;
+  /** False until the coach has answered (or given up) and the sentence is final. */
+  private sentenceSettled = false;
   /** UR-24: the accent-coloured copies of the words Shadow names. */
   private namedWords: Phaser.GameObjects.Text[] = [];
   /**
@@ -473,6 +475,7 @@ export class WarpScene extends Phaser.Scene {
     this.composedText = null;
     this.composedReused = [];
     this.composedRefused = null;
+    this.sentenceSettled = false;
     this.retry = null;
     // A restart IS a new warp break (a new stage ended), so the gate is new.
     this.gate = null;
@@ -872,10 +875,12 @@ export class WarpScene extends Phaser.Scene {
     // here would only ever have shown up on the one path that puts a string in
     // it - a live composed sentence, i.e. the path with no shipped fallback to
     // notice it.
+    // UR-189: sharing the destination line's y put the mark against the
+    // plate's top edge.
     this.composedMark = label(
       this,
       badge.x - PLATE_STEP.glass,
-      destination.y,
+      destination.y + STEP.hair,
       "",
       {
         size: TYPE.caption,
@@ -1581,6 +1586,9 @@ export class WarpScene extends Phaser.Scene {
     this.coachCalls = gate.calls;
     if (!this.scene.isActive()) return;
     this.useComposedSentence(result);
+    // `gate.request` falls back rather than rejecting, so this is reached on
+    // every path and the screen can never be left untypeable.
+    this.sentenceSettled = true;
     // AFTER the composed sentence, never before: a live model's sentence is
     // built to contain this child's own hard words (gate 6 of `sentence.ts`),
     // so on the deployed path the promise is usually already kept and this is a
@@ -1869,11 +1877,19 @@ export class WarpScene extends Phaser.Scene {
     if (event.key.length !== 1) return;
     event.preventDefault();
 
+    // UR-189: the coach takes 1.75-2.8 s and `useComposedSentence` will not
+    // swap text under a reader, so a child who started in that window lost the
+    // composed sentence for good. Early keys are dropped, not queued - they
+    // would land on different letters. `typedSinceIntro` is set before the
+    // gate because it means "a pilot is at the keyboard", which is what UR-166
+    // hands Shadow's card back on.
+    this.typedSinceIntro = true;
+    if (!this.sentenceSettled) return;
+
     const before = this.sentence;
     this.sentence = typeChar(before, event.key);
     if (this.sentence.lastEvent === "none") return;
 
-    this.typedSinceIntro = true;
     this.soundCharge(chargeFraction(this.sentence));
 
     this.paintLetters();

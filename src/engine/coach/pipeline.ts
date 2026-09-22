@@ -27,18 +27,10 @@ import type {
 /**
  * AC-15.1, CLAUDE.md, architecture 4.6. Not a suggestion, not per-transport.
  *
- * 3000, NOT 1500 (D33 revised). The original figure was set when the note was
- * drawn the moment it arrived, so every millisecond was a millisecond the
- * child sat looking at an empty card. UR-166 changed that: the instruction
- * holds Shadow's card until the first keystroke, so the model is working while
- * the child reads the sentence and starts typing it, and the deadline costs
- * them nothing.
- *
- * It had to move. A warp reply measures 1.5-2.3 s on the deployed function,
- * so at 1500 the client gave up on EVERY call - the coach had never once
- * reached a player in production. The server gives up first at 2500 so the
- * fallback still arrives from one place, and both sit far inside the seconds
- * a child spends typing a sentence.
+ * 4500, not 1500 (D33 revised). A warp reply measures 1.75-2.8 s, so at 1500
+ * the client gave up on every call. UR-166 pays for the wait: the instruction
+ * holds Shadow's card until the first keystroke, so the model works while the
+ * child reads.
  */
 export const COACH_TIMEOUT_MS = 4500;
 
