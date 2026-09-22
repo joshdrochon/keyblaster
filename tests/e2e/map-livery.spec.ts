@@ -240,14 +240,42 @@ test.describe("UR-48: the Director map flies the pilot's own hull", () => {
     const three = await stripeCounts(page, "ship-3", [BLUE, VIOLET]);
     const detail = `ship-2 frame [blue ${two[0]}, violet ${two[1]}], ship-3 frame [blue ${three[0]}, violet ${three[1]}]`;
 
-    expect(two[0], `ship-2's own stripe is not on the map: ${detail}`).toBeGreaterThan(MIN_STRIPE);
-    expect(three[1], `ship-3's own stripe is not on the map: ${detail}`).toBeGreaterThan(MIN_STRIPE);
-    // The control half: showing one hull must not put the OTHER hull's colour up.
+    /**
+     * EACH OTHER'S CONTROL, WHICH IS WHAT THE TITLE SAYS - AND IT HAS TO BE.
+     *
+     * The crop is a 120x180 box around the ship, so most of it is the map
+     * behind her, and UR-171 dressed the menus in EARTH'S palette. Earth's sky
+     * lands within 8 of ship-2's #3C7BD9, so the crop now carries about 600
+     * blue pixels whichever hull is on: wearing ship-3 read 610 blue against a
+     * bar of violet/20, and "the livery does not reach the pixels" was a
+     * backdrop.
+     *
+     * The two frames are the same map at the same place with only the ship
+     * changed, so the background cancels between them. Measured: 762 vs 610
+     * blue, 0 vs 159 violet - a stripe worth ~155 px on a bed of ~610, and the
+     * two stripes agree with each other to within four pixels.
+     */
+    const blueFromStripe = (two[0] as number) - (three[0] as number);
+    const violetFromStripe = (three[1] as number) - (two[1] as number);
+
+    expect(
+      blueFromStripe,
+      `ship-2's own stripe is not on the map: ${detail}`,
+    ).toBeGreaterThan(MIN_STRIPE);
+    expect(
+      violetFromStripe,
+      `ship-3's own stripe is not on the map: ${detail}`,
+    ).toBeGreaterThan(MIN_STRIPE);
+    // The control half: showing one hull must not put the OTHER hull's colour
+    // up. Violet has no source in the backdrop, so it is read straight.
     expect(two[1], `ship-3's stripe is on the map while wearing ship-2: ${detail}`).toBeLessThan(
-      (two[0] as number) / 20,
+      violetFromStripe / 20,
     );
-    expect(three[0], `ship-2's stripe is on the map while wearing ship-3: ${detail}`).toBeLessThan(
-      (three[1] as number) / 20,
-    );
+    // Blue has one, so the claim is that wearing ship-3 leaves NO MORE blue
+    // than the bed - it cannot add any.
+    expect(
+      three[0] as number,
+      `ship-2's stripe is on the map while wearing ship-3: ${detail}`,
+    ).toBeLessThanOrEqual(two[0] as number);
   });
 });
