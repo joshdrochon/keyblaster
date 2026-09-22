@@ -1,4 +1,6 @@
+import Phaser from "phaser";
 import { GAME_HEIGHT, SCENE_KEYS } from "@game/sceneKeys";
+import { audioFrom } from "@game/audio/wiring";
 import { beaconReadout } from "@engine/ephemeris";
 import { STOP_IDS, type StopId } from "@engine/types";
 import { MenuScene } from "@game/ui/MenuScene";
@@ -74,6 +76,13 @@ export class BeaconLogScene extends MenuScene {
   }
 
   protected build(): void {
+    // UR-172, same reason as the map: the log is a chart of the route, not a
+    // place on it. Stepping between the two must not change the bed.
+    audioFrom(this.registry)?.setAmbientTrim(true);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      audioFrom(this.registry)?.setAmbientTrim(false);
+    });
+
     this.addHeading("ui.log.heading");
     const profile = this.app.profile();
     const placed = new Map<StopId, number>();

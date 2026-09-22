@@ -234,3 +234,27 @@ describe("the game opens on the bed for where the player actually is (UR-173)", 
     expect(boot).toMatch(/furthestBeacon\(store\) \?\? "earth"/);
   });
 });
+
+describe("the chart screens hold the bed back, the ship screens do not (UR-172)", () => {
+  const map = readFileSync("src/game/scenes/DirectorMapScene.ts", "utf8");
+  const log = readFileSync("src/game/scenes/BeaconLogScene.ts", "utf8");
+  const settings = readFileSync("src/game/scenes/SettingsScene.ts", "utf8");
+
+  /**
+   * Reported from play: the hum jumped on the way into the Beacon Log. The map
+   * trimmed the bed and the log did not, so stepping between two views of the
+   * same route changed how loud the world was. Measured in a browser, spying
+   * on the real call: map -> log now reads [false, true] and ends trimmed,
+   * because SHUTDOWN runs before the next scene's create.
+   */
+  it("the map and the log both trim, and both hand it back on the way out", () => {
+    for (const [name, src] of [["map", map], ["log", log]] as const) {
+      expect(src, `${name} does not trim the bed`).toMatch(/setAmbientTrim\(true\)/);
+      expect(src, `${name} never hands the bed back`).toMatch(/setAmbientTrim\(false\)/);
+    }
+  });
+
+  it("Settings does not: it is the inside of the ship, not a chart of the route", () => {
+    expect(settings).not.toMatch(/setAmbientTrim/);
+  });
+});
