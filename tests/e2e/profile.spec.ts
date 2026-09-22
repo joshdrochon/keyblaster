@@ -319,7 +319,21 @@ test.describe("row 2 - profile create", () => {
     // with one step in it.
     await expect(screen(page, CREATE)).not.toContainText("Step 1 of");
 
-    // And the confirm does not walk into one: it creates the pilot and leaves.
+    // And the confirm does not walk into one. It also does not fire on a blank
+    // screen any more: 1a839ee locks it until the name is usable
+    // (MIN_NAME_LENGTH = 2), which is why this used to press Enter on nothing
+    // and then ask why no pilot existed.
+    await focusItem(page, CREATE, "create.launch");
+    await press(page, "Enter");
+    await page.waitForTimeout(200);
+    expect(await activeProfile(page), "a nameless pilot was created").toBeNull();
+    await expect(screen(page, CREATE)).toHaveCount(1);
+
+    // Given a name, it creates the pilot and leaves - straight out, not into a
+    // second beat.
+    await focusItem(page, CREATE, "create.name");
+    await page.keyboard.type("Rin");
+    await page.waitForTimeout(80);
     await focusItem(page, CREATE, "create.launch");
     await press(page, "Enter");
     await page.waitForTimeout(300);
