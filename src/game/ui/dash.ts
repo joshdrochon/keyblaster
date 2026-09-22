@@ -73,6 +73,11 @@ export const DASH_COLORS: readonly DashColor[] = [
 /**
  * The colour a brand-new profile flies with: the one the screen already wore.
  *
+ * UR-184: it is the SETTINGS PANEL's accent, not the cockpit's - every knob,
+ * chip and ring on that screen reads it through `accentOverride`. So the
+ * default is the screen's own gold, and a pilot who never turns the row sees
+ * no change.
+ *
  * Exported as an ID rather than a hex because it is what goes in the save, and
  * `@engine/types.DEFAULT_SETTINGS` holds the same string. They are held
  * together by `tests/unit/ui/dash.test.ts` rather than by both being typed out

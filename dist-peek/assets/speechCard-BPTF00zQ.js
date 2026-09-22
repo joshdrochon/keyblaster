@@ -1,2 +1,0 @@
-import{b as l,a as h,s as u,P as f,l as e}from"./plate-Br63y_la.js";import{I as t,b as C,T as n}from"./index-BPJZEYGj.js";function i(a){return[e(n.caption),e(n.body,a)]}function m(a){return l(i(a),"card")}function H(a){return a-f.card.padX*2}function T(a,r,p,d){const s=a.add.graphics().setDepth(d);h(s,r,{fill:t.panel,stroke:t.line,alpha:1,radius:C.radiusCard});const[c,o]=u(r,i(p),"card");return{speaker:c,line:o,plate:s}}export{i as a,H as b,T as d,m as s};
-//# sourceMappingURL=speechCard-BPTF00zQ.js.map

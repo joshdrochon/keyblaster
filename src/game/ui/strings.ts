@@ -221,7 +221,7 @@ export const UI_EN = {
   "ui.settings.letterSpacing": "Wider Letters", // i18n-ignore
   "ui.settings.reducedMotion": "Calm Motion", // i18n-ignore
   "ui.settings.colorblind": "Colour-safe Palette", // i18n-ignore
-  "ui.settings.dashColor": "Dash Colour", // i18n-ignore
+  "ui.settings.dashColor": "Your Colour", // i18n-ignore
   "ui.settings.dash.amber": "Amber", // i18n-ignore
   "ui.settings.dash.teal": "Teal", // i18n-ignore
   "ui.settings.dash.coral": "Coral", // i18n-ignore
@@ -379,7 +379,7 @@ export const UI_ES: Record<UiStringKey, string> = {
   "ui.settings.letterSpacing": "letras más separadas", // i18n-ignore
   "ui.settings.reducedMotion": "movimiento tranquilo", // i18n-ignore
   "ui.settings.colorblind": "paleta segura para el color", // i18n-ignore
-  "ui.settings.dashColor": "color del tablero", // i18n-ignore
+  "ui.settings.dashColor": "tu color", // i18n-ignore
   "ui.settings.dash.amber": "ámbar", // i18n-ignore
   "ui.settings.dash.teal": "turquesa", // i18n-ignore
   "ui.settings.dash.coral": "coral", // i18n-ignore
@@ -528,7 +528,7 @@ export const UI_HI: Record<UiStringKey, string> = {
   "ui.settings.letterSpacing": "अक्षरों में ज़्यादा जगह", // i18n-ignore
   "ui.settings.reducedMotion": "शांत हलचल", // i18n-ignore
   "ui.settings.colorblind": "रंग-सुरक्षित रंगपट", // i18n-ignore
-  "ui.settings.dashColor": "डैश का रंग", // i18n-ignore
+  "ui.settings.dashColor": "तुम्हारा रंग", // i18n-ignore
   "ui.settings.dash.amber": "अंबर", // i18n-ignore
   "ui.settings.dash.teal": "फ़िरोज़ी", // i18n-ignore
   "ui.settings.dash.coral": "मूँगा", // i18n-ignore

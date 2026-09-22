@@ -1,2 +1,0 @@
-function s(t,n){return!Number.isFinite(n)||n<=0||!Number.isFinite(t)||t<=0?0:t/5/(n/6e4)}function a(t,n){const i=Number.isFinite(t)?Math.max(0,t):0,r=Number.isFinite(n)?Math.max(0,n):0,e=i+r;return e<=0?1:i/e}const u=3;function o(t,n=u){if(!Number.isFinite(t))return 0;if(t<=0)return 3;const i=Number.isFinite(n)?Math.floor(n):u;if(i<=0)return 0;const r=Math.floor(t);if(r>=i)return 0;const e=3-Math.ceil(r*3/i);return Math.max(1,Math.min(3,e))}function c(t,n=u){return o(t,n)!==0}export{u as H,a,c as i,o as s,s as w};
-//# sourceMappingURL=stars-DlqQe_Fs.js.map

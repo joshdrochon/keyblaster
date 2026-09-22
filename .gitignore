@@ -51,5 +51,7 @@ dist-feel/
 dist-check/
 dist-pf/
 dist-nested/
+dist-peek/
+dist-warp-lane/
 .vercel
 .env*

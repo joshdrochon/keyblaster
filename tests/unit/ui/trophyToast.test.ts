@@ -1,3 +1,6 @@
+import { STEPS } from "@game/ui/theme";
+import { createMenuTranslator } from "@game/ui/i18n";
+import { TROPHIES } from "@game/ui/catalog";
 import { describe, expect, it } from "vitest";
 import { GAME_HEIGHT } from "@game/sceneKeys";
 import { rectsOverlap, type Rect } from "@game/ui/layout";
@@ -56,11 +59,20 @@ const WIDTHS = [1920, 2160, 2560, 3440, 3840] as const;
 const INK_WIDTHS = [120, 240, 420, 900] as const;
 
 describe("trophy toast - it never covers the belt", () => {
-  it("clears every HUD plate and the whole falling-word band, at every width", () => {
+  /**
+   * UR-186: THE HUD PLATES ONLY. The word band is no longer a keep-out.
+   *
+   * The band is where a word CAN be - worst-case drift plus sway plus plate
+   * width - not where one usually is, and holding the chip under it forced a
+   * 4 px margin that read as none. The owner's call: a chip on screen for about
+   * a second may briefly sit over the corner of a word. The HUD plates are a
+   * different matter - they are always there, so the chip still clears them.
+   */
+  it("clears every HUD plate at every width", () => {
     for (const width of WIDTHS) {
       for (const ink of INK_WIDTHS) {
         const chip = chipRect(width, ink);
-        for (const zone of beltKeepOut(width)) {
+        for (const zone of hudRects(width)) {
           expect(
             rectsOverlap(chip, zone),
             `w=${width} ink=${ink}\n  chip ${show(chip)}\n  zone ${show(zone)}`,
@@ -70,12 +82,15 @@ describe("trophy toast - it never covers the belt", () => {
     }
   });
 
-  it("sits below the lowest ink a word plate can reach", () => {
-    const chip = chipRect(1920, 240);
-    expect(
-      chip.y,
-      `chip ${show(chip)}  word band bottom ${WORD_BAND_BOTTOM}`,
-    ).toBeGreaterThanOrEqual(WORD_BAND_BOTTOM);
+  it("stays inside the world it is drawn in", () => {
+    // What replaced the band check: wherever it sits, it may not run off the
+    // frame. `insetY` is a margin now, not a collision bound.
+    for (const width of WIDTHS) {
+      const chip = chipRect(width, 300);
+      expect(chip.x).toBeGreaterThanOrEqual(0);
+      expect(chip.x + chip.w).toBeLessThanOrEqual(width);
+      expect(chip.y + chip.h).toBeLessThanOrEqual(1080);
+    }
   });
 
   it("stays inside the frame", () => {
@@ -401,5 +416,35 @@ describe("the word band is sized for a plate that is wider than any belted word"
       belted.has(all.word) || belted.has(all.word.toLowerCase()),
       `"${all.word}" is on a belt and needs ${all.half.toFixed(2)} px of half-width, over the ${WORD_PLATE_HALF_W} the band reserves - see gauntlet/escalations.md`,
     ).toBe(false);
+  });
+});
+
+describe("UR-186: the chip says the trophy's name, not its key", () => {
+  it("translates the name key before it reaches the screen", () => {
+    // `listenForTrophies` passed `trophyNameKey(id)` straight through, and
+    // nothing translated it - so the chip printed "ui.trophy.firstLight" at a
+    // child.
+    const src = readFileSync("src/game/ui/trophyToast.ts", "utf8");
+    expect(src).toMatch(/createMenuTranslator\(opts\.lang, ""\)\.t\(trophyNameKey\(id\)/);
+  });
+
+  it("every catalogue trophy has a name that is not its key", () => {
+    const t = createMenuTranslator("en", "Lantern");
+    for (const trophy of TROPHIES) {
+      const name = t.t(trophy.nameKey as never);
+      expect(name, trophy.id).not.toBe(trophy.nameKey);
+      expect(name.startsWith("ui."), trophy.id).toBe(false);
+    }
+  });
+});
+
+describe("UR-186: the chip sits on the spacing scale", () => {
+  it("keeps both insets on the scale", () => {
+    expect(STEPS).toContain(TROPHY_CHIP.insetX);
+    expect(STEPS).toContain(TROPHY_CHIP.insetY);
+  });
+
+  it("keeps its full height - the margin did not come out of the chip", () => {
+    expect(TROPHY_CHIP.h).toBe(44);
   });
 });

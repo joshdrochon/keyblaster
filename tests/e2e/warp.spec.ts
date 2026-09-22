@@ -141,6 +141,10 @@ async function openWarpWithNote(
     },
     [note, source] as [string, string],
   );
+  // UR-166: the note waits for the child to START. The instruction holds
+  // Shadow's card until the first keystroke, so a test that never types waits
+  // for a note that is correctly refusing to arrive.
+  await page.keyboard.press("q");
   // Wait for the note to have arrived AND its fade-in to have finished, so the
   // two screenshots are compared at the same visual state.
   await page.waitForFunction(() => {

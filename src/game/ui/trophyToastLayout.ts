@@ -2,7 +2,7 @@ import { ROCK_ANGLE_MAX_PX, ROCK_DRIFT_PX } from "@engine/spawn/index.js";
 import { SPAWN_MARGIN_PX } from "@game/flight/stage";
 import { hudRects } from "@game/flight/hudLayout";
 import type { Rect } from "@game/ui/layout";
-import { DUR, TYPE } from "@game/ui/theme";
+import { DUR, STEP, TYPE } from "@game/ui/theme";
 
 /**
  * WHERE A TROPHY TOAST GOES DURING A BELT, AND FOR HOW LONG.
@@ -140,9 +140,20 @@ export const TROPHY_CHIP = {
   /** The accent pip that makes it read as an award in a desaturated frame. */
   pipR: 6,
   pipGap: 12,
-  /** From the right edge of the world, and from the foot of it. */
-  insetX: 24,
-  insetY: 4,
+  /**
+   * From the right edge of the world, and from the foot of it.
+   *
+   * UR-186: both on the spacing scale, and `insetY` is NOT bounded by the
+   * falling-word band any more.
+   *
+   * It was 4 - the largest value that kept the chip under the band's worst-case
+   * bottom (1030.5). That is a bound on where a word CAN be, not where one
+   * usually is, and the owner's call is that a chip on screen for ~1s may
+   * briefly sit over the corner of one. A margin that reads as a margin is
+   * worth more than a collision that mostly does not happen.
+   */
+  insetX: STEP.inset,
+  insetY: STEP.inset,
   size: TYPE.caption,
   radius: 10,
   minW: 260,

@@ -244,16 +244,27 @@ export class SettingsScene extends MenuScene {
         },
       ),
     );
-    left.push(
-      new SelectorRow<Lang>(this, this.uiStyle, "settings.uiLang", leftX, y, this.depth, {
-        label: this.t.t("settings.uiLang"),
-        width: colW,
-        value: s.uiLang,
-        // D95: only languages the build actually ships.
-        choices: this.langChoices(SHIPPED_LANGS),
-        onChange: (v) => this.applyAndRestart({ uiLang: v }),
-      }),
-    );
+    /**
+     * UR-185: HIDDEN WHILE ONE LANGUAGE SHIPS.
+     *
+     * `SHIPPED_LANGS` is `["en"]` (D95), so this drew a selector with one
+     * choice - arrows that move nothing and a single dot. Kept rather than
+     * deleted: it comes back the moment the list grows, and the row below is
+     * the same shape for the same reason.
+     */
+    if (SHIPPED_LANGS.length > 1) {
+      left.push(
+        new SelectorRow<Lang>(this, this.uiStyle, "settings.uiLang", leftX, y, this.depth, {
+          label: this.t.t("settings.uiLang"),
+          icon: "language",
+          width: colW,
+          value: s.uiLang,
+          // D95: only languages the build actually ships.
+          choices: this.langChoices(SHIPPED_LANGS),
+          onChange: (v) => this.applyAndRestart({ uiLang: v }),
+        }),
+      );
+    }
 
     // ================== TWO ROWS THAT USED TO BE HERE, AND ARE NOT =========
     //
@@ -539,6 +550,7 @@ export class SettingsScene extends MenuScene {
   private dashRow(x: number, y: number, width: number, s: Settings): SelectorRow<string> {
     return new SelectorRow<string>(this, this.uiStyle, "settings.dashColor", x, y, this.depth, {
       label: this.t.t("ui.settings.dashColor"),
+      icon: "dash",
       width,
       value: s.dashColor,
       choices: DASH_COLORS.map((c) => ({ value: c.id, label: this.t.t(c.nameKey) })),

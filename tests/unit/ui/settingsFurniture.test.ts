@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -244,5 +245,30 @@ describe("UR-122 a control row never reaches the console's bolts", () => {
     const overlap = boltInkBand().far - SETTINGS_CONSOLE.bezel;
     expect(overlap).toBe(6);
     expect(overlap).toBeGreaterThan(0);
+  });
+});
+
+describe("UR-183: every setting row wears its mark", () => {
+  it("leaves no icon in the set with nothing passing it", () => {
+    // `settingIcons.ts` defines eleven marks. `language` and `dash` were drawn,
+    // tested and never wired - the same shape as the trophy toast with no
+    // caller. A mark with no row is either a missing row or dead code.
+    const icons = readFileSync("src/game/ui/settingIcons.ts", "utf8");
+    const scene = readFileSync("src/game/scenes/SettingsScene.ts", "utf8");
+    const defined = [...icons.matchAll(/^\s*\|\s*"([a-zA-Z]+)"$/gm)].map((m) => m[1] ?? "");
+    const used = new Set([...scene.matchAll(/icon: "([a-zA-Z]+)"/g)].map((m) => m[1] ?? ""));
+    // `language` waits with its row while one language ships (UR-185).
+    const parked = new Set(["reset", "language"]);
+    const orphans = defined.filter((id) => !parked.has(id) && !used.has(id));
+    expect(orphans, `icons defined but never passed: ${orphans.join(", ")}`).toEqual([]);
+  });
+});
+
+describe("UR-185: a selector with one choice is not a control", () => {
+  it("hides the language row while only one language ships", () => {
+    // `SHIPPED_LANGS` is ["en"] (D95), so the row drew arrows that move nothing
+    // and a single dot. It returns when the list grows.
+    const scene = readFileSync("src/game/scenes/SettingsScene.ts", "utf8");
+    expect(scene).toMatch(/if \(SHIPPED_LANGS\.length > 1\) \{/);
   });
 });

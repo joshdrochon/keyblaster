@@ -126,9 +126,9 @@ describe("UR-123 the colour is the PLAYER'S, and it survives a round trip", () =
   });
 
   it("the default is the colour this screen ALREADY wore, so no save changes on sight", () => {
-    // Amber is `INK.accent` to the byte, which is what `paletteStop()` = earth
-    // resolved to. A pilot who never touches the new row sees the screen they
-    // had.
+    // It paints the SETTINGS panel through `accentOverride`, not the cockpit -
+    // so the default is that screen's own gold and a pilot who never turns the
+    // row sees no change.
     expect(dashHexOf(DEFAULT_DASH_COLOR)).toBe(INK.accent);
   });
 
