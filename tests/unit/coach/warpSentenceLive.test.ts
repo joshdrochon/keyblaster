@@ -218,10 +218,11 @@ describe("what the shipped request asks for (composeRequest.ts)", () => {
     // authored, spoken one (UR-191, WarpScene).
     // Perfect is "nothing got past you" - `missed` empty. A slow word is not a
     // miss, so a run can be perfect and still have one.
-    const perfect = coachRequestFor({ ...MARS_RUN, missed: [] });
+    const perfect = coachRequestFor({ ...MARS_RUN, missed: [], slow: [] });
     expect(perfect.compose?.sentence).toBe(true);
     expect(perfect.missed).toEqual([]);
-    expect(perfect.slow.length).toBeGreaterThan(0);
+    expect(perfect.slow).toEqual([]);
+    expect(perfect.compose?.blasted.length).toBeGreaterThan(0);
     expect(perfect.compose?.blasted.length).toBeGreaterThan(0);
   });
 

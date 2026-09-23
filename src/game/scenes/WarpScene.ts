@@ -1615,11 +1615,15 @@ export class WarpScene extends Phaser.Scene {
     // fired. A perfect belt is one where nothing got past the pilot and
     // nothing dragged. The composed SENTENCE is unaffected and still lands:
     // it is built from the words they blasted, which is the whole point.
-    // PERFECT IS "NOTHING GOT PAST YOU", and that is `missed` exactly:
-    // `FlightScene.recordMiss` fires for any rock that breaches, canisters
-    // included. A word that took a moment is not a miss, so `slow` is not part
-    // of it.
-    const perfect = request.missed.length === 0;
+    // PERFECT IS "NOTHING GOT PAST YOU AND NOTHING DRAGGED".
+    //
+    // `missed` is the first half exactly - `FlightScene.recordMiss` fires for
+    // any rock that breaches, canisters included. But a belt with no misses
+    // and a word that took a moment still has something worth saying, and
+    // UR-64's offer to type that word again is built on Shadow NAMING it. So
+    // `slow` counts too: the authored line is for a belt with nothing at all
+    // to name, and anything else gets the coaching note it earned.
+    const perfect = request.missed.length === 0 && request.slow.length === 0;
     const clean = perfect ? cleanNoteFor(this.lane.lang, this.stopId) : undefined;
     this.pendingNote = {
       result,
