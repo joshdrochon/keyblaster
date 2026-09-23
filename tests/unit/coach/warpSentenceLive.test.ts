@@ -210,7 +210,22 @@ describe("what the shipped request asks for (composeRequest.ts)", () => {
     ).toBeUndefined();
   });
 
-  it("a run with nothing practised does not ask for a sentence (D09)", () => {
+  it("a PERFECT run still asks for a sentence - blasted words are words to build from", () => {
+    // The mistake this replaces: "perfect run" was read as "nothing
+    // practised", and blasting a word counts as practising it. A belt cleared
+    // without a single miss has a full blast history and plenty to compose
+    // from, so the sentence still comes - it is the NOTE that becomes the
+    // authored, spoken one (UR-191, WarpScene).
+    // Perfect is "nothing got past you" - `missed` empty. A slow word is not a
+    // miss, so a run can be perfect and still have one.
+    const perfect = coachRequestFor({ ...MARS_RUN, missed: [] });
+    expect(perfect.compose?.sentence).toBe(true);
+    expect(perfect.missed).toEqual([]);
+    expect(perfect.slow.length).toBeGreaterThan(0);
+    expect(perfect.compose?.blasted.length).toBeGreaterThan(0);
+  });
+
+  it("a run with nothing practised at all does not ask for a sentence (D09)", () => {
     // The claim is that we never BUY a sentence with nothing to build it out
     // of. It used to be expressed by dropping the whole compose block, which
     // also dropped the pool - and the proxy needs the pool to keep the reply's
