@@ -149,6 +149,7 @@ export function createCoachValidator(
           sightWords: filterWords(compose.sightWords, allowlist).accepted,
           blasted: filterWords(compose.blasted, allowlist).accepted,
           sentence: compose.sentence,
+          shipped: compose.shipped,
         },
       };
     },

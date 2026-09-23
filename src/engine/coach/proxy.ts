@@ -70,6 +70,7 @@ function wireBody(safe: SanitizedCoachRequest): Record<string, unknown> {
     mode: safe.compose.sentence ? "warp" : "note",
     pool: safe.compose.pool,
     blasted: safe.compose.blasted,
+    shipped: safe.compose.shipped,
   };
 }
 

@@ -71,6 +71,8 @@ export interface CoachRequest {
   pool: string[];
   /** Words the child shot down this run. */
   blasted: string[];
+  /** The stop's shipped sentence; a reply that copies it is not a reply. */
+  shipped: string;
 }
 
 /**
@@ -121,6 +123,12 @@ export function onListOnly(
     const words = s.toLowerCase().match(/[a-z]+/g) ?? [];
     return words.length > 0 && words.every((w) => allowed.has(w));
   });
+}
+
+/** Loose equality for "is this just the shipped line again". */
+function sameLine(a: string, b: string): boolean {
+  const norm = (t: string): string => t.toLowerCase().replace(/[^a-z]+/g, " ").trim();
+  return norm(a).length > 0 && norm(a) === norm(b);
 }
 
 /** The model marks named words with *stars*; the screen reads double quotes. */
@@ -185,6 +193,7 @@ function parseRequest(body: unknown): CoachRequest | null {
   const rawMode = b["mode"];
   if (rawMode !== undefined && rawMode !== "note" && rawMode !== "warp") return null;
   const mode: CoachMode = rawMode === "warp" ? "warp" : "note";
+  const shipped = typeof b["shipped"] === "string" ? b["shipped"] : "";
   const pool = b["pool"] === undefined ? [] : list(b["pool"], POOL_CAP);
   const blasted = b["blasted"] === undefined ? [] : list(b["blasted"], 48);
   if (!pool || !blasted) return null;
@@ -205,6 +214,7 @@ function parseRequest(body: unknown): CoachRequest | null {
     missed,
     slow,
     hitRate,
+    shipped,
     mode,
     pool,
     blasted,
@@ -228,26 +238,34 @@ function systemPrompt(req: CoachRequest): string {
     // Measured live: "You found *dry*, *sky*, *rim* took a moment." - the
     // model was stapling the named words into a slot the sentence had no room
     // for. It needs the SHAPE, not more rules.
-    "IT MUST BE GRAMMATICAL ENGLISH a teacher would accept, read aloud without",
-    "stumbling.",
+    // EVERY PHRASE BELOW WAS RUN THROUGH THE SHIPPED ALLOWLIST FIRST.
+    //
+    // Left to write its own sentences the model kept reaching one word outside
+    // the list - measured live: "nailed", "flew", "fine", "well", "made you
+    // think", "tricky", "slowed". Each one failed the note gate, and a failed
+    // note takes the composed SENTENCE down with it, so the whole AI beat
+    // vanished. The child's own words are still the subject; only the framing
+    // is fixed, because the framing is what kept breaking.
+    "Write EXACTLY two sentences and nothing else.",
     "",
-    // Measured live, twice in three: "You found *storm*, *swirl*, and *bands*
-    // took thinking time." The model anchors on "You found" and then staples a
-    // second verb onto it. Forbidding the shape works where more rules did not.
-    'NEVER begin with "You found". "You found X took a moment" is not English',
-    "and it is the one mistake this note keeps making. Start with the WORDS or",
-    "with the run, never with what you found.",
+    "FIRST sentence: one of these, with the pilot's words in the stars.",
+    "    *word* took you a moment.",
+    "    *word* took a moment.",
+    "    *word* and *word* took you a moment.",
+    "    *word* was the slow one.",
+    "    *word* is one to watch.",
     "",
-    "Write it like one of these and nothing else:",
-    '    *rivers* and *empty* took you a moment. Nice flying, pilot.',
-    '    You had to look twice at *storm*. Everything else flew straight past.',
-    '    Good run. *dust* and *rust* were the two that made you think.',
-    // The accent highlight and UR-64's retry promise both read double-quoted
-    // runs, so an unquoted note gets neither. Asked for as *stars* because a
-    // double quote inside a JSON string value is what the model forgets to
-    // escape - it broke its own reply every time. `starsToQuotes` converts.
-    "- Wrap every named word in stars, like: You found *rusty* and *dim* hard.",
-    "  Star the word only, never a phrase, and star nothing else.",
+    "SECOND sentence: one of these, copied exactly.",
+    "    Nice flying, pilot.",
+    "    Good run, pilot.",
+    "    Nice work, pilot.",
+    "    That was a good belt.",
+    "    We will see them again.",
+    "    Good flying.",
+    "    Steady hands, pilot.",
+    "",
+    "Do not add a third sentence. Do not reword either one. Star every word",
+    "you name and nothing else.",
     "",
     "Absolute rules:",
     '- Never use the word "wrong", or any synonym for failure, mistake, error or bad.',
@@ -330,9 +348,17 @@ function warpSystemPrompt(req: CoachRequest): string {
     "- GRAMMATICAL ENGLISH. A child is going to type this and a teacher may be",
     '  reading over their shoulder. "Mars has a thin air" is wrong; "Mars has',
     '  thin air" is right. Read it back to yourself before you answer.',
-    "- Write it the way these are written:",
-    '    "Mars is the red planet."',
-    '    "Saturn wears rings made of ice and rock."',
+    // THESE USED TO BE SHIPPED SENTENCES, and at Mars and Saturn the model
+    // simply copied the example - which is byte-identical to the line already
+    // on screen, so `useComposedSentence` dropped it and the child saw the
+    // stock sentence with no marker. Measured: two live replies in three came
+    // back as "Saturn wears rings made of ice and rock."
+    "- Write it the way these are written - the SHAPE, never the words:",
+    '    "The wind here is cold and dry."',
+    '    "Ice and dust drift past the ship."',
+    "- NEVER copy an example, and never write the sentence the pilot can",
+    "  already see on their screen. It has to be new, and it has to contain a",
+    "  word from HARD - that is the whole reason it exists.",
     "",
     "Reply as JSON only:",
     '{"note": "<=10 words", "variants": ["<sentence>", "<sentence>", "<sentence>"], "sentence": "<the practice sentence>"}',
@@ -464,7 +490,10 @@ export default async function handler(request: Request): Promise<Response> {
       ...parsed.pool.map((w) => w.toLowerCase()),
       ...(parsed.lang === "en" ? WARP_SIGHT_WORDS : []),
     ]);
-    const clean = onListOnly(candidates, allowed);
+    // An echo of the stop's own line is dropped by the client without a word,
+    // so it reads as the AI never having run. Measured one in eight.
+    const fresh = candidates.filter((c) => !sameLine(c, parsed.shipped));
+    const clean = onListOnly(fresh.length > 0 ? fresh : candidates, allowed);
     const sentence = warp && candidates.length > 0 ? (clean[0] ?? candidates[0]) : undefined;
     // The client rejects the WHOLE payload - note included - if EITHER variant
     // is off the allowlist, so one loose variant costs a perfectly good note.
