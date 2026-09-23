@@ -197,6 +197,7 @@ import {
 import { HudScene } from "./HudScene.js";
 import { StallScene } from "./StallScene.js";
 import { audioFrom } from "@game/audio/wiring.js";
+import { chargeLevelFor } from "./support/chargeLadder.js";
 import {
   LANTERN_AIM_LIMIT,
   LANTERN_DESIGN_HALF_WIDTH,
@@ -326,6 +327,7 @@ const SHIP_SCALE = SHIP_HALF_WIDTH_PX / LANTERN_DESIGN_HALF_WIDTH;
  * still a snap, and it is the same order as the muzzle flash it leaves from
  * (`render/lantern` MUZZLE_MS 150), so the two read as one event.
  */
+
 const BEAM_MS = 110;
 
 /**
@@ -748,6 +750,8 @@ export class FlightScene extends Phaser.Scene {
   private iris!: Phaser.GameObjects.Graphics;
   /** The blast beam. GAMEPLAY, in the stop's accent - not the rig's light shaft. */
   private beam!: Phaser.GameObjects.Graphics;
+  /** The rock the current charge was earned on. */
+  private zapLockedId: string | null = null;
   /** The rig's plume, dimmed when the engines go quiet (D29). */
   private exhaust!: Phaser.GameObjects.Container;
   private scorchLayer!: Phaser.GameObjects.Container;
@@ -2285,6 +2289,19 @@ export class FlightScene extends Phaser.Scene {
 
   private applyLock(event: LockEvent): void {
     this.lock = reduce(this.lock, event);
+    // THE CHARGE BELONGS TO THE LOCKED ROCK, so it dies with the lock -
+    // a new word, a rock blasted, a rock given up on and lost to the ship or
+    // off the bottom of the screen. BEFORE the emits, not after: the first
+    // keystroke of a word both locks the rock AND advances it, so clearing
+    // afterwards wiped the very bloom that keystroke had just drawn.
+    //
+    // Cues cannot express this. `park` never fires (measured - a rock that
+    // falls reports `hit`), and `hit` also fires for rocks the pilot was never
+    // typing, which would dump a charge that is still being earned.
+    if (this.zapCharge && this.lock.lockedId !== this.zapLockedId) {
+      this.zapLockedId = this.lock.lockedId;
+      this.lantern.clearCharge();
+    }
     for (const emit of this.lock.emitted) this.renderEmit(emit);
   }
 
@@ -2345,6 +2362,11 @@ export class FlightScene extends Phaser.Scene {
     this.correctChars += 1;
     this.cue("keystroke");
     const typedCount = [...typed].length;
+    if (this.zapCharge) {
+      const target = candidateIds[0] ?? this.lock.lockedId;
+      const rock = target === null || target === undefined ? undefined : this.rockById(target);
+      if (rock !== undefined) this.chargeStep(typedCount, [...rock.word].length);
+    }
     const live = new Set(candidateIds);
     for (const rock of this.rocks) {
       rock.plate.setTypedCount(live.has(rock.id) ? typedCount : 0);
@@ -2543,6 +2565,7 @@ export class FlightScene extends Phaser.Scene {
         this.setHullLamp(false);
         this.cue("shield");
       }
+      if (this.zapCharge) this.lantern.clearCharge();
       this.fireBeam(rock);
       if (cracking) this.crackShell(rock, points, nowMs, celebration);
       else this.fractureRock(rock, points, celebration);
@@ -2613,6 +2636,22 @@ export class FlightScene extends Phaser.Scene {
    * is the rig's object and the title screen's ship has the same lens. A second
    * muzzle drawn here would be the fourth beam implementation in the file.
    */
+  /** FEEL EXPERIMENT (UR-195). `index` is 1-based; `length` is the whole word. */
+  /**
+   * UR-195 ships DARK. The charging lens is opt-in with `?zap=1` until the
+   * owner has watched it in a real session; production behaves exactly as it
+   * did, and nothing below runs without the flag.
+   */
+  private get zapCharge(): boolean {
+    return new URLSearchParams(window.location.search).get("zap") === "1";
+  }
+
+  /** UR-195. `index` is 1-based within the word; `length` is the whole word. */
+  private chargeStep(index: number, length: number): void {
+    const { bloom, settle } = chargeLevelFor(index, length);
+    this.lantern.chargePulse(bloom, settle);
+  }
+
   private fireBeam(rock: LiveRock): void {
     const origin = this.emitterWorldPoint();
     const target = { x: rock.container.x, y: rock.container.y };

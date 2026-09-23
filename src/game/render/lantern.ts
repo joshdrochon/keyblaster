@@ -261,6 +261,14 @@ export interface LanternRig {
    * air, with no light at the end it left from.
    */
   flash(strength?: number): void;
+  /**
+   * FEEL EXPERIMENT (?zap=1). One keystroke of a charging blaster: the lens
+   * jumps to `peak` and settles to `rest`, then HOLDS there until the next
+   * call. Both are 0..1 of a full flash, so 1 is exactly what `flash(1)` draws.
+   */
+  chargePulse(peak: number, rest: number): void;
+  /** ?zap=1. Charge spent or abandoned: back to dark. */
+  clearCharge(): void;
   setColorway(colorway: LanternColorway): void;
   /** Repaint in a profile's four colours; `undefined` restores the colourway. */
   setLivery(livery: LanternLivery | undefined): void;
@@ -287,6 +295,9 @@ const MUZZLE_PEAK_ALPHA = 0.85;
 /** Multiple of `LENS_R` the flash starts at, falling back to the glow's 4x. */
 const MUZZLE_SPREAD = 7;
 const MUZZLE_MS = 150;
+
+/** ?zap=1. How long a keystroke takes to fall from its bloom to its rest. */
+const CHARGE_SETTLE_MS = 190;
 
 export const LANTERN_AIM_LIMIT = Phaser.Math.DegToRad(26);
 const AIM_LIMIT = LANTERN_AIM_LIMIT;
@@ -562,6 +573,33 @@ export function drawLantern(
           muzzleTween = null;
         },
       });
+    },
+
+    chargePulse(peak: number, rest: number): void {
+      const hi = Phaser.Math.Clamp(peak, 0, 1);
+      const lo = Phaser.Math.Clamp(rest, 0, hi);
+      muzzleTween?.remove();
+      const size = (k: number): number => LENS_R * MUZZLE_SPREAD * k;
+      muzzle.setAlpha(MUZZLE_PEAK_ALPHA * hi);
+      muzzle.setDisplaySize(size(hi), size(hi));
+      muzzleTween = scene.tweens.add({
+        targets: muzzle,
+        alpha: MUZZLE_PEAK_ALPHA * lo,
+        displayWidth: size(lo),
+        displayHeight: size(lo),
+        duration: CHARGE_SETTLE_MS,
+        ease: "Cubic.easeOut",
+        onComplete: () => {
+          muzzleTween = null;
+        },
+      });
+    },
+
+    clearCharge(): void {
+      muzzleTween?.remove();
+      muzzleTween = null;
+      muzzle.setAlpha(0);
+      muzzle.setDisplaySize(0, 0);
     },
 
     setColorway(next: LanternColorway): void {
