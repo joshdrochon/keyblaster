@@ -229,7 +229,16 @@ function systemPrompt(req: CoachRequest): string {
     // model was stapling the named words into a slot the sentence had no room
     // for. It needs the SHAPE, not more rules.
     "IT MUST BE GRAMMATICAL ENGLISH a teacher would accept, read aloud without",
-    "stumbling. Write it like one of these and nothing else:",
+    "stumbling.",
+    "",
+    // Measured live, twice in three: "You found *storm*, *swirl*, and *bands*
+    // took thinking time." The model anchors on "You found" and then staples a
+    // second verb onto it. Forbidding the shape works where more rules did not.
+    'NEVER begin with "You found". "You found X took a moment" is not English',
+    "and it is the one mistake this note keeps making. Start with the WORDS or",
+    "with the run, never with what you found.",
+    "",
+    "Write it like one of these and nothing else:",
     '    *rivers* and *empty* took you a moment. Nice flying, pilot.',
     '    You had to look twice at *storm*. Everything else flew straight past.',
     '    Good run. *dust* and *rust* were the two that made you think.',
