@@ -243,6 +243,7 @@ describe("practisedWords orders the run missed-first (E-AI-1)", () => {
         sightWords: [],
         blasted: ["dust", "across"],
         sentence: true,
+        shipped: "",
       }),
     ).toEqual(["rivers", "across", "dust"]);
   });

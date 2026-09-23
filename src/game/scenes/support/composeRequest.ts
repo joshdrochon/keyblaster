@@ -67,6 +67,7 @@ export function composeContextFor(run: RunSummary): ComposeContext | undefined {
     // D09 still refuses to BUY a sentence with nothing to build it from; the
     // pool rides along anyway so the proxy can keep the variants on-list.
     sentence: practised,
+    shipped: bundle.warpSentence ?? "",
   };
 }
 

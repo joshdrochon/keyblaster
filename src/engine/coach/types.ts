@@ -27,6 +27,12 @@ export interface ComposeContext {
    * NOTE with it, and nothing on screen ever shows a variant.
    */
   readonly sentence: boolean;
+  /**
+   * The stop's shipped sentence. Sent so the proxy can refuse a reply that is
+   * just a copy of it: the client drops an identical sentence silently, so an
+   * echo reads to a child as the AI never having run at all.
+   */
+  readonly shipped: string;
 }
 
 /**

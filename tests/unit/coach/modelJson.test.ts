@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseModelJson, pickSentence, starsToQuotes } from "../../../api/coach.js";
+import { parseModelJson, pickSentence, sentenceCase, starsToQuotes } from "../../../api/coach.js";
 
 /**
  * THE BUG THAT MADE THE AI PART OF AN AI GAME NEVER HAPPEN.
@@ -112,5 +112,25 @@ describe("starsToQuotes gives the screen the runs it highlights", () => {
     expect(starsToQuotes("You found *rusty and dim hard.")).toBe(
       "You found *rusty and dim hard.",
     );
+  });
+});
+
+describe("sentenceCase opens the note like a sentence", () => {
+  it("capitalises a leading pool word, which the pool stores lowercase", () => {
+    expect(sentenceCase('"dry" and "sky" took you a moment. Good flying.')).toBe(
+      '"Dry" and "sky" took you a moment. Good flying.',
+    );
+  });
+
+  it("leaves a note that already opens with a capital alone", () => {
+    expect(sentenceCase("Good run, pilot.")).toBe("Good run, pilot.");
+  });
+
+  it("only the FIRST letter, never a later one", () => {
+    expect(sentenceCase('"dry" and "sky" took you a moment.')).not.toContain('"Sky"');
+  });
+
+  it("a note with no letters at all does not throw", () => {
+    expect(sentenceCase("")).toBe("");
   });
 });

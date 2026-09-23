@@ -1486,64 +1486,76 @@ export class WarpScene extends Phaser.Scene {
     this.namedWords = [];
 
     const words = quotedWords(this.noteText.text);
-    if (words.length === 0) return this.namedWords;
+    if (words.length === 0) {
+      this.noteText.setAlpha(this.noteText.alpha > 0 ? 1 : 0);
+      return this.namedWords;
+    }
 
-    // The paragraph AS DRAWN, not as written: a word that wrapped onto the next
-    // line has a different x, and a highlight placed from the unwrapped string
-    // lands on nothing. `coachHighlight` maps the spans; this measures them.
+    /**
+     * UR-156, fourth pass: NOTHING IS DRAWN ON TOP OF ANYTHING.
+     *
+     * Three passes tried to overlay an accent word on the white one beneath
+     * it and erase what was under it - a ruler for the prefix, then a
+     * knockout, then a stroke on the accent itself. Every one of them turned
+     * on a measurement of one Text object against a different one, and the
+     * shortfall showed as a white fringe down the left of every red glyph.
+     * Widening the knockout only started eating the quote marks.
+     *
+     * So the line is built out of SEGMENTS instead. Each run of the wrapped
+     * paragraph is its own Text, white or accent, and x advances by the width
+     * of the object that was actually drawn. There is no second measurement to
+     * disagree with, and no pixel is written twice.
+     */
     const lines = this.noteText.getWrappedText();
     const spans = highlightSpans(lines, words);
     const lineStep = this.noteText.height / Math.max(1, lines.length);
+    const spacing = (this.noteText as unknown as { letterSpacing?: number }).letterSpacing ?? 0;
 
-    // `label` sets letterSpacing OUTSIDE `style`, so a ruler built from style
-    // alone measures a narrower prefix and the accent word lands left of the
-    // white one under it - the white fringe the owner saw (UR-156).
-    const ruler = this.make.text(
-      { text: "", style: this.noteText.style as unknown as object },
-      false,
-    );
-    const spaced = this.noteText as unknown as { letterSpacing?: number };
-    const rulerSpaced = ruler as unknown as {
-      setLetterSpacing?: (v: number) => unknown;
-    };
-    if (typeof rulerSpaced.setLetterSpacing === "function") {
-      rulerSpaced.setLetterSpacing(spaced.letterSpacing ?? 0);
-    }
-    for (const span of spans) {
-      ruler.setText(prefixOf(lines, span));
-      const t = label(this, this.noteText.x + ruler.width, this.noteText.y + span.line * lineStep, span.text, {
+    const piece = (text: string, x: number, y: number, accent: boolean): Phaser.GameObjects.Text => {
+      const t = label(this, x, y, text, {
         size: TYPE.body,
-        color: this.lane.palette.accent,
+        color: accent ? this.lane.palette.accent : INK.text,
         lang: this.lane.lang,
       });
-      // Same spacing as the run it sits on, for the same reason as the ruler.
-      const tSpaced = t as unknown as { setLetterSpacing?: (v: number) => unknown };
-      if (typeof tSpaced.setLetterSpacing === "function") {
-        tSpaced.setLetterSpacing(spaced.letterSpacing ?? 0);
-      }
-      // UR-156 again: the accent word is drawn OVER the white run, so any
-      // sub-pixel shortfall in the ruler leaves a white fringe. A knockout in
-      // the card's own fill, stroked so it covers the antialiasing, erases the
-      // glyph underneath instead of relying on the measurement being exact.
-      const knockout = label(this, t.x, t.y, span.text, {
-        size: TYPE.body,
-        color: INK.panel,
-        lang: this.lane.lang,
-      });
-      const kSpaced = knockout as unknown as { setLetterSpacing?: (v: number) => unknown };
-      if (typeof kSpaced.setLetterSpacing === "function") {
-        kSpaced.setLetterSpacing(spaced.letterSpacing ?? 0);
-      }
-      knockout.setStroke(INK.panel, 4);
-      knockout.setDepth(this.noteText.depth + 1).setAlpha(0);
-      this.panelRoot.add(knockout);
-      this.namedWords.push(knockout);
-
-      t.setDepth(this.noteText.depth + 2).setAlpha(0);
+      const sp = t as unknown as { setLetterSpacing?: (v: number) => unknown };
+      if (typeof sp.setLetterSpacing === "function") sp.setLetterSpacing(spacing);
+      // D41 STILL HOLDS WITHOUT THE QUOTES. They were the non-colour encoding
+      // and they are no longer drawn, so weight carries it instead - a
+      // colourblind reader sees a heavier word, not only a differently
+      // coloured one.
+      if (accent) t.setFontStyle("bold");
+      t.setDepth(this.noteText.depth + 1).setAlpha(0);
       this.panelRoot.add(t);
       this.namedWords.push(t);
+      return t;
+    };
+
+    for (const [row, lineText] of lines.entries()) {
+      // THE QUOTES MARK THE WORDS, THEY DO NOT GET DRAWN. They stay in the
+      // string because `coachHighlight.quotedWords` and `retry.namedWords`
+      // both parse them - UR-64's promise is decided from the same runs the
+      // accent is painted from - but on screen they read as punctuation the
+      // child has to skip, so the line is drawn without them.
+      const display = lineText.replace(/"/g, "");
+      const onRow = spans
+        .filter((sp) => sp.line === row)
+        .sort((a, b) => display.indexOf(a.text) - display.indexOf(b.text));
+      const y = this.noteText.y + row * lineStep;
+      let x = this.noteText.x;
+      let cursor = 0;
+      for (const span of onRow) {
+        const at = display.indexOf(span.text, cursor);
+        if (at < 0) continue;
+        if (at > cursor) x += piece(display.slice(cursor, at), x, y, false).width;
+        x += piece(span.text, x, y, true).width;
+        cursor = at + span.text.length;
+      }
+      if (cursor < display.length) piece(display.slice(cursor), x, y, false);
     }
-    ruler.destroy();
+
+    // The paragraph itself is no longer drawn: it is the ruler and the wrapper,
+    // and every visible glyph above came out of `piece`.
+    this.noteText.setAlpha(0);
     return this.namedWords;
   }
 
@@ -1594,14 +1606,25 @@ export class WarpScene extends Phaser.Scene {
     // QUEUED, NOT DRAWN. `releaseCoachNote` puts it on screen once the
     // instruction has had the card for `COACH_INTRO_MIN_MS`; the rule is
     // resolved HERE, against the sentence that is on screen now.
-    // UR-191: a perfect belt gets its own authored line. There is no missed
-    // word for a live note to be about, and an authored one can be SPOKEN -
-    // D98 only lets a rendered clip through the voice bus. `sentence: false`
-    // is `composeContextFor`'s answer to "was anything practised".
-    const clean =
-      request.compose?.sentence === false
-        ? cleanNoteFor(this.lane.lang, this.stopId)
-        : undefined;
+    // UR-191: a perfect belt gets its own authored line, because there is no
+    // missed word for a live note to be about and an authored one can be
+    // SPOKEN (D98 only lets a rendered clip through the voice bus).
+    //
+    // NOT `compose.sentence`. That asks "was anything practised", and blasting
+    // a word counts - so a perfect belt is very much practised and this never
+    // fired. A perfect belt is one where nothing got past the pilot and
+    // nothing dragged. The composed SENTENCE is unaffected and still lands:
+    // it is built from the words they blasted, which is the whole point.
+    // PERFECT IS "NOTHING GOT PAST YOU AND NOTHING DRAGGED".
+    //
+    // `missed` is the first half exactly - `FlightScene.recordMiss` fires for
+    // any rock that breaches, canisters included. But a belt with no misses
+    // and a word that took a moment still has something worth saying, and
+    // UR-64's offer to type that word again is built on Shadow NAMING it. So
+    // `slow` counts too: the authored line is for a belt with nothing at all
+    // to name, and anything else gets the coaching note it earned.
+    const perfect = request.missed.length === 0 && request.slow.length === 0;
+    const clean = perfect ? cleanNoteFor(this.lane.lang, this.stopId) : undefined;
     this.pendingNote = {
       result,
       note: clean ?? this.applyRetryRule(result.note),
@@ -1872,10 +1895,13 @@ export class WarpScene extends Phaser.Scene {
     const render = (display: { text: string }): void => {
       this.noteText.setText(display.text);
       const named = this.markNamedWords();
+      // When the note names words it is drawn as segments and the paragraph
+      // itself stays hidden - it is the wrapper, not a visible layer. Fading
+      // it in as well is the same glyph twice, a pixel apart.
+      const paragraph = named.length > 0 ? [] : [this.noteText];
       if (this.lane.reducedMotion) {
         this.introText.setAlpha(0);
-        this.noteText.setAlpha(1);
-        for (const t of named) t.setAlpha(1);
+        for (const t of [...paragraph, ...named]) t.setAlpha(1);
         settle();
         return;
       }
@@ -1889,7 +1915,7 @@ export class WarpScene extends Phaser.Scene {
         ease: EASE.arrive,
       });
       this.tweens.add({
-        targets: [this.noteText, ...named],
+        targets: [...paragraph, ...named],
         alpha: 1,
         duration: DUR.panel,
         ease: EASE.arrive,

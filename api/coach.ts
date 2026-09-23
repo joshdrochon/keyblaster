@@ -71,6 +71,8 @@ export interface CoachRequest {
   pool: string[];
   /** Words the child shot down this run. */
   blasted: string[];
+  /** The stop's shipped sentence; a reply that copies it is not a reply. */
+  shipped: string;
 }
 
 /**
@@ -112,15 +114,45 @@ export function pickSentence(
   return onListOnly(candidates, allowed)[0] ?? candidates[0];
 }
 
-/** Just the candidates whose every word is on the list, in order. */
+/**
+ * Just the candidates the client could actually accept, in order.
+ *
+ * ON THE LIST **AND** THE RIGHT LENGTH. Checking only the word list left the
+ * picker blind to the gate that rejects a sentence for running long, and at
+ * Jupiter - whose pool words are longer - two live replies in eight died on
+ * `length` with a clean sibling sitting right beside them in the same reply.
+ * The bounds are the client's (`SENTENCE_LIMITS`), one word tighter on each
+ * side so a candidate that squeaks past here cannot fail there.
+ */
 export function onListOnly(
   candidates: readonly string[],
   allowed: ReadonlySet<string>,
 ): string[] {
   return candidates.filter((s) => {
     const words = s.toLowerCase().match(/[a-z]+/g) ?? [];
+    if (words.length < WARP_MIN_WORDS || words.length > WARP_MAX_WORDS) return false;
+    if (s.length > WARP_MAX_CHARS) return false;
     return words.length > 0 && words.every((w) => allowed.has(w));
   });
+}
+
+/** Loose equality for "is this just the shipped line again". */
+function sameLine(a: string, b: string): boolean {
+  const norm = (t: string): string => t.toLowerCase().replace(/[^a-z]+/g, " ").trim();
+  return norm(a).length > 0 && norm(a) === norm(b);
+}
+
+/**
+ * A note is a sentence, so it starts with a capital - even when the first
+ * thing in it is one of the child's own pool words, which are stored
+ * lowercase. `retry.namedWords` and `coachHighlight.quotedWords` both fold
+ * case through `normalizeWord`, so the highlight and UR-64's promise are
+ * unaffected.
+ */
+export function sentenceCase(note: string): string {
+  // ANCHORED. An unanchored /[a-z]/ finds the first LOWERCASE letter, which in
+  // "Good run, pilot." is the "o" - it returned "GOod".
+  return note.replace(/^([^A-Za-z]*)([a-z])/, (_m, lead: string, c: string) => lead + c.toUpperCase());
 }
 
 /** The model marks named words with *stars*; the screen reads double quotes. */
@@ -185,6 +217,7 @@ function parseRequest(body: unknown): CoachRequest | null {
   const rawMode = b["mode"];
   if (rawMode !== undefined && rawMode !== "note" && rawMode !== "warp") return null;
   const mode: CoachMode = rawMode === "warp" ? "warp" : "note";
+  const shipped = typeof b["shipped"] === "string" ? b["shipped"] : "";
   const pool = b["pool"] === undefined ? [] : list(b["pool"], POOL_CAP);
   const blasted = b["blasted"] === undefined ? [] : list(b["blasted"], 48);
   if (!pool || !blasted) return null;
@@ -205,6 +238,7 @@ function parseRequest(body: unknown): CoachRequest | null {
     missed,
     slow,
     hitRate,
+    shipped,
     mode,
     pool,
     blasted,
@@ -224,12 +258,38 @@ function systemPrompt(req: CoachRequest): string {
     "",
     "Write ONE coach note of at most 20 words about the words the pilot found hard.",
     "Name the specific words. Sound like a friend noticing something, not a teacher marking work.",
-    // The accent highlight and UR-64's retry promise both read double-quoted
-    // runs, so an unquoted note gets neither. Asked for as *stars* because a
-    // double quote inside a JSON string value is what the model forgets to
-    // escape - it broke its own reply every time. `starsToQuotes` converts.
-    "- Wrap every named word in stars, like: You found *rusty* and *dim* hard.",
-    "  Star the word only, never a phrase, and star nothing else.",
+    "",
+    // Measured live: "You found *dry*, *sky*, *rim* took a moment." - the
+    // model was stapling the named words into a slot the sentence had no room
+    // for. It needs the SHAPE, not more rules.
+    // EVERY PHRASE BELOW WAS RUN THROUGH THE SHIPPED ALLOWLIST FIRST.
+    //
+    // Left to write its own sentences the model kept reaching one word outside
+    // the list - measured live: "nailed", "flew", "fine", "well", "made you
+    // think", "tricky", "slowed". Each one failed the note gate, and a failed
+    // note takes the composed SENTENCE down with it, so the whole AI beat
+    // vanished. The child's own words are still the subject; only the framing
+    // is fixed, because the framing is what kept breaking.
+    "Write EXACTLY two sentences and nothing else.",
+    "",
+    "FIRST sentence: one of these, with the pilot's words in the stars.",
+    "    *word* took you a moment.",
+    "    *word* took a moment.",
+    "    *word* and *word* took you a moment.",
+    "    *word* was the slow one.",
+    "    *word* is one to watch.",
+    "",
+    "SECOND sentence: one of these, copied exactly.",
+    "    Nice flying, pilot.",
+    "    Good run, pilot.",
+    "    Nice work, pilot.",
+    "    That was a good belt.",
+    "    We will see them again.",
+    "    Good flying.",
+    "    Steady hands, pilot.",
+    "",
+    "Do not add a third sentence. Do not reword either one. Star every word",
+    "you name and nothing else.",
     "",
     "Absolute rules:",
     '- Never use the word "wrong", or any synonym for failure, mistake, error or bad.',
@@ -243,6 +303,15 @@ function systemPrompt(req: CoachRequest): string {
     '{"note": "<=20 words", "variants": ["<sentence>", "<sentence>"]}',
     "The two variants are practice sentences for the next stage, each using only",
     "the named words plus very common English words.",
+    ...(req.pool.length > 0
+      ? [
+          "",
+          "Every word in both variants must come from POOL or SIGHT below,",
+          "spelled EXACTLY as printed. No past tense unless the list has it.",
+          `POOL: ${req.pool.join(", ")}`,
+          `SIGHT: ${sightFor(req)}`,
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -291,20 +360,50 @@ function warpSystemPrompt(req: CoachRequest): string {
     "- NO PAST TENSE unless the list has that exact form. The list has \"run\",",
     "  so \"ran\" is not allowed. Words like \"once\", \"ancient\" and \"cover\" are",
     "  not on any list - if it is not printed below, you may not use it.",
+    // Measured live at Jupiter, three replies in five: "planets", where the
+    // pool carries "planet". Naming the exact word it keeps reaching for is
+    // what finally stopped "plains"; this is the same trap, one word over.
+    "- NO PLURALS the list does not have. If it prints \"planet\" you may not",
+    "  write \"planets\"; if it prints \"moons\" you may not write \"moon\". Check",
+    "  each word against the list letter by letter before you answer.",
     "- It MUST contain at least one word from HARD. Those words are the point:",
     "  the pilot just struggled with them and this is how they meet them again.",
-    `- ${WARP_MIN_WORDS} to ${WARP_MAX_WORDS} words, at most ${WARP_MAX_CHARS} characters, one plain sentence.`,
+    // AIM AT 6, NOT AT THE CAP. Told "up to 10 words" the model writes 10 and
+    // anything that overshoots is thrown away - Jupiter and Uranus, whose pool
+    // words are longer, lost sentences to `length` and `shape` that way. A
+    // target well inside the bound leaves room to miss.
+    `- AIM FOR 6 OR 7 WORDS. Never fewer than ${WARP_MIN_WORDS}, never more than`,
+    `  ${WARP_MAX_WORDS}, and never longer than ${WARP_MAX_CHARS} characters. One plain sentence,`,
+    "  one full stop. A long sentence is thrown away however good it is, so the",
+    "  shorter of two good sentences is always the better answer here.",
     "- Letters, spaces and commas only, ending in a single full stop. No digits,",
     "  no quotes, no dashes, no brackets, no exclamation marks, no emoji.",
     `- True about ${req.stopId}, and it must make sense read on its own.`,
-    "- Write it the way these are written:",
-    '    "Mars is the red planet."',
-    '    "Saturn wears rings made of ice and rock."',
+    // Measured live: "Mars has a thin air and dry land." Every gate passed -
+    // allowlist, pool, length, shape, reuse - because none of them reads
+    // English. The prompt is the only place this can be asked for.
+    "- GRAMMATICAL ENGLISH. A child is going to type this and a teacher may be",
+    '  reading over their shoulder. "Mars has a thin air" is wrong; "Mars has',
+    '  thin air" is right. Read it back to yourself before you answer.',
+    // THESE USED TO BE SHIPPED SENTENCES, and at Mars and Saturn the model
+    // simply copied the example - which is byte-identical to the line already
+    // on screen, so `useComposedSentence` dropped it and the child saw the
+    // stock sentence with no marker. Measured: two live replies in three came
+    // back as "Saturn wears rings made of ice and rock."
+    "- Write it the way these are written - the SHAPE, never the words:",
+    '    "The wind here is cold and dry."',
+    '    "Ice and dust drift past the ship."',
+    "- NEVER copy an example, and never write the sentence the pilot can",
+    "  already see on their screen. It has to be new, and it has to contain a",
+    "  word from HARD - that is the whole reason it exists.",
     "",
     "Reply as JSON only:",
     '{"note": "<=10 words", "variants": ["<sentence>", "<sentence>", "<sentence>"], "sentence": "<the practice sentence>"}',
-    "Give THREE different variants. Each one must obey every rule above on its",
-    "own, so that if one slips there is another that holds.",
+    // They came back IDENTICAL, which defeats the point: when the first one
+    // slipped there was nothing else to fall back to.
+    "Give THREE variants that are genuinely DIFFERENT from each other - not the",
+    "same sentence three times, and not the same sentence reworded. Each must",
+    "obey every rule above on its own, so that when one slips another holds.",
   ].join("\n");
 }
 
@@ -431,7 +530,10 @@ export default async function handler(request: Request): Promise<Response> {
       ...parsed.pool.map((w) => w.toLowerCase()),
       ...(parsed.lang === "en" ? WARP_SIGHT_WORDS : []),
     ]);
-    const clean = onListOnly(candidates, allowed);
+    // An echo of the stop's own line is dropped by the client without a word,
+    // so it reads as the AI never having run. Measured one in eight.
+    const fresh = candidates.filter((c) => !sameLine(c, parsed.shipped));
+    const clean = onListOnly(fresh.length > 0 ? fresh : candidates, allowed);
     const sentence = warp && candidates.length > 0 ? (clean[0] ?? candidates[0]) : undefined;
     // The client rejects the WHOLE payload - note included - if EITHER variant
     // is off the allowlist, so one loose variant costs a perfectly good note.
@@ -440,8 +542,8 @@ export default async function handler(request: Request): Promise<Response> {
     const variants = [fallbackVariant, clean[1] ?? fallbackVariant];
     return json(
       sentence === undefined
-        ? { note: starsToQuotes(p["note"]), variants }
-        : { note: starsToQuotes(p["note"]), variants, sentence },
+        ? { note: sentenceCase(starsToQuotes(p["note"])), variants }
+        : { note: sentenceCase(starsToQuotes(p["note"])), variants, sentence },
       200,
     );
   } catch {
