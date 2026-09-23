@@ -160,6 +160,32 @@ export function starsToQuotes(note: string): string {
   return note.replace(/\*([^*\n]+)\*/g, '"$1"');
 }
 
+/**
+ * The words the model is actually shown, which is not the whole pool.
+ *
+ * A stage pool is 100-115 words and the model wanders across it: measured on
+ * the deployed endpoint, five sentences in thirty-six came back with a word
+ * that is in the pool's neighbourhood but not in it - a plural the pool does
+ * not carry, or a word from another stop. A shorter palette is easier to stay
+ * inside, and none of this loosens AC-12.3: the client still checks the whole
+ * pool, and every word here IS a pool word.
+ *
+ * The hard words come first because the sentence must contain one, then what
+ * the child actually blasted this run, then enough of the pool to write with.
+ */
+export function promptPool(req: CoachRequest, budget = 34): readonly string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const w of [...req.missed, ...req.slow, ...req.blasted, ...req.pool]) {
+    const key = w.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(w);
+    if (out.length >= budget) break;
+  }
+  return out;
+}
+
 const STOPS = ["mars", "jupiter", "saturn", "uranus", "neptune", "pluto"];
 const LANGS = ["en", "es", "hi"];
 
@@ -417,7 +443,7 @@ function warpUserPrompt(req: CoachRequest): string {
     "",
     `HARD (prefer the first of these): ${hard.length ? hard.join(", ") : "(none)"}`,
     `BLASTED this run: ${req.blasted.length ? req.blasted.join(", ") : "(none)"}`,
-    `POOL (the only content words allowed): ${req.pool.join(", ")}`,
+    `POOL (the only content words allowed): ${promptPool(req).join(", ")}`,
     `SIGHT (filler words allowed): ${sightFor(req)}`,
   ].join("\n");
 }
@@ -538,8 +564,22 @@ export default async function handler(request: Request): Promise<Response> {
     // The client rejects the WHOLE payload - note included - if EITHER variant
     // is off the allowlist, so one loose variant costs a perfectly good note.
     // A clean sentence repeated beats a dirty one: both slots have to pass.
-    const fallbackVariant = clean[0] ?? candidates[0] ?? "";
-    const variants = [fallbackVariant, clean[1] ?? fallbackVariant];
+    /**
+     * THE VARIANTS MUST NOT BE ABLE TO SINK THE REPLY.
+     *
+     * The client refuses the WHOLE payload - note and sentence included - if
+     * either variant misses the allowlist, and nothing on screen ever shows a
+     * variant. The model was returning all three candidates IDENTICAL, so one
+     * off-list idea failed every slot at once and the child got the stock
+     * sentence and the canned note: measured twice in a row at Uranus in play.
+     *
+     * The stop's own shipped sentence is allowlisted by construction - it is
+     * shipped content and passes these gates every time - so it is the safe
+     * filler. The model's variants are used when they are clean; otherwise the
+     * reply is carried by its note and its sentence, judged on their own.
+     */
+    const safe = parsed.shipped.length > 0 ? parsed.shipped : (clean[0] ?? candidates[0] ?? "");
+    const variants = [clean[0] ?? safe, clean[1] ?? safe];
     return json(
       sentence === undefined
         ? { note: sentenceCase(starsToQuotes(p["note"])), variants }
