@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run --coverage",
     "tickets": "node scripts/tickets.mjs",
-    "tickets:check": "node scripts/tickets.mjs --check"
+    "tickets:check": "node scripts/tickets.mjs --check",
+    "coach:sweep": "COACH_SWEEP_URL=https://keyblaster.vercel.app vitest run tests/live"
   },
   "dependencies": {
     "@types/node": "^22.20.3",

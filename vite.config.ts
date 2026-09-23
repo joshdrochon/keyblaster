@@ -15,7 +15,10 @@ export default defineConfig({
   server: { port: 5183, strictPort: true },
   build: { target: "es2022", sourcemap: true },
   test: {
-    include: ["tests/unit/**/*.test.ts"],
+    // `tests/live` talks to the deployed endpoint and spends money, so every
+    // file in it is `describe.skipIf` on an env var and collects to nothing in
+    // a normal run. Included so `npx vitest run tests/live` can find it.
+    include: ["tests/unit/**/*.test.ts", "tests/live/**/*.test.ts"],
     environment: "node",
     passWithNoTests: true,
     coverage: {
