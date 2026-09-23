@@ -61,6 +61,10 @@ import type { MenuKey } from "@game/ui/i18n";
  * checked against the 1920x1080 frame in all three UI languages by
  * tests/unit/ui/layout.test.ts rather than by looking at a screenshot.
  */
+/** UR-192: a mark rather than a word, so the criterion keeps the line. */
+const EARNED_MARK = "\u2713";
+const LOCKED_MARK = "\u2610";
+
 export class BeaconLogScene extends MenuScene {
   static readonly KEY = SCENE_KEYS.beaconLog;
 
@@ -100,8 +104,12 @@ export class BeaconLogScene extends MenuScene {
     // profile with nothing at all. Either way the message is the same one.
     if (this.litCount <= 1) this.buildEmptyState();
 
-    this.addHint();
-    this.setControls(controls);
+    // UR-192: nothing moves and nothing is chosen here, and a hint that names
+    // a key which does nothing is worse than no hint.
+    this.addHint("ui.common.hintBack");
+    // UR-192: nothing here has an `onPress`, so nothing takes focus. The rows
+    // stay in the mirror; only the ring goes. Esc still leaves.
+    this.setControls(controls, undefined, false);
   }
 
   /**
@@ -132,6 +140,14 @@ export class BeaconLogScene extends MenuScene {
         controls.map((c) => c.ringBounds().h),
         { ...cfg, glyph },
       );
+    }
+
+    // UR-192: one height for the whole block, so a grid of cards reads as a
+    // grid. `growTo` only grows, so the tallest card sets it.
+    const tallest = Math.max(...controls.map((c) => c.ringBounds().h));
+    for (const c of controls) {
+      const growable = c as unknown as { growTo?: (h: number) => void };
+      growable.growTo?.(tallest);
     }
 
     const heights = controls.map((c) => c.ringBounds().h);
@@ -186,9 +202,12 @@ export class BeaconLogScene extends MenuScene {
         // placed (D15, AC-17.0/17.1), formatted by the engine so the log and
         // the beacon screen cannot drift apart. `ok: false` is the calibrating
         // path - a broken device clock must not print "NaN" at a child.
-        const readout = lit ? beaconReadout(stopId, new Date(at)) : null;
-        const hasCoords = readout !== null && readout.ok;
-        const detail = hasCoords ? readout.coordsLine : this.t.t("ui.log.notLit");
+        // UR-192: AC-17.0's readout lives on `BeaconScene`, where the beacon
+        // is placed. Repeating it on every row made the list busy.
+        const detail = `${lit ? EARNED_MARK : LOCKED_MARK}  ${this.t.t(
+          lit ? "ui.log.lit.one" : "ui.log.notLit",
+        )}`;
+        const hasCoords = false;
 
         return new ListRow(
           this,
@@ -262,9 +281,8 @@ export class BeaconLogScene extends MenuScene {
           this.depth,
           {
             label: this.t.t(trophy.nameKey),
-            // The criterion shows whether or not it is earned. An unearned
-            // trophy is an invitation, which only works if you can read it.
-            detail: has ? this.t.t("ui.log.earned") : this.t.t(trophy.howKey),
+            // UR-192: marking both states keeps them the same length (D41).
+            detail: `${has ? EARNED_MARK : LOCKED_MARK}  ${this.t.t(trophy.howKey)}`,
             width: cfg.tileW,
             glyphHeight: glyph,
             // The mark beside the words, not above them: the criterion is what

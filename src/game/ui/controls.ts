@@ -791,6 +791,13 @@ export class Tile extends Control {
     return this.selected;
   }
 
+  /** UR-192: grow to a shared height so a grid of cards is not ragged. */
+  growTo(height: number): void {
+    if (height <= this.boxH) return;
+    this.boxH = height;
+    this.redraw();
+  }
+
   override activate(): void {
     if (this.locked) return;
     this.onPress?.();

@@ -155,6 +155,21 @@ export function sentenceCase(note: string): string {
   return note.replace(/^([^A-Za-z]*)([a-z])/, (_m, lead: string, c: string) => lead + c.toUpperCase());
 }
 
+/**
+ * Planet names are proper nouns, and the pools store them lowercase because
+ * that is how a rock is typed. The model writes with the pool it is given, so
+ * a sentence naming its own stop mid-line read "The axis of uranus has a tilt"
+ * on a screen that tells a child this is how you write. Typing is
+ * case-insensitive (`sameChar`), so this costs no shift key.
+ */
+const PROPER_NOUNS = ["mars", "jupiter", "saturn", "uranus", "neptune", "pluto", "earth"];
+
+export function properNouns(text: string): string {
+  return text.replace(/\b[a-z]+\b/g, (w) =>
+    PROPER_NOUNS.includes(w) ? w[0]!.toUpperCase() + w.slice(1) : w,
+  );
+}
+
 /** The model marks named words with *stars*; the screen reads double quotes. */
 export function starsToQuotes(note: string): string {
   return note.replace(/\*([^*\n]+)\*/g, '"$1"');
@@ -405,6 +420,11 @@ function warpSystemPrompt(req: CoachRequest): string {
     "  each word against the list letter by letter before you answer.",
     "- It MUST contain at least one word from HARD. Those words are the point:",
     "  the pilot just struggled with them and this is how they meet them again.",
+    // Measured in play: "The axis of uranus has a tilt most odd." Grammatical,
+    // in-pool, and nobody talks like that. The gates cannot see register.
+    "- Write it the way people speak NOW. Plain, ordinary word order. Never",
+    "  poetic or old-fashioned: \"a tilt most odd\" is wrong, \"a very odd tilt\"",
+    "  is right. The adjective goes BEFORE its noun.",
     // AIM AT 6, NOT AT THE CAP. Told "up to 10 words" the model writes 10 and
     // anything that overshoots is thrown away - Jupiter and Uranus, whose pool
     // words are longer, lost sentences to `length` and `shape` that way. A
@@ -574,7 +594,8 @@ export default async function handler(request: Request): Promise<Response> {
     // so it reads as the AI never having run. Measured one in eight.
     const fresh = candidates.filter((c) => !sameLine(c, parsed.shipped));
     const clean = onListOnly(fresh.length > 0 ? fresh : candidates, allowed);
-    const sentence = warp && candidates.length > 0 ? (clean[0] ?? candidates[0]) : undefined;
+    const chosen = warp && candidates.length > 0 ? (clean[0] ?? candidates[0]) : undefined;
+    const sentence = chosen === undefined ? undefined : properNouns(chosen);
     // The client rejects the WHOLE payload - note included - if EITHER variant
     // is off the allowlist, so one loose variant costs a perfectly good note.
     // A clean sentence repeated beats a dirty one: both slots have to pass.
@@ -593,7 +614,7 @@ export default async function handler(request: Request): Promise<Response> {
      * reply is carried by its note and its sentence, judged on their own.
      */
     const safe = parsed.shipped.length > 0 ? parsed.shipped : (clean[0] ?? candidates[0] ?? "");
-    const variants = [clean[0] ?? safe, clean[1] ?? safe];
+    const variants = [clean[0] ?? safe, clean[1] ?? safe].map(properNouns);
     return json(
       sentence === undefined
         ? { note: sentenceCase(starsToQuotes(p["note"])), variants }

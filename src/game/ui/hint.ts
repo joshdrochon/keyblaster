@@ -92,7 +92,7 @@ export const SCREEN_HINTS: readonly ScreenHint[] = [
   {
     file: "BeaconLogScene.ts",
     placement: "grid",
-    hintKey: "ui.common.hintKeys",
+    hintKey: "ui.common.hintBack",
     actionKeys: ["common.back"],
   },
   {

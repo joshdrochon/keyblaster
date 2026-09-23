@@ -275,8 +275,12 @@ export abstract class MenuScene extends Phaser.Scene {
     });
   }
 
-  protected setControls(controls: readonly Control[], focusId?: string): void {
-    this.list.setItems(controls, focusId);
+  protected setControls(
+    controls: readonly Control[],
+    focusId?: string,
+    focusable = true,
+  ): void {
+    this.list.setItems(controls, focusId, focusable);
     this.moveRing();
     this.publish();
   }

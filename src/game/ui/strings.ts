@@ -97,6 +97,7 @@ export const UI_EN = {
    */
   "ui.pick.hint":
     "Arrow Keys to Move · Enter to Choose · Delete to Remove a Pilot · Esc to Go Back", // i18n-ignore
+  "ui.common.hintBack": "Esc to Go Back", // i18n-ignore
   "ui.common.cancel": "Cancel", // i18n-ignore
   "ui.common.on": "On", // i18n-ignore
   "ui.common.off": "Off", // i18n-ignore
@@ -174,6 +175,7 @@ export const UI_EN = {
   "ui.log.beacons": "Beacons", // i18n-ignore
   "ui.log.trophies": "Trophies", // i18n-ignore
   "ui.log.lit": "{n} of {total} lit", // i18n-ignore
+  "ui.log.lit.one": "Lit", // i18n-ignore
   "ui.log.notLit": "Not Lit Yet", // i18n-ignore
   "ui.log.coords": "λ {lam}°   β {beta}°   r {r} au", // i18n-ignore
   "ui.log.emptyShadow": "Only Earth is lit. Six more are waiting for us.", // i18n-ignore
@@ -276,6 +278,7 @@ export const UI_ES: Record<UiStringKey, string> = {
   // Spanish has +25% to spend, not more.
   "ui.pick.hint":
     "teclas de flecha para moverte · enter para elegir · supr para borrar un piloto · esc para volver", // i18n-ignore
+  "ui.common.hintBack": "esc para volver", // i18n-ignore
   "ui.common.cancel": "cancelar", // i18n-ignore
   "ui.common.on": "sí", // i18n-ignore
   "ui.common.off": "no", // i18n-ignore
@@ -334,6 +337,7 @@ export const UI_ES: Record<UiStringKey, string> = {
   "ui.log.beacons": "balizas", // i18n-ignore
   "ui.log.trophies": "trofeos", // i18n-ignore
   "ui.log.lit": "{n} de {total} encendidas", // i18n-ignore
+  "ui.log.lit.one": "encendida", // i18n-ignore
   "ui.log.notLit": "todavía apagada", // i18n-ignore
   "ui.log.coords": "λ {lam}°   β {beta}°   r {r} ua", // i18n-ignore
   "ui.log.emptyShadow": "Solo la Tierra está encendida. Seis más nos esperan.", // i18n-ignore
@@ -421,6 +425,7 @@ export const UI_HI: Record<UiStringKey, string> = {
   "ui.common.hintKeys": "तीर बटन से चलो · एंटर से चुनो · एस्केप से वापस", // i18n-ignore
   "ui.common.hintAdjust":
     "ऊपर/नीचे से चलो · बाएँ/दाएँ से बदलो · एस्केप से वापस", // i18n-ignore
+  "ui.common.hintBack": "एस्केप से वापस", // i18n-ignore
   // "हटाओ" is the verb `ui.pick.remove` and `ui.pick.removeYes` already use
   // for this action, so the hint and the dialog it opens say the same word.
   "ui.pick.hint":
@@ -483,6 +488,7 @@ export const UI_HI: Record<UiStringKey, string> = {
   "ui.log.beacons": "बीकन", // i18n-ignore
   "ui.log.trophies": "इनाम", // i18n-ignore
   "ui.log.lit": "{total} में से {n} जगीं", // i18n-ignore
+  "ui.log.lit.one": "जगी", // i18n-ignore
   "ui.log.notLit": "अभी नहीं जगी", // i18n-ignore
   "ui.log.coords": "λ {lam}°   β {beta}°   r {r} au", // i18n-ignore
   "ui.log.emptyShadow": "अभी सिर्फ़ पृथ्वी जगी है। छह और हमारा इंतज़ार कर रही हैं।", // i18n-ignore

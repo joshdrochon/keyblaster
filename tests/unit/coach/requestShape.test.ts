@@ -71,3 +71,30 @@ describe("the endpoint accepts what the game sends (UR-193)", () => {
     expect(parseRequest({ ...REAL_URANUS, mode: "warp", pool: [] })).toBeNull();
   });
 });
+
+describe("a composed sentence is written the way we ask pilots to write (UR-194)", () => {
+  it("names its own planet with a capital, mid-sentence", async () => {
+    const { properNouns } = await import("../../../api/coach.js");
+    // Seen in play: "The axis of uranus has a tilt most odd."
+    expect(properNouns("The axis of uranus has a tilt most odd.")).toBe(
+      "The axis of uranus has a tilt most odd.".replace("uranus", "Uranus"),
+    );
+    expect(properNouns("the rings of saturn are made of ice.")).toContain("Saturn");
+    expect(properNouns("earth is where we started.")).toContain("Earth");
+  });
+
+  it("leaves every other word alone", async () => {
+    const { properNouns } = await import("../../../api/coach.js");
+    // "planets", "spins", "sun" are common nouns and stay lowercase.
+    expect(properNouns("the planets spin around the sun.")).toBe(
+      "the planets spin around the sun.",
+    );
+    // Not a substring match: "marsh" is not Mars.
+    expect(properNouns("a marsh is wet.")).toBe("a marsh is wet.");
+  });
+
+  it("does not disturb a name that is already capitalised", async () => {
+    const { properNouns } = await import("../../../api/coach.js");
+    expect(properNouns("Uranus spins on its side.")).toBe("Uranus spins on its side.");
+  });
+});
