@@ -224,6 +224,15 @@ function systemPrompt(req: CoachRequest): string {
     "",
     "Write ONE coach note of at most 20 words about the words the pilot found hard.",
     "Name the specific words. Sound like a friend noticing something, not a teacher marking work.",
+    "",
+    // Measured live: "You found *dry*, *sky*, *rim* took a moment." - the
+    // model was stapling the named words into a slot the sentence had no room
+    // for. It needs the SHAPE, not more rules.
+    "IT MUST BE GRAMMATICAL ENGLISH a teacher would accept, read aloud without",
+    "stumbling. Write it like one of these and nothing else:",
+    '    *rivers* and *empty* took you a moment. Nice flying, pilot.',
+    '    You had to look twice at *storm*. Everything else flew straight past.',
+    '    Good run. *dust* and *rust* were the two that made you think.',
     // The accent highlight and UR-64's retry promise both read double-quoted
     // runs, so an unquoted note gets neither. Asked for as *stars* because a
     // double quote inside a JSON string value is what the model forgets to
@@ -243,6 +252,15 @@ function systemPrompt(req: CoachRequest): string {
     '{"note": "<=20 words", "variants": ["<sentence>", "<sentence>"]}',
     "The two variants are practice sentences for the next stage, each using only",
     "the named words plus very common English words.",
+    ...(req.pool.length > 0
+      ? [
+          "",
+          "Every word in both variants must come from POOL or SIGHT below,",
+          "spelled EXACTLY as printed. No past tense unless the list has it.",
+          `POOL: ${req.pool.join(", ")}`,
+          `SIGHT: ${sightFor(req)}`,
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -297,6 +315,12 @@ function warpSystemPrompt(req: CoachRequest): string {
     "- Letters, spaces and commas only, ending in a single full stop. No digits,",
     "  no quotes, no dashes, no brackets, no exclamation marks, no emoji.",
     `- True about ${req.stopId}, and it must make sense read on its own.`,
+    // Measured live: "Mars has a thin air and dry land." Every gate passed -
+    // allowlist, pool, length, shape, reuse - because none of them reads
+    // English. The prompt is the only place this can be asked for.
+    "- GRAMMATICAL ENGLISH. A child is going to type this and a teacher may be",
+    '  reading over their shoulder. "Mars has a thin air" is wrong; "Mars has',
+    '  thin air" is right. Read it back to yourself before you answer.',
     "- Write it the way these are written:",
     '    "Mars is the red planet."',
     '    "Saturn wears rings made of ice and rock."',

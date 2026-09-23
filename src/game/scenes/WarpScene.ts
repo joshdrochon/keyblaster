@@ -1519,6 +1519,11 @@ export class WarpScene extends Phaser.Scene {
       });
       const sp = t as unknown as { setLetterSpacing?: (v: number) => unknown };
       if (typeof sp.setLetterSpacing === "function") sp.setLetterSpacing(spacing);
+      // D41 STILL HOLDS WITHOUT THE QUOTES. They were the non-colour encoding
+      // and they are no longer drawn, so weight carries it instead - a
+      // colourblind reader sees a heavier word, not only a differently
+      // coloured one.
+      if (accent) t.setFontStyle("bold");
       t.setDepth(this.noteText.depth + 1).setAlpha(0);
       this.panelRoot.add(t);
       this.namedWords.push(t);
@@ -1526,20 +1531,26 @@ export class WarpScene extends Phaser.Scene {
     };
 
     for (const [row, lineText] of lines.entries()) {
+      // THE QUOTES MARK THE WORDS, THEY DO NOT GET DRAWN. They stay in the
+      // string because `coachHighlight.quotedWords` and `retry.namedWords`
+      // both parse them - UR-64's promise is decided from the same runs the
+      // accent is painted from - but on screen they read as punctuation the
+      // child has to skip, so the line is drawn without them.
+      const display = lineText.replace(/"/g, "");
       const onRow = spans
         .filter((sp) => sp.line === row)
-        .sort((a, b) => lineText.indexOf(a.text) - lineText.indexOf(b.text));
+        .sort((a, b) => display.indexOf(a.text) - display.indexOf(b.text));
       const y = this.noteText.y + row * lineStep;
       let x = this.noteText.x;
       let cursor = 0;
       for (const span of onRow) {
-        const at = lineText.indexOf(span.text, cursor);
+        const at = display.indexOf(span.text, cursor);
         if (at < 0) continue;
-        if (at > cursor) x += piece(lineText.slice(cursor, at), x, y, false).width;
+        if (at > cursor) x += piece(display.slice(cursor, at), x, y, false).width;
         x += piece(span.text, x, y, true).width;
         cursor = at + span.text.length;
       }
-      if (cursor < lineText.length) piece(lineText.slice(cursor), x, y, false);
+      if (cursor < display.length) piece(display.slice(cursor), x, y, false);
     }
 
     // The paragraph itself is no longer drawn: it is the ruler and the wrapper,
