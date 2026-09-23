@@ -219,8 +219,19 @@ const WARP_MIN_WORDS = 4;
 const WARP_MAX_WORDS = 10;
 const WARP_MAX_CHARS = 48;
 
+/**
+ * Caps on what a run may report. Measured, not guessed: a cleanly flown Uranus
+ * belt sends 56 blasted words, and the old cap of 48 turned that into a 400
+ * before a token was spent - the whole AI beat, gone, on exactly the later
+ * belts where it was most visible. Mars's shorter belt stayed under it, which
+ * is why the endpoint measured green while play did not.
+ */
+const BLASTED_CAP = 160;
+/** A child who missed 13 words is the child this feature is for (was 12). */
+const HARD_CAP = 48;
+
 /** Reject anything that is not the documented shape, before spending a token. */
-function parseRequest(body: unknown): CoachRequest | null {
+export function parseRequest(body: unknown): CoachRequest | null {
   if (typeof body !== "object" || body === null) return null;
   const b = body as Record<string, unknown>;
   const list = (v: unknown, cap: number): string[] | null => {
@@ -228,7 +239,7 @@ function parseRequest(body: unknown): CoachRequest | null {
     if (!v.every((w) => typeof w === "string" && w.length > 0 && w.length <= 20)) return null;
     return v as string[];
   };
-  const words = (v: unknown): string[] | null => list(v, 12);
+  const words = (v: unknown): string[] | null => list(v, HARD_CAP);
   const missed = words(b["missed"]);
   const slow = words(b["slow"]);
   if (!missed || !slow) return null;
@@ -245,7 +256,7 @@ function parseRequest(body: unknown): CoachRequest | null {
   const mode: CoachMode = rawMode === "warp" ? "warp" : "note";
   const shipped = typeof b["shipped"] === "string" ? b["shipped"] : "";
   const pool = b["pool"] === undefined ? [] : list(b["pool"], POOL_CAP);
-  const blasted = b["blasted"] === undefined ? [] : list(b["blasted"], 48);
+  const blasted = b["blasted"] === undefined ? [] : list(b["blasted"], BLASTED_CAP);
   if (!pool || !blasted) return null;
   // A warp request with no pool cannot produce a sentence that satisfies
   // AC-12.3, so it is a client bug rather than a request worth paying for.
@@ -433,6 +444,9 @@ function warpSystemPrompt(req: CoachRequest): string {
   ].join("\n");
 }
 
+/** The accepted array is a whole belt; the prompt only needs a sample of it. */
+const BLASTED_SHOWN = 24;
+
 function warpUserPrompt(req: CoachRequest): string {
   // HARD is ordered missed-first: retrieval practice is strongest on the words
   // that actually got past the pilot (E-AI-1), and the model is told to prefer
@@ -442,7 +456,7 @@ function warpUserPrompt(req: CoachRequest): string {
     userPrompt(req),
     "",
     `HARD (prefer the first of these): ${hard.length ? hard.join(", ") : "(none)"}`,
-    `BLASTED this run: ${req.blasted.length ? req.blasted.join(", ") : "(none)"}`,
+    `BLASTED this run: ${req.blasted.length ? req.blasted.slice(0, BLASTED_SHOWN).join(", ") : "(none)"}`,
     `POOL (the only content words allowed): ${promptPool(req).join(", ")}`,
     `SIGHT (filler words allowed): ${sightFor(req)}`,
   ].join("\n");
