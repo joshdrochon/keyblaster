@@ -131,6 +131,19 @@ function sameLine(a: string, b: string): boolean {
   return norm(a).length > 0 && norm(a) === norm(b);
 }
 
+/**
+ * A note is a sentence, so it starts with a capital - even when the first
+ * thing in it is one of the child's own pool words, which are stored
+ * lowercase. `retry.namedWords` and `coachHighlight.quotedWords` both fold
+ * case through `normalizeWord`, so the highlight and UR-64's promise are
+ * unaffected.
+ */
+export function sentenceCase(note: string): string {
+  // ANCHORED. An unanchored /[a-z]/ finds the first LOWERCASE letter, which in
+  // "Good run, pilot." is the "o" - it returned "GOod".
+  return note.replace(/^([^A-Za-z]*)([a-z])/, (_m, lead: string, c: string) => lead + c.toUpperCase());
+}
+
 /** The model marks named words with *stars*; the screen reads double quotes. */
 export function starsToQuotes(note: string): string {
   return note.replace(/\*([^*\n]+)\*/g, '"$1"');
@@ -502,8 +515,8 @@ export default async function handler(request: Request): Promise<Response> {
     const variants = [fallbackVariant, clean[1] ?? fallbackVariant];
     return json(
       sentence === undefined
-        ? { note: starsToQuotes(p["note"]), variants }
-        : { note: starsToQuotes(p["note"]), variants, sentence },
+        ? { note: sentenceCase(starsToQuotes(p["note"])), variants }
+        : { note: sentenceCase(starsToQuotes(p["note"])), variants, sentence },
       200,
     );
   } catch {
