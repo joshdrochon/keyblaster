@@ -114,13 +114,24 @@ export function pickSentence(
   return onListOnly(candidates, allowed)[0] ?? candidates[0];
 }
 
-/** Just the candidates whose every word is on the list, in order. */
+/**
+ * Just the candidates the client could actually accept, in order.
+ *
+ * ON THE LIST **AND** THE RIGHT LENGTH. Checking only the word list left the
+ * picker blind to the gate that rejects a sentence for running long, and at
+ * Jupiter - whose pool words are longer - two live replies in eight died on
+ * `length` with a clean sibling sitting right beside them in the same reply.
+ * The bounds are the client's (`SENTENCE_LIMITS`), one word tighter on each
+ * side so a candidate that squeaks past here cannot fail there.
+ */
 export function onListOnly(
   candidates: readonly string[],
   allowed: ReadonlySet<string>,
 ): string[] {
   return candidates.filter((s) => {
     const words = s.toLowerCase().match(/[a-z]+/g) ?? [];
+    if (words.length < WARP_MIN_WORDS || words.length > WARP_MAX_WORDS) return false;
+    if (s.length > WARP_MAX_CHARS) return false;
     return words.length > 0 && words.every((w) => allowed.has(w));
   });
 }
@@ -349,9 +360,22 @@ function warpSystemPrompt(req: CoachRequest): string {
     "- NO PAST TENSE unless the list has that exact form. The list has \"run\",",
     "  so \"ran\" is not allowed. Words like \"once\", \"ancient\" and \"cover\" are",
     "  not on any list - if it is not printed below, you may not use it.",
+    // Measured live at Jupiter, three replies in five: "planets", where the
+    // pool carries "planet". Naming the exact word it keeps reaching for is
+    // what finally stopped "plains"; this is the same trap, one word over.
+    "- NO PLURALS the list does not have. If it prints \"planet\" you may not",
+    "  write \"planets\"; if it prints \"moons\" you may not write \"moon\". Check",
+    "  each word against the list letter by letter before you answer.",
     "- It MUST contain at least one word from HARD. Those words are the point:",
     "  the pilot just struggled with them and this is how they meet them again.",
-    `- ${WARP_MIN_WORDS} to ${WARP_MAX_WORDS} words, at most ${WARP_MAX_CHARS} characters, one plain sentence.`,
+    // AIM AT 6, NOT AT THE CAP. Told "up to 10 words" the model writes 10 and
+    // anything that overshoots is thrown away - Jupiter and Uranus, whose pool
+    // words are longer, lost sentences to `length` and `shape` that way. A
+    // target well inside the bound leaves room to miss.
+    `- AIM FOR 6 OR 7 WORDS. Never fewer than ${WARP_MIN_WORDS}, never more than`,
+    `  ${WARP_MAX_WORDS}, and never longer than ${WARP_MAX_CHARS} characters. One plain sentence,`,
+    "  one full stop. A long sentence is thrown away however good it is, so the",
+    "  shorter of two good sentences is always the better answer here.",
     "- Letters, spaces and commas only, ending in a single full stop. No digits,",
     "  no quotes, no dashes, no brackets, no exclamation marks, no emoji.",
     `- True about ${req.stopId}, and it must make sense read on its own.`,
@@ -375,8 +399,11 @@ function warpSystemPrompt(req: CoachRequest): string {
     "",
     "Reply as JSON only:",
     '{"note": "<=10 words", "variants": ["<sentence>", "<sentence>", "<sentence>"], "sentence": "<the practice sentence>"}',
-    "Give THREE different variants. Each one must obey every rule above on its",
-    "own, so that if one slips there is another that holds.",
+    // They came back IDENTICAL, which defeats the point: when the first one
+    // slipped there was nothing else to fall back to.
+    "Give THREE variants that are genuinely DIFFERENT from each other - not the",
+    "same sentence three times, and not the same sentence reworded. Each must",
+    "obey every rule above on its own, so that when one slips another holds.",
   ].join("\n");
 }
 
