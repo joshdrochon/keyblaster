@@ -188,7 +188,7 @@ const DEPTH_PLANES = 4;
  * silhouettes, over the debris plane at 4. Derived from `layers.ts` rather than
  * typed, because a depth split across two files is a depth with two values.
  */
-const NEAR_LIGHT_DEPTH = layer("nearField").depth - 0.01;
+const NEAR_LIGHT_DEPTH = layer("farField").depth - 0.5;
 
 /** Depth of the pinned floor vignette: in front of the near field, behind the ship. */
 const VIGNETTE_DEPTH = 5.6;

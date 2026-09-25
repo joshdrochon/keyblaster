@@ -613,9 +613,11 @@ describe("UR-105: the discs draw above the mote plane", () => {
       resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/render/parallax.ts"),
       "utf8",
     );
-    const m = /const NEAR_LIGHT_DEPTH = layer\("nearField"\)\.depth - (\d+(?:\.\d+)?);/.exec(src);
-    expect(m?.[1], "parallax.ts no longer declares NEAR_LIGHT_DEPTH this way").toBeDefined();
-    expect(NODE_DEPTH).toBeGreaterThan(layer("nearField").depth - Number(m?.[1]));
+    // UR-197 moved the tile below the rock planes, so the layer it is derived
+    // from is no longer fixed. The claim here is unchanged: the discs clear it.
+    const m = /const NEAR_LIGHT_DEPTH = layer\("(\w+)"\)\.depth - (\d+(?:\.\d+)?);/.exec(src);
+    expect(m, "parallax.ts no longer declares NEAR_LIGHT_DEPTH this way").not.toBeNull();
+    expect(NODE_DEPTH).toBeGreaterThan(layer(m?.[1] as never).depth - Number(m?.[2]));
   });
 
   it("the ship still passes in FRONT of the planet it hovers over", () => {
