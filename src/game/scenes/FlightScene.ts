@@ -303,6 +303,15 @@ const STALL_SINK_MS = 2400;
  */
 const PLATE_DEPTH = PLATE_LAYER_DEPTH;
 
+/** UR-204. Above the ship, below the word plate. */
+const NEAR_OVER_SHIP = PLATE_LAYER_DEPTH - 0.7;
+/**
+ * Slightly see-through, and ONLY because it now crosses the ship and the words.
+ * Opaque foreground over a child's own ship hides the thing they are steering;
+ * this is the least that keeps it readable underneath.
+ */
+const NEAR_OVER_SHIP_ALPHA = 0.88;
+
 /**
  * Half the Lantern's drawn width, px. Used to work out which spawn columns
  * would drop a rock onto the ship.
@@ -1014,6 +1023,21 @@ export class FlightScene extends Phaser.Scene {
       decorate: ["sky", "celestial", "farField", "midField", "nearField"],
       seed: this.cfg.seed,
     });
+
+    /**
+     * UR-204: the NEAREST rocks pass IN FRONT of the ship, not behind it.
+     *
+     * `nearField` is the closest plane Flight decorates and it sat at depth 5,
+     * under `shipFx` at 6 - so the biggest, blackest, fastest rocks slid
+     * underneath the Lantern and read as being at the same distance as the
+     * typeable debris they cross. They are the foreground; they belong over it.
+     *
+     * NOT over the word plates or the HUD. The plate carries the word a child
+     * is typing, so it keeps `PLATE_DEPTH`, and `NEAR_OVER_SHIP` sits below it.
+     */
+    this.parallax.layerOf("nearField").container
+      .setDepth(NEAR_OVER_SHIP)
+      .setAlpha(NEAR_OVER_SHIP_ALPHA);
 
     this.debrisLayer = this.add.container(0, 0).setDepth(layer("debris").depth);
     this.plateLayer = this.add.container(0, 0).setDepth(PLATE_DEPTH);
