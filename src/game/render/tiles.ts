@@ -265,10 +265,7 @@ export function moteTile(
 ): TileOp[] {
   const out: TileOp[] = [];
   for (let i = 0; i < 22; i++) {
-    // 6-18 px. It was 18-72, which overlaps every rock plane's size range
-    // (farField 10-26, midField 26-54, debris 46-78), so a 23%-alpha smudge
-    // read as a see-through asteroid rather than as dust.
-    const s = 6 + rand() * 12;
+    const s = 18 + rand() * 54;
     out.push({
       kind: "sprite",
       tex: "mote",
