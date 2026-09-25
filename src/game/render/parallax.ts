@@ -192,8 +192,17 @@ const NEAR_LIGHT_DEPTH = layer("farField").depth - 0.5;
 
 /** Depth of the pinned floor vignette: in front of the near field, behind the ship. */
 const VIGNETTE_DEPTH = 5.6;
-/** Depth of the atmosphere pass: in front of the foreground veil, behind the HUD. */
-const ATMOSPHERE_DEPTH = 6.8;
+/**
+ * UR-203: BEHIND every plane that carries a rock, not in front of the world.
+ *
+ * At 6.8 this pass drew over everything, and it is ADDITIVE. On Saturn and
+ * Pluto `atmosphereFor` returns "glitter", so its bright specks added light
+ * straight onto the near-black foreground rocks: sparse (0.6% of rock pixels)
+ * but up to 93/255 brighter, which reads as stars showing through a solid rock.
+ * Measured on the Title with every beacon lit, where the palette is Pluto's -
+ * the blue Neptune title uses "streaks" and never showed it.
+ */
+const ATMOSPHERE_DEPTH = layer("farField").depth - 0.1;
 
 /**
  * The atmosphere pass's own flicker, for every screen that is not the one

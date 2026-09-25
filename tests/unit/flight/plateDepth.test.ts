@@ -97,7 +97,10 @@ describe("UR-23: the word plate outranks every layer the world draws in", () => 
       path.resolve(here, "../../../src/game/render/parallax.ts"),
       "utf8",
     );
-    expect(parallax).toMatch(/ATMOSPHERE_DEPTH\s*=\s*6\.8/);
+    // UR-203 moved the atmosphere below the rock planes, so it is derived from
+    // `layers.ts` rather than typed. The claim here is unchanged: the scan can
+    // see a depth `LAYERS` does not carry.
+    expect(parallax).toMatch(/ATMOSPHERE_DEPTH\s*=\s*layer\("\w+"\)\.depth\s*-\s*[\d.]+/);
     expect(parallax).toMatch(/VIGNETTE_DEPTH\s*=\s*5\.6/);
     // ...and both are under the plates, which is the property being protected.
     expect(PLATE_LAYER_DEPTH).toBeGreaterThan(6.8);
