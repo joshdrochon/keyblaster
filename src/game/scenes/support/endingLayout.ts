@@ -2,6 +2,7 @@ import type { TextSample } from "@engine/contrast/index.js";
 import type { Lang } from "@engine/types";
 import { speechCardHeight, speechCardRows, speechCardWrapWidth } from "@game/ui/speechCard";
 import { stackRows } from "@game/ui/plateLayout";
+import { ACTION_BUTTON } from "@game/ui/grid";
 import { INK, SKY_PLATE, SPACE, TYPE } from "@game/ui/theme";
 
 /**
@@ -117,7 +118,13 @@ const BAND_BOTTOM_PAD = 34;
  * child reads at is unchanged; only the anchor moved (UR-148).
  */
 const PANEL_W = 1080;
-const BUTTON = { w: 560, h: 76 } as const;
+/**
+ * UR-199: it sat at y=900, 60 px above the foot line every other forward
+ * action in the game stands on. The WIDTH stays this screen's own - it is the
+ * terminal action and its test asks for >= 480 - but the height and the foot
+ * line are the shared ones.
+ */
+const BUTTON = { w: 560, h: ACTION_BUTTON.h } as const;
 
 // ---------------------------------------------------------------------------
 // Shadow, and the card above her
@@ -304,7 +311,7 @@ export function endingLayout(input: EndingLayoutInput): EndingLayout {
 
   const button: Rect = {
     x: Math.round((width - BUTTON.w) / 2),
-    y: height - 180,
+    y: ACTION_BUTTON.y,
     w: BUTTON.w,
     h: BUTTON.h,
   };
