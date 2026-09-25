@@ -1095,7 +1095,12 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
         ),
       );
       vc.setAlpha(reducedMotion ? VEIL_ALPHA_REDUCED : VEIL_ALPHA);
-      fv.add(vc);
+      // UNDER this plane's own silhouettes (UR-202). The veil is a 72% sheet
+      // and it was added last, so it lay over the 130-230 px near-black rocks
+      // beside it: stars behind the sheet read as stars inside a rock, and
+      // every measurement aimed at the rocks came back opaque because the rocks
+      // were. It still passes in front of the ship and every plane below.
+      fv.addAt(vc, 0);
       const cfg = DRIFT_X["foreVeil"] as { rate: number; base: number };
       driftPlanes.push({
         container: veilContainer,
