@@ -171,14 +171,14 @@ export const UI_EN = {
   "ui.stop.pluto": "Pluto", // i18n-ignore
 
   // --- 10 beacon log -------------------------------------------------------
-  "ui.log.heading": "Beacon Log", // i18n-ignore
+  "ui.log.heading": "Trophies", // i18n-ignore
   "ui.log.beacons": "Beacons", // i18n-ignore
   "ui.log.trophies": "Trophies", // i18n-ignore
   "ui.log.lit": "{n} of {total} lit", // i18n-ignore
   "ui.log.lit.one": "Lit", // i18n-ignore
   "ui.log.notLit": "Not Lit Yet", // i18n-ignore
   "ui.log.coords": "λ {lam}°   β {beta}°   r {r} au", // i18n-ignore
-  "ui.log.emptyShadow": "Only Earth is lit. Six more are waiting for us.", // i18n-ignore
+  "ui.log.emptyShadow": "No trophies yet. Every one of them is still out there.", // i18n-ignore
   "ui.log.earned": "Earned", // i18n-ignore
   "ui.log.notYet": "Not Yet", // i18n-ignore
   "ui.log.trophyCount": "{n} of {total} earned", // i18n-ignore
@@ -333,14 +333,14 @@ export const UI_ES: Record<UiStringKey, string> = {
   "ui.stop.neptune": "neptuno", // i18n-ignore
   "ui.stop.pluto": "plutón", // i18n-ignore
 
-  "ui.log.heading": "registro de balizas", // i18n-ignore
+  "ui.log.heading": "trofeos", // i18n-ignore
   "ui.log.beacons": "balizas", // i18n-ignore
   "ui.log.trophies": "trofeos", // i18n-ignore
   "ui.log.lit": "{n} de {total} encendidas", // i18n-ignore
   "ui.log.lit.one": "encendida", // i18n-ignore
   "ui.log.notLit": "todavía apagada", // i18n-ignore
   "ui.log.coords": "λ {lam}°   β {beta}°   r {r} ua", // i18n-ignore
-  "ui.log.emptyShadow": "Solo la Tierra está encendida. Seis más nos esperan.", // i18n-ignore
+  "ui.log.emptyShadow": "Todavía no hay trofeos. Todos siguen ahí fuera.", // i18n-ignore
   "ui.log.earned": "conseguido", // i18n-ignore
   "ui.log.notYet": "todavía no", // i18n-ignore
   "ui.log.trophyCount": "{n} de {total} conseguidos", // i18n-ignore
@@ -484,14 +484,14 @@ export const UI_HI: Record<UiStringKey, string> = {
   "ui.stop.neptune": "वरुण", // i18n-ignore
   "ui.stop.pluto": "प्लूटो", // i18n-ignore
 
-  "ui.log.heading": "बीकन सूची", // i18n-ignore
+  "ui.log.heading": "ट्रॉफ़ियाँ", // i18n-ignore
   "ui.log.beacons": "बीकन", // i18n-ignore
   "ui.log.trophies": "इनाम", // i18n-ignore
   "ui.log.lit": "{total} में से {n} जगीं", // i18n-ignore
   "ui.log.lit.one": "जगी", // i18n-ignore
   "ui.log.notLit": "अभी नहीं जगी", // i18n-ignore
   "ui.log.coords": "λ {lam}°   β {beta}°   r {r} au", // i18n-ignore
-  "ui.log.emptyShadow": "अभी सिर्फ़ पृथ्वी जगी है। छह और हमारा इंतज़ार कर रही हैं।", // i18n-ignore
+  "ui.log.emptyShadow": "अभी कोई ट्रॉफ़ी नहीं। सब अब भी बाहर इंतज़ार कर रही हैं।", // i18n-ignore
   "ui.log.earned": "मिल गया", // i18n-ignore
   "ui.log.notYet": "अभी नहीं", // i18n-ignore
   "ui.log.trophyCount": "{total} में से {n} मिले", // i18n-ignore

@@ -87,67 +87,19 @@ test.describe("row 10 - beacon log", () => {
     }
   });
 
-  test("AC-17.0 a lit beacon reads as lit, and carries no ephemeris", async ({
+  test("empty state: no trophies yet, with Shadow's line about them", async ({
     page,
   }) => {
-    // The coordinates were the only thing on this screen a seven-year-old
-    // could not read, and three lines of them per beacon set the card height
-    // for all twelve. AC-17.0's format still ships - the map is where a
-    // beacon's position is stated - but the log is a list of what you did.
-    await seed(page, [{ name: "Ana", beacons: ["earth", "mars"] }], LOG);
-
-    const mars = item(page, LOG, "log.beacon.mars");
-    await expect(mars).toHaveAttribute("data-locked", "false");
-    await expect(mars).toContainText("\u2713");
-    const text = (await mars.textContent()) ?? "";
-    for (const glyph of ["\u03bb", "\u03b2", "AU"]) {
-      expect(text, `no ephemeris on the log card: ${glyph}`).not.toContain(glyph);
-    }
-    expect(text).not.toContain("NaN");
-  });
-
-  test("an unlit stop is visible, dim, and says it is not lit yet", async ({
-    page,
-  }) => {
-    await seed(page, [{ name: "Ana", beacons: ["earth"] }], LOG);
-    const pluto = item(page, LOG, "log.beacon.pluto");
-    await expect(pluto).toHaveCount(1);
-    await expect(pluto).toHaveAttribute("data-locked", "true");
-    await expect(pluto).toContainText("not lit yet", { ignoreCase: true });
-  });
-
-  test("all seven stops are always listed, in route order", async ({ page }) => {
-    await seed(page, [{ name: "Ana", beacons: ["earth", "mars"] }], LOG);
-    const ids = await items(page, LOG).evaluateAll((nodes) =>
-      nodes
-        .map((n) => n.getAttribute("data-id") ?? "")
-        .filter((id) => id.startsWith("log.beacon.")),
-    );
-    expect(ids).toEqual([
-      "log.beacon.earth",
-      "log.beacon.mars",
-      "log.beacon.jupiter",
-      "log.beacon.saturn",
-      "log.beacon.uranus",
-      "log.beacon.neptune",
-      "log.beacon.pluto",
-    ]);
-    expect((await snapshot(page, LOG))["beaconsLit"]).toBe(2);
-  });
-
-  test("empty state: only Earth lit, with Shadow's line about the six to come", async ({
-    page,
-  }) => {
+    // UR-198: the empty state used to be "only Earth is lit". The beacons left
+    // this screen, so the one thing it can be empty OF is trophies.
     await seed(page, [{ name: "Ana", beacons: ["earth"] }], LOG);
     const snap = await snapshot(page, LOG);
     expect(snap["empty"]).toBe(true);
-    expect(String(snap["emptyLine"]).toLowerCase()).toContain("six more");
-    expect(((await screen(page, LOG).textContent()) ?? "").toLowerCase()).toContain(
-      "not lit yet",
-    );
+    expect(snap["trophiesEarned"]).toBe(0);
+    expect(String(snap["emptyLine"]).toLowerCase()).toContain("no trophies yet");
   });
 
-  test("a full log is not the empty state", async ({ page }) => {
+  test("a full trophy case is not the empty state", async ({ page }) => {
     await seed(
       page,
       [
@@ -169,7 +121,6 @@ test.describe("row 10 - beacon log", () => {
     );
     const snap = await snapshot(page, LOG);
     expect(snap["empty"]).toBe(false);
-    expect(snap["beaconsLit"]).toBe(7);
     expect(snap["trophiesEarned"]).toBe(12);
     for (const id of TROPHY_IDS) {
       await expect(item(page, LOG, `log.trophy.${id}`)).toHaveAttribute(
@@ -196,7 +147,7 @@ test.describe("row 10 - beacon log", () => {
     // Every row present and readable.
     await expect(items(page, LOG)).not.toHaveCount(0);
     await expect(item(page, LOG, "log.trophy.lastLight")).toHaveCount(1);
-    await expect(item(page, LOG, "log.beacon.earth")).toHaveCount(1);
+    await expect(item(page, LOG, "log.trophy.firstLight")).toHaveCount(1);
 
     // ...and not one of them claims to be selected.
     await expect(focused(page, LOG)).toHaveCount(0);

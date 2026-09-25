@@ -27,7 +27,7 @@ export const EN = {
   "title.tagline": "Type the way through the solar system.",
   "title.play": "Play",
   "title.settings": "Settings",
-  "title.beaconLog": "Beacon Log",
+  "title.beaconLog": "Trophies",
 
   "profile.heading": "Who is flying today?",
   "profile.pilotName": "Pilot Name",
@@ -151,7 +151,7 @@ export const ES: Record<StringKey, string> = {
   "title.tagline": "Escribe el camino por el sistema solar.",
   "title.play": "jugar",
   "title.settings": "ajustes",
-  "title.beaconLog": "registro de balizas",
+  "title.beaconLog": "trofeos",
 
   "profile.heading": "¿Quién vuela hoy?",
   "profile.pilotName": "nombre del piloto",
@@ -211,7 +211,7 @@ export const HI: Record<StringKey, string> = {
   "title.tagline": "सौर मंडल का रास्ता टाइप करो।",
   "title.play": "खेलो",
   "title.settings": "सेटिंग्स",
-  "title.beaconLog": "बीकन सूची",
+  "title.beaconLog": "ट्रॉफ़ियाँ",
 
   "profile.heading": "आज कौन उड़ान भर रहा है?",
   "profile.pilotName": "पायलट का नाम",

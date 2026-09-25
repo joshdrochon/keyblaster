@@ -328,6 +328,9 @@ const SHIP_SCALE = SHIP_HALF_WIDTH_PX / LANTERN_DESIGN_HALF_WIDTH;
  * (`render/lantern` MUZZLE_MS 150), so the two read as one event.
  */
 
+/** ?zap=2: a letter shot as a fraction of a kill shot. */
+const ZAP_LETTER_SCALE = 0.45;
+
 const BEAM_MS = 110;
 
 /**
@@ -2362,10 +2365,13 @@ export class FlightScene extends Phaser.Scene {
     this.correctChars += 1;
     this.cue("keystroke");
     const typedCount = [...typed].length;
-    if (this.zapCharge) {
+    if (this.zapCharge || this.zapPerLetter) {
       const target = candidateIds[0] ?? this.lock.lockedId;
       const rock = target === null || target === undefined ? undefined : this.rockById(target);
-      if (rock !== undefined) this.chargeStep(typedCount, [...rock.word].length);
+      if (rock !== undefined) {
+        if (this.zapPerLetter) this.fireBeam(rock, ZAP_LETTER_SCALE);
+        else this.chargeStep(typedCount, [...rock.word].length);
+      }
     }
     const live = new Set(candidateIds);
     for (const rock of this.rocks) {
@@ -2646,37 +2652,42 @@ export class FlightScene extends Phaser.Scene {
     return new URLSearchParams(window.location.search).get("zap") === "1";
   }
 
+  /** ?zap=2. The other idea: the blaster FIRES on every correct letter. */
+  private get zapPerLetter(): boolean {
+    return new URLSearchParams(window.location.search).get("zap") === "2";
+  }
+
   /** UR-195. `index` is 1-based within the word; `length` is the whole word. */
   private chargeStep(index: number, length: number): void {
     const { bloom, settle } = chargeLevelFor(index, length);
     this.lantern.chargePulse(bloom, settle);
   }
 
-  private fireBeam(rock: LiveRock): void {
+  private fireBeam(rock: LiveRock, scale = 1): void {
     const origin = this.emitterWorldPoint();
     const target = { x: rock.container.x, y: rock.container.y };
     this.beam.clear();
-    this.lantern.setIris(1);
+    this.lantern.setIris(scale);
     // THE PULSE AT THE BASE. Fired with the beam, not after it: the flash is
     // the beam's origin, so a player who sees them as two events sees a bug.
-    this.lantern.flash(1);
+    this.lantern.flash(scale);
     const soft = hexToInt(this.palette.accent);
     const hot = hexToInt(INK.accentSoft);
     this.tweens.addCounter({
       from: 1,
       to: 0,
-      duration: BEAM_MS,
+      duration: scale < 1 ? BEAM_MS * 0.6 : BEAM_MS,
       ease: "Expo.Out",
       onUpdate: (tween) => {
         const v = tween.getValue() ?? 0;
         this.beam.clear();
         // Widest and faintest first, so the passes stack into a falloff
         // rather than overprinting one flat band.
-        this.beam.lineStyle(BEAM_W.bloom * v, soft, 0.1 + 0.16 * v);
+        this.beam.lineStyle(BEAM_W.bloom * v * scale, soft, (0.1 + 0.16 * v) * scale);
         this.beam.lineBetween(origin.x, origin.y, target.x, target.y);
-        this.beam.lineStyle(2 + BEAM_W.body * v, soft, 0.22 + 0.5 * v);
+        this.beam.lineStyle((2 + BEAM_W.body * v) * scale, soft, (0.22 + 0.5 * v) * scale);
         this.beam.lineBetween(origin.x, origin.y, target.x, target.y);
-        this.beam.lineStyle(1 + BEAM_W.core * v, hot, 0.4 + 0.55 * v);
+        this.beam.lineStyle((1 + BEAM_W.core * v) * scale, hot, (0.4 + 0.55 * v) * scale);
         this.beam.lineBetween(origin.x, origin.y, target.x, target.y);
       },
       onComplete: () => {

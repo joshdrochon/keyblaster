@@ -2,7 +2,6 @@ import Phaser from "phaser";
 import { GAME_HEIGHT, SCENE_KEYS } from "@game/sceneKeys";
 import { audioFrom } from "@game/audio/wiring";
 import { beaconReadout } from "@engine/ephemeris";
-import { STOP_IDS, type StopId } from "@engine/types";
 import { MenuScene } from "@game/ui/MenuScene";
 import { type Control, ListRow, Tile } from "@game/ui/controls";
 import { drawBeacon, drawTrophy } from "@game/ui/chrome";
@@ -68,11 +67,9 @@ const LOCKED_MARK = "\u2610";
 export class BeaconLogScene extends MenuScene {
   static readonly KEY = SCENE_KEYS.beaconLog;
 
-  private litCount = 0;
   private earnedCount = 0;
   private emptyLine: string | null = null;
   /** Measured bottoms, published for the layout e2e. */
-  private beaconBottom = 0;
   private trophyBottom = 0;
 
   constructor() {
@@ -89,20 +86,15 @@ export class BeaconLogScene extends MenuScene {
 
     this.addHeading("ui.log.heading");
     const profile = this.app.profile();
-    const placed = new Map<StopId, number>();
-    for (const p of profile?.progress ?? []) {
-      if (p.beaconPlacedAt !== null) placed.set(p.stopId, p.beaconPlacedAt);
-    }
-    this.litCount = placed.size;
     this.earnedCount = (profile?.trophies ?? []).length;
 
-    const controls: Control[] = [];
-    controls.push(...this.buildBeacons(placed));
-    controls.push(...this.buildTrophies(new Set(profile?.trophies ?? [])));
+    // UR-198: the beacons left. The map already carries the route - its header
+    // counts them and its discs say which are lit - so this screen restated a
+    // screen the child had just come from. The trophies are the half nothing
+    // else shows.
+    const controls: Control[] = [...this.buildTrophies(new Set(profile?.trophies ?? []))];
 
-    // The empty state is "nothing beyond Earth", which includes a brand-new
-    // profile with nothing at all. Either way the message is the same one.
-    if (this.litCount <= 1) this.buildEmptyState();
+    if (this.earnedCount === 0) this.buildEmptyState();
 
     // UR-192: nothing moves and nothing is chosen here, and a hint that names
     // a key which does nothing is worse than no hint.
@@ -174,80 +166,6 @@ export class BeaconLogScene extends MenuScene {
     return { controls, bottom: bottomOf(rects) };
   }
 
-  private buildBeacons(placed: Map<StopId, number>): Control[] {
-    const cfg = BEACON_LOG.beacons;
-
-    uiText(
-      this,
-      cfg.x,
-      BEACON_LOG.captionY,
-      `${this.t.t("ui.log.beacons")} · ${this.t.t("ui.log.lit", {
-        n: this.litCount,
-        total: STOP_IDS.length,
-      })}`,
-      {
-        size: TYPE.body,
-        color: INK.textDim,
-        lang: this.uiStyle.lang,
-        uppercase: this.uiStyle.uppercase,
-        increasedLetterSpacing: this.uiStyle.increasedLetterSpacing,
-      },
-    ).setDepth(this.depth);
-
-    const make = (glyph: number): ListRow[] =>
-      STOP_IDS.map((stopId) => {
-        const at = placed.get(stopId);
-        const lit = at !== undefined;
-        // Real heliocentric ecliptic coordinates for the day the beacon was
-        // placed (D15, AC-17.0/17.1), formatted by the engine so the log and
-        // the beacon screen cannot drift apart. `ok: false` is the calibrating
-        // path - a broken device clock must not print "NaN" at a child.
-        // UR-192: AC-17.0's readout lives on `BeaconScene`, where the beacon
-        // is placed. Repeating it on every row made the list busy.
-        const detail = `${lit ? EARNED_MARK : LOCKED_MARK}  ${this.t.t(
-          lit ? "ui.log.lit.one" : "ui.log.notLit",
-        )}`;
-        const hasCoords = false;
-
-        return new ListRow(
-          this,
-          this.uiStyle,
-          `log.beacon.${stopId}`,
-          cfg.x,
-          cfg.top,
-          this.depth,
-          {
-            label: this.t.t(`ui.stop.${stopId}` as MenuKey),
-            detail,
-            width: cfg.w,
-            role: "listitem",
-            detailChrome: !hasCoords,
-            locked: !lit,
-            glyphSize: glyph,
-            glyph: (scene, gx, gy) =>
-              drawBeacon(
-                scene,
-                gx,
-                gy,
-                glyph * 0.95,
-                this.app.palette(stopId).accent,
-                lit,
-                this.reducedMotion,
-              ),
-          },
-        );
-      });
-
-    const flowed = this.flowBlock(make, {
-      ...cfg,
-      left: cfg.x,
-      width: cfg.w,
-      colGap: 0,
-    });
-    this.beaconBottom = flowed.bottom;
-    return flowed.controls;
-  }
-
   /** All twelve of D80, always, in AC-6d.1c's order. */
   private buildTrophies(earned: Set<string>): Control[] {
     const cfg = BEACON_LOG.trophies;
@@ -256,10 +174,7 @@ export class BeaconLogScene extends MenuScene {
       this,
       cfg.left,
       BEACON_LOG.captionY,
-      `${this.t.t("ui.log.trophies")} · ${this.t.t("ui.log.trophyCount", {
-        n: this.earnedCount,
-        total: TROPHIES.length,
-      })}`,
+      this.t.t("ui.log.trophyCount", { n: this.earnedCount, total: TROPHIES.length }),
       {
         size: TYPE.body,
         color: INK.textDim,
@@ -360,14 +275,12 @@ export class BeaconLogScene extends MenuScene {
   override snapshot(): Record<string, unknown> {
     return {
       ...super.snapshot(),
-      beaconsLit: this.litCount,
       trophiesShown: TROPHIES.length,
       trophiesEarned: this.earnedCount,
-      empty: this.litCount <= 1,
+      empty: this.earnedCount === 0,
       emptyLine: this.emptyLine,
       // The layout facts an e2e can assert instead of a human squinting at a
       // PNG: both blocks are inside the frame, and neither reaches the hint.
-      beaconBottom: Math.round(this.beaconBottom),
       trophyBottom: Math.round(this.trophyBottom),
       frameHeight: GAME_HEIGHT,
       hintTop: BEACON_LOG.hintTop,
