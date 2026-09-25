@@ -159,22 +159,8 @@ export const SPACE = {
    */
   rowPadX: 22,
   rowPadY: 14,
+  /** UR-201: the one corner in the product. `radiusCard` (26) is gone. */
   radius: 16,
-  /**
-   * THE BIG CARD'S CORNER, promoted to a name (UR-69's rule, applied to radii).
-   *
-   * Two radii in the product and no third: `radius` (16) is a control, this is
-   * a CARD - the Title's primary button and the briefing's picture-book page,
-   * both of which drew `26` as a literal at their own call site. Naming it is
-   * what makes "should these two match" a question with an answer.
-   *
-   * Collapsing it into `radius` would be one radius app-wide, which is more
-   * uniform still and is a VISIBLE change to two screens' corners. That is in
-   * gauntlet/escalations.md with a lean, not done here: this lane is closing
-   * near-miss alignment, and a corner nobody asked to move is how a polish pass
-   * turns into a redesign.
-   */
-  radiusCard: 26,
   /** Focus ring sits OUTSIDE the control, so it never covers the label. */
   focusRingOffset: 6,
   focusRingWidth: 4,

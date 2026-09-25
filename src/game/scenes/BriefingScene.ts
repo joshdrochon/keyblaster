@@ -523,19 +523,19 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     // Three bespoke rounded rects until now; two of them were the last two
     // entries on `platePainters.BLOCKED_ON_ANOTHER_LANE`, which is now empty.
     // Every number that was written here is a token: the shadow's offset is
-    // `STEP.hair` across and `STEP.tight` down, the corner is `SPACE.radiusCard`
+    // `STEP.hair` across and `STEP.tight` down, the corner is `SPACE.radius`
     // - the same one the Title's primary button draws - and the spine is a pill
     // rather than a rect with a hand-picked 4.
     const g = this.add.graphics().setDepth(17);
     paintPlate(
       g,
       { x: laid.page.x + STEP.hair, y: laid.page.y + STEP.tight, w: laid.page.w, h: laid.page.h },
-      { fill: INK.bgDeep, alpha: 0.5, radius: SPACE.radiusCard, strokeWidth: 0 },
+      { fill: INK.bgDeep, alpha: 0.5, radius: SPACE.radius, strokeWidth: 0 },
     );
     paintPlate(
       g,
       { x: laid.page.x, y: laid.page.y, w: laid.page.w, h: laid.page.h },
-      { fill: paper, radius: SPACE.radiusCard, strokeWidth: 0 },
+      { fill: paper, radius: SPACE.radius, strokeWidth: 0 },
     );
     // A single ribbon of the stop's accent down the spine. No rules, no grid.
     // Inset one `STEP.inset` from the page's edge on all four sides, which is

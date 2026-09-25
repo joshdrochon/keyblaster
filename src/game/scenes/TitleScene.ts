@@ -138,7 +138,7 @@ const RULE_W = 10;
  * it starts, and how much of the button's height it covers.
  *
  * The inset was `4` written twice (once as `4`, once as `width - 8`) and the
- * radius was `22`, which is `SPACE.radiusCard - 4` spelled as a third number.
+ * radius was `22`, which is `SPACE.radius - 4` spelled as a third number.
  * Named here so the three cannot drift apart, and so the facet stays concentric
  * if the card radius ever moves.
  */
@@ -609,7 +609,7 @@ export class TitleScene extends Phaser.Scene {
     paintPlate(
       plate,
       { x: COLUMN_X, y: 0, w: width, h: height },
-      { fill: this.accent, radius: SPACE.radiusCard, strokeWidth: 0 },
+      { fill: this.accent, radius: SPACE.radius, strokeWidth: 0 },
     );
     paintPlate(
       plate,
@@ -622,7 +622,7 @@ export class TitleScene extends Phaser.Scene {
       {
         fill: mixHex(this.accent, "#FFFFFF", 0.35),
         alpha: 0.5,
-        radius: SPACE.radiusCard - FACET_INSET,
+        radius: SPACE.radius - FACET_INSET,
         strokeWidth: 0,
       },
     );
@@ -905,7 +905,7 @@ export class TitleScene extends Phaser.Scene {
         // edge, so half the stroke was hidden behind it and it read as thinner
         // than every other control's. The app's stand-off shows all 4 px.
         offset: item.id === "primary" ? FOCUS_PAD : SPACE.focusRingOffset,
-        radius: item.id === "primary" ? SPACE.radiusCard : SPACE.radius,
+        radius: item.id === "primary" ? SPACE.radius : SPACE.radius,
       },
     );
   }
