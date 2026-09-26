@@ -2965,6 +2965,9 @@ export class FlightScene extends Phaser.Scene {
     rock.crackedShellWord = shellWord;
     rock.core = null;
     rock.sizePx = core.sizePx;
+    // The lock reticule goes with the layer it was cut for. Nothing is locked
+    // now, so the player is free to target any rock.
+    for (const child of [...rock.container.list]) if (child !== rock.body) child.destroy();
     rock.plateOffsetY = core.plateOffsetY;
     drawDebris(rock.body, {
       type: rock.debris,
