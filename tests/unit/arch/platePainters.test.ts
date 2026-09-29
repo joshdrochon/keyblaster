@@ -118,9 +118,8 @@ const NOT_A_PLATE: Record<string, string> = {
   // altogether, the second screen in the game to reach zero.
 
   // -- marks and bars. A 3x16 rule is not a card. ---------------------------
-  "HudScene.ts::fillRoundedRect(placeRect.x + 16, placeRect.y + 15, 3, 16, 1.5)":
-    "the stop's colour as a 3x16 RULE beside its name. A mark, drawn on a " +
-    "plate rather than being one.",
+  // The place mark's entry left when the rule became a planet: two fillCircles
+  // are not rounded rects, so this sweep no longer sees it at all.
   "HudScene.ts::fillRoundedRect(x + i * 24, y, 16, 16, 5)":
     "one HULL MARK. Sixteen square pixels of accent; there is nothing on it.",
   // UR-101.2 SPLIT ONE ENTRY INTO TWO, and the split is the change: the bar had

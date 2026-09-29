@@ -112,6 +112,95 @@ export interface PlateProps {
   readonly rimGap?: number;
   /** Which padding rhythm this plate's content is laid out on. */
   readonly rhythm?: PlateRhythmName;
+  /**
+   * ONE PLATE CUT IN TWO BY A DIAGONAL.
+   *
+   * `lean` is how far the cut's TOP sits right of its BOTTOM; `diagonal` says
+   * which of the plate's own edges the cut replaced. The other three edges are
+   * the rectangle's, so a sliced plate still sits in the footprint the whole
+   * button had - the two halves together ARE the original.
+   *
+   * Every corner stays rounded, including the two the cut made.
+   */
+  readonly lean?: number;
+  readonly diagonal?: "left" | "right";
+}
+
+/** The four corners of a plate whose `diagonal` edge leans. Top-left first. */
+export function slicedPoints(
+  rect: Rect,
+  lean = 0,
+  diagonal: "left" | "right" = "right",
+): readonly [number, number][] {
+  const h = lean / 2;
+  const { x, y, w } = rect;
+  return diagonal === "right"
+    ? [
+        [x, y],
+        [x + w + h, y],
+        [x + w - h, y + rect.h],
+        [x, y + rect.h],
+      ]
+    : [
+        [x + h, y],
+        [x + w, y],
+        [x + w, y + rect.h],
+        [x - h, y + rect.h],
+      ];
+}
+
+/** Steps per rounded corner. Eight is smooth at any radius this app uses. */
+const CORNER_STEPS = 8;
+
+/**
+ * A polygon with every corner rounded to `radius`.
+ *
+ * `fillRoundedRect` cannot do this - it takes a rectangle - and the alternative
+ * was a bespoke path in the scene, which is the thing `platePainters` exists to
+ * stop. The corner is a quadratic through the vertex: the radius is walked back
+ * along both edges and capped at half the shorter of them, so a short edge
+ * cannot make two corners overlap and turn the shape inside out.
+ */
+function roundedPoly(
+  g: Phaser.GameObjects.Graphics,
+  pts: readonly (readonly [number, number])[],
+  radius: number,
+  stroke: boolean,
+): void {
+  const n = pts.length;
+  const len = (a: readonly [number, number], b: readonly [number, number]): number =>
+    Math.hypot(b[0] - a[0], b[1] - a[1]);
+  const towards = (
+    from: readonly [number, number],
+    to: readonly [number, number],
+    d: number,
+  ): [number, number] => {
+    const l = len(from, to) || 1;
+    return [from[0] + ((to[0] - from[0]) * d) / l, from[1] + ((to[1] - from[1]) * d) / l];
+  };
+
+  g.beginPath();
+  for (let i = 0; i < n; i += 1) {
+    const prev = pts[(i - 1 + n) % n]!;
+    const cur = pts[i]!;
+    const next = pts[(i + 1) % n]!;
+    const r = Math.min(radius, len(cur, prev) / 2, len(cur, next) / 2);
+    const from = towards(cur, prev, r);
+    const to = towards(cur, next, r);
+    if (i === 0) g.moveTo(from[0], from[1]);
+    else g.lineTo(from[0], from[1]);
+    for (let k = 1; k <= CORNER_STEPS; k += 1) {
+      const t = k / CORNER_STEPS;
+      const u = 1 - t;
+      g.lineTo(
+        u * u * from[0] + 2 * u * t * cur[0] + t * t * to[0],
+        u * u * from[1] + 2 * u * t * cur[1] + t * t * to[1],
+      );
+    }
+  }
+  g.closePath();
+  if (stroke) g.strokePath();
+  else g.fillPath();
 }
 
 /**
@@ -189,14 +278,20 @@ export function paintPlate(
   // always been, so nothing that is already on screen changes colour.
   const stroke = props.stroke ?? (props.corner === "bracket" ? CHROME_INK : INK.line);
 
+  const lean = props.lean ?? 0;
+  const sliced = lean !== 0 ? slicedPoints(rect, lean, props.diagonal ?? "right") : null;
+
   g.fillStyle(hexToNum(fill), props.alpha ?? 1);
-  g.fillRoundedRect(rect.x, rect.y, rect.w, rect.h, radius);
+  if (sliced !== null) roundedPoly(g, sliced, radius, false);
+  else g.fillRoundedRect(rect.x, rect.y, rect.w, rect.h, radius);
 
   const strokeWidth = props.strokeWidth ?? 2;
   const strokeAlpha = props.strokeAlpha ?? 0.9;
   if (strokeWidth > 0 && strokeAlpha > 0) {
     g.lineStyle(strokeWidth, hexToNum(stroke), strokeAlpha);
-    if (props.corner === "bracket") {
+    if (sliced !== null) {
+      roundedPoly(g, sliced, radius, true);
+    } else if (props.corner === "bracket") {
       // The body keeps its shape; only the BORDER becomes four corner pieces.
       // Drawn as eight strokes rather than as a path, so the arms cannot meet
       // at the corner arcs and quietly become a continuous border again.
@@ -418,6 +513,9 @@ export function paintFocusRing(
      * UR-69 is about.
      */
     readonly offset?: number;
+    /** The control's own cut, so the ring is the same shape around it. */
+    readonly lean?: number;
+    readonly diagonal?: "left" | "right";
   } = {},
 ): void {
   const o = options.offset ?? SPACE.focusRingOffset;
@@ -436,13 +534,25 @@ export function paintFocusRing(
     (options.radius ?? SPACE.radius) + o,
     Math.min(ring.w, ring.h) / 2,
   );
+  /**
+   * THE RING'S TRAVEL IS NOT THE PLATE'S. A cut is an ANGLE, and the ring is
+   * `2 * offset` taller than the control, so reusing the plate's px of lean
+   * draws a shallower diagonal around a steeper one - visibly wrong at the top
+   * corner, where the two edges are furthest apart. Scaled by the height ratio,
+   * the two cuts are parallel.
+   */
+  const lean = rect.h === 0 ? 0 : ((options.lean ?? 0) * ring.h) / rect.h;
+  const strokeRing = (): void => {
+    if (lean === 0) g.strokeRoundedRect(ring.x, ring.y, ring.w, ring.h, radius);
+    else roundedPoly(g, slicedPoints(ring, lean, options.diagonal ?? "right"), radius, true);
+  };
   g.lineStyle(SPACE.focusRingWidth, hexToNum(accent), 1);
-  g.strokeRoundedRect(ring.x, ring.y, ring.w, ring.h, radius);
+  strokeRing();
   // The soft second pass. Wider and barely there, so the ring reads as lit
   // rather than as a second border; the story kit has drawn it since the menu
   // kit landed and three scenes drew their own copy of it.
   if (options.halo !== undefined) {
     g.lineStyle(SPACE.focusRingWidth + 6, hexToNum(options.halo), 0.18);
-    g.strokeRoundedRect(ring.x, ring.y, ring.w, ring.h, radius);
+    strokeRing();
   }
 }

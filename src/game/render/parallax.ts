@@ -1010,7 +1010,7 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
     }
     const lightOps = (ops: readonly TileOp[]): readonly TileOp[] =>
       nearLightTravels ? wrapY(ops, H) : ops;
-    nearLight.add(drawOps(scene, lightOps(moteTile(W, H, nearFill, pal.worldAccent, rand))));
+    nearLight.add(drawOps(scene, lightOps(moteTile(W, H, nearFill, pal.worldAccent, rand, keepClear))));
     // WORLD-BAR item 7. Three of them. Tiny, high contrast, enormous effect -
     // and 4-9 px of opaque saturated colour is the most speck-like thing in the
     // frame, so they hold still with the motes rather than sliding alone.

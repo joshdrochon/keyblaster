@@ -37,7 +37,8 @@ export type SettingIconId =
   | "spacing"
   | "motion"
   | "palette"
-  | "reset";
+  | "reset"
+  | "cog";
 
 type Pen = Phaser.GameObjects.Graphics;
 
@@ -54,6 +55,28 @@ export function drawSettingIcon(
   const r = size / 2;
   g.lineStyle(W, c, 1);
   switch (id) {
+    case "cog": {
+      // A COMPACT COG. Two earlier attempts missed: thin teeth crossing the rim
+      // read as a ship's wheel, and thin teeth outside it read as a sun. A gear
+      // tooth is a STUB - short and about as wide as the gap beside it - so
+      // these are drawn at a third of the radius wide and barely proud of the
+      // rim, which is what makes the silhouette toothed rather than spiky.
+      const TEETH = 7;
+      g.lineStyle(r * 0.34, c, 1);
+      for (let i = 0; i < TEETH; i += 1) {
+        const a = (i / TEETH) * Math.PI * 2;
+        const cos = Math.cos(a);
+        const sin = Math.sin(a);
+        g.lineBetween(cx + cos * r * 0.62, cy + sin * r * 0.62, cx + cos * r * 0.92, cy + sin * r * 0.92);
+      }
+      // The body, filled, then the hole punched back out in the plate's colour
+      // is not available here - the caller owns the surface - so the rim is a
+      // thick ring stroked at the same width instead.
+      g.lineStyle(r * 0.3, c, 1);
+      g.strokeCircle(cx, cy, r * 0.5);
+      g.lineStyle(W, c, 1);
+      break;
+    }
     case "music": {
       // A quaver: stem with a flag, and a filled head so it reads at 22 px.
       const x = cx + r * 0.35;

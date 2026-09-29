@@ -262,6 +262,7 @@ export function moteTile(
   fill: string,
   accent: string,
   rand: () => number,
+  keepClear?: readonly KeepClearShape[],
 ): TileOp[] {
   const out: TileOp[] = [];
   for (let i = 0; i < 22; i++) {
@@ -277,15 +278,27 @@ export function moteTile(
       additive: false,
     });
   }
+  // THE GLINTS TAKE THE ZONE TOO. They are the only accent-coloured decoration
+  // that never asked: `accentTile`'s diamonds have steered around type since
+  // UR-06, while these landed wherever the stream put them - which on Pluto is
+  // a saturated pink 4-point star sitting on the wordmark. Same reach as a
+  // diamond cluster's anchor, re-drawn rather than dropped, so the count holds.
   for (let i = 0; i < 7; i++) {
     const s = 14 + rand() * 20;
+    let x = rand() * w;
+    let y = rand() * h;
+    for (let tries = 0; tries < 12 && hitsKeepClear(x, y, s, keepClear); tries += 1) {
+      x = rand() * w;
+      y = rand() * h;
+    }
+    if (hitsKeepClear(x, y, s, keepClear)) continue;
     out.push({
       kind: "sprite",
       tex: "glint",
       color: accent,
       alpha: 0.3 + rand() * 0.35,
-      x: rand() * w,
-      y: rand() * h,
+      x,
+      y,
       size: s,
       additive: true,
     });

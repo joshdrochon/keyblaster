@@ -115,15 +115,28 @@ describe("the disc is tellable from its own sky at every stop", () => {
     }
   });
 
-  it("NEGATIVE CONTROL: the old rule fails this file", () => {
+  it("NEGATIVE CONTROL: the old rule is worse at every bright stop", () => {
     // What shipped, so "the bar is clearable" is not mistaken for "the bar is
-    // loose". Pluto is the one that proves it.
+    // loose". Stated as a COMPARISON rather than as "pluto lands under 10":
+    // that number was a fact about how pale Pluto's sky happened to be, and it
+    // went quiet the moment the sky was darkened (10.8, so the filter matched
+    // nothing and the control asserted nothing). The claim that matters -
+    // washing the disc toward white loses separation the warm mix keeps - is
+    // true of the rule, not of one palette.
     const old = (id: (typeof STOP_IDS)[number]): string =>
       mixHex(skyTopOf(id), "#FFFFFF", isBrightStop(paletteAt(id, false)) ? 0.9 : 0.74);
-    const failing = STOP_IDS.filter(
-      (id) => deltaE(hexToLab(old(id)), hexToLab(skyTopOf(id))) <= 10,
-    );
-    expect(failing).toEqual(["pluto"]);
+    const oldD = (id: (typeof STOP_IDS)[number]): number =>
+      deltaE(hexToLab(old(id)), hexToLab(skyTopOf(id)));
+    const BRIGHT = ["mars", "jupiter", "saturn", "uranus", "pluto"] as const;
+    for (const id of BRIGHT) {
+      const now = deltaE(hexToLab(coreFor(id)), hexToLab(skyTopOf(id)));
+      expect(now, `${id}: the old rule was no worse than the current one`).toBeGreaterThan(
+        oldD(id),
+      );
+    }
+    // And somewhere it was not merely worse but unusable. Pluto is still that
+    // stop, at deltaE 10.8 against the 30 the assertion above demands.
+    expect(Math.min(...BRIGHT.map(oldD))).toBeLessThan(15);
   });
 });
 
