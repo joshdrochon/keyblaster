@@ -92,6 +92,8 @@ import {
   type LayerSpec,
   cameraSwayPx,
   idleDriftPx,
+  PINNED_LAYERS,
+  WORLD_SCROLL_LAYERS,
   layer,
 } from "./layers.js";
 import {
@@ -156,22 +158,8 @@ export const EASE = {
   blast: "Expo.easeOut",
 } as const;
 
-/** Layers that translate with the world. See the header note. */
-const SCROLLS: ReadonlySet<LayerId> = new Set<LayerId>([
-  "celestial",
-  "farField",
-  "midField",
-  "debris",
-  "nearField",
-  "foreVeil",
-]);
-
-/**
- * Layers pinned at exactly (0,0) forever. The HUD must not sway - a readout
- * that drifts with the camera is unreadable and breaks rubric item 8 - and the
- * sky is full-bleed, so moving it would only risk an edge.
- */
-const PINNED: ReadonlySet<LayerId> = new Set<LayerId>(["sky", "hud"]);
+const SCROLLS = WORLD_SCROLL_LAYERS;
+const PINNED = PINNED_LAYERS;
 
 /**
  * The four depth planes the ramp is sampled at, far -> near. Four rather than

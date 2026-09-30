@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ELEMENTS } from "@engine/ephemeris/elements.js";
 import { STOP_IDS, type StopId } from "@engine/types";
 import { isBrightStop, lightPositionOf, mixHex, paletteAt, skyStops } from "@game/render/palette";
+import { LAYERS, PINNED_LAYERS, WORLD_SCROLL_LAYERS } from "@game/render/layers";
 import { readFileSync } from "node:fs";
 import { deltaE, hexToLab } from "@game/flight/stage";
 import {
@@ -320,5 +321,36 @@ describe("the lip is an edge, not a ring round the disc (UR-162)", () => {
       const d = deltaE(hexToLab(lipFor(id)), hexToLab(coreFor(id)));
       expect(d, `${id}: lip is deltaE ${d.toFixed(1)} from its own core`).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * UR-161. UR-152 found this and fixed one screen: the Title passes
+ * `pin: ["celestial"]`, so the sun stopped walking into the wordmark THERE and
+ * went on sliding down every belt, where nobody had a mark to notice it
+ * against. The owner reported it on Mercury, which is where it became obvious -
+ * D103 gives Mercury the biggest, warmest disc in the game on the darkest sky.
+ */
+describe("UR-161: the sun does not travel", () => {
+  it("is pinned for every scene, not just the Title", () => {
+    expect(PINNED_LAYERS.has("celestial")).toBe(true);
+    expect(WORLD_SCROLL_LAYERS.has("celestial")).toBe(false);
+  });
+
+  it("still scrolls everything the world is made of", () => {
+    for (const id of ["farField", "midField", "debris", "nearField", "foreVeil"] as const) {
+      expect(WORLD_SCROLL_LAYERS.has(id), `${id} must still scroll`).toBe(true);
+    }
+  });
+
+  it("keeps AC-22.1's five distinct scrolling speeds without counting the sun", () => {
+    const speeds = new Set(
+      LAYERS.filter((l) => WORLD_SCROLL_LAYERS.has(l.id)).map((l) => l.speed),
+    );
+    expect(speeds.size).toBeGreaterThanOrEqual(5);
+  });
+
+  it("pins nothing that carries a rock", () => {
+    expect(PINNED_LAYERS.has("debris")).toBe(false);
   });
 });

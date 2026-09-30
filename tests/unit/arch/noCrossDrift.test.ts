@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { PINNED_LAYERS, WORLD_SCROLL_LAYERS } from "@game/render/layers";
 
 /**
  * UR-50.5 AS A RULE: NO SCREEN WITHOUT A LANE LETS ITS PLANES TRAVEL.
@@ -112,9 +113,15 @@ describe("UR-50.5: no decorative plane travels on a screen without a lane", () =
 
   it("the starfield is still pinned, which is the OTHER thing these reports blamed", () => {
     // UR-14's fix must not be quietly undone by this one. The field lives on
-    // the sky container and `sky` is in PINNED, so it neither scrolls nor sways.
+    // the sky container and `sky` is pinned, so it neither scrolls nor sways.
+    // Asserted against the SET rather than against parallax.ts's source text:
+    // UR-161 moved both sets into `layers.ts` so they could be read by a test
+    // that does not import Phaser, and a regex pinned to the old literal broke
+    // while the property it was protecting was still true.
+    expect(PINNED_LAYERS.has("sky")).toBe(true);
+    expect(WORLD_SCROLL_LAYERS.has("sky")).toBe(false);
     const px = readFileSync(resolve(SRC, "render/parallax.ts"), "utf8");
-    expect(px).toMatch(/const PINNED[^=]*=\s*new Set<LayerId>\(\["sky", "hud"\]\)/);
+    expect(px).toMatch(/PINNED\.has\(spec\.id\) \|\| pinned\.has\(spec\.id\)/);
     expect(px).toMatch(/skyLayer\.add\(starField\.graphics\)/);
   });
 });
