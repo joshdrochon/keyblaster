@@ -55,6 +55,8 @@ import { TYPE_SIZES } from "@game/ui/theme";
  *                     plane declared `decor` in `render/layers.ts`. Its
  *                     position comes from the palette's seed.
  *   Zone              a pointer hit target. It draws nothing at all.
+ *   popped            the control that currently holds focus; `ui/focusPop`
+ *                     scales it, so its contents sit ~3 px left.
  *
  * The classifier is asserted below, in both directions: it has to find decor
  * (or it is matching nothing) and it has to leave most of the type alone (or it
@@ -140,6 +142,7 @@ interface Element {
   readonly path: string;
   readonly type: string;
   readonly decor: boolean;
+  readonly popped?: boolean;
   readonly originX: number | null;
   readonly x: number;
   readonly y: number;
@@ -179,7 +182,7 @@ function name(e: Element): string {
 /** Elements whose LEFT EDGE is a claim: drawn, composed, left-anchored. */
 function judged(s: Screen): Element[] {
   return (s.elements ?? []).filter(
-    (e) => !e.decor && e.type !== "Zone" && e.originX === 0,
+    (e) => !e.decor && !e.popped && e.type !== "Zone" && e.originX === 0,
   );
 }
 

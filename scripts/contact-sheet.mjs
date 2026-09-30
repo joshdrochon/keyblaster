@@ -77,12 +77,15 @@ for (const screen of SCREENS) {
        * can attribute is a number nobody can fix.
        */
       const elements = [];
-      const walk = (node, scene, path, inDecor) => {
+      const POP = "kb-pop:";
+      const walk = (node, scene, path, inDecor, inPop) => {
         let i = 0;
         for (const child of node.list ?? []) {
           i += 1;
           const name = typeof child.name === "string" ? child.name : "";
           const decor = inDecor || name.startsWith(DECOR);
+          const popped =
+            inPop || (name.startsWith(POP) && Math.abs((child.scaleX ?? 1) - 1) > 1e-6);
           const here = `${path}/${child.type}${name === "" ? "" : "#" + name}[${i}]`;
           if (child.visible !== false) {
             if (child.type === "Text") {
@@ -91,15 +94,9 @@ for (const screen of SCREENS) {
               if (style.fontFamily !== undefined) {
                 families.add(String(style.fontFamily).split(",")[0].trim());
               }
-              // COLOUR IS HALF THE QUESTION and the census never asked it. A
-              // screen can hold one type scale and still read as four screens
-              // because four inks are doing the same job.
               if (style.color !== undefined && style.color !== null) {
                 colors.add(String(style.color).toLowerCase());
               }
-              // WEIGHT. Phaser keeps it in `fontStyle`, and nothing has ever
-              // measured it - so two screens can set the same size in two
-              // weights and every guard in the suite stays green.
               weights.add(
                 style.fontStyle === undefined || style.fontStyle === "" ? "normal" : String(style.fontStyle),
               );
@@ -107,12 +104,13 @@ for (const screen of SCREENS) {
             if (typeof child.getBounds === "function") {
               const b = child.getBounds();
               if (b.width > 40 && b.height > 8 && b.x > -300 && b.x < 1900) {
-                edges.add(Math.round(b.x));
+                if (!popped) edges.add(Math.round(b.x));
                 elements.push({
                   scene,
                   path: here,
                   type: child.type,
                   decor,
+                  popped,
                   // An element's OWN declaration of what it is anchored by.
                   // 0 left, 0.5 centred, 1 right-anchored. Read off the object
                   // rather than inferred from where it landed.
@@ -136,8 +134,6 @@ for (const screen of SCREENS) {
                         ? "normal"
                         : String(child.style.fontStyle)
                       : null,
-                  // The WHOLE stack, not its first name: two screens can share
-                  // a first family and still fall through to different faces.
                   family:
                     child.type === "Text" && child.style?.fontFamily !== undefined
                       ? String(child.style.fontFamily)
@@ -149,10 +145,10 @@ for (const screen of SCREENS) {
               }
             }
           }
-          if (child.list !== undefined) walk(child, scene, here, decor);
+          if (child.list !== undefined) walk(child, scene, here, decor, popped);
         }
       };
-      for (const s of game.scene.getScenes(true)) walk(s.children, s.scene.key, s.scene.key, false);
+      for (const s of game.scene.getScenes(true)) walk(s.children, s.scene.key, s.scene.key, false, false);
       return {
         sizes: [...sizes],
         families: [...families],
@@ -215,7 +211,7 @@ function pairsOf(items) {
   return out;
 }
 
-const isLayout = (e) => !e.decor && e.type !== "Zone" && e.originX === 0;
+const isLayout = (e) => !e.decor && !e.popped && e.type !== "Zone" && e.originX === 0;
 
 for (const r of rows) {
   const items = r.elements ?? [];
