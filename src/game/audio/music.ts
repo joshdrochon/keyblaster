@@ -54,7 +54,12 @@ import {
   type OscillatorWave,
 } from "./context.js";
 import { label } from "./nullContext.js";
-import { levelTrimFor, prepareLoopBuffer, type LoopRegionOptions } from "./musicLoop.js";
+import {
+  levelTrimFor,
+  prepareLoopBuffer,
+  stopBoostFor,
+  type LoopRegionOptions,
+} from "./musicLoop.js";
 
 export type MusicLayerId = "bed" | "pulse" | "drive";
 
@@ -490,7 +495,8 @@ export class MusicBus {
     // `MUSIC_REFERENCE_RMS`. Measured from the buffer, so a regenerated track
     // needs nothing updated by hand.
     const level = label(this.ctx.createGain(), `music.level.${stopId}`);
-    level.gain.value = levelTrimFor(buffer);
+    // The measured trim, times any per-stop exception. See `MUSIC_STOP_BOOST`.
+    level.gain.value = levelTrimFor(buffer) * stopBoostFor(stopId);
     const trackGain = label(this.ctx.createGain(), `music.track.${stopId}`);
     trackGain.gain.value = 0;
     source.connect(level);

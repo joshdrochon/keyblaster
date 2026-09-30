@@ -367,6 +367,36 @@ export function buildLoopChannels(
  */
 export const MUSIC_REFERENCE_RMS = 0.13;
 
+/**
+ * Per-stop correction ON TOP of the measured trim, in linear gain.
+ *
+ * `levelTrimFor` normalises BROADBAND RMS, and by that measure every stop is
+ * within 1 dB of every other at all three intensity layers - Mercury included,
+ * and Mercury is the loudest of the nine at index 1 and 2. The owner reports it
+ * as barely audible next to the other planets anyway, twice, from play.
+ *
+ * Six things were measured before adding this and none of them explains it: the
+ * raw file is the loudest of the nine (RMS 0.26), the trim lands it on 0.13 like
+ * everything else, the bed's 700 Hz lowpass passes 87% of it against the others'
+ * 95%, stereo correlation is 1.35 so nothing cancels, only 27% of its energy
+ * sits in its own wind's band, and the dev server serves the current file.
+ *
+ * So this is not a model of a defect - it is the owner's ears against an
+ * arithmetic that cannot account for them, and the ears win. It is deliberately
+ * a NAMED, per-stop, temporary exception rather than a change to
+ * `MUSIC_REFERENCE_RMS`, which would move all nine to fix one. Delete the entry
+ * once the real cause is found.
+ */
+export const MUSIC_STOP_BOOST: Readonly<Partial<Record<string, number>>> = Object.freeze({
+  mercury: 2,
+});
+
+/** The boost for a stop, 1 where none is declared. */
+export function stopBoostFor(stopId: string): number {
+  const boost = MUSIC_STOP_BOOST[stopId];
+  return typeof boost === "number" && Number.isFinite(boost) && boost > 0 ? boost : 1;
+}
+
 /** Widest correction allowed. Past this something is wrong with the file. */
 export const MUSIC_LEVEL_TRIM_RANGE = Object.freeze({ min: 0.25, max: 2 });
 
