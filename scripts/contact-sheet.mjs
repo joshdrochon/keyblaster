@@ -66,6 +66,8 @@ for (const screen of SCREENS) {
       const DECOR = "kb-decor:";
       const sizes = new Set();
       const families = new Set();
+      const colors = new Set();
+      const weights = new Set();
       const edges = new Set();
       /**
        * EVERY ELEMENT, NAMED. The census used to emit a bag of x values, so a
@@ -89,6 +91,18 @@ for (const screen of SCREENS) {
               if (style.fontFamily !== undefined) {
                 families.add(String(style.fontFamily).split(",")[0].trim());
               }
+              // COLOUR IS HALF THE QUESTION and the census never asked it. A
+              // screen can hold one type scale and still read as four screens
+              // because four inks are doing the same job.
+              if (style.color !== undefined && style.color !== null) {
+                colors.add(String(style.color).toLowerCase());
+              }
+              // WEIGHT. Phaser keeps it in `fontStyle`, and nothing has ever
+              // measured it - so two screens can set the same size in two
+              // weights and every guard in the suite stays green.
+              weights.add(
+                style.fontStyle === undefined || style.fontStyle === "" ? "normal" : String(style.fontStyle),
+              );
             }
             if (typeof child.getBounds === "function") {
               const b = child.getBounds();
@@ -111,6 +125,24 @@ for (const screen of SCREENS) {
                     child.type === "Text" && child.style?.fontSize !== undefined
                       ? String(child.style.fontSize)
                       : null,
+                  color:
+                    child.type === "Text" && child.style?.color !== undefined
+                      ? String(child.style.color).toLowerCase()
+                      : null,
+                  alpha: Math.round((child.alpha ?? 1) * 100) / 100,
+                  weight:
+                    child.type === "Text"
+                      ? child.style?.fontStyle === undefined || child.style?.fontStyle === ""
+                        ? "normal"
+                        : String(child.style.fontStyle)
+                      : null,
+                  // The WHOLE stack, not its first name: two screens can share
+                  // a first family and still fall through to different faces.
+                  family:
+                    child.type === "Text" && child.style?.fontFamily !== undefined
+                      ? String(child.style.fontFamily)
+                      : null,
+                  right: Math.round((b.x + b.width) * 100) / 100,
                   text:
                     child.type === "Text" ? String(child.text ?? "").slice(0, 48) : null,
                 });
@@ -124,6 +156,8 @@ for (const screen of SCREENS) {
       return {
         sizes: [...sizes],
         families: [...families],
+        colors: [...colors].sort(),
+        weights: [...weights].sort(),
         edges: [...edges].sort((a, b) => a - b),
         elements,
       };
@@ -131,7 +165,7 @@ for (const screen of SCREENS) {
 
     await page.screenshot({ path: join(OUT, `${screen.key}.png`) });
     rows.push({ key: screen.key, note: screen.note, ...(census ?? { error: "no game on page" }) });
-    console.log(`  ${screen.key.padEnd(13)} ${census === null ? "NO GAME" : `${census.edges.length} edges, ${census.sizes.length} type sizes`}`);
+    console.log(`  ${screen.key.padEnd(13)} ${census === null ? "NO GAME" : `${census.edges.length} edges, ${census.sizes.length} type sizes, ${census.colors.length} inks, ${census.weights.length} weights`}`);
   } catch (error) {
     rows.push({ key: screen.key, error: String(error?.message ?? error).slice(0, 120) });
     console.log(`  ${screen.key.padEnd(13)} ERROR`);
