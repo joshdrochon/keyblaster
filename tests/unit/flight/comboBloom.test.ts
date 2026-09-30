@@ -379,3 +379,29 @@ describe("UR-130b: milestones hold longer", () => {
     expect(step).toBeGreaterThanOrEqual(0.08);
   });
 });
+
+describe("the +points floater is readable, not a flash", () => {
+  const SRC = readFileSync("src/game/scenes/FlightScene.ts", "utf8");
+  const spec = SRC.slice(SRC.indexOf("const POINTS_FLOAT = {"), SRC.indexOf("} as const;", SRC.indexOf("const POINTS_FLOAT = {")));
+  const num = (k: string): number => Number(/(\d+)/.exec(spec.slice(spec.indexOf(k)))?.[1] ?? 0);
+
+  it("holds at full opacity before it starts fading", () => {
+    // One Expo.Out tween drove both the rise and the fade, and Expo.Out
+    // front-loads: alpha was 0.5 after 70ms and 0.03 by 350ms. Measured in the
+    // running game after the split: full to 415ms, gone by 824ms.
+    expect(num("holdMs")).toBeGreaterThanOrEqual(300);
+    expect(num("fadeMs")).toBeGreaterThan(0);
+  });
+
+  it("fades on a curve that does not front-load", () => {
+    const fade = SRC.slice(SRC.indexOf("delay: POINTS_FLOAT.holdMs"));
+    expect(fade.slice(0, 200)).toMatch(/ease: "Sine\.In"/);
+    expect(fade.slice(0, 200)).not.toMatch(/ease: "Expo/);
+  });
+
+  it("draws above the nearest rocks, which UR-204 put over shipFx", () => {
+    const body = SRC.slice(SRC.indexOf("`+${points}`"));
+    expect(body.slice(0, 400)).toMatch(/setDepth\(PLATE_DEPTH\)/);
+    expect(body.slice(0, 400)).not.toMatch(/layer\("shipFx"\)/);
+  });
+});

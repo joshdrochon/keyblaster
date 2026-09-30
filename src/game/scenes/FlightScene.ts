@@ -306,15 +306,25 @@ const PLATE_DEPTH = PLATE_LAYER_DEPTH;
 /**
  * The `+points` that rises off a blasted rock.
  *
- * INK.text, not the stop's accent. UR-129 made that call for the multiplier
- * blooming one object away and named this as the other half of it; the floater
- * never followed. Measured against the sky it rises through, the accent was
- * 1.03:1 at Pluto and under the 4.5 bar at six of seven stops.
+ * INK.text, not the stop's accent: UR-129 made that call for the multiplier
+ * blooming one object away and named this as the other half. Measured against
+ * the sky it rises through, the accent was 1.03:1 at Pluto.
  *
- * The size is on the type scale. 26 was not, and Flight is not in the contact
- * sheet, so nothing ever counted it.
+ * THE FADE IS SEPARATE FROM THE RISE, and that is the whole reason this was
+ * unreadable. Both were one `Expo.Out` tween, which front-loads: alpha was 0.5
+ * after 70ms and 0.03 by 350ms, so the number flashed rather than being read.
+ * The rise keeps that curve, because the MOTION should be snappy. The alpha
+ * holds at full for `holdMs` and only then fades.
+ *
+ * At PLATE_DEPTH, not shipFx: this is information of the same kind as a word
+ * plate, and UR-204 put the nearest rocks above shipFx, where they covered it.
  */
-const POINTS_FLOAT = { sizePx: TYPE.body, risePx: 70, holdMs: 700 } as const;
+const POINTS_FLOAT = {
+  sizePx: TYPE.body,
+  risePx: 70,
+  holdMs: 420,
+  fadeMs: 380,
+} as const;
 
 /** UR-204. Above the ship, below the word plate. */
 const NEAR_OVER_SHIP = PLATE_LAYER_DEPTH - 0.7;
@@ -2854,13 +2864,19 @@ export class FlightScene extends Phaser.Scene {
         color: INK.text,
       })
       .setOrigin(0.5)
-      .setDepth(layer("shipFx").depth);
+      .setDepth(PLATE_DEPTH);
     this.tweens.add({
       targets: floater,
       y: floater.y - POINTS_FLOAT.risePx,
-      alpha: 0,
-      duration: POINTS_FLOAT.holdMs,
+      duration: POINTS_FLOAT.holdMs + POINTS_FLOAT.fadeMs,
       ease: "Expo.Out",
+    });
+    this.tweens.add({
+      targets: floater,
+      alpha: 0,
+      delay: POINTS_FLOAT.holdMs,
+      duration: POINTS_FLOAT.fadeMs,
+      ease: "Sine.In",
       onComplete: () => floater.destroy(),
     });
 
@@ -2958,13 +2974,19 @@ export class FlightScene extends Phaser.Scene {
         color: INK.text,
       })
       .setOrigin(0.5)
-      .setDepth(layer("shipFx").depth);
+      .setDepth(PLATE_DEPTH);
     this.tweens.add({
       targets: floater,
       y: floater.y - POINTS_FLOAT.risePx,
-      alpha: 0,
-      duration: POINTS_FLOAT.holdMs,
+      duration: POINTS_FLOAT.holdMs + POINTS_FLOAT.fadeMs,
       ease: "Expo.Out",
+    });
+    this.tweens.add({
+      targets: floater,
+      alpha: 0,
+      delay: POINTS_FLOAT.holdMs,
+      duration: POINTS_FLOAT.fadeMs,
+      ease: "Sine.In",
       onComplete: () => floater.destroy(),
     });
 
