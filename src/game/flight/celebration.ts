@@ -105,7 +105,7 @@ export function celebrationFor(before: number, after: number): MultiplierCelebra
  * rock is two things to read. The bloom swells in place and the score leaves.
  */
 export const COMBO_BLOOM = Object.freeze({
-  /** Bigger than the `+points` floater's 26 px: this is the headline. */
+  /** Bigger than the `+points` floater: this is the headline. */
   fontSizePx: 34,
   /** Phaser's line box for a text object is about 1.25x the font size. */
   lineHeightFactor: 1.25,

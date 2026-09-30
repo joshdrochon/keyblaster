@@ -270,11 +270,23 @@ describe("UR-129: the multiplier is the same colour everywhere", () => {
     expect(body).not.toContain("this.palette.accent");
   });
 
-  it("NEGATIVE CONTROL: the +points floater still uses the accent", () => {
-    // The bloom is the thing that changed; the floater is untouched, so a
-    // blanket search-and-replace across the file would fail here.
+  it("the +points floater took the same ink, and on the same argument", () => {
+    // This was a negative control asserting the floater STILL used the accent,
+    // which proved the bloom's fix was specific rather than a blanket replace.
+    // The floater has since been measured against the sky it rises through -
+    // 1.03:1 at Pluto, under the bar at six of seven stops - and given the same
+    // token. The control is spent; what replaces it is the rule both obey.
     const SRC = readFileSync("src/game/scenes/FlightScene.ts", "utf8");
-    expect(SRC).toMatch(/`\+\$\{points\}`[\s\S]{0,200}color: this\.palette\.accent/);
+    expect(SRC).not.toMatch(/`\+\$\{points\}`[\s\S]{0,200}color: this\.palette\.accent/);
+    expect(SRC).toMatch(/`\+\$\{points\}`[\s\S]{0,200}color: INK\.text/);
+  });
+
+  it("the floater's size is on the type scale", () => {
+    // 26px was not on it, and Flight is not in the contact sheet, so the
+    // census that counts sizes never saw it.
+    const SRC = readFileSync("src/game/scenes/FlightScene.ts", "utf8");
+    expect(SRC).toMatch(/sizePx: TYPE\.\w+/);
+    expect(SRC).not.toMatch(/fontSize: "26px"/);
   });
 
   it("the ink is a single declared token, not a hex literal", () => {

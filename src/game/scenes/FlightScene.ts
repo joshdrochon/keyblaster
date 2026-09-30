@@ -24,7 +24,7 @@ import {
 } from "@game/flight/celebration";
 import { buildParallax, type Parallax } from "@game/render/parallax.js";
 import { TEX } from "@game/render/textures.js";
-import { INK } from "@game/ui/theme.js";
+import { INK, TYPE } from "@game/ui/theme.js";
 import { paletteAt as stopPaletteAt } from "@game/render/palette.js";
 import { PauseScene } from "./PauseScene.js";
 import {
@@ -302,6 +302,19 @@ const STALL_SINK_MS = 2400;
  * one object on this screen whose whole job is to be read.
  */
 const PLATE_DEPTH = PLATE_LAYER_DEPTH;
+
+/**
+ * The `+points` that rises off a blasted rock.
+ *
+ * INK.text, not the stop's accent. UR-129 made that call for the multiplier
+ * blooming one object away and named this as the other half of it; the floater
+ * never followed. Measured against the sky it rises through, the accent was
+ * 1.03:1 at Pluto and under the 4.5 bar at six of seven stops.
+ *
+ * The size is on the type scale. 26 was not, and Flight is not in the contact
+ * sheet, so nothing ever counted it.
+ */
+const POINTS_FLOAT = { sizePx: TYPE.body, risePx: 70, holdMs: 700 } as const;
 
 /** UR-204. Above the ship, below the word plate. */
 const NEAR_OVER_SHIP = PLATE_LAYER_DEPTH - 0.7;
@@ -2837,16 +2850,16 @@ export class FlightScene extends Phaser.Scene {
     const floater = this.add
       .text(x, y, `+${points}`, {
         fontFamily: this.plateStyle.fontFamily,
-        fontSize: "26px",
-        color: this.palette.accent,
+        fontSize: `${POINTS_FLOAT.sizePx}px`,
+        color: INK.text,
       })
       .setOrigin(0.5)
       .setDepth(layer("shipFx").depth);
     this.tweens.add({
       targets: floater,
-      y: floater.y - 70,
+      y: floater.y - POINTS_FLOAT.risePx,
       alpha: 0,
-      duration: 400,
+      duration: POINTS_FLOAT.holdMs,
       ease: "Expo.Out",
       onComplete: () => floater.destroy(),
     });
@@ -2941,16 +2954,16 @@ export class FlightScene extends Phaser.Scene {
     const floater = this.add
       .text(x, y, `+${points}`, {
         fontFamily: this.plateStyle.fontFamily,
-        fontSize: "26px",
-        color: this.palette.accent,
+        fontSize: `${POINTS_FLOAT.sizePx}px`,
+        color: INK.text,
       })
       .setOrigin(0.5)
       .setDepth(layer("shipFx").depth);
     this.tweens.add({
       targets: floater,
-      y: floater.y - 70,
+      y: floater.y - POINTS_FLOAT.risePx,
       alpha: 0,
-      duration: 400,
+      duration: POINTS_FLOAT.holdMs,
       ease: "Expo.Out",
       onComplete: () => floater.destroy(),
     });
