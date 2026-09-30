@@ -3,8 +3,6 @@ import { NullAudioContext } from "../../../src/game/audio/nullContext.js";
 import {
   LOOP_CROSSFADE_MS,
   MUSIC_LEVEL_TRIM_RANGE,
-  MUSIC_STOP_BOOST,
-  stopBoostFor,
   MUSIC_REFERENCE_RMS,
   bufferRms,
   levelTrimFor,
@@ -280,35 +278,3 @@ describe("E-MUSIC-1: seven independently generated pieces are brought to one lev
   });
 });
 
-/**
- * The owner reported Mercury as barely audible next to the other planets, from
- * play, twice. Six offline measurements say it is within 1 dB of every stop and
- * the loudest of the nine at intensity 1 and 2, so the boost is an exception to
- * the normaliser rather than a correction the numbers asked for.
- */
-describe("MUSIC_STOP_BOOST: a named exception to the normaliser", () => {
-  it("lifts Mercury and leaves every other stop where it was", () => {
-    expect(stopBoostFor("mercury")).toBeGreaterThan(1);
-    for (const id of ["earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto", "venus"]) {
-      expect(stopBoostFor(id), `${id} must not be moved to fix Mercury`).toBe(1);
-    }
-  });
-
-  it("is 1 for a stop nobody has declared, so a new stop is never silent", () => {
-    expect(stopBoostFor("nowhere")).toBe(1);
-    expect(stopBoostFor("")).toBe(1);
-  });
-
-  it("stays a short list - an exception table that grows is a wrong reference level", () => {
-    expect(Object.keys(MUSIC_STOP_BOOST).length).toBeLessThanOrEqual(2);
-  });
-
-  it("never returns a gain that would silence or blow up a bus", () => {
-    for (const id of [...Object.keys(MUSIC_STOP_BOOST), "earth", "junk"]) {
-      const g = stopBoostFor(id);
-      expect(g).toBeGreaterThan(0);
-      expect(g).toBeLessThanOrEqual(4);
-      expect(Number.isFinite(g)).toBe(true);
-    }
-  });
-});

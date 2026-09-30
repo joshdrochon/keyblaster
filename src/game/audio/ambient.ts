@@ -163,9 +163,19 @@ const BED_SEEDS: Readonly<Record<StopId, Omit<AmbientBedSpec, "stopId">>> = Obje
   mercury: {
     droneHz: 98,
     partials: [1, 4, 7],
-    droneLevel: 0.1,
+    // Cut with the wind below, not independently: UR-13 measures the drone as a
+    // FRACTION of the bed, so quietening the wind alone pushed 98 Hz back over
+    // the bar at 0.0804 against 0.08. The airless world keeps its hard light by
+    // being BRIGHT, not by being loud.
+    droneLevel: 0.075,
     filterHz: 2400,
-    windLevel: 0.8,
+    // 0.8 BURIED THE MUSIC (UR-163). Mercury is the only stop whose wind AND
+    // whose track are both bright, so they compete for one band - and at
+    // 2200 Hz the ear adds another 1.2 dB on top. A-weighted, the old bed was
+    // 12.5 dB louder than Venus's and tied for loudest in the game while
+    // Mercury's music measured within 1.1 dB of every other stop's. The wind
+    // stays broadband, which is all UR-13 ever needed; it stops shouting.
+    windLevel: 0.4,
     windFilterHz: 2200,
     shimmerHz: 0.34,
     shimmerDepth: 0.32,
