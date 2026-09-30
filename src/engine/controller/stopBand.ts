@@ -146,9 +146,8 @@ export function stopBandForStage(stage: number): LiveBand {
  *
  * D103's bonus pair is appended after Pluto, so a raw route index would hand
  * them a band beyond the last stop of the story - and they already inherit
- * Pluto's, which the simulation shows is the hardest thing in the game. Their
- * extra difficulty is D105's shockwave, not the knobs, so they are flown one
- * notch below Pluto and at Pluto, not past it.
+ * Pluto's, which the simulation shows is the hardest thing in the game, so they
+ * are flown one notch below Pluto and at Pluto, not past it.
  */
 export function difficultyStageOf(stop: StopId): number {
   if (stop === "venus") return stageIndexOf("neptune");

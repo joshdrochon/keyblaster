@@ -25,12 +25,6 @@ import {
 import { buildParallax, type Parallax } from "@game/render/parallax.js";
 import { TEX } from "@game/render/textures.js";
 import { INK, TYPE } from "@game/ui/theme.js";
-import {
-  hastenedFallMs,
-  kickedSpinPerSec,
-  shockwaveFor,
-  withinReach,
-} from "@engine/shockwave/index.js";
 import { paletteAt as stopPaletteAt } from "@game/render/palette.js";
 import { PauseScene } from "./PauseScene.js";
 import {
@@ -457,10 +451,7 @@ interface LiveRock {
    * (`@engine/nested.nestedFallMs`) - so the break changes what is drawn and
    * never how fast the rock is moving.
    */
-  /** Mutable: the inner run's shockwave hurries it (`@engine/shockwave`). */
-  fallMs: number;
-  /** The budget it was born with; the shockwave's floor is measured off it. */
-  readonly baseFallMs: number;
+  readonly fallMs: number;
   /**
    * What `@engine/pacing` expected this rock to cost THIS player, at spawn.
    * Held on the rock rather than recomputed because the belt is paced off it
@@ -472,8 +463,7 @@ interface LiveRock {
   readonly toY: number;
   readonly homeX: number;
   readonly driftPhase: number;
-  /** Mutable: the inner run's shockwave kicks it (`@engine/shockwave`). */
-  spinPerSec: number;
+  readonly spinPerSec: number;
   /**
    * UR-83: signed px this rock's column slides between spawn and the breach
    * line. CONSTANT from spawn - the descent is a straight line at an angle, not
@@ -2184,7 +2174,6 @@ export class FlightScene extends Phaser.Scene {
       plateOffsetY: offsetY,
       spawnedAtMs: now,
       fallMs: totalFallMs,
-      baseFallMs: totalFallMs,
       clearEstimateMs,
       fromY: -sizePx,
       toY: this.breachY,
@@ -2857,7 +2846,6 @@ export class FlightScene extends Phaser.Scene {
 
     this.blastFlash(x, y, rock.sizePx);
     this.shockwave(x, y, rock.sizePx);
-    this.disturbNearest(rock, x, y);
     // The shake already rises with the combo; a milestone multiplies what it
     // was going to be rather than adding a second one. `shakeBy` drops it
     // entirely under reduced motion, for this caller as for every other.
@@ -3038,39 +3026,6 @@ export class FlightScene extends Phaser.Scene {
   }
 
   /** A brief bright pop at the point of impact. One additive quad, 160 ms. */
-  /**
-   * The inner run's extra: a broken rock disturbs the one nearest it.
-   *
-   * Spin and fall rate only, and the haste is clamped at FR-8's floor - see
-   * `@engine/shockwave` for why those are the only two things it may touch.
-   * Returns nothing on the seven main-route stops, where `shockwaveFor` is null.
-   */
-  private disturbNearest(source: LiveRock, x: number, y: number): void {
-    const spec = shockwaveFor(this.cfg.stopId);
-    if (spec === null) return;
-    let nearest: LiveRock | undefined;
-    let best = Number.POSITIVE_INFINITY;
-    for (const other of this.rocks) {
-      if (other.id === source.id || other.resolved) continue;
-      if (!withinReach(spec, x, y, other.container.x, other.container.y)) continue;
-      const d = Math.hypot(other.container.x - x, other.container.y - y);
-      if (d < best) {
-        best = d;
-        nearest = other;
-      }
-    }
-    if (nearest === undefined) return;
-
-    const now = this.time.now;
-    const elapsed = now - nearest.spawnedAtMs;
-    if (nearest.fallMs - elapsed <= 0) return;
-    // Rewriting `fallMs` keeps `updateRocks`' single progress derivation intact:
-    // the rock stays on the same line, it just gets there sooner.
-    nearest.fallMs = hastenedFallMs(nearest.baseFallMs, nearest.fallMs, elapsed, spec);
-    nearest.spinPerSec = kickedSpinPerSec(nearest.spinPerSec, spec);
-    nearest.plate.shake(2, 90);
-  }
-
   private blastFlash(x: number, y: number, sizePx: number): void {
     const flash = this.add
       .image(x, y, TEX.glow)

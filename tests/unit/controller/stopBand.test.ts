@@ -108,8 +108,7 @@ describe("UR-83 / FR-10: every stop is a band of maxLive, not a value", () => {
     // order means increasing difficulty. D103's bonus pair is appended after
     // Pluto but is NOT past it: `difficultyStageOf` flies Venus at Neptune's
     // stage and Mercury at Pluto's, because Pluto already sits one setting
-    // short of FR-10's cap and because D105 is where their extra difficulty
-    // comes from - the shockwave, not the knobs. So the bonus pair is asserted
+    // short of FR-10's cap. So the bonus pair is asserted
     // to sit INSIDE the route's range rather than to continue climbing.
     const routeBelts = BELTS.filter((b) => !isBonusStop(b));
     for (let i = 1; i < routeBelts.length; i += 1) {
