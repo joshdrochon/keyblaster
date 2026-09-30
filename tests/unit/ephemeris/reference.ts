@@ -60,6 +60,8 @@ export const REFERENCE_EPOCHS: readonly ReferenceEpoch[] = [
     jd: 2451545.0,
     iso: "2000-01-01T12:00:00.000Z",
     bodies: {
+      mercury: { lambdaDeg: 253.782928, betaDeg: -3.022764, rAu: 0.46647147 },
+      venus: { lambdaDeg: 182.602897, betaDeg: 3.264606, rAu: 0.72021292 },
       earth: { lambdaDeg: 100.3794, betaDeg: -0.0001, rAu: 0.98331 },
       mars: { lambdaDeg: 359.4473, betaDeg: -1.4197, rAu: 1.391208 },
       jupiter: { lambdaDeg: 36.2946, betaDeg: -1.1746, rAu: 4.965381 },
@@ -73,6 +75,8 @@ export const REFERENCE_EPOCHS: readonly ReferenceEpoch[] = [
     jd: 2460310.5,
     iso: "2024-01-01T00:00:00.000Z",
     bodies: {
+      mercury: { lambdaDeg: 143.886614, betaDeg: 6.970653, rAu: 0.34248273 },
+      venus: { lambdaDeg: 186.111043, betaDeg: 3.200128, rAu: 0.72045349 },
       earth: { lambdaDeg: 99.7118, betaDeg: -0.0031, rAu: 0.983337 },
       mars: { lambdaDeg: 258.5711, betaDeg: -0.8984, rAu: 1.480661 },
       jupiter: { lambdaDeg: 45.503, betaDeg: -1.0681, rAu: 4.984897 },
@@ -86,6 +90,8 @@ export const REFERENCE_EPOCHS: readonly ReferenceEpoch[] = [
     jd: 2469807.5,
     iso: "2050-01-01T00:00:00.000Z",
     bodies: {
+      mercury: { lambdaDeg: 123.833919, betaDeg: 6.783038, rAu: 0.32468297 },
+      venus: { lambdaDeg: 281.240828, betaDeg: -1.419676, rAu: 0.72756042 },
       earth: { lambdaDeg: 100.0488, betaDeg: -0.0063, rAu: 0.983354 },
       mars: { lambdaDeg: 198.0726, betaDeg: 0.96, rAu: 1.623547 },
       jupiter: { lambdaDeg: 117.142, betaDeg: 0.3713, rAu: 5.241359 },
@@ -140,6 +146,8 @@ export interface PublishedOrbit {
 }
 
 export const PUBLISHED_ORBITS: Readonly<Record<StopId, PublishedOrbit>> = {
+  mercury: { perihelionAu: 0.3075, aphelionAu: 0.4667, inclinationDeg: 7.004 },
+  venus: { perihelionAu: 0.7184, aphelionAu: 0.7282, inclinationDeg: 3.395 },
   earth: { perihelionAu: 0.9833, aphelionAu: 1.0167, inclinationDeg: 0.0 },
   mars: { perihelionAu: 1.3814, aphelionAu: 1.666, inclinationDeg: 1.85 },
   jupiter: { perihelionAu: 4.9501, aphelionAu: 5.457, inclinationDeg: 1.304 },
@@ -170,12 +178,22 @@ export function angleDeltaDeg(a: number, b: number): number {
  *
  * This is a mutation guard, not a correctness proof - the DE441 fixture above
  * is what proves the numbers are right. What this adds is that a later edit to
- * any one of the 84 fields fails a test by name, instead of drifting the
+ * any one of the 108 fields fails a test by name, instead of drifting the
  * display by a tenth of a degree and passing.
  */
 export const EXPECTED_ELEMENT_TABLE: Readonly<
   Record<StopId, { readonly at: readonly number[]; readonly perCentury: readonly number[] }>
 > = {
+  mercury: {
+    at: [0.38709927, 0.20563593, 7.00497902, 252.2503235, 77.45779628, 48.33076593],
+    perCentury: [
+      0.00000037, 0.00001906, -0.00594749, 149472.67411175, 0.16047689, -0.12534081,
+    ],
+  },
+  venus: {
+    at: [0.72333566, 0.00677672, 3.39467605, 181.9790995, 131.60246718, 76.67984255],
+    perCentury: [0.0000039, -0.00004107, -0.0007889, 58517.81538729, 0.00268329, -0.27769418],
+  },
   earth: {
     at: [1.00000261, 0.01671123, -0.00001531, 100.46457166, 102.93768193, 0.0],
     perCentury: [

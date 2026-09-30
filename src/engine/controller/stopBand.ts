@@ -141,9 +141,24 @@ export function stopBandForStage(stage: number): LiveBand {
   return clampBand({ floor, ceiling });
 }
 
+/**
+ * The stage a stop is FLOWN at, which is not always where it sits in the array.
+ *
+ * D103's bonus pair is appended after Pluto, so a raw route index would hand
+ * them a band beyond the last stop of the story - and they already inherit
+ * Pluto's, which the simulation shows is the hardest thing in the game. Their
+ * extra difficulty is D105's shockwave, not the knobs, so they are flown one
+ * notch below Pluto and at Pluto, not past it.
+ */
+export function difficultyStageOf(stop: StopId): number {
+  if (stop === "venus") return stageIndexOf("neptune");
+  if (stop === "mercury") return stageIndexOf("pluto");
+  return stageIndexOf(stop);
+}
+
 /** The band this stop's belt is flown inside. */
 export function stopBand(stop: StopId): LiveBand {
-  return stopBandForStage(stageIndexOf(stop));
+  return stopBandForStage(difficultyStageOf(stop));
 }
 
 /**
@@ -306,5 +321,5 @@ const STOP_PACE_LAST_STAGE = 6;
 
 /** The fraction of the budget this stop takes away, before ability is read. */
 export function stopPaceDrop(stop: StopId): number {
-  return stopPaceDropForStage(stageIndexOf(stop));
+  return stopPaceDropForStage(difficultyStageOf(stop));
 }

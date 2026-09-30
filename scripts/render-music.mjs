@@ -76,6 +76,18 @@ const STOPS = [
   { id: "uranus", mood: "cold tilted quiet, strange and still, patient" },
   { id: "neptune", mood: "deep blue distance, far from home, steady resolve" },
   { id: "pluto", mood: "the edge of everything, small and triumphant, the long way back" },
+  {
+    id: "venus",
+    mood:
+      "veiled and heavy, beautiful and unwelcoming, a slow pressure you can hear, " +
+      "golden cloud with something hidden under it",
+  },
+  {
+    id: "mercury",
+    mood:
+      "bare, glaring and relentless, the most intense piece in the game, driving and " +
+      "close to the sun, hard metal light with no air and nowhere to hide",
+  },
 ];
 
 const BRIEF = (mood) =>

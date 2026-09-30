@@ -179,6 +179,8 @@ const SATURN_SOURCE = "https://science.nasa.gov/saturn/facts/";
 const URANUS_SOURCE = "https://science.nasa.gov/uranus/facts/";
 const NEPTUNE_SOURCE = "https://science.nasa.gov/neptune/neptune-facts/";
 const KUIPER_SOURCE = "https://science.nasa.gov/solar-system/kuiper-belt/facts/";
+const VENUS_SOURCE = "https://science.nasa.gov/venus/venus-facts/";
+const MERCURY_SOURCE = "https://science.nasa.gov/mercury/mercury-facts/";
 
 /**
  * PRD FR-12b, one entry per debris type named in the table.
@@ -400,6 +402,68 @@ export const DEBRIS_BY_STOP: Readonly<Record<StopId, readonly DebrisType[]>> = {
         variant("dust-a", PROFILE.lumpy, []),
         variant("dust-b", PROFILE.slab, []),
         variant("dust-c", PROFILE.squat, []),
+      ],
+    },
+  ],
+
+  venus: [
+    {
+      id: "venus-coorbital",
+      stop: "venus",
+      label: "co-orbital asteroid: dark, dry, sun-baked",
+      fill: "#6E6154",
+      facet: "#473E34",
+      rim: "#DCBE79",
+      glint: null,
+      carriesWord: true,
+      source: VENUS_SOURCE,
+      variants: [
+        variant("coorb-a", PROFILE.lumpy, [{ x: -0.2, y: -0.2, r: 0.22 }]),
+        variant("coorb-b", PROFILE.squat, [{ x: 0.22, y: 0.18, r: 0.2 }]),
+        variant("coorb-c", PROFILE.boulder, [
+          { x: 0.0, y: -0.22, r: 0.18 },
+          { x: -0.22, y: 0.2, r: 0.16 },
+        ]),
+      ],
+    },
+  ],
+  mercury: [
+    {
+      id: "mercury-crater-ray",
+      stop: "mercury",
+      label: "crushed crater-ray ejecta: bright, fine, matte",
+      fill: "#B4AEA2",
+      facet: "#837E74",
+      rim: "#FFF6E2",
+      glint: null,
+      carriesWord: true,
+      source: MERCURY_SOURCE,
+      variants: [
+        variant("ray-a", PROFILE.boulder, [{ x: 0.22, y: -0.2, r: 0.24 }]),
+        variant("ray-b", PROFILE.shard, [{ x: -0.2, y: -0.22, r: 0.2 }]),
+        variant("ray-c", PROFILE.squat, [
+          { x: 0.18, y: 0.2, r: 0.2 },
+          { x: -0.2, y: -0.18, r: 0.16 },
+        ]),
+      ],
+    },
+    {
+      id: "mercury-regolith",
+      stop: "mercury",
+      label: "sun-scoured regolith chunk: grey-brown, pitted",
+      fill: "#7F786C",
+      facet: "#4B463F",
+      rim: "#FFF6E2",
+      glint: null,
+      carriesWord: true,
+      source: MERCURY_SOURCE,
+      variants: [
+        variant("rego-a", PROFILE.slab, [{ x: -0.18, y: 0.2, r: 0.2 }]),
+        variant("rego-b", PROFILE.lumpy, [{ x: 0.2, y: -0.2, r: 0.22 }]),
+        variant("rego-c", PROFILE.shard, [
+          { x: 0.16, y: 0.22, r: 0.18 },
+          { x: -0.22, y: -0.16, r: 0.16 },
+        ]),
       ],
     },
   ],

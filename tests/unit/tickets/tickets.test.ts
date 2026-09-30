@@ -143,8 +143,8 @@ describe("the board's shape holds", () => {
     // trace-check was failing on because the decision had no AC at all). The
     // board grew because the PRD grew, which is the direction this guard is
     // happy about - it exists to catch the parser going quiet, not to freeze
-    // the PRD.
-    expect(tickets.filter((t: { kind: string }) => t.kind === "ac")).toHaveLength(120);
+    // the PRD. +4 again for D103-D105's AC-27.1..27.4 (the inner run).
+    expect(tickets.filter((t: { kind: string }) => t.kind === "ac")).toHaveLength(124);
     expect(tickets.filter((t: { kind: string }) => t.kind === "rubric")).toHaveLength(33);
   });
 

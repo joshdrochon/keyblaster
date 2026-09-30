@@ -169,6 +169,8 @@ export const UI_EN = {
   "ui.stop.uranus": "Uranus", // i18n-ignore
   "ui.stop.neptune": "Neptune", // i18n-ignore
   "ui.stop.pluto": "Pluto", // i18n-ignore
+  "ui.stop.venus": "Venus", // i18n-ignore
+  "ui.stop.mercury": "Mercury", // i18n-ignore
 
   // --- 10 beacon log -------------------------------------------------------
   "ui.log.heading": "Trophies", // i18n-ignore
@@ -332,6 +334,8 @@ export const UI_ES: Record<UiStringKey, string> = {
   "ui.stop.uranus": "urano", // i18n-ignore
   "ui.stop.neptune": "neptuno", // i18n-ignore
   "ui.stop.pluto": "plutón", // i18n-ignore
+  "ui.stop.venus": "venus", // i18n-ignore
+  "ui.stop.mercury": "mercurio", // i18n-ignore
 
   "ui.log.heading": "trofeos", // i18n-ignore
   "ui.log.beacons": "balizas", // i18n-ignore
@@ -483,6 +487,8 @@ export const UI_HI: Record<UiStringKey, string> = {
   "ui.stop.uranus": "अरुण", // i18n-ignore
   "ui.stop.neptune": "वरुण", // i18n-ignore
   "ui.stop.pluto": "प्लूटो", // i18n-ignore
+  "ui.stop.venus": "शुक्र", // i18n-ignore
+  "ui.stop.mercury": "बुध", // i18n-ignore
 
   "ui.log.heading": "ट्रॉफ़ियाँ", // i18n-ignore
   "ui.log.beacons": "बीकन", // i18n-ignore

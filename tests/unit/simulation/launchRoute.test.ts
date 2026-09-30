@@ -14,7 +14,13 @@ import {
   type Keystroke,
   type RitualStepInput,
 } from "@engine/calibration/index.js";
-import { BELT_STOP_IDS, DEFAULT_CALIBRATION, type Calibration } from "@engine/types.js";
+import {
+  BELT_STOP_IDS,
+  DEFAULT_CALIBRATION,
+  isBonusStop,
+  type Calibration,
+} from "@engine/types.js";
+
 import { DEFAULT_KNOBS, MAX_LIVE_MAX, MAX_LIVE_MIN } from "@engine/controller/knobs.js";
 import {
   MIDSTAGE_LOOSEN_SAMPLE,
@@ -38,6 +44,14 @@ import {
   stopPaceFactor,
 } from "@engine/fallTime/index.js";
 import { survivableHitRate } from "@engine/hull/index.js";
+
+/**
+ * The belts a ROUTE is. D103's bonus pair is optional and flown after the
+ * story ends, so the watermarks here - all measured over Earth->Pluto - are
+ * compared against the same six belts they were taken on. The bonus belts are
+ * measured per stop in `beltSample.test.ts`.
+ */
+const ROUTE_BELTS = BELT_STOP_IDS.filter((id) => !isBonusStop(id));
 
 /**
  * D99 / UR-28: DOES A CEREMONY AT EVERY STOP MAKE THE ROUTE HARDER?
@@ -117,7 +131,7 @@ function playCeremony(
   jitter: (() => number) | null = null,
 ): RitualStepInput[] {
   if (kind === "none") return [];
-  const stopId = BELT_STOP_IDS[stopIndex];
+  const stopId = ROUTE_BELTS[stopIndex];
   if (stopId === undefined) return [];
   const plan = planLaunchCeremony(stagePoolFor(stopId), mulberry32(0x9e + stopIndex));
   if (plan === null) return [];
@@ -168,7 +182,7 @@ function flyRoute(
   startCalibration: Calibration,
   kind: CeremonyKind,
 ): RouteResult {
-  const perStopStalls = new Array(BELT_STOP_IDS.length).fill(0) as number[];
+  const perStopStalls = new Array(ROUTE_BELTS.length).fill(0) as number[];
   let stalls = 0;
   let worstHull = Number.POSITIVE_INFINITY;
   const hitRates: number[] = [];
@@ -177,8 +191,8 @@ function flyRoute(
   for (let seed = 1; seed <= SEEDS; seed += 1) {
     let calibration = startCalibration;
     const rng = mulberry32(seed);
-    for (let stop = 0; stop < BELT_STOP_IDS.length; stop += 1) {
-      const stopId = BELT_STOP_IDS[stop]!;
+    for (let stop = 0; stop < ROUTE_BELTS.length; stop += 1) {
+      const stopId = ROUTE_BELTS[stop]!;
       // The ceremony happens on the Pre-flight screen, i.e. BEFORE the belt.
       const played = playCeremony(stop, player, kind);
       if (played.length > 0) {
@@ -243,8 +257,8 @@ describe("D99 / AC-11.5: a ceremony at every stop does not make the route harder
           decision: "D99",
           ticket: "UR-28",
           seeds: SEEDS,
-          beltsPerRoute: BELT_STOP_IDS.length,
-          stopIds: BELT_STOP_IDS,
+          beltsPerRoute: ROUTE_BELTS.length,
+          stopIds: ROUTE_BELTS,
           rows,
           generatedAt: new Date().toISOString(),
         },
@@ -365,7 +379,7 @@ describe("D100 / AC-11.8: an unmeasured pilot can still fly the route", () => {
           decision: "D100",
           ticket: "UR-31",
           seeds: SEEDS,
-          beltsPerRoute: BELT_STOP_IDS.length,
+          beltsPerRoute: ROUTE_BELTS.length,
           before: {
             note: "a child who cannot type the ritual never reaches a belt; the screen never advances",
             beltsReached: 0,
@@ -472,7 +486,7 @@ describe("UR-51 / FR-10: the route at both ends of the primary knob", () => {
   }
 
   const flyKnob = (player: SimPlayer, maxLive: number): KnobRoute => {
-    const perStopStalls = new Array(BELT_STOP_IDS.length).fill(0) as number[];
+    const perStopStalls = new Array(ROUTE_BELTS.length).fill(0) as number[];
     let stalls = 0;
     let worstHull = Number.POSITIVE_INFINITY;
     let peakLive = 0;
@@ -481,11 +495,11 @@ describe("UR-51 / FR-10: the route at both ends of the primary knob", () => {
     for (let seed = 1; seed <= SEEDS; seed += 1) {
       let calibration = calibrationOf(player);
       const rng = mulberry32(seed);
-      for (let stop = 0; stop < BELT_STOP_IDS.length; stop += 1) {
+      for (let stop = 0; stop < ROUTE_BELTS.length; stop += 1) {
         const result: BeltResult = simulateBelt(
           {
             stopIndex: stop + 1,
-            stagePool: stagePoolFor(BELT_STOP_IDS[stop]!),
+            stagePool: stagePoolFor(ROUTE_BELTS[stop]!),
             retentionPool: [],
             spawnCount: WORDS,
             calibration,
@@ -518,7 +532,7 @@ describe("UR-51 / FR-10: the route at both ends of the primary knob", () => {
     const avg = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
     return {
       stalls,
-      outOf: SEEDS * BELT_STOP_IDS.length,
+      outOf: SEEDS * ROUTE_BELTS.length,
       worstHull,
       meanHitRate: avg(hitRates),
       meanLive: avg(meanLives),
@@ -615,8 +629,8 @@ describe("UR-51 / FR-10: the route at both ends of the primary knob", () => {
         {
           ticket: "UR-51 (decision on UR-42)",
           seeds: SEEDS,
-          beltsPerRoute: BELT_STOP_IDS.length,
-          stopIds: BELT_STOP_IDS,
+          beltsPerRoute: ROUTE_BELTS.length,
+          stopIds: ROUTE_BELTS,
           note:
             "meanLive is TIME-WEIGHTED rocks on the board. Under QUEUE_PAY=0.45 the knob pays the exempt grade-2 pilot (5 stalls at the floor, 0 at the ceiling) and charges every pilot above them.",
           rows,
@@ -654,9 +668,9 @@ describe("UR-57 / AC-11.5: the belief the belt opens on", () => {
         // Same jitter stream for both shapes, so the only difference measured
         // is how many of those noisy samples the ceremony collected.
         const jitterRng = mulberry32(0xbeef + seed);
-        for (let stop = 0; stop < BELT_STOP_IDS.length; stop += 1) {
+        for (let stop = 0; stop < ROUTE_BELTS.length; stop += 1) {
           const trueIki = Math.round(
-            600 + ((380 - 600) * stop) / (BELT_STOP_IDS.length - 1),
+            600 + ((380 - 600) * stop) / (ROUTE_BELTS.length - 1),
           );
           const player: SimPlayer = { ...GRADE2, ikiMs: trueIki };
           let played = playCeremony(stop, player, "honest", jitterRng);
@@ -672,7 +686,7 @@ describe("UR-57 / AC-11.5: the belief the belt opens on", () => {
           cal = simulateBelt(
             {
               stopIndex: stop + 1,
-              stagePool: stagePoolFor(BELT_STOP_IDS[stop]!),
+              stagePool: stagePoolFor(ROUTE_BELTS[stop]!),
               retentionPool: [],
               spawnCount: WORDS,
               calibration: cal,
@@ -720,7 +734,7 @@ describe("UR-57 / AC-11.5: the belief the belt opens on", () => {
     // behind every word, which is the defect UR-57 was really about.
     let fk = 0;
     let iki = 0;
-    for (let stop = 0; stop < BELT_STOP_IDS.length; stop += 1) {
+    for (let stop = 0; stop < ROUTE_BELTS.length; stop += 1) {
       const fold = foldLaunchCeremony(
         DEFAULT_CALIBRATION,
         playCeremony(stop, GRADE2, "honest"),
@@ -728,8 +742,8 @@ describe("UR-57 / AC-11.5: the belief the belt opens on", () => {
       fk += fold.fkSamples;
       iki += fold.ikiSamples;
     }
-    const perStopFk = fk / BELT_STOP_IDS.length;
-    const perStopIki = iki / BELT_STOP_IDS.length;
+    const perStopFk = fk / ROUTE_BELTS.length;
+    const perStopIki = iki / ROUTE_BELTS.length;
     // Measured: 5.7 latencies and 18.2 intervals per ceremony on the shipped
     // pools, against 2 and ~6 before. This is the evidence LAUNCH_REFINE_ALPHA
     // cites for folding at a stage of play's weight.
@@ -849,7 +863,7 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
    * "the last 20 rocks", not "the last 20 rocks of this stop" (D53).
    */
   function climb(player: SimPlayer, freezeKnob: number | null = null): Step[] {
-    const cols = BELT_STOP_IDS.map(() => ({
+    const cols = ROUTE_BELTS.map(() => ({
       maxLive: [] as number[],
       meanLive: [] as number[],
       peak: [] as number[],
@@ -876,8 +890,8 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
       let carriedMargins = createMarginWindow([]);
       let calibration = calibrationOf(player);
       const rng = mulberry32(seed);
-      for (let stop = 0; stop < BELT_STOP_IDS.length; stop += 1) {
-        const stopId = BELT_STOP_IDS[stop]!;
+      for (let stop = 0; stop < ROUTE_BELTS.length; stop += 1) {
+        const stopId = ROUTE_BELTS[stop]!;
         // The belt the scene opens: the profile's knob, clamped into THIS
         // stop's band (UR-83). `freezeKnob` bypasses the band on purpose - it
         // is the pinned-floor control, and a control that the band moved would
@@ -987,7 +1001,7 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
       }
     }
     return cols.map((c, i) => ({
-      stop: BELT_STOP_IDS[i]!,
+      stop: ROUTE_BELTS[i]!,
       maxLive: Number(avg(c.maxLive).toFixed(2)),
       meanLive: Number(avg(c.meanLive).toFixed(2)),
       peakLive: Math.max(...c.peak),
@@ -1747,11 +1761,11 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
   it("UR-84: the per-stop PACE is the route's, and the tail is exempt from it", () => {
     // The factor per stop, as the table the report asks for. It is the route's
     // shape only; `@engine/fallTime.stopPaceFactor` scales it by the pilot.
-    const table = BELT_STOP_IDS.map((stop) => Number(stopPaceFactor(stop, 240).toFixed(3)));
+    const table = ROUTE_BELTS.map((stop) => Number(stopPaceFactor(stop, 240).toFixed(3)));
     expect(table).toEqual([1, 0.976, 0.952, 0.928, 0.904, 0.88]);
     // A pilot measured at the supported tail's interval flies FR-8's budget at
     // EVERY stop, to the byte. Arithmetic, not a simulation result.
-    for (const stop of BELT_STOP_IDS) {
+    for (const stop of ROUTE_BELTS) {
       expect(stopPaceFactor(stop, HEADROOM_SLOW_IKI_MS), stop).toBe(1);
       expect(stopPaceFactor(stop, HEADROOM_SLOW_IKI_MS + 500), stop).toBe(1);
     }
@@ -1804,7 +1818,7 @@ describe("UR-51 / FR-10 / D20: the ramp across a whole route, per pilot", () => 
             note: "printed by this file with all three changes toggled off",
           },
           stopPaceFactor: Object.fromEntries(
-            BELT_STOP_IDS.map((stop) => [stop, stopPaceFactor(stop, 240)]),
+            ROUTE_BELTS.map((stop) => [stop, stopPaceFactor(stop, 240)]),
           ),
           rows,
           generatedAt: new Date().toISOString(),

@@ -162,7 +162,17 @@ export function sentenceCase(note: string): string {
  * on a screen that tells a child this is how you write. Typing is
  * case-insensitive (`sameChar`), so this costs no shift key.
  */
-const PROPER_NOUNS = ["mars", "jupiter", "saturn", "uranus", "neptune", "pluto", "earth"];
+const PROPER_NOUNS = [
+  "mars",
+  "jupiter",
+  "saturn",
+  "uranus",
+  "neptune",
+  "pluto",
+  "earth",
+  "venus",
+  "mercury",
+];
 
 export function properNouns(text: string): string {
   return text.replace(/\b[a-z]+\b/g, (w) =>
@@ -201,7 +211,7 @@ export function promptPool(req: CoachRequest, budget = 34): readonly string[] {
   return out;
 }
 
-const STOPS = ["mars", "jupiter", "saturn", "uranus", "neptune", "pluto"];
+const STOPS = ["mars", "jupiter", "saturn", "uranus", "neptune", "pluto", "venus", "mercury"];
 const LANGS = ["en", "es", "hi"];
 
 /**

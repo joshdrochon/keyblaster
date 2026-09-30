@@ -128,14 +128,16 @@ describe("the warp break asks for a sentence built from this run (D09, E-AI-1)",
 
   it("a generated sentence that FAILS validation falls back to the shipped one", async () => {
     // Well-formed JSON, 200, correct shape, a perfectly readable sentence -
-    // and "sand" is not on the allowlist. The child types the shipped string.
-    const result = await composeAt("The rivers on mars are sand and dust.");
+    // and "silt" is not on the allowlist. The child types the shipped string.
+    // ("sand" was this case's word until Mercury's pool put it on the
+    // allowlist, which moved the refusal to the later `pool` gate.)
+    const result = await composeAt("The rivers on mars are silt and dust.");
     expect(result.sentence).toEqual({ ok: false, reason: "allowlist" });
   });
 
   it("every way a generated sentence can be refused ends at the shipped one", async () => {
     const cases: ReadonlyArray<readonly [string, unknown, string]> = [
-      ["off-allowlist word", "The rivers on mars are sand and dust.", "allowlist"],
+      ["off-allowlist word", "The rivers on mars are silt and dust.", "allowlist"],
       // "sky" is on the allowlist and in the Jupiter/Mars prose, but "biggest"
       // is a Jupiter pool word: at Mars it is a content word from the wrong
       // stop, which is exactly what AC-12.3 is for.

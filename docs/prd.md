@@ -253,6 +253,21 @@ revealing a smaller rock with its own word which must also be typed.
 - AC-26.5 Each layer scores as its own completed word, and destroying the core also pays `base(shell + core) - base(shell) - base(core)` at the core's multiplier, so the whole rock pays exactly what one word of the combined length would. The bonus is paid only if both layers are destroyed. → U.
 - AC-26.6 The core's word is chosen at the shell's spawn and its first letter is reserved for the shell's whole life, so a revealed core never shares a first letter with any live word (AC-2.1 at the reveal); and the core's plate is cleared against the live board by the same column rule as the shell's, so it can never cover another word (AC-22.8). → U (`tests/unit/nested/liveLetters.test.ts` with a negative control; `tests/unit/spawn/nestedKeepOut.test.ts`; the 3456-board sweep in `tests/unit/flight/plateSeparation.test.ts`).
 
+
+**FR-27 The inner run: two bonus stops, Venus and Mercury (D103, D104, D105).**
+
+The seven-stop route of D56 is unchanged and is still the game. Venus and
+Mercury are optional stops that do not exist for a player until Pluto is lit and
+are reached by flying INWARD from Earth. They are built to the same bar as every
+other stop - their own palette, debris, ambient bed, music, prose and Shadow
+lines - and they carry one mechanic the main route does not: a blasted rock
+disturbs its neighbour.
+
+- AC-27.1 Venus and Mercury are BONUS stops: they do not unlock until Pluto is charted, they are not on the main board, and they are reached by pressing Left at Earth, which slides in a second row of Mercury, Venus and Earth. `litCount`, `routeComplete`, Map Maker and the ending card all count the MAIN route only, so finishing the story never reads as "7 of 9". → U (`tests/unit/types.test.ts` for the route/bonus split, `tests/unit/progress/progress.test.ts` for the unlock chain and the counts) + E (`tests/e2e/map.spec.ts`).
+- AC-27.2 Route order is no longer distance order, so anything that means DISTANCE ranks by the ephemeris rather than by array position: the sun's size and warmth curve is anchored on Earth, every main-route stop keeps the exact value it had before the bonus pair existed, and a stop inside Earth's orbit draws a bigger, warmer sun than Earth's. → U (`tests/unit/render/sunVisible.test.ts`, `tests/unit/scenes/sunScale.test.ts`, `tests/unit/ephemeris/ephemeris.test.ts` for the semi-major-axis ordering).
+- AC-27.3 Mercury is drawn as an airless world, not a glowing one: no rock at any stop is painted as self-luminous, Mercury's sky carries the game's widest frame value range, and its debris is lit regolith rather than red-hot. Venus is drawn as the cloud deck seen from above and its debris is dark, because its sky is the brightest in the game. → U (`tests/unit/render/debrisTableSweep.test.ts` for the value range and the no-black/no-glow bars, `tests/unit/render/wordRockSeparation.test.ts` for rock-versus-sky separation at both stops).
+- AC-27.4 On the bonus stops only, destroying a rock disturbs the nearest live rock within reach: its spin is multiplied and the REMAINING part of its fall is compressed. It may change spin and fall rate and nothing else — never the sideways line — and however many rocks break beside a word, that word keeps at least `SHOCKWAVE_MAX_LOSS` of the budget it was given. → U (`tests/unit/shockwave/shockwave.test.ts`, including the repeated-kick floor).
+
 ---
 
 ## 4. Data model (summary; full types in architecture.md)

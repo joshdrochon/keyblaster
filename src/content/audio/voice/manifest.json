@@ -1,5 +1,5 @@
 {
-  "renderedAt": "2026-09-22T23:35:16.240Z",
+  "renderedAt": "2026-09-30T04:11:01.253Z",
   "model": "eleven_flash_v2_5",
   "voiceId": "J1UkN5Wmr20DZIiLKXHI",
   "lang": "en",
@@ -277,6 +277,86 @@
       "textSha": "7737b6b9961add90"
     },
     {
+      "id": "venus.preflightLine",
+      "file": "venus.preflightLine.mp3",
+      "chars": 64,
+      "bytes": 53960,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "106829aba39f2392"
+    },
+    {
+      "id": "venus.beaconHeadline",
+      "file": "venus.beaconHeadline.mp3",
+      "chars": 12,
+      "bytes": 16762,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "35655ab336ff1887"
+    },
+    {
+      "id": "venus.beaconState",
+      "file": "venus.beaconState.mp3",
+      "chars": 3,
+      "bytes": 8403,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "a3c7f8cabebcea52"
+    },
+    {
+      "id": "venus.beaconFlavor",
+      "file": "venus.beaconFlavor.mp3",
+      "chars": 58,
+      "bytes": 50199,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "5424e1c952a0c806"
+    },
+    {
+      "id": "venus.beaconSpoken",
+      "file": "venus.beaconSpoken.mp3",
+      "chars": 77,
+      "bytes": 81128,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "e933d1a951140b22"
+    },
+    {
+      "id": "mercury.preflightLine",
+      "file": "mercury.preflightLine.mp3",
+      "chars": 61,
+      "bytes": 54378,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "be119d4acdc57184"
+    },
+    {
+      "id": "mercury.beaconHeadline",
+      "file": "mercury.beaconHeadline.mp3",
+      "chars": 14,
+      "bytes": 17598,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "9d8131c1865f4c53"
+    },
+    {
+      "id": "mercury.beaconState",
+      "file": "mercury.beaconState.mp3",
+      "chars": 3,
+      "bytes": 8403,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "a3c7f8cabebcea52"
+    },
+    {
+      "id": "mercury.beaconFlavor",
+      "file": "mercury.beaconFlavor.mp3",
+      "chars": 58,
+      "bytes": 57722,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "ce4446efbcdc2d31"
+    },
+    {
+      "id": "mercury.beaconSpoken",
+      "file": "mercury.beaconSpoken.mp3",
+      "chars": 79,
+      "bytes": 86561,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "9335eae13a9203bd"
+    },
+    {
       "id": "ui.pick.greeting",
       "file": "ui.pick.greeting.mp3",
       "chars": 73,
@@ -439,6 +519,22 @@
       "textSha": "5f089974bacdf1c0"
     },
     {
+      "id": "coach.fallback.en.venus",
+      "file": "coach.fallback.en.venus.mp3",
+      "chars": 78,
+      "bytes": 67335,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "62a273266d343759"
+    },
+    {
+      "id": "coach.fallback.en.mercury",
+      "file": "coach.fallback.en.mercury.mp3",
+      "chars": 78,
+      "bytes": 74440,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "ae9233a02db9c37e"
+    },
+    {
       "id": "coach.clean.en.earth",
       "file": "coach.clean.en.earth.mp3",
       "chars": 67,
@@ -493,6 +589,22 @@
       "bytes": 76112,
       "voiceId": "J1UkN5Wmr20DZIiLKXHI",
       "textSha": "8fadfafc1f087125"
+    },
+    {
+      "id": "coach.clean.en.venus",
+      "file": "coach.clean.en.venus.mp3",
+      "chars": 78,
+      "bytes": 72351,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "0af4003dfc62d969"
+    },
+    {
+      "id": "coach.clean.en.mercury",
+      "file": "coach.clean.en.mercury.mp3",
+      "chars": 84,
+      "bytes": 83635,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "a45d598162cd66c3"
     },
     {
       "id": "coach.mock.clean.0",

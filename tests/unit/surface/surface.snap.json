@@ -465,6 +465,72 @@
         "goldOnSkyTop": 1.142
       }
     },
+    "venus.normal": {
+      "accent": "#D9C23A",
+      "plate": "#0E1116",
+      "plateText": "#F7FAFF",
+      "sky": [
+        "#FBF0CE",
+        "#F2DFA2",
+        "#16120C"
+      ],
+      "colors": [
+        "#FBF0CE",
+        "#F2DFA2",
+        "#DCBE79",
+        "#B08E4E",
+        "#4A3A22",
+        "#16120C"
+      ],
+      "colorRoles": {
+        "cloudTop": "#FBF0CE",
+        "sulfurCream": "#F2DFA2",
+        "cloudTan": "#DCBE79",
+        "deckShadow": "#B08E4E",
+        "nightSide": "#4A3A22",
+        "void": "#16120C"
+      },
+      "contrast": {
+        "textOnPlate": 18.0767,
+        "accentOnPlate": 10.5617,
+        "goldOnPlate": 12.2937,
+        "textOnSkyTop": 1.0876,
+        "goldOnSkyTop": 1.352
+      }
+    },
+    "mercury.normal": {
+      "accent": "#FFB03A",
+      "plate": "#0E1116",
+      "plateText": "#F7FAFF",
+      "sky": [
+        "#554C42",
+        "#2A241F",
+        "#08080A"
+      ],
+      "colors": [
+        "#554C42",
+        "#2A241F",
+        "#C9C3B8",
+        "#6A5F52",
+        "#33322F",
+        "#08080A"
+      ],
+      "colorRoles": {
+        "glareSky": "#554C42",
+        "nightSky": "#2A241F",
+        "craterRay": "#C9C3B8",
+        "hollowTan": "#6A5F52",
+        "shadowGrey": "#33322F",
+        "nightVoid": "#08080A"
+      },
+      "contrast": {
+        "textOnPlate": 18.0767,
+        "accentOnPlate": 10.3772,
+        "goldOnPlate": 12.2937,
+        "textOnSkyTop": 8.0334,
+        "goldOnSkyTop": 5.4634
+      }
+    },
     "earth.colorblind": {
       "accent": "#FFD98A",
       "plate": "#0E1116",
@@ -694,6 +760,72 @@
         "goldOnPlate": 12.2937,
         "textOnSkyTop": 1.2876,
         "goldOnSkyTop": 1.142
+      }
+    },
+    "venus.colorblind": {
+      "accent": "#FFF0B8",
+      "plate": "#0E1116",
+      "plateText": "#F7FAFF",
+      "sky": [
+        "#FBF0CE",
+        "#F2DFA2",
+        "#16120C"
+      ],
+      "colors": [
+        "#FBF0CE",
+        "#F2DFA2",
+        "#DCBE79",
+        "#B08E4E",
+        "#4A3A22",
+        "#16120C"
+      ],
+      "colorRoles": {
+        "cloudTop": "#FBF0CE",
+        "sulfurCream": "#F2DFA2",
+        "cloudTan": "#DCBE79",
+        "deckShadow": "#B08E4E",
+        "nightSide": "#4A3A22",
+        "void": "#16120C"
+      },
+      "contrast": {
+        "textOnPlate": 18.0767,
+        "accentOnPlate": 16.5774,
+        "goldOnPlate": 12.2937,
+        "textOnSkyTop": 1.0876,
+        "goldOnSkyTop": 1.352
+      }
+    },
+    "mercury.colorblind": {
+      "accent": "#FFD9A0",
+      "plate": "#0E1116",
+      "plateText": "#F7FAFF",
+      "sky": [
+        "#554C42",
+        "#2A241F",
+        "#08080A"
+      ],
+      "colors": [
+        "#554C42",
+        "#2A241F",
+        "#C9C3B8",
+        "#6A5F52",
+        "#33322F",
+        "#08080A"
+      ],
+      "colorRoles": {
+        "glareSky": "#554C42",
+        "nightSky": "#2A241F",
+        "craterRay": "#C9C3B8",
+        "hollowTan": "#6A5F52",
+        "shadowGrey": "#33322F",
+        "nightVoid": "#08080A"
+      },
+      "contrast": {
+        "textOnPlate": 18.0767,
+        "accentOnPlate": 14.1248,
+        "goldOnPlate": 12.2937,
+        "textOnSkyTop": 8.0334,
+        "goldOnSkyTop": 5.4634
       }
     }
   }

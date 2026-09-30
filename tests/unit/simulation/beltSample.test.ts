@@ -249,6 +249,9 @@ const MEASURED: Record<string, Record<string, Pin>> = {
     uranus: { stalls: 2, worstHull: 0, hitRate: 0.9741 },
     neptune: { stalls: 26, worstHull: 0, hitRate: 0.8423 },
     pluto: { stalls: 31, worstHull: 0, hitRate: 0.8042 },
+    venus: { stalls: 40, worstHull: 0, hitRate: 0.6817 },
+    // Re-measured after D103 gave the bonus pair their own difficulty stage.
+    mercury: { stalls: 40, worstHull: 0, hitRate: 0.6991 },
   },
   median: {
     mars: { stalls: 0, worstHull: 0.5, hitRate: 0.9793 },
@@ -257,6 +260,8 @@ const MEASURED: Record<string, Record<string, Pin>> = {
     uranus: { stalls: 24, worstHull: 0, hitRate: 0.8557 },
     neptune: { stalls: 40, worstHull: 0, hitRate: 0.6616 },
     pluto: { stalls: 40, worstHull: 0, hitRate: 0.5958 },
+    venus: { stalls: 40, worstHull: 0, hitRate: 0.5299 },
+    mercury: { stalls: 40, worstHull: 0, hitRate: 0.496 },
   },
   slow: {
     mars: { stalls: 0, worstHull: 3, hitRate: 0.9845 },
@@ -265,6 +270,8 @@ const MEASURED: Record<string, Record<string, Pin>> = {
     uranus: { stalls: 37, worstHull: 0, hitRate: 0.7787 },
     neptune: { stalls: 40, worstHull: 0, hitRate: 0.7003 },
     pluto: { stalls: 40, worstHull: 0, hitRate: 0.6845 },
+    venus: { stalls: 40, worstHull: 0, hitRate: 0.6211 },
+    mercury: { stalls: 40, worstHull: 0, hitRate: 0.6117 },
   },
   grade2: {
     mars: { stalls: 0, worstHull: 3, hitRate: 0.9901 },
@@ -273,6 +280,11 @@ const MEASURED: Record<string, Record<string, Pin>> = {
     uranus: { stalls: 0, worstHull: 1, hitRate: 0.9737 },
     neptune: { stalls: 8, worstHull: 0, hitRate: 0.9069 },
     pluto: { stalls: 1, worstHull: 0, hitRate: 0.9395 },
+    // The bonus pair, measured on this harness when it arrived. The exempt
+    // tail flies both CLEAN; fast/median/slow lose all 40 belts at each, which
+    // is the same back-of-route hole the header escalates, two stops wider.
+    venus: { stalls: 0, worstHull: 3, hitRate: 0.9836 },
+    mercury: { stalls: 0, worstHull: 3, hitRate: 0.9875 },
   },
 };
 
@@ -343,8 +355,9 @@ describe("UR-79b / AC-4.3: the route, flown on SAMPLED belts", () => {
         ).toBeGreaterThanOrEqual(pinOf(name, step.stop).hitRate);
       }
     }
-    // ANTI-VACUITY: half the matrix still owes the derived bar.
-    expect(demanded).toBe(12);
+    // ANTI-VACUITY: half the matrix still owes the derived bar. grade2 owes it
+    // at every belt; everyone else owes it at Mars and Jupiter.
+    expect(demanded).toBe(BELT_STOP_IDS.length + (PILOTS.length - 1) * 2);
   });
 
   it("FR-8: every sampled belt is under the mean-length ceiling", () => {

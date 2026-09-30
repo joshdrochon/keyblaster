@@ -17,7 +17,16 @@ export function isLang(value: string): value is Lang {
   return (LANGS as readonly string[]).includes(value);
 }
 
-/** The seven stops, Earth outward to Pluto (D56, D57). */
+/**
+ * Every stop. The first seven are the main route, Earth outward to Pluto
+ * (D56, D57); Venus and Mercury are the bonus pair, inward from Earth, and
+ * they are LAST in this array rather than in orbital order.
+ *
+ * ORDER IS ROUTE ORDER, NOT DISTANCE. `nextStop` walks this array and
+ * `STOP_IDS[0]` is where a new pilot launches, so putting the inner planets
+ * where they physically belong would start the game at Mercury. Anything that
+ * wants distance ranks by the ephemeris instead - see `render/sunScale`.
+ */
 export type StopId =
   | "earth"
   | "mars"
@@ -25,7 +34,9 @@ export type StopId =
   | "saturn"
   | "uranus"
   | "neptune"
-  | "pluto";
+  | "pluto"
+  | "venus"
+  | "mercury";
 
 export const STOP_IDS: readonly StopId[] = [
   "earth",
@@ -35,7 +46,24 @@ export const STOP_IDS: readonly StopId[] = [
   "uranus",
   "neptune",
   "pluto",
+  "venus",
+  "mercury",
 ] as const;
+
+/** The main route: what a pilot flies before anything is a bonus. */
+export const ROUTE_STOP_IDS: readonly StopId[] = STOP_IDS.slice(0, 7);
+
+/**
+ * The bonus pair, in the order the inner run visits them.
+ *
+ * Earth -> Venus -> Mercury: outward-in, so the sun grows and the difficulty
+ * climbs together. They unlock only once Pluto is lit.
+ */
+export const BONUS_STOP_IDS: readonly StopId[] = ["venus", "mercury"];
+
+export function isBonusStop(value: StopId): boolean {
+  return BONUS_STOP_IDS.includes(value);
+}
 
 export function isStopId(value: string): value is StopId {
   return (STOP_IDS as readonly string[]).includes(value);

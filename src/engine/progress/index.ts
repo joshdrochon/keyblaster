@@ -1,5 +1,8 @@
 import {
+  BONUS_STOP_IDS,
+  isBonusStop,
   type Profile,
+  ROUTE_STOP_IDS,
   type Stars,
   type StopId,
   STOP_IDS,
@@ -157,9 +160,30 @@ export function routeView(
   });
 }
 
-/** Beacons lit, for the map header. Same source as the labels, by construction. */
+/**
+ * Beacons lit ON THE MAIN ROUTE, for the map header.
+ *
+ * The bonus pair is deliberately not counted. "7 of 9" would tell a child who
+ * has just finished the whole story that they are two short of something, and
+ * the bonus stops do not exist for them until Pluto is lit.
+ */
 export function litCount(progress: readonly StopProgress[]): number {
-  return routeView(progress).filter((s) => s.charted).length;
+  return routeView(progress).filter((s) => s.charted && !isBonusStop(s.stopId)).length;
+}
+
+/** Beacons lit on the bonus pair, once it exists. */
+export function bonusLitCount(progress: readonly StopProgress[]): number {
+  return BONUS_STOP_IDS.filter((id) => isCharted(progress, id)).length;
+}
+
+/**
+ * Whether the inner run is reachable at all: Pluto lit.
+ *
+ * The map asks this before it draws the doorway at Earth, so a player who has
+ * not finished the route is not shown a route they cannot fly.
+ */
+export function bonusUnlocked(progress: readonly StopProgress[]): boolean {
+  return routeComplete(progress);
 }
 
 /**
@@ -177,9 +201,20 @@ export function nextStop(progress: readonly StopProgress[]): StopId | null {
   return null;
 }
 
-/** Every stop charted (D80's Map Maker, and the ending card). */
+/**
+ * The MAIN ROUTE charted (D80's Map Maker, and the ending card).
+ *
+ * Earth through Pluto, not the bonus pair. The ending fires here and the Map
+ * Maker trophy is earned here; gating either on Venus and Mercury would make
+ * the story's last beat conditional on optional content.
+ */
 export function routeComplete(progress: readonly StopProgress[]): boolean {
-  return STOP_IDS.every((id) => isCharted(progress, id));
+  return ROUTE_STOP_IDS.every((id) => isCharted(progress, id));
+}
+
+/** Both bonus beacons lit. The inner run's own completion. */
+export function bonusComplete(progress: readonly StopProgress[]): boolean {
+  return BONUS_STOP_IDS.every((id) => isCharted(progress, id));
 }
 
 /** Apply a clear to a whole profile, for the store's `updateProfile`. */

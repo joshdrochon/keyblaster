@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LANGS, STOP_IDS, isLang, isStopId } from "@engine/types";
+import { BELT_STOP_IDS, LANGS, STOP_IDS, isLang, isStopId } from "@engine/types";
 import {
   type Bundle,
   CONTENT_LANGS,
@@ -29,7 +29,7 @@ const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((x) => typeof x === "string");
 
 describe("Stage bundles: schema and structure (AC-12.2, D45, D57)", () => {
-  it("AC-12.2: all three content languages ship all seven stops", () => {
+  it("AC-12.2: all three content languages ship every stop", () => {
     // LANGS is the engine's closed list; the content folder must not drift
     // from it in either direction, or Settings offers a language with no prose.
     expect([...CONTENT_LANGS].sort()).toEqual([...LANGS].sort());
@@ -98,7 +98,7 @@ describe("Stage bundles: schema and structure (AC-12.2, D45, D57)", () => {
 
     it(`AC-12.2: every ${lang} belt stop ships all five parts`, () => {
       const belt = (BY_LANG.get(lang) ?? []).filter((b) => b.stopId !== "earth");
-      expect(belt.length).toBe(6);
+      expect(belt.length).toBe(BELT_STOP_IDS.length);
       for (const b of belt) {
         expect(b.pool.length, `${b.stopId} pool`).toBeGreaterThan(10);
         expect(b.preflightLine.length, `${b.stopId} pre-flight`).toBeGreaterThan(10);

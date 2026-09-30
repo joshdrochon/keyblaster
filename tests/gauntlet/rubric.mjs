@@ -26,6 +26,17 @@ import { parseInventory, sceneNames, sceneRowMap } from "../../scripts/trace-che
  * (27 vs 17) and report both as green; one definition is the fix. Injectable so
  * a test can hand the check a deliberately broken map and watch it go red.
  */
+/** One per stop, read from `src/engine/types.ts` so the gates cannot go stale. */
+const STOP_COUNT = (() => {
+  const src = readFileSync("src/engine/types.ts", "utf8");
+  const from = src.indexOf("export const STOP_IDS");
+  const block = src.slice(from, src.indexOf("] as const;", from));
+  return (block.match(/"/g) ?? []).length / 2;
+})();
+
+/** Belts = every stop but the launchpad (`BELT_STOP_IDS`). */
+const BELT_COUNT = STOP_COUNT - 1;
+
 const TRACE = { parseInventory, sceneNames, sceneRowMap };
 
 export const STATUS = Object.freeze({
@@ -601,9 +612,13 @@ const visual = [
         if (typeof pal.accent !== "string") problems.push(`${stop}: missing single accent`);
       }
       const count = Object.keys(palettes).length;
-      if (count !== 7) problems.push(`${count} palettes (need 7, one per stop)`);
+      // Derived from the engine's own stop list, so adding a stop cannot leave
+      // this gate asserting a number the game outgrew (D103).
+      if (count !== STOP_COUNT) {
+        problems.push(`${count} palettes (need ${STOP_COUNT}, one per stop)`);
+      }
       return problems.length === 0
-        ? ok(`7 palettes, each 5-7 colours + 1 accent`)
+        ? ok(`${STOP_COUNT} palettes, each 5-7 colours + 1 accent`)
         : bad(problems.join("; "));
     },
   },
@@ -639,12 +654,13 @@ const visual = [
       }
       const data = evidence.read("contrast.json");
       const rows = Array.isArray(data.rows) ? data.rows : [];
-      // Seven stops x {normal, colourblind} x {resting, typed}. Asserted rather
+      // Every stop x {normal, colourblind} x {resting, typed}. Asserted rather
       // than trusted: a capture that silently stopped covering colourblind mode
       // is exactly how the original defect hid.
-      if (rows.length !== 28) {
+      const wantRows = STOP_COUNT * 4;
+      if (rows.length !== wantRows) {
         return bad(
-          `contrast.json has ${rows.length} samples; expected 28 (7 stops x 2 modes x 2 letter states)`,
+          `contrast.json has ${rows.length} samples; expected ${wantRows} (${STOP_COUNT} stops x 2 modes x 2 letter states)`,
           evidence.path("contrast.json"),
         );
       }
@@ -949,7 +965,7 @@ const audio = [
     needsBrowser: true,
     run: audioItem({
       built: (g) =>
-        Array.isArray(g.ambientBeds) && g.ambientBeds.length === 7 && g.crossfade === true,
+        Array.isArray(g.ambientBeds) && g.ambientBeds.length === STOP_COUNT && g.crossfade === true,
       builtWhat: "seven ambient beds with crossfade enabled",
       // The bed changed because the GAME changed stop. Two distinct stops in
       // order, with a crossfade counted at the transition - a table cannot
@@ -1298,7 +1314,7 @@ const loop = [
       }
       // The route, asserted rather than implied by the title. Earth flies no
       // belt (D57), so the whole route is six.
-      if (d.stops !== 6) {
+      if (d.stops !== BELT_COUNT) {
         return bad(`ran ${d.stops} stop(s); the Mars->Pluto route is six belts and the claim is about the whole run`, ev);
       }
       if (!(d.crossStopWords > 0)) {

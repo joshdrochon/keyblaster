@@ -88,9 +88,9 @@ const evidenceData = buildAudioEvidence(env, {
 });
 
 describe("the audio evidence artifact is derived from the real graph", () => {
-  it("AC-21.1: reports the seven ambient beds the graph actually built", () => {
+  it("AC-21.1: reports one ambient bed per stop, as the graph actually built them", () => {
     expect(evidenceData.ambientBeds).toEqual([...STOP_IDS]);
-    expect(evidenceData.ambientBeds.length).toBe(7);
+    expect(evidenceData.ambientBeds.length).toBe(STOP_IDS.length);
   });
 
   it("AC-21.1: reports a crossfade observed on every transition", () => {

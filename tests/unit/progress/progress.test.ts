@@ -11,7 +11,13 @@ import {
   routeView,
   unlockedStops,
 } from "@engine/progress/index.js";
-import { STOP_IDS, type Profile, type StopId, type StopProgress } from "@engine/types.js";
+import {
+  ROUTE_STOP_IDS,
+  STOP_IDS,
+  type Profile,
+  type StopId,
+  type StopProgress,
+} from "@engine/types.js";
 
 const at = (n: number) => ({ atMs: n });
 
@@ -188,7 +194,9 @@ describe("a charted stop can never be a locked stop", () => {
     const view = routeView(full);
     expect(view.filter((s) => s.charted)).toHaveLength(STOP_IDS.length);
     expect(view.filter((s) => s.locked)).toHaveLength(0);
-    expect(litCount(full)).toBe(STOP_IDS.length);
+    // litCount is the MAIN ROUTE's beacons on purpose, so a player who lit all
+    // nine is shown 7 of 7 rather than being told the story left them short.
+    expect(litCount(full)).toBe(ROUTE_STOP_IDS.length);
   });
 
   it("mid-run: four lit, Uranus open, the rest locked", () => {
@@ -198,9 +206,12 @@ describe("a charted stop can never be a locked stop", () => {
     );
     const view = routeView(mid);
     expect(litCount(mid)).toBe(4);
+    // The bonus pair is locked with them: it opens only once Pluto is lit.
     expect(view.filter((s) => s.locked).map((s) => s.stopId)).toEqual([
       "neptune",
       "pluto",
+      "venus",
+      "mercury",
     ]);
     expect(view.find((s) => s.stopId === "uranus")?.locked).toBe(false);
     expect(view.find((s) => s.stopId === "uranus")?.charted).toBe(false);

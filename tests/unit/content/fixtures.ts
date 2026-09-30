@@ -71,15 +71,17 @@ export function rawSightWords(lang: Lang): SightWords {
   return readJson(resolve(CONTENT_ROOT, lang, "sight-words.json")) as SightWords;
 }
 
-/** Every stop, in route order (D57 puts Earth first and gives it no belt). */
+/** Every stop, including the venus/mercury bonus pair. */
 export const EXPECTED_STOPS: readonly StopId[] = [
   "earth",
   "jupiter",
   "mars",
+  "mercury",
   "neptune",
   "pluto",
   "saturn",
   "uranus",
+  "venus",
 ] as const; // alphabetical: bundlesFor() sorts by filename
 
 /**

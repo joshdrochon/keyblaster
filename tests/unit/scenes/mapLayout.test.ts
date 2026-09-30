@@ -63,7 +63,7 @@ import {
   starsCentreForRight,
 } from "@game/scenes/support/mapLayout";
 import { SCENE_STRING_KEYS } from "@game/scenes/lib/strings";
-import { STOP_IDS } from "@engine/types";
+import { ROUTE_STOP_IDS, STOP_IDS } from "@engine/types";
 
 /**
  * THE DIRECTOR MAP, AS GEOMETRY.
@@ -428,10 +428,13 @@ describe("UR-54: the map is on the one grid", () => {
   });
 
   it("the route is symmetric about the frame's centre line", () => {
+    // The main board is the seven-stop route; the bonus pair rides its own row
+    // (`INNER_STOP_IDS`), so the node spacing is not over all nine stops.
+    const last = ROUTE_STOP_IDS.length - 1;
     expect(nodeX(0)).toBe(ROUTE_X0);
-    expect(nodeX(STOP_IDS.length - 1)).toBe(routeX1());
-    expect(nodeX(0) + nodeX(STOP_IDS.length - 1)).toBeCloseTo(GAME_WIDTH, 6);
-    expect(nodeStep()).toBeCloseTo((routeX1() - ROUTE_X0) / (STOP_IDS.length - 1), 6);
+    expect(nodeX(last)).toBe(routeX1());
+    expect(nodeX(0) + nodeX(last)).toBeCloseTo(GAME_WIDTH, 6);
+    expect(nodeStep()).toBeCloseTo((routeX1() - ROUTE_X0) / last, 6);
   });
 
   it("nothing hanging off a node reaches the board", () => {

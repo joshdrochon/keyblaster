@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { contrastRatio } from "@engine/contrast/index.js";
-import { STOP_IDS, type StopProgress } from "@engine/types";
+import { ROUTE_STOP_IDS, STOP_IDS, type StopProgress } from "@engine/types";
 import { litCount, routeView } from "@engine/progress/index.js";
 import { colorblindVariant, paletteAt, paletteFor } from "@game/render/palette";
 import { INK, SKY_PLATE, SPACE, STEP, STEPS, TYPE } from "@game/ui/theme";
@@ -57,7 +57,7 @@ import {
  * read off a real red run. The breaks and their output are recorded case by
  * case; the four the ticket names are:
  *
- *   `SEG_W * STOP_IDS.length` -> `SEG_W * 6`
+ *   `SEG_W * ROUTE_STOP_IDS.length` -> `SEG_W * 6`
  *     the bar has one segment per beacon, and seven of them
  *     expected 6 to be 7
  *
@@ -191,11 +191,13 @@ describe("one card, not three plates", () => {
 });
 
 describe("the bar: one segment per beacon", () => {
-  it("has one segment per stop, and seven of them", () => {
+  it("has one segment per MAIN-ROUTE stop, and seven of them", () => {
+    // The badge counts the main route only (`litCount`), so the bar it sits on
+    // is seven segments even though the game now has nine stops.
     const segments = barSegments(routeWith(0));
-    expect(segments.length).toBe(STOP_IDS.length);
-    expect(segments.length, "seven stops, seven segments").toBe(7);
-    expect(segments.map((s) => s.stopId)).toEqual([...STOP_IDS]);
+    expect(segments.length).toBe(ROUTE_STOP_IDS.length);
+    expect(segments.length, "seven beacons, seven segments").toBe(7);
+    expect(segments.map((s) => s.stopId)).toEqual([...ROUTE_STOP_IDS]);
   });
 
   it("fills the badge's ink column exactly, segment to segment", () => {
@@ -307,9 +309,9 @@ describe("the tint: each lit segment in its own stop's colour", () => {
         ),
       };
     }
-    // Seven DIFFERENT colours either way, or the tint is decoration.
-    expect(new Set(STOP_IDS.map((s) => segmentInk(s, false))).size).toBe(7);
-    expect(new Set(STOP_IDS.map((s) => segmentInk(s, true))).size).toBe(7);
+    // One DIFFERENT colour per stop either way, or the tint is decoration.
+    expect(new Set(STOP_IDS.map((s) => segmentInk(s, false))).size).toBe(STOP_IDS.length);
+    expect(new Set(STOP_IDS.map((s) => segmentInk(s, true))).size).toBe(STOP_IDS.length);
     // Printed, so the report carries the measurement rather than the claim.
     expect(measured).toEqual({
       // Earth's accent became its planet blue (`#4A87E0`); 12.29 was the gold.
@@ -320,6 +322,8 @@ describe("the tint: each lit segment in its own stop's colour", () => {
       uranus: { normal: 17.04, colourblind: 17.04 },
       neptune: { normal: 7.85, colourblind: 10.97 },
       pluto: { normal: 11.28, colourblind: 13.15 },
+      venus: { normal: 10.56, colourblind: 16.58 },
+      mercury: { normal: 10.38, colourblind: 14.12 },
     });
   });
 

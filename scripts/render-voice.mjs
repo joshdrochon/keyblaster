@@ -28,7 +28,17 @@ import { fileURLToPath } from "node:url";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = join(REPO, "src/content/audio/voice");
-const STOPS = ["earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto"];
+const STOPS = [
+  "earth",
+  "mars",
+  "jupiter",
+  "saturn",
+  "uranus",
+  "neptune",
+  "pluto",
+  "venus",
+  "mercury",
+];
 
 /**
  * Stage-bundle fields Shadow SPEAKS. Everything else on a bundle is read.

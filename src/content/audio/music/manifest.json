@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-17T05:05:10.036Z",
+  "generatedAt": "2026-09-30T02:58:04.036Z",
   "lengthMs": 40000,
   "note": "One piece per stop. The three AC-21.2 intensity layers are derived from this same buffer at playback; generated clips cannot stack.",
   "tracks": [
@@ -37,6 +37,16 @@
       "stopId": "pluto",
       "file": "pluto.mp3",
       "prompt": "Instrumental background music for a children's space typing game, ages 7 to 11. the edge of everything, small and triumphant, the long way back. A simple memorable melody a child could hum, soft synth pads, light gentle percussion, warm and encouraging, never tense, never sad, no vocals, no speech, no sudden loud hits. Steady tempo, loops seamlessly with no gap or change at the loop point."
+    },
+    {
+      "stopId": "venus",
+      "file": "venus.mp3",
+      "prompt": "Instrumental background music for a children's space typing game, ages 7 to 11. veiled and heavy, beautiful and unwelcoming, a slow pressure you can hear, golden cloud with something hidden under it. A simple memorable melody a child could hum, soft synth pads, light gentle percussion, warm and encouraging, never tense, never sad, no vocals, no speech, no sudden loud hits. Steady tempo, loops seamlessly with no gap or change at the loop point."
+    },
+    {
+      "stopId": "mercury",
+      "file": "mercury.mp3",
+      "prompt": "Instrumental background music for a children's space typing game, ages 7 to 11. bare, glaring and relentless, the most intense piece in the game, driving and close to the sun, hard metal light with no air and nowhere to hide. A simple memorable melody a child could hum, soft synth pads, light gentle percussion, warm and encouraging, never tense, never sad, no vocals, no speech, no sudden loud hits. Steady tempo, loops seamlessly with no gap or change at the loop point."
     }
   ]
 }

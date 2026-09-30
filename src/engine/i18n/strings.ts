@@ -36,6 +36,8 @@ export const EN = {
   "profile.shipNameDefault": "Lantern",
 
   "map.heading": "Route to Pluto",
+  "map.headingInner": "The Inner Run",
+  "map.goalInner": "Light both inner beacons",
   "map.locked": "Locked",
   "map.stars": "{stars} of 3 stars",
 
@@ -161,6 +163,8 @@ export const ES: Record<StringKey, string> = {
   "profile.shipNameDefault": "Lantern",
 
   "map.heading": "ruta a Plutón",
+  "map.headingInner": "la ruta interior",
+  "map.goalInner": "enciende las dos interiores",
   "map.locked": "bloqueado",
   "map.stars": "{stars} de 3 estrellas",
 
@@ -220,6 +224,8 @@ export const HI: Record<StringKey, string> = {
   "profile.shipNameDefault": "Lantern",
 
   "map.heading": "प्लूटो का रास्ता",
+  "map.headingInner": "भीतरी रास्ता",
+  "map.goalInner": "दोनों भीतरी बीकन जगाओ",
   "map.locked": "बंद",
   "map.stars": "3 में से {stars} तारे",
 

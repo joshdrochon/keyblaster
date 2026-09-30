@@ -30,6 +30,8 @@ const HORIZONS = "https://ssd.jpl.nasa.gov/api/horizons.api";
 
 /** Horizons COMMAND ids. Earth is the Earth-Moon barycentre, as JPL publishes. */
 const BODIES = {
+  mercury: "1",
+  venus: "2",
   earth: "3",
   mars: "4",
   jupiter: "5",

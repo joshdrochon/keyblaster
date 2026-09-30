@@ -187,5 +187,59 @@
       "debris": "#F5E6D0",
       "plateAccent": "#FFC9D8"
     }
+  },
+  "venus": {
+    "name": "Venus",
+    "colors": [
+      "#FBF0CE",
+      "#F2DFA2",
+      "#DCBE79",
+      "#B08E4E",
+      "#4A3A22",
+      "#16120C"
+    ],
+    "colorRoles": {
+      "cloudTop": "#FBF0CE",
+      "sulfurCream": "#F2DFA2",
+      "cloudTan": "#DCBE79",
+      "deckShadow": "#B08E4E",
+      "nightSide": "#4A3A22",
+      "void": "#16120C"
+    },
+    "accent": "#D9C23A",
+    "plate": "#0E1116",
+    "plateText": "#F7FAFF",
+    "colorblind": {
+      "accent": "#111318",
+      "debris": "#6E6154",
+      "plateAccent": "#FFF0B8"
+    }
+  },
+  "mercury": {
+    "name": "Mercury",
+    "colors": [
+      "#554C42",
+      "#2A241F",
+      "#C9C3B8",
+      "#6A5F52",
+      "#33322F",
+      "#08080A"
+    ],
+    "colorRoles": {
+      "glareSky": "#554C42",
+      "nightSky": "#2A241F",
+      "craterRay": "#C9C3B8",
+      "hollowTan": "#6A5F52",
+      "shadowGrey": "#33322F",
+      "nightVoid": "#08080A"
+    },
+    "accent": "#FFB03A",
+    "plate": "#0E1116",
+    "plateText": "#F7FAFF",
+    "colorblind": {
+      "accent": "#FFFFFF",
+      "debris": "#B4AEA2",
+      "plateAccent": "#FFD9A0"
+    }
   }
 }

@@ -4,7 +4,9 @@ import { hexToNum, paletteAt } from "@game/render/palette";
 import { audioFrom } from "@game/audio/wiring";
 import { EASE, buildParallax, type Parallax } from "@game/render/parallax";
 import { ensureTextures, fillShape, starPoints } from "@game/render/textures";
-import { DUR, INK, SKY_PLATE, SPACE, STEP, TYPE } from "@game/ui/theme";
+// Two EASE tables spell the same four curves; the slide takes the theme's,
+// which is where the motion tokens for chrome live.
+import { DUR, EASE as UI_EASE, INK, SKY_PLATE, SPACE, STEP, TYPE } from "@game/ui/theme";
 import { paintPlate } from "@game/ui/plate";
 import { drawHint } from "@game/ui/hintLine";
 import { paintLockGlyph } from "@game/ui/chrome";
@@ -42,6 +44,7 @@ import {
   NODE_RIM,
   PANEL_PAD,
   PANEL_STAR_R,
+  INNER_STOP_IDS,
   ROUTE_DEPTH,
   ROUTE_X0,
   ROUTE_Y,
@@ -51,6 +54,7 @@ import {
   STAR_R,
   STAR_ROW_GAP,
   chipX,
+  innerNodeX,
   lockAdvance,
   mapKeepClear,
   nodeRingBox,
@@ -66,7 +70,15 @@ import {
   starsCentreForRight,
   type PanelBox,
 } from "./support/mapLayout";
-import { STOP_IDS, isBeltStop, type StopId, type StopProgress } from "@engine/types";
+import {
+  BONUS_STOP_IDS,
+  ROUTE_STOP_IDS,
+  STOP_IDS,
+  isBeltStop,
+  isStopId,
+  type StopId,
+  type StopProgress,
+} from "@engine/types";
 import {
   createFocusRing,
   type FocusRing,
@@ -82,7 +94,13 @@ import {
   type SceneSnapshot,
   type Snapshotable,
 } from "./lib/kit";
-import { litCount, routeView, type StopView } from "@engine/progress/index.js";
+import {
+  bonusLitCount,
+  bonusUnlocked,
+  litCount,
+  routeView,
+  type StopView,
+} from "@engine/progress/index.js";
 import { hasStageBundle, stageBundle } from "./lib/content";
 import { hasPersonalBest, mapBoardLine } from "./support/mapBoard";
 import {
@@ -100,6 +118,12 @@ import { drawPlayerLantern, playerLivery } from "./lib/livery";
  *
  * Earth to Pluto in a line, Destiny-style: a route, not a level select. The
  * screen's whole job is the sense of progress, so the blink is the design.
+ *
+ * TWO VIEWS OF ONE BOARD. The route is the default and the only view before the
+ * bonus pair unlocks; once Pluto is lit, ArrowLeft at Earth slides the board to
+ * the INNER run (Mercury, Venus, Earth) and ArrowRight at Earth slides it back.
+ * Earth is on both, and it is the hinge the slide turns on - `RunLayer`,
+ * `switchView` and `slideW` below are the whole mechanism.
  *
  * WHY THE BLINK IS STAGGERED. A row of beacons all pulsing on the same beat
  * reads as decoration - a loading spinner with seven dots. Here each charted
@@ -176,6 +200,51 @@ interface NodeView {
   readonly caption: { readonly halfW: number; readonly bottom: number };
 }
 
+/**
+ * Which of the two runs the board is showing. The route is the shipped screen;
+ * the inner run is the bonus pair, reached through Earth once Pluto is lit.
+ */
+type MapView = "route" | "inner";
+
+/**
+ * One run's node ink, in a container so the doorway at Earth can slide it.
+ *
+ * A container renders in LIST order and ignores depth, so every child keeps the
+ * `setDepth` it had and the container is sorted by it once built; the container
+ * itself sits at `ROUTE_DEPTH`, above every plane this screen decorates (UR-105).
+ */
+interface RunLayer {
+  readonly view: MapView;
+  readonly container: Phaser.GameObjects.Container;
+  readonly nodes: NodeView[];
+  readonly stops: readonly StopView[];
+  readonly routeG: Phaser.GameObjects.Graphics;
+  readonly glow: Phaser.GameObjects.Graphics;
+}
+
+/**
+ * The inner run in PROGRESSION order, which `mapLayout.INNER_STOP_IDS` is not -
+ * that one is left-to-right for drawing. `routeView` opens whatever comes first
+ * in the order it is handed, so the layout order would open Mercury before
+ * Venus had been flown.
+ */
+const INNER_ORDER: readonly StopId[] = ["earth", ...BONUS_STOP_IDS];
+
+/**
+ * The travel: the gap between Earth's two seats, so the hinge node never
+ * duplicates or jumps while the rest of the board moves around it.
+ *
+ * A function, not a const, for the reason `mapLayout` gives (D99).
+ */
+const slideW = (): number => innerNodeX(INNER_STOP_IDS.indexOf("earth")) - nodeX(0);
+
+/** The doorway's caret: a mark beside Earth, outside the disc's dark rim. */
+const DOORWAY_GAP = STEP.tight;
+const DOORWAY_W = 12;
+const DOORWAY_H = 24;
+const DOORWAY_STROKE = 4;
+const DOORWAY_ALPHA = 0.9;
+
 const ARROW_GAP = 26;
 const ARROW_GLIMMER_ALPHA = 0.7;
 const ARROW_GLIMMER_MS = 2400;
@@ -194,8 +263,17 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   private menu!: KeyboardMenu;
   private nodes: NodeView[] = [];
   private routeG!: Phaser.GameObjects.Graphics;
-  /** The single route derivation every part of this screen draws from. */
+  /** The single route derivation the DRAWN board reads from. */
   private view: readonly StopView[] = [];
+  /** The one object the slide tweens; every run's ink is inside it. */
+  private board!: Phaser.GameObjects.Container;
+  private layer: RunLayer | null = null;
+  private mapView: MapView = "route";
+  private slide: Phaser.Tweens.Tween | null = null;
+  /** Everything `paintBadge` drew, so a view switch can replace it. */
+  private badgeInk: Phaser.GameObjects.GameObject[] = [];
+  /** The two entry points, kept because a view swap rebuilds the focus order. */
+  private chipTargets: FocusTarget[] = [];
   private panelTitle!: Phaser.GameObjects.Text;
   private panelChapter!: Phaser.GameObjects.Text;
   private panelBoard!: Phaser.GameObjects.Text;
@@ -248,6 +326,10 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     this.lantern = null;
     this.shipLivery = undefined;
     this.shipTween = null;
+    this.layer = null;
+    this.mapView = "route";
+    this.slide = null;
+    this.chipTargets = [];
   }
 
   create(): void {
@@ -284,16 +366,20 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     // "7 of 7 beacons lit" over seven stops labelled "Locked". Everything
     // below - count, disc, label, lamp, route line, focus - now reads this one
     // array, so the header and the label under a planet cannot disagree.
-    this.view = routeView(progress, STOP_IDS);
+    //
+    // The badge is always the MAIN route's: `litCount` and `barSegments` are
+    // both route-only, so it keeps reading the route while the board is showing
+    // the inner run.
+    const routeStops = routeView(progress, ROUTE_STOP_IDS);
     const lit = litCount(progress);
 
     // ONE BADGE WHERE THREE PLATES WERE. `paintBadge` is the whole header.
-    this.paintBadge(lit);
 
-    // UR-105 again: the route is the map's ink too, so it rides with the discs
-    // rather than staying at 3, under the mote plane the discs just left.
-    this.routeG = this.add.graphics().setDepth(ROUTE_DEPTH);
-    this.buildNodes();
+    // UR-105 again: the map's own ink rides with the discs rather than staying
+    // at 3, under the mote plane the discs just left. The board is a container
+    // now so the doorway at Earth can slide it; see `RunLayer`.
+    this.board = this.add.container(0, 0).setDepth(ROUTE_DEPTH);
+    this.adopt(this.buildRun("route"));
 
     // --- the personal-best board (D43) -----------------------------------
     //
@@ -385,12 +471,9 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       depth: 11,
     });
 
-    // Created before the focus order, so the first `select` has something to
-    // paint into. Under the discs (`GLOW_DEPTH`).
-    this.glow = this.add.graphics().setDepth(GLOW_DEPTH);
     this.buildLantern(ctx.reducedMotion);
 
-    // --- focus order: seven stops, then the two entry points --------------
+    // --- focus order: the drawn run's stops, then the two entry points ----
     //
     // THE RING WRAPS THE DISC AND THE NAME PLATE AS ONE BOX (`nodeRingBox`).
     // It was a square around the disc alone, which was defensible while the
@@ -403,24 +486,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     // says is clickable and what is clickable are one rectangle. Locked stops
     // keep both: the keyboard can focus Pluto from day one (AC-22b.1, D31) and
     // the mouse behaves the same way.
-    const targets: FocusTarget[] = this.nodes.map((n, i) => ({
-      id: n.stopId,
-      ...nodeRingBox(i, n.caption),
-      locked: n.locked,
-      // A PLANET DOES NOT SWELL (UR-111). Every other focusable control in the
-      // game grows 1.5% while it holds focus and holds it there; a stop opts
-      // out, for the same reason UR-92 took the ring off it. The Lantern is
-      // already hovering over the focused stop and the panel below already
-      // names it, and a third "you are here" is what that ticket removed. A
-      // stop is also not a plate with a label on it - it is a disc, a beacon
-      // and a glow, none of which the kit can measure - so the honest choices
-      // here are "the whole thing grows" or "nothing does", and a caption that
-      // swelled while the world it names stayed put would be neither.
-      // The two chips this screen also offers ARE plates, and they do grow.
-      pop: false,
-      activate: () => this.travel(n),
-    }));
-    targets.push(...this.buildChips());
+    this.chipTargets = this.buildChips();
+    const targets = [...this.stopTargets(), ...this.chipTargets];
 
     // THE SHIP IS THE FOCUS INDICATOR ON A PLANET (UR-92).
     //
@@ -442,11 +509,12 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     // focused control, so they are the first screen wired to the shared pulse -
     // and the flag is handed over so a calm-motion child never sees it move.
     const painted = createFocusRing(this, 40, this.story.ctx.reducedMotion);
-    const stopTargets = new Set<string>(this.nodes.map((n) => n.stopId));
     const ring: FocusRing = {
       graphics: painted.graphics,
       moveTo: (target) => {
-        const overAStop = stopTargets.has(target.id);
+        // Asked of the id rather than of the drawn node list, which the view
+        // swap replaces: the two chips are the only non-stop targets here.
+        const overAStop = isStopId(target.id);
         painted.graphics.setVisible(!overAStop);
         if (!overAStop) painted.moveTo(target);
       },
@@ -484,6 +552,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       if (target !== undefined) this.select(target.id);
     });
     this.select(targets[this.menu.index]?.id ?? "earth");
+    this.bindDoorway();
 
     // UR-172: the map is a chart, not a place. It keeps Earth's track as its
     // hub theme and holds the bed back under it.
@@ -533,22 +602,34 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
    * edge would read well and would be a fourth off-model element on a screen
    * `left-edge-conformance.spec.ts` budgets at three.
    */
-  private paintBadge(lit: number): void {
+  private paintBadge(stops: readonly StopView[], lit: number): void {
+    // D103: the badge follows the view, so the card is rebuilt rather than
+    // drawn once - the route's "Route to Pluto · 7/7" is wrong over Mercury.
+    for (const o of this.badgeInk) o.destroy();
+    this.badgeInk = [];
     const { text, ctx, lang } = this.story;
     const box = badgeBox();
-    const total = STOP_IDS.length;
+    // `ROUTE_STOP_IDS`, not `STOP_IDS`: the bar paints one segment per route
+    // stop and `litCount` counts only those, so all nine here read "6 of 9"
+    // under a seven-segment bar.
+    // The inner run is its own mission with its own count; the route's badge
+    // would otherwise say "Route to Pluto · 7/7" over Mercury and Venus.
+    const inner = this.mapView === "inner";
+    const total = inner ? BONUS_STOP_IDS.length : ROUTE_STOP_IDS.length;
 
     // THE CARD, through the one plate component (UR-69). Its border is
     // `BADGE_PLATE.stroke` - `INK.line`, never the accent - because the
     // surface is declared in `mapLayout` rather than assembled here.
-    plate(this, box.x, box.y, box.w, box.h, {
-      fill: BADGE_PLATE.fill,
-      alpha: BADGE_PLATE.alpha,
-      stroke: BADGE_PLATE.stroke,
-      strokeAlpha: BADGE_PLATE.strokeAlpha,
-      radius: BADGE_PLATE.radius,
-      rhythm: "chip",
-    }).setDepth(9);
+    this.badgeInk.push(
+      plate(this, box.x, box.y, box.w, box.h, {
+        fill: BADGE_PLATE.fill,
+        alpha: BADGE_PLATE.alpha,
+        stroke: BADGE_PLATE.stroke,
+        strokeAlpha: BADGE_PLATE.strokeAlpha,
+        radius: BADGE_PLATE.radius,
+        rhythm: "chip",
+      }).setDepth(9),
+    );
 
     // `plated: true` with the badge's own fill NAMED: the rows still register
     // their colour pair for V-22.8. "It is on a panel, trust me" is how 1.19:1
@@ -561,23 +642,27 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       size: number,
       color: string,
     ): PlatedText =>
-      skyText(this, x, y, copy, {
-        screen: "map",
-        id,
-        size,
-        color,
-        lang,
-        depth: 10,
-        plated: true,
-        plateFill: BADGE_PLATE.fill,
-      });
+      ((): PlatedText => {
+        const t = skyText(this, x, y, copy, {
+          screen: "map",
+          id,
+          size,
+          color,
+          lang,
+          depth: 10,
+          plated: true,
+          plateFill: BADGE_PLATE.fill,
+        });
+        this.badgeInk.push(...t.objects);
+        return t;
+      })();
 
-    const mission = text.text("map.heading");
+    const mission = text.text(inner ? "map.headingInner" : "map.heading");
     row("map.heading", badgeInkLeft(), badgeMissionY(), mission, BADGE_MISSION_SIZE, INK.text);
 
     const goalY = badgeGoalY();
     const goalLabel = text.text("map.goalLabel");
-    const goalCopy = text.text("map.goal", { total });
+    const goalCopy = text.text(inner ? "map.goalInner" : "map.goal", { total });
     const count = text.text("map.progress", { lit, total });
     // MEASURED, NOT DECLARED, for the reason `nodeRingBox` gives about the
     // captions: "Goal:" and "Meta:" are not the same width, and a declared
@@ -613,7 +698,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     // the shared plate component - which is how an 8 px mark reaches
     // `ui/plate.ts` instead of `arch/platePainters.test.ts`'s allowlist.
     const g = this.add.graphics().setDepth(10);
-    const segments = barSegments(this.view).map((seg) => {
+    this.badgeInk.push(g);
+    const segments = barSegments(stops, inner ? BONUS_STOP_IDS : ROUTE_STOP_IDS).map((seg) => {
       const beaconLit = seg.lit;
       const ink = beaconLit
         ? segmentInk(seg.stopId, ctx.colorblindPalette)
@@ -708,7 +794,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     const node = this.nodes[i];
     if (this.glow === null || node === undefined) return;
     this.glow.clear();
-    const x = nodeX(i);
+    const x = node.x;
     // THE GLOW IS THE SELECTION GOLD, NOT THE STOP'S ACCENT (UR-92).
     //
     // The accent was the first version and it fails exactly where it is needed:
@@ -735,8 +821,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
 
   private moveShipTo(i: number): void {
     const ship = this.lantern;
-    if (ship === null) return;
-    const x = nodeX(i);
+    const x = this.nodes[i]?.x;
+    if (ship === null || x === undefined) return;
     this.shipTween?.remove();
     this.shipTween = null;
     if (this.story.ctx.reducedMotion) {
@@ -782,12 +868,32 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     ];
   }
 
-  private buildNodes(): void {
+  /**
+   * Build one run's ink. The two views differ in exactly two things - the order
+   * handed to `routeView` and each stop's x - so Earth, which is on both, is
+   * one drawing rather than two planets.
+   *
+   * Nodes come out LEFT TO RIGHT: what `drawRoute` joins and what the
+   * horizontal focus order walks.
+   */
+  private buildRun(view: MapView): RunLayer {
     const { progress, ctx } = this.story;
+    const stops = routeView(progress, view === "route" ? ROUTE_STOP_IDS : INNER_ORDER);
+    const container = this.add.container(0, 0);
+    const routeG = this.add.graphics().setDepth(ROUTE_DEPTH);
+    const glow = this.add.graphics().setDepth(GLOW_DEPTH);
+    container.add([routeG, glow]);
+    const nodes: NodeView[] = [];
+    const doorway = bonusUnlocked(progress);
+    const laid = stops
+      .map((stop, i) => ({
+        stop,
+        x: view === "route" ? nodeX(i) : innerNodeX(INNER_STOP_IDS.indexOf(stop.stopId)),
+      }))
+      .sort((a, b) => a.x - b.x);
 
-    this.view.forEach((stop, i) => {
+    laid.forEach(({ stop, x }) => {
       const { stopId, charted, locked } = stop;
-      const x = nodeX(i);
       const pal = paletteAt(stopId, ctx.colorblindPalette);
       const entry = progressFor(progress, stopId);
 
@@ -818,6 +924,16 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       disc.strokeCircle(x, ROUTE_Y, NODE_R);
 
       const beacon = this.add.graphics().setDepth(6);
+      container.add([disc, beacon]);
+
+      if (stopId === "earth" && doorway) {
+        // The doorway has to be visible before it is pressed: a caret on the
+        // side the arrow travels, drawn only once Pluto is lit, so a child
+        // mid-route is never shown a way out of Earth that does nothing.
+        const caret = this.add.graphics().setDepth(NODE_DEPTH);
+        this.paintDoorway(caret, x, view === "route" ? -1 : 1);
+        container.add(caret);
+      }
 
       // THE CAPTION IS THE PLANET'S NAME, ON ONE LINE, AND NOTHING ELSE.
       //
@@ -849,6 +965,9 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
         padX: CAPTION_PAD_X,
         padY: CAPTION_PAD_Y,
       });
+      // In a container, list order IS paint order, and `objects` is
+      // plate-then-text (`kit.PlatedText`).
+      container.add([...cap.objects]);
 
       if (locked) {
         // THE MARK LIVES IN THE TEXT'S OWN LEFT PADDING, and that is the whole
@@ -864,11 +983,13 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
         cap.text.setPadding({ left: lockAdvance() });
         cap.setText(this.stopName(stopId));
         const b = cap.text.getBounds();
+        const mark = this.add.graphics().setDepth(7);
         paintLockGlyph(
-          this.add.graphics().setDepth(7),
+          mark,
           { x: b.x, y: b.centerY - LOCK_SIZE / 2, w: LOCK_SIZE, h: LOCK_SIZE },
           INK.textDim,
         );
+        container.add(mark);
       }
 
       // WHAT THE FOCUS RING IS GOING TO BE BUILT AROUND, measured now, while
@@ -888,17 +1009,153 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
         // BELOW the caption plate, not through it. `STAR_ROW_GAP` is derived
         // from the caption's height, so the row followed it up when the caption
         // lost its second line instead of leaving a 37 px hole.
+        const row = this.add.graphics().setDepth(7);
         this.drawStars(
-          this.add.graphics().setDepth(7),
+          row,
           x,
           ROUTE_Y + NODE_R + STAR_ROW_GAP,
           STAR_R,
           entry.stars,
           pal.accent,
         );
+        container.add(row);
       }
 
-      this.nodes.push({ stopId, x, charted, locked, accent: pal.accent, beacon, caption });
+      nodes.push({ stopId, x, charted, locked, accent: pal.accent, beacon, caption });
+    });
+
+    // What keeps the route line under the discs and the captions over the
+    // lamps, exactly as the depth-sorted display list did. See `RunLayer`.
+    container.sort("depth");
+    return { view, container, nodes, stops, routeG, glow };
+  }
+
+  /** The caret beside Earth. `dir` is the way the arrow key travels. */
+  private paintDoorway(g: Phaser.GameObjects.Graphics, x: number, dir: -1 | 1): void {
+    const tipX = x + dir * (NODE_R + NODE_RIM + DOORWAY_GAP);
+    const backX = tipX - dir * DOORWAY_W;
+    g.lineStyle(DOORWAY_STROKE, hexToNum(INK.accent), DOORWAY_ALPHA);
+    g.beginPath();
+    g.moveTo(backX, ROUTE_Y - DOORWAY_H / 2);
+    g.lineTo(tipX, ROUTE_Y);
+    g.lineTo(backX, ROUTE_Y + DOORWAY_H / 2);
+    g.strokePath();
+  }
+
+  /** Make `layer` the run every other part of this screen reads and draws. */
+  private adopt(layer: RunLayer): void {
+    this.layer = layer;
+    this.mapView = layer.view;
+    this.view = layer.stops;
+    this.nodes = layer.nodes;
+    this.routeG = layer.routeG;
+    this.glow = layer.glow;
+    this.board.add(layer.container);
+    this.paintBadge(
+      layer.stops,
+      layer.view === "inner"
+        ? bonusLitCount(this.story.progress)
+        : litCount(this.story.progress),
+    );
+  }
+
+  /**
+   * The drawn run's stops as focus targets. `nodeRingBox` is struck around
+   * `nodeX(i)`, and its centre is the only part that depends on `i`, so the
+   * inner run re-centres that box rather than keeping a second copy of it here.
+   */
+  private stopTargets(): FocusTarget[] {
+    return this.nodes.map((n, i) => {
+      const box = nodeRingBox(i, n.caption);
+      return {
+        id: n.stopId,
+        ...box,
+        x: n.x - box.w / 2,
+        locked: n.locked,
+        // A PLANET DOES NOT SWELL (UR-111). Every other focusable control in
+        // the game grows 1.5% while it holds focus; a stop opts out, for the
+        // same reason UR-92 took the ring off it - the Lantern already hovers
+        // over it and the panel below already names it. A stop is also not a
+        // plate with a label on it, so the honest choices are "all of it grows"
+        // or "none of it does". The two chips ARE plates, and they do grow.
+        pop: false,
+        activate: () => this.travel(n),
+      };
+    });
+  }
+
+  /**
+   * The doorway, bound PER KEY rather than through the menu: Phaser emits
+   * `keydown-LEFT` before the generic `keydown` the kit steps focus on, and
+   * skips that second emit once the event is cancelled. So the doorway consumes
+   * the arrow, and when it is shut nothing is cancelled and the route view
+   * behaves exactly as it does today.
+   */
+  private bindDoorway(): void {
+    this.input.keyboard?.on("keydown-LEFT", this.onDoorwayIn);
+    this.input.keyboard?.on("keydown-RIGHT", this.onDoorwayOut);
+  }
+
+  private readonly onDoorwayIn = (event: KeyboardEvent): void => {
+    if (this.mapView !== "route" || !this.atDoorway()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.switchView("inner");
+  };
+
+  private readonly onDoorwayOut = (event: KeyboardEvent): void => {
+    if (this.mapView !== "inner" || !this.atDoorway()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.switchView("route");
+  };
+
+  /** Is the caret pressable right now: bonus open, focus on Earth, board still. */
+  private atDoorway(): boolean {
+    return (
+      this.slide === null &&
+      bonusUnlocked(this.story.progress) &&
+      this.menu.targets[this.menu.index]?.id === "earth"
+    );
+  }
+
+  /**
+   * Swap the drawn run, sliding the board so the change reads as a journey.
+   *
+   * Going inward is leftward, so the board travels RIGHT and the inner run
+   * arrives from the left while the route leaves to the right; coming back
+   * reverses it. The incoming run is built at minus that travel, so both runs
+   * move as one piece and Earth's two seats stay on one point throughout.
+   *
+   * Focus is put back on Earth before the tween starts, so the hinge still
+   * holds it when the board lands and one ArrowRight comes back.
+   */
+  private switchView(next: MapView): void {
+    const outgoing = this.layer;
+    if (outgoing === null || outgoing.view === next) return;
+    const travel = next === "inner" ? slideW() : -slideW();
+    const incoming = this.buildRun(next);
+    incoming.container.setX(-travel);
+    this.adopt(incoming);
+    this.menu.setTargets([...this.stopTargets(), ...this.chipTargets], "earth");
+
+    const land = (): void => {
+      outgoing.container.destroy();
+      incoming.container.setX(0);
+      this.board.setX(0);
+      this.slide = null;
+    };
+    // D41 / AC-22.5: a calm-motion child gets the swap with no travel at all.
+    if (this.story.ctx.reducedMotion) {
+      land();
+      return;
+    }
+    this.slide = this.tweens.add({
+      targets: this.board,
+      x: travel,
+      duration: DUR.panel,
+      ease: UI_EASE.arrive,
+      onComplete: land,
     });
   }
 
@@ -940,14 +1197,18 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   }
 
   private select(stopId: string): void {
-    if (!STOP_IDS.includes(stopId as StopId)) {
+    if (!isStopId(stopId)) {
       // A chip is focused, not a stop: leave the board showing the last stop.
       return;
     }
-    const stop = stopId as StopId;
+    const stop = stopId;
+    // The DRAWN run's index, not the route's: the ship and the glow belong to
+    // the board on screen, which on the inner run is three nodes wide.
+    const i = this.nodes.findIndex((n) => n.stopId === stop);
+    if (i < 0) return;
     this.selected = stop;
-    this.moveShipTo(STOP_IDS.indexOf(stop));
-    this.paintSelectionGlow(this.nodes.findIndex((n) => n.stopId === stop));
+    this.moveShipTo(i);
+    this.paintSelectionGlow(i);
     const { text, progress } = this.story;
     const entry: StopProgress = progressFor(progress, stop);
     const bundle = hasStageBundle(stop) ? stageBundle(stop) : null;
@@ -1141,6 +1402,9 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   snapshot(): SceneSnapshot {
     return {
       scene: SCENE_KEYS.map,
+      // Which run is on the board: without it, a three-node inner board and a
+      // route that failed to draw four of seven report the same `stops`.
+      mapView: this.mapView,
       selected: this.selected,
       focusIndex: this.menu.index,
       focusId: this.menu.targets[this.menu.index]?.id ?? null,
@@ -1158,7 +1422,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
           : {
               x: this.lantern.container.x,
               y: this.lantern.container.y,
-              targetX: nodeX(STOP_IDS.indexOf(this.selected)),
+              targetX: this.nodes.find((n) => n.stopId === this.selected)?.x ?? nodeX(0),
             },
       // UR-48 evidence: the hull the pilot is wearing, as this screen drew it.
       // Null in a standalone mount with no store, which is the case that must
@@ -1181,6 +1445,10 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   }
 
   private teardown(): void {
+    this.input.keyboard?.off("keydown-LEFT", this.onDoorwayIn);
+    this.input.keyboard?.off("keydown-RIGHT", this.onDoorwayOut);
+    this.slide?.remove();
+    this.slide = null;
     this.shipTween?.remove();
     this.shipTween = null;
     this.lantern?.destroy();

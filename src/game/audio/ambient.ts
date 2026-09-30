@@ -6,13 +6,13 @@
  *
  * WHY THERE IS NO FILE. D63 planned to render the beds with ElevenLabs at build
  * time. There is no key (D88 records the same gap for the voice), so a lane that
- * shipped seven `.mp3` references would ship seven 404s and an audio rubric that
- * passes on paper. The beds are therefore SYNTHESISED: a drone stack, a filtered
- * noise wind, and a slow shimmer, tuned per planet. Seven real beds that play
- * beat seven filenames that do not.
+ * shipped a `.mp3` reference per stop would ship that many 404s and an audio
+ * rubric that passes on paper. The beds are therefore SYNTHESISED: a drone
+ * stack, a filtered noise wind, and a slow shimmer, tuned per planet. Real beds
+ * that play beat filenames that do not.
  *
  * When the key lands, `buildBedVoice` becomes a looping buffer source over a
- * decoded file and the rest of this module - the seven-entry table, the
+ * decoded file and the rest of this module - the table, the
  * crossfade, the bus - is unchanged. Same swap shape as music.ts and voice.ts.
  *
  * The stop list comes from `src/engine/types.ts`, not from a local literal, so
@@ -148,6 +148,35 @@ const BED_SEEDS: Readonly<Record<StopId, Omit<AmbientBedSpec, "stopId">>> = Obje
     level: 0.23,
     note: "the fastest winds in the solar system, heard from far away",
   },
+  venus: {
+    droneHz: 68,
+    partials: [1, 2, 3],
+    droneLevel: 0.18,
+    filterHz: 360,
+    windLevel: 0.94,
+    windFilterHz: 175,
+    shimmerHz: 0.04,
+    shimmerDepth: 0.09,
+    level: 0.26,
+    note: "92 bar of hot CO2: the densest, most muffled bed - pressure, not air",
+  },
+  mercury: {
+    droneHz: 98,
+    partials: [1, 4, 7],
+    droneLevel: 0.1,
+    filterHz: 2400,
+    windLevel: 0.8,
+    windFilterHz: 2200,
+    shimmerHz: 0.34,
+    shimmerDepth: 0.32,
+    level: 0.28,
+    // Mercury has no atmosphere, so the first pass gave it almost no wind -
+    // physically honest and a pure 98 Hz tone, which is UR-13's defect exactly.
+    // The bed is a fiction either way (vacuum is silent), so the fiction obeys
+    // UR-13: hiss carries it, and what says "no air" is that the hiss is the
+    // BRIGHTEST and driest in the game rather than that there is none.
+    note: "no air to soften anything: the driest, brightest bed - glare, not weather",
+  },
   pluto: {
     droneHz: 41,
     partials: [1, 3, 5],
@@ -162,7 +191,7 @@ const BED_SEEDS: Readonly<Record<StopId, Omit<AmbientBedSpec, "stopId">>> = Obje
   },
 });
 
-/** Seven beds, one per stop, keyed by the engine's own stop list. */
+/** One bed per stop, keyed by the engine's own stop list. */
 export const AMBIENT_BEDS: readonly AmbientBedSpec[] = STOP_IDS.map((stopId) => {
   const seed = BED_SEEDS[stopId];
   return { stopId, ...seed };

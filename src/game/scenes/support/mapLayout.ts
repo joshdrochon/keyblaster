@@ -16,7 +16,7 @@ import {
   LANTERN_DESIGN_HEIGHT,
   lanternDesignBox,
 } from "@game/render/lanternGeometry";
-import { STOP_IDS, type StopId } from "@engine/types";
+import { BONUS_STOP_IDS, ROUTE_STOP_IDS, type StopId } from "@engine/types";
 import type { StopView } from "@engine/progress/index.js";
 
 /**
@@ -78,7 +78,20 @@ export const NODE_R = 46;
 export const NODE_RIM = 8;
 
 /** Spacing between two adjacent stops. */
-export const nodeStep = (): number => (routeX1() - ROUTE_X0) / (STOP_IDS.length - 1);
+export const nodeStep = (): number => (routeX1() - ROUTE_X0) / (ROUTE_STOP_IDS.length - 1);
+
+/**
+ * THE INNER RUN sits on its own row of three: Mercury, Venus, Earth.
+ *
+ * Earth is in BOTH rows on purpose - it is the hinge the two views turn on, so
+ * the node the player pressed Left from is still under their eye when the board
+ * has finished sliding. Three nodes over the same span, so the inner run reads
+ * as a shorter, closer hop rather than as the route redrawn.
+ */
+export const INNER_STOP_IDS: readonly StopId[] = [...BONUS_STOP_IDS].reverse().concat("earth");
+export const innerNodeStep = (): number =>
+  (routeX1() - ROUTE_X0) / (INNER_STOP_IDS.length - 1);
+export const innerNodeX = (i: number): number => ROUTE_X0 + innerNodeStep() * i;
 
 /** Where stop `i` sits. The ONE derivation; the discs, the focus ring, the
  *  keep-clear zones and the ship all read it. */
@@ -363,7 +376,7 @@ export const BADGE_BAR_GAP = STEP.tight;
  * seven of them. So the height, the radius and the fill-on-track idea are the
  * pre-flight bar's; the division into seven is this screen's.
  *
- * ONE SEGMENT PER STOP, derived from `STOP_IDS` rather than from a literal 7,
+ * ONE SEGMENT PER ROUTE STOP, derived from `ROUTE_STOP_IDS` rather than a literal 7,
  * so a route that gains a stop gains a segment instead of lying.
  *
  * A SEGMENT IS A PILL, WHICH IS HOW IT REACHES THE SHARED COMPONENT.
@@ -378,7 +391,7 @@ export const BAR_H = 8;
 export const SEG_GAP = STEP.hair;
 export const SEG_W = 52;
 export const barWidth = (): number =>
-  SEG_W * STOP_IDS.length + SEG_GAP * (STOP_IDS.length - 1);
+  SEG_W * ROUTE_STOP_IDS.length + SEG_GAP * (ROUTE_STOP_IDS.length - 1);
 
 /**
  * The badge's width: the bar's, plus the padding either side.
@@ -436,20 +449,23 @@ export interface BarSegment {
 }
 
 /**
- * The seven segments, left to right, in the route's own order (`STOP_IDS`).
+ * The route's segments, left to right, in its own order (`ROUTE_STOP_IDS`).
  *
  * IT TAKES THE ROUTE VIEW, so the bar and the discs cannot disagree. The header
  * used to count `isCharted` while the labels read `unlockedStops`, and the
  * capture that came back said "7 of 7 beacons lit" over seven stops labelled
  * "Locked" (see `DirectorMapScene.create`). One derivation, passed in.
  *
- * Matched BY STOP ID rather than by index: `routeView` returns `STOP_IDS`'
+ * Matched BY STOP ID rather than by index: `routeView` returns every stop's
  * order today, and a bar that silently depends on that is a bar that lights the
  * wrong beacon the day it does not.
  */
-export function barSegments(view: readonly StopView[] = []): BarSegment[] {
+export function barSegments(
+  view: readonly StopView[] = [],
+  order: readonly StopId[] = ROUTE_STOP_IDS,
+): BarSegment[] {
   const y = badgeBarY();
-  return STOP_IDS.map((stopId, i) => ({
+  return order.map((stopId, i) => ({
     stopId,
     x: badgeInkLeft() + i * (SEG_W + SEG_GAP),
     y,
@@ -841,7 +857,7 @@ export function mapKeepClear(): readonly KeepClearShape[] {
   const capTop = captionPlateTop();
   const starHalf = STAR_R * 2.6 + STAR_R;
 
-  for (let i = 0; i < STOP_IDS.length; i += 1) {
+  for (let i = 0; i < ROUTE_STOP_IDS.length; i += 1) {
     const x = nodeX(i);
     // The planet, measured to the dark rim the disc is drawn on, PLUS the pad:
     // a rock five pixels off Mars's limb is still crossing the map.

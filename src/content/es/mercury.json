@@ -1,0 +1,49 @@
+{
+  "stopId": "mercury",
+  "lang": "es",
+  "planetName": "Mercurio",
+  "chapterTitle": "El pequeño rápido",
+  "briefing": [
+    "Mercurio es el planeta pequeño que gira cerca del sol.",
+    "Es el más pequeño de todos, y pasa muy cerca del sol.",
+    "Mercurio no tiene aire, y el aire es lo que guarda el calor.",
+    "Por eso los días son muy calientes y las noches muy frías.",
+    "En los cráteres profundos hay hielo, porque el sol nunca los toca."
+  ],
+  "pool": [
+    "mercurio",
+    "pequeño",
+    "gira",
+    "cerca",
+    "sol",
+    "pasa",
+    "aire",
+    "guarda",
+    "calor",
+    "días",
+    "calientes",
+    "noches",
+    "frías",
+    "cráteres",
+    "profundos",
+    "hielo",
+    "nunca",
+    "brilla",
+    "chica",
+    "gris",
+    "polvo",
+    "roca",
+    "rápido",
+    "seco",
+    "hondo"
+  ],
+  "properNouns": [
+    "Mercurio"
+  ],
+  "preflightLine": "El sol está cerca y brilla mucho. Lee cada palabra despacio.",
+  "activationWord": null,
+  "warpSentence": "Mercurio es el planeta pequeño que gira cerca del sol.",
+  "beaconHeadline": "faro Mercurio",
+  "beaconState": "colocado",
+  "beaconFlavor": "La parada más chica del mapa. Su faro está encendido igual."
+}

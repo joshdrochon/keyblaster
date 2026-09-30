@@ -41,9 +41,46 @@ export interface ElementSet {
  * ±0.05 AU tolerance AC-17.1 asks for.
  *
  * Mars, Jupiter, Saturn, Uranus, Neptune and Pluto rows are likewise the
- * system barycentres, as published.
+ * system barycentres, as published. Mercury and Venus have no moons, so their
+ * rows are the planets themselves.
  */
 export const ELEMENTS: Readonly<Record<StopId, ElementSet>> = {
+  mercury: {
+    at: {
+      aAu: 0.38709927,
+      e: 0.20563593,
+      iDeg: 7.00497902,
+      lDeg: 252.2503235,
+      varPiDeg: 77.45779628,
+      omegaDeg: 48.33076593,
+    },
+    perCentury: {
+      aAu: 0.00000037,
+      e: 0.00001906,
+      iDeg: -0.00594749,
+      lDeg: 149472.67411175,
+      varPiDeg: 0.16047689,
+      omegaDeg: -0.12534081,
+    },
+  },
+  venus: {
+    at: {
+      aAu: 0.72333566,
+      e: 0.00677672,
+      iDeg: 3.39467605,
+      lDeg: 181.9790995,
+      varPiDeg: 131.60246718,
+      omegaDeg: 76.67984255,
+    },
+    perCentury: {
+      aAu: 0.0000039,
+      e: -0.00004107,
+      iDeg: -0.0007889,
+      lDeg: 58517.81538729,
+      varPiDeg: 0.00268329,
+      omegaDeg: -0.27769418,
+    },
+  },
   earth: {
     at: {
       aAu: 1.00000261,

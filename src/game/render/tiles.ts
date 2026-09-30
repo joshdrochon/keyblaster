@@ -584,6 +584,8 @@ const NASA_BELT = "https://science.nasa.gov/solar-system/asteroids/facts/";
 const NASA_SATURN = "https://science.nasa.gov/saturn/facts/";
 const NASA_URANUS = "https://science.nasa.gov/uranus/facts/";
 const NASA_NEPTUNE = "https://science.nasa.gov/neptune/neptune-facts/";
+const NASA_VENUS = "https://science.nasa.gov/venus/venus-facts/";
+const NASA_MERCURY = "https://science.nasa.gov/mercury/facts/";
 const NASA_KUIPER = "https://science.nasa.gov/solar-system/kuiper-belt/facts/";
 
 export const VEIL_BY_STOP: Readonly<Record<string, VeilSpec | null>> = {
@@ -609,6 +611,12 @@ export const VEIL_BY_STOP: Readonly<Record<string, VeilSpec | null>> = {
   // Also real: New Horizons found roughly twenty stacked haze layers at Pluto,
   // and they are blue - against a frost-white surface, which is a gift.
   pluto: { kind: "haze", what: "stacked blue haze layers", source: NASA_KUIPER, warm: false },
+  // The one stop where the veil IS the planet: an unbroken sulfuric-acid cloud
+  // deck from 45 to 70 km, which is why nobody has photographed the ground.
+  venus: { kind: "haze", what: "unbroken sulfuric-acid cloud deck", source: NASA_VENUS, warm: true },
+  // Mercury has no atmosphere to hold a veil. What the ship flies through is the
+  // circumsolar dust ring along its orbit, confirmed by STEREO in 2019.
+  mercury: { kind: "dust", what: "circumsolar dust ring along Mercury's orbit", source: NASA_MERCURY, warm: true },
 };
 
 export function veilFor(stopId: string): VeilSpec | null {

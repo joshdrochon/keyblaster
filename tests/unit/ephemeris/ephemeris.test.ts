@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { STOP_IDS } from "@engine/types.js";
+import { BONUS_STOP_IDS, ROUTE_STOP_IDS, STOP_IDS } from "@engine/types.js";
 import type { Pulsar } from "@engine/ephemeris/index.js";
 import {
   AU_LIGHT_SECONDS,
@@ -173,10 +173,20 @@ describe("element table", () => {
     expect(Object.keys(ELEMENTS).sort()).toEqual([...STOP_IDS].sort());
   });
 
-  it("has plausible semi-major axes, outward from Earth", () => {
-    const radii = STOP_IDS.map((s) => ELEMENTS[s].at.aAu);
-    expect(radii).toEqual([...radii].sort((a, b) => a - b));
-    expect(new Set(radii).size).toBe(radii.length);
+  it("has plausible semi-major axes: the ROUTE runs outward, the bonus pair inward", () => {
+    // Route order stopped being distance order at D103. The main route still
+    // walks outward from Earth; Venus and Mercury are inside Earth's orbit and
+    // sit at the END of STOP_IDS because `nextStop` and the unlock chain read
+    // that array. Anything that means DISTANCE ranks by these values instead.
+    const routeRadii = ROUTE_STOP_IDS.map((s) => ELEMENTS[s].at.aAu);
+    expect(routeRadii).toEqual([...routeRadii].sort((a, b) => a - b));
+    for (const id of BONUS_STOP_IDS) {
+      expect(ELEMENTS[id].at.aAu, `${id} should be inside Earth's orbit`).toBeLessThan(
+        ELEMENTS.earth.at.aAu,
+      );
+    }
+    const all = STOP_IDS.map((s) => ELEMENTS[s].at.aAu);
+    expect(new Set(all).size).toBe(all.length);
     expect(ELEMENTS.earth.at.aAu).toBeCloseTo(1, 4);
   });
 

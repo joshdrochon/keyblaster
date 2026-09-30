@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { STOP_IDS } from "@engine/types";
+import { ELEMENTS } from "@engine/ephemeris/elements.js";
+import { STOP_IDS, type StopId } from "@engine/types";
 import { isBrightStop, lightPositionOf, mixHex, paletteAt, skyStops } from "@game/render/palette";
 import { readFileSync } from "node:fs";
 import { deltaE, hexToLab } from "@game/flight/stage";
@@ -39,6 +40,16 @@ import {
  * (AC-22.3, `render/depth.test.ts`, the rubric's deltaE 10).
  */
 
+/**
+ * The stops ranked by DISTANCE from the sun, which is no longer route order:
+ * Venus and Mercury are bonus stops at the end of `STOP_IDS` and inside
+ * Earth's orbit. `sunScale.ts` ranks by the same ephemeris, so "smaller at
+ * every stop" is a claim about this order, not about the array's.
+ */
+const BY_DISTANCE: readonly StopId[] = [...STOP_IDS].sort(
+  (a, b) => ELEMENTS[a].at.aAu - ELEMENTS[b].at.aAu,
+);
+
 const skyTopOf = (id: (typeof STOP_IDS)[number]): string => skyStops(paletteAt(id, false))[0];
 
 const SUN_WARM = "#F6A93B";
@@ -55,15 +66,15 @@ const coreFor = (id: (typeof STOP_IDS)[number]): string => {
  */
 const radiusFor = (id: (typeof STOP_IDS)[number]): number => sunRadius(paletteAt(id, false));
 
-describe("the sun shrinks along the route and never grows", () => {
-  it("is strictly smaller at every stop than at the one before", () => {
+describe("AC-27.2: the sun shrinks along the route and never grows", () => {
+  it("is strictly smaller at every stop than at the one nearer the sun", () => {
     // `sunScale.ts` says the disc should be "smaller at every stop". Nothing
     // enforced it, because the brightness step was applied after the curve.
-    const radii = STOP_IDS.map(radiusFor);
+    const radii = BY_DISTANCE.map(radiusFor);
     for (let i = 1; i < radii.length; i += 1) {
       expect(
         radii[i]!,
-        `${STOP_IDS[i]} (${radii[i]!.toFixed(1)}) is not smaller than ${STOP_IDS[i - 1]} (${radii[i - 1]!.toFixed(1)})`,
+        `${BY_DISTANCE[i]} (${radii[i]!.toFixed(1)}) is not smaller than ${BY_DISTANCE[i - 1]} (${radii[i - 1]!.toFixed(1)})`,
       ).toBeLessThan(radii[i - 1]!);
     }
   });
@@ -149,12 +160,14 @@ describe("the disc is tellable from its own sky at every stop", () => {
  * mask the parallax to a 812 px aperture at x 1012 (0.527..0.950 of 1920), and
  * `lightPositionOf` sweeps the route across the whole frame:
  *
- *     earth 0.259  mars 0.334  jupiter 0.415  saturn 0.500
- *     uranus 0.585  neptune 0.666  pluto 0.741
+ *     earth 0.259  mars 0.314  jupiter 0.374  saturn 0.436
+ *     uranus 0.500  neptune 0.564  pluto 0.626  venus 0.686  mercury 0.741
  *
- * The four that fall left of 0.527 are exactly the four reported missing. The
- * three that happened to land inside are why it looked like a per-stop bug
- * rather than a placement rule that was never written.
+ * The ones that fall left of 0.527 are the stops reported missing. The ones
+ * that happened to land inside are why it looked like a per-stop bug rather
+ * than a placement rule that was never written. The sweep is spread over all
+ * nine stops (`lightAngleOf`), so the bonus pair pulled every route stop
+ * leftward and Uranus joined the four originally reported.
  */
 
 const bandX = lightBandX;
@@ -165,12 +178,12 @@ describe("on a windowed screen the sun is inside the glass", () => {
   const at = (id: (typeof STOP_IDS)[number]): number =>
     lightPositionOf(paletteAt(id, false)).x;
 
-  it("NEGATIVE CONTROL: the old full-frame placement missed the glass at four stops", () => {
+  it("NEGATIVE CONTROL: the old full-frame placement missed the glass at five stops", () => {
     const outside = STOP_IDS.filter((id) => {
       const cx = FRAME_W * at(id);
       return cx < WIN.x || cx > WIN.x + WIN.w;
     });
-    expect(outside).toEqual(["earth", "mars", "jupiter", "saturn"]);
+    expect(outside).toEqual(["earth", "mars", "jupiter", "saturn", "uranus"]);
   });
 
   it("every stop's disc now lands wholly within the aperture", () => {
@@ -264,12 +277,15 @@ describe("the route curve is applied exactly once (UR-160)", () => {
 });
 
 describe("the far stops are colder than the near ones (UR-162)", () => {
-  it("mixes less warmth at every step out along the route", () => {
-    const mixes = STOP_IDS.map(sunWarmthForStop);
+  it("mixes less warmth at every step further from the sun", () => {
+    // By distance, not by route order: Venus and Mercury are the two WARMEST
+    // stops in the game and they are the last two entries in `STOP_IDS`.
+    const mixes = BY_DISTANCE.map(sunWarmthForStop);
     for (let i = 1; i < mixes.length; i += 1) {
-      expect(mixes[i]!, `${STOP_IDS[i]} is not cooler than ${STOP_IDS[i - 1]}`).toBeLessThan(
-        mixes[i - 1]!,
-      );
+      expect(
+        mixes[i]!,
+        `${BY_DISTANCE[i]} is not cooler than ${BY_DISTANCE[i - 1]}`,
+      ).toBeLessThan(mixes[i - 1]!);
     }
   });
 
