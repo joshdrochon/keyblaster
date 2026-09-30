@@ -14,6 +14,9 @@ import {
   lanternDesignBox,
 } from "@game/render/lanternGeometry";
 import {
+  DOORWAY_BECKON_MS,
+  DOORWAY_BECKON_PX,
+  doorwayBeckonPx,
   CAPTION_GAP,
   CAPTION_LINES,
   CAPTION_LINE_H,
@@ -810,5 +813,53 @@ describe("UR-181: the board's lock is on the same scales as the chips'", () => {
 
   it("centres the mark on the word rather than on a number beside it", () => {
     expect(src).toMatch(/this\.panelAction\.y \+ this\.panelAction\.height \/ 2/);
+  });
+});
+
+/**
+ * UR-162. The owner could not find the way to the bonus pair: a 12x24 caret at
+ * stroke 4, beside a 4-px route line and under Earth's rim. It is bigger, it
+ * leans, and it is clickable now.
+ *
+ * The lean is a pure function rather than a tween because a tween can only be
+ * confirmed by watching it, and the tab a probe drives is hidden - its render
+ * loop never advances a frame, so nothing animates and nothing can be measured.
+ */
+describe("UR-162: the doorway beckons", () => {
+  it("never crosses back over the planet", () => {
+    for (let t = 0; t <= DOORWAY_BECKON_MS * 2; t += 17) {
+      const px = doorwayBeckonPx(t, false);
+      expect(px).toBeGreaterThanOrEqual(0);
+      expect(px).toBeLessThanOrEqual(DOORWAY_BECKON_PX);
+    }
+  });
+
+  it("actually moves, rather than sitting at one value", () => {
+    const seen = new Set<number>();
+    for (let t = 0; t < DOORWAY_BECKON_MS; t += 40) seen.add(Math.round(doorwayBeckonPx(t, false)));
+    expect(seen.size).toBeGreaterThan(3);
+  });
+
+  it("reaches both ends of its travel", () => {
+    expect(doorwayBeckonPx(0, false)).toBeCloseTo(0, 5);
+    expect(doorwayBeckonPx(DOORWAY_BECKON_MS / 2, false)).toBeCloseTo(DOORWAY_BECKON_PX, 5);
+  });
+
+  it("returns to rest, so the loop has no seam", () => {
+    expect(doorwayBeckonPx(DOORWAY_BECKON_MS, false)).toBeCloseTo(
+      doorwayBeckonPx(0, false),
+      5,
+    );
+  });
+
+  it("is still under reduced motion (D41: framing movement comes off)", () => {
+    for (let t = 0; t <= DOORWAY_BECKON_MS; t += 97) {
+      expect(doorwayBeckonPx(t, true)).toBe(0);
+    }
+  });
+
+  it("survives a junk clock rather than parking the caret at NaN", () => {
+    expect(doorwayBeckonPx(Number.NaN, false)).toBe(0);
+    expect(doorwayBeckonPx(Number.POSITIVE_INFINITY, false)).toBe(0);
   });
 });

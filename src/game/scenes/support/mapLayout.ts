@@ -891,3 +891,20 @@ export function mapKeepClear(): readonly KeepClearShape[] {
 
 /** The pad every unplated zone above carries, re-exported so a test can name it. */
 export { KEEP_CLEAR_PAD };
+
+/** How far the doorway caret leans, and how long one lean-and-back takes. */
+export const DOORWAY_BECKON_PX = 9;
+export const DOORWAY_BECKON_MS = 1640;
+
+/**
+ * The doorway's lean at `elapsedMs`, in px along its own direction of travel.
+ *
+ * Always >= 0: the caret leans the way the arrow key goes and returns, it never
+ * crosses back over the planet. D41 takes framing motion off under reduced
+ * motion, and a caret leaning at the edge of the board is framing.
+ */
+export function doorwayBeckonPx(elapsedMs: number, reducedMotion: boolean): number {
+  if (reducedMotion || !Number.isFinite(elapsedMs)) return 0;
+  const phase = (elapsedMs % DOORWAY_BECKON_MS) / DOORWAY_BECKON_MS;
+  return ((1 - Math.cos(phase * Math.PI * 2)) / 2) * DOORWAY_BECKON_PX;
+}

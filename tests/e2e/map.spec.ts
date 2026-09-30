@@ -258,3 +258,95 @@ test.describe("Director map (row 3, D13/D40)", () => {
     expectNoPunishment(after.text);
   });
 });
+
+/**
+ * UR-162: THE WAY TO THE BONUS PAIR IS A BUTTON, NOT JUST A KEY.
+ *
+ * The owner could not find the doorway - a 12x24 caret at stroke 4, beside a
+ * 4-px route line and under Earth's rim. It is 22x44 at stroke 6 now, it leans
+ * toward the edge of the board, and it takes a click.
+ *
+ * THIS TEST EXISTS BECAUSE THE UNIT SUITE CANNOT REACH IT. The lean is a pure
+ * function and is asserted there; pointer DELIVERY is not - it needs a real
+ * browser with a running render loop, and the probe tab a scripted check drives
+ * is hidden, so its loop never advances a frame and Phaser never flushes input.
+ * A hit zone that exists, is interactive, and is never reachable by a pointer
+ * would pass every other check in this repo.
+ */
+test.describe("UR-162: the doorway to the bonus pair", () => {
+  /**
+   * The doorway's hit zone, in GAME coordinates.
+   *
+   * Walks the tree rather than reading `children.list`: the caret rides the run
+   * container so it travels with the board during the slide, so its zone is
+   * nested and a top-level scan reports it missing.
+   */
+  async function doorwayBox(page: import("@playwright/test").Page) {
+    return page.evaluate(() => {
+      const kb = (window as unknown as { __kb: Record<string, unknown> }).__kb;
+      const game = kb["game"] as { scene: { getScene(k: string): unknown } };
+      const scene = game.scene.getScene("DirectorMap") as {
+        children: { list: unknown[] };
+      } | null;
+      if (scene === null) return null;
+      type Zone = {
+        name?: string;
+        width: number;
+        height: number;
+        getWorldTransformMatrix(): { tx: number; ty: number };
+      };
+      const hits: Zone[] = [];
+      const walk = (list: unknown[]): void => {
+        for (const raw of list) {
+          const o = raw as { name?: string; list?: unknown[] };
+          if (o.name === "kb-hit:doorway") hits.push(raw as Zone);
+          if (Array.isArray(o.list)) walk(o.list);
+        }
+      };
+      walk(scene.children.list);
+      const found = hits[0];
+      if (found === undefined) return null;
+      const m = found.getWorldTransformMatrix();
+      return { x: m.tx, y: m.ty, w: found.width, h: found.height };
+    });
+  }
+
+  test("is drawn once Pluto is charted, and a click opens the inner run", async ({ page }) => {
+    await mount(page, KEY, { progress: PROGRESS_VARIANTS.allSeven });
+    const opened = await snapshot(page, KEY);
+    expect(opened.mapView).toBe("route");
+
+    const box = await doorwayBox(page);
+    expect(box, "the doorway caret has no hit zone").not.toBeNull();
+    const hit = box as { x: number; y: number; w: number; h: number };
+
+    // A young player aims at the mark, so the mark is what gets clicked - the
+    // centre of the zone, converted through the canvas's measured box.
+    const rect = await gameCanvas(page).boundingBox();
+    expect(rect, "the game canvas has no box").not.toBeNull();
+    const frame = rect as { x: number; y: number; width: number; height: number };
+    const scale = frame.width / 1920;
+    await page.mouse.click(frame.x + hit.x * scale, frame.y + hit.y * scale);
+
+    await page.waitForFunction(
+      () => {
+        const kb = (window as unknown as { __kb: Record<string, unknown> }).__kb;
+        const game = kb["game"] as { scene: { getScene(k: string): unknown } };
+        const s = game.scene.getScene("DirectorMap") as { mapView?: string } | null;
+        return s?.mapView === "inner";
+      },
+      null,
+      { timeout: 15_000 },
+    );
+
+    const inner = await snapshot(page, KEY);
+    expect(inner.mapView).toBe("inner");
+  });
+
+  test("is not drawn at all while Pluto is still dark", async ({ page }) => {
+    // The caret must never offer a child mid-route a way out of Earth that
+    // does nothing when they press it.
+    await mount(page, KEY, { progress: PROGRESS_VARIANTS.midRun });
+    expect(await doorwayBox(page)).toBeNull();
+  });
+});

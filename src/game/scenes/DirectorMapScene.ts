@@ -8,6 +8,7 @@ import { ensureTextures, fillShape, starPoints } from "@game/render/textures";
 // which is where the motion tokens for chrome live.
 import { DUR, EASE as UI_EASE, INK, SKY_PLATE, SPACE, STEP, TYPE } from "@game/ui/theme";
 import { paintPlate } from "@game/ui/plate";
+import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
 import { drawHint } from "@game/ui/hintLine";
 import { paintLockGlyph } from "@game/ui/chrome";
 import { typographyOf } from "./lib/typography";
@@ -69,6 +70,7 @@ import {
   shadowAt,
   starsCentreForRight,
   type PanelBox,
+  doorwayBeckonPx,
 } from "./support/mapLayout";
 import {
   BONUS_STOP_IDS,
@@ -239,11 +241,27 @@ const INNER_ORDER: readonly StopId[] = ["earth", ...BONUS_STOP_IDS];
 const slideW = (): number => innerNodeX(INNER_STOP_IDS.indexOf("earth")) - nodeX(0);
 
 /** The doorway's caret: a mark beside Earth, outside the disc's dark rim. */
+/** The doorway's hit-zone id, so the pointer sweep can name it. */
+export const DOORWAY_FOCUS_ID = "doorway";
 const DOORWAY_GAP = STEP.tight;
-const DOORWAY_W = 12;
-const DOORWAY_H = 24;
-const DOORWAY_STROKE = 4;
-const DOORWAY_ALPHA = 0.9;
+/**
+ * UR-162: the caret was 12x24 at stroke 4, beside a 4-px route line and under
+ * Earth's own rim, and the owner could not find it. The way to the bonus pair
+ * is the only route on this board that nothing else announces, so it is the one
+ * mark that has to carry its own affordance.
+ */
+const DOORWAY_W = 22;
+const DOORWAY_H = 44;
+const DOORWAY_STROKE = 6;
+const DOORWAY_ALPHA = 0.95;
+/**
+ * Generous on purpose - a young player aims at the gap, not at the stroke -
+ * but it grows AWAY from the planet only. Earth's own hit zone starts at the
+ * disc's ring box and sits at a higher depth, so any part of the doorway that
+ * crossed it would silently fly the ship to Earth instead of opening the pair.
+ */
+const DOORWAY_HIT_W = 66;
+const DOORWAY_HIT_H = 84;
 
 const ARROW_GAP = 26;
 const ARROW_GLIMMER_ALPHA = 0.7;
@@ -270,6 +288,11 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   private layer: RunLayer | null = null;
   private mapView: MapView = "route";
   private slide: Phaser.Tweens.Tween | null = null;
+  private doorway: {
+    readonly caret: Phaser.GameObjects.Container;
+    readonly restX: number;
+    readonly dir: -1 | 1;
+  } | null = null;
   /** Everything `paintBadge` drew, so a view switch can replace it. */
   private badgeInk: Phaser.GameObjects.GameObject[] = [];
   /** The two entry points, kept because a view swap rebuilds the focus order. */
@@ -930,9 +953,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
         // The doorway has to be visible before it is pressed: a caret on the
         // side the arrow travels, drawn only once Pluto is lit, so a child
         // mid-route is never shown a way out of Earth that does nothing.
-        const caret = this.add.graphics().setDepth(NODE_DEPTH);
-        this.paintDoorway(caret, x, view === "route" ? -1 : 1);
-        container.add(caret);
+        container.add(this.buildDoorway(x, view === "route" ? -1 : 1));
       }
 
       // THE CAPTION IS THE PLANET'S NAME, ON ONE LINE, AND NOTHING ELSE.
@@ -1030,16 +1051,59 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     return { view, container, nodes, stops, routeG, glow };
   }
 
-  /** The caret beside Earth. `dir` is the way the arrow key travels. */
-  private paintDoorway(g: Phaser.GameObjects.Graphics, x: number, dir: -1 | 1): void {
-    const tipX = x + dir * (NODE_R + NODE_RIM + DOORWAY_GAP);
-    const backX = tipX - dir * DOORWAY_W;
+  /**
+   * The caret beside Earth, its beckon, and its hit area. `dir` is the way the
+   * arrow key travels.
+   *
+   * The chevron is drawn around its own origin rather than at `x` so the lean
+   * is a tween on the object; drawing it in place would mean repainting a
+   * Graphics every frame to move it nine pixels.
+   */
+  private buildDoorway(x: number, dir: -1 | 1): Phaser.GameObjects.Container {
+    // The gap is measured to the ARMS, not to the tip: the arms are the part
+    // that would otherwise sit on Earth's rim now the chevron is 22 px deep.
+    const caret = this.add.container(
+      x + dir * (NODE_R + NODE_RIM + DOORWAY_GAP + DOORWAY_W),
+      ROUTE_Y,
+    );
+    caret.setDepth(NODE_DEPTH);
+
+    const g = this.add.graphics();
     g.lineStyle(DOORWAY_STROKE, hexToNum(INK.accent), DOORWAY_ALPHA);
     g.beginPath();
-    g.moveTo(backX, ROUTE_Y - DOORWAY_H / 2);
-    g.lineTo(tipX, ROUTE_Y);
-    g.lineTo(backX, ROUTE_Y + DOORWAY_H / 2);
+    // The tip is the container's origin and the arms sit BEHIND it, i.e. away
+    // from the direction of travel: at dir -1 the point leads to the left.
+    g.moveTo(-dir * DOORWAY_W, -DOORWAY_H / 2);
+    g.lineTo(0, 0);
+    g.lineTo(-dir * DOORWAY_W, DOORWAY_H / 2);
     g.strokePath();
+
+    // The arms sit at `-dir * DOORWAY_W`; the zone hangs off that edge and runs
+    // outward, so its near edge lands exactly where the chevron ends.
+    const zone = this.add
+      .zone(dir * (DOORWAY_HIT_W / 2 - DOORWAY_W), 0, DOORWAY_HIT_W, DOORWAY_HIT_H)
+      .setName(`${HIT_ZONE_PREFIX}${DOORWAY_FOCUS_ID}`)
+      .setInteractive({ useHandCursor: true });
+    zone.on("pointerdown", () => this.pressDoorway());
+    caret.add([g, zone]);
+
+    this.doorway = { caret, restX: caret.x, dir };
+    return caret;
+  }
+
+  /**
+   * The doorway, pressed rather than typed. Same guard as the key path, so a
+   * click mid-slide or from the wrong focus does exactly what the arrow does:
+   * nothing.
+   */
+  private pressDoorway(): void {
+    if (!this.atDoorway()) {
+      const earth = this.menu.targets.findIndex((t) => t.id === "earth");
+      if (earth < 0 || this.slide !== null || !bonusUnlocked(this.story.progress)) return;
+      this.menu.focus(earth);
+    }
+    uiSoundBlip("activate");
+    this.switchView(this.mapView === "route" ? "inner" : "route");
   }
 
   /** Make `layer` the run every other part of this screen reads and draws. */
@@ -1337,7 +1401,15 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     this.parallax.update(delta);
     this.shadow.update(time);
     this.drawRoute(time);
+    this.leanDoorway(time);
     for (const node of this.nodes) this.drawBeacon(node, time);
+  }
+
+  /** UR-162: the caret leans the way the arrow key travels, then comes back. */
+  private leanDoorway(time: number): void {
+    if (this.doorway === null) return;
+    const { caret, restX, dir } = this.doorway;
+    caret.x = restX + dir * doorwayBeckonPx(time, this.story.ctx.reducedMotion);
   }
 
   /**
@@ -1449,6 +1521,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     this.input.keyboard?.off("keydown-RIGHT", this.onDoorwayOut);
     this.slide?.remove();
     this.slide = null;
+    this.doorway = null;
     this.shipTween?.remove();
     this.shipTween = null;
     this.lantern?.destroy();
