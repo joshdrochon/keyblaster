@@ -181,6 +181,7 @@ const NEPTUNE_SOURCE = "https://science.nasa.gov/neptune/neptune-facts/";
 const KUIPER_SOURCE = "https://science.nasa.gov/solar-system/kuiper-belt/facts/";
 const VENUS_SOURCE = "https://science.nasa.gov/venus/venus-facts/";
 const MERCURY_SOURCE = "https://science.nasa.gov/mercury/mercury-facts/";
+const ZOOZVE_SOURCE = "https://ssd.jpl.nasa.gov/tools/sbdb_lookup.html#/?sstr=524522";
 
 /**
  * PRD FR-12b, one entry per debris type named in the table.
@@ -463,6 +464,28 @@ export const DEBRIS_BY_STOP: Readonly<Record<StopId, readonly DebrisType[]>> = {
         variant("rego-c", PROFILE.shard, [
           { x: 0.16, y: 0.22, r: 0.18 },
           { x: -0.22, y: -0.16, r: 0.16 },
+        ]),
+      ],
+    },
+  ],
+
+  zoozve: [
+    {
+      id: "zoozve-fragment",
+      stop: "zoozve",
+      label: "fragments off a small Aten-class rock: dark, dusty, unweathered",
+      fill: "#6E6459",
+      facet: "#3C352E",
+      rim: "#D8CBB4",
+      glint: null,
+      carriesWord: true,
+      source: ZOOZVE_SOURCE,
+      variants: [
+        variant("zv-a", PROFILE.shard, [{ x: 0.2, y: -0.18, r: 0.2 }]),
+        variant("zv-b", PROFILE.lumpy, [{ x: -0.2, y: 0.18, r: 0.18 }]),
+        variant("zv-c", PROFILE.slab, [
+          { x: -0.16, y: -0.2, r: 0.18 },
+          { x: 0.2, y: 0.18, r: 0.16 },
         ]),
       ],
     },

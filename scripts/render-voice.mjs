@@ -38,6 +38,7 @@ const STOPS = [
   "pluto",
   "venus",
   "mercury",
+  "zoozve",
 ];
 
 /**

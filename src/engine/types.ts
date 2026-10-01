@@ -36,7 +36,8 @@ export type StopId =
   | "neptune"
   | "pluto"
   | "venus"
-  | "mercury";
+  | "mercury"
+  | "zoozve";
 
 export const STOP_IDS: readonly StopId[] = [
   "earth",
@@ -48,6 +49,7 @@ export const STOP_IDS: readonly StopId[] = [
   "pluto",
   "venus",
   "mercury",
+  "zoozve",
 ] as const;
 
 /** The main route: what a pilot flies before anything is a bonus. */
@@ -59,7 +61,63 @@ export const ROUTE_STOP_IDS: readonly StopId[] = STOP_IDS.slice(0, 7);
  * Earth -> Venus -> Mercury: outward-in, so the sun grows and the difficulty
  * climbs together. They unlock only once Pluto is lit.
  */
-export const BONUS_STOP_IDS: readonly StopId[] = ["venus", "mercury"];
+export const BONUS_STOP_IDS: readonly StopId[] = ["venus", "zoozve", "mercury"];
+
+/**
+ * The bonus stops that are DRAWN AS A PLANET ON THE BOARD.
+ *
+ * A stop and a node on the chart are not the same thing, and Zoozve is the
+ * first place that shows. It is a 232 m rock that shadows Venus - a
+ * quasi-satellite, not a world - so drawing it as a fourth disc in the row
+ * would put it in the same visual class as Mercury and state something untrue.
+ * It is a real stop in every other sense: it unlocks, it is flown, it has a
+ * belt, a bed and a beacon. It just hangs off Venus instead of standing on the
+ * line. See `SATELLITE_OF`.
+ */
+export const INNER_BOARD_STOP_IDS: readonly StopId[] = ["venus", "mercury"];
+
+/**
+ * Stops drawn attached to another stop rather than on the route line, and what
+ * they are attached to. Empty for every stop on the board.
+ */
+export const SATELLITE_OF: Readonly<Partial<Record<StopId, StopId>>> = Object.freeze({
+  zoozve: "venus",
+});
+
+/** The stop this one orbits, or null when it stands on the line itself. */
+export function satelliteHost(value: StopId): StopId | null {
+  return SATELLITE_OF[value] ?? null;
+}
+
+export function isSatelliteStop(value: StopId): boolean {
+  return satelliteHost(value) !== null;
+}
+
+/**
+ * The stops that come from JPL's major-planet table (D15, AC-17.1).
+ *
+ * Zoozve is a 236 m asteroid, not a planet: it has no row in Table 1, no
+ * published reference coordinates, and AC-17.1's +/-1 deg / +/-0.05 AU
+ * tolerance is a claim about that table. Every ephemeris check keys on THIS
+ * list, so adding a non-planet stop can never silently weaken a planet's bar.
+ */
+export const MAJOR_PLANET_STOP_IDS = [
+  "earth",
+  "mars",
+  "jupiter",
+  "saturn",
+  "uranus",
+  "neptune",
+  "pluto",
+  "venus",
+  "mercury",
+] as const;
+
+export type MajorPlanetStopId = (typeof MAJOR_PLANET_STOP_IDS)[number];
+
+export function isMajorPlanet(value: StopId): value is MajorPlanetStopId {
+  return (MAJOR_PLANET_STOP_IDS as readonly StopId[]).includes(value);
+}
 
 export function isBonusStop(value: StopId): boolean {
   return BONUS_STOP_IDS.includes(value);

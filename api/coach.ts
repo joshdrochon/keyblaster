@@ -211,7 +211,9 @@ export function promptPool(req: CoachRequest, budget = 34): readonly string[] {
   return out;
 }
 
-const STOPS = ["mars", "jupiter", "saturn", "uranus", "neptune", "pluto", "venus", "mercury"];
+const STOPS = [
+  "mars", "jupiter", "saturn", "uranus", "neptune", "pluto", "venus", "mercury", "zoozve",
+];
 const LANGS = ["en", "es", "hi"];
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ELEMENTS } from "@engine/ephemeris/elements.js";
-import { STOP_IDS, type StopId } from "@engine/types.js";
+import { isSatelliteStop, STOP_IDS, type StopId } from "@engine/types.js";
 import { sunScaleForStop } from "@game/render/sunScale";
 
 /**
@@ -19,9 +19,11 @@ import { sunScaleForStop } from "@game/render/sunScale";
  * END of `STOP_IDS` and INSIDE Earth's orbit, so route order stopped being
  * distance order; the disc ranks by the ephemeris and so does this file.
  */
-const BY_DISTANCE: readonly StopId[] = [...STOP_IDS].sort(
-  (a, b) => ELEMENTS[a].at.aAu - ELEMENTS[b].at.aAu,
-);
+// Satellites carry no rank of their own: Zoozve sits on Venus's orbit and
+// draws Venus's disc by construction, so a strict ladder cannot include it.
+const BY_DISTANCE: readonly StopId[] = [...STOP_IDS]
+  .filter((id) => !isSatelliteStop(id))
+  .sort((a, b) => ELEMENTS[a].at.aAu - ELEMENTS[b].at.aAu);
 
 describe("the sun shrinks as the route goes out", () => {
   it("is strictly smaller at every stop than the one nearer the sun", () => {

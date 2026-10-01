@@ -385,3 +385,74 @@ test.describe("UR-164: the inner run keeps its board", () => {
     expect((await snapshot(page, KEY)).mapView).toBe("route");
   });
 });
+
+/**
+ * UR-165: ZOOZVE IS A STOP THAT IS NOT A NODE.
+ *
+ * It is a 232 m rock that shadows Venus - a quasi-satellite, not a world - so
+ * it is drawn on a dashed loop around its host rather than as a fourth disc in
+ * the row. The split that makes that possible is `INNER_BOARD_STOP_IDS` (what
+ * is drawn on the line) against `BONUS_STOP_IDS` (what the player flies), and
+ * this is the test that stops the two silently collapsing back together.
+ */
+test.describe("UR-165: Zoozve orbits Venus rather than standing on the line", () => {
+  const FULL = ["earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto", "venus"].map(
+    (stopId) => ({
+      stopId, cleared: true, stars: 3, bestWpm: 22, bestAccuracy: 0.95,
+      lastWpm: 20, lastAccuracy: 94, beaconPlacedAt: 1,
+    }),
+  );
+
+  test("is on the inner board, off the route line, and hangs off Venus", async ({ page }) => {
+    await mount(page, KEY, { progress: FULL, stopId: "venus" });
+    const s = await snapshot(page, KEY);
+    expect(s.mapView).toBe("inner");
+
+    const nodes = await page.evaluate(() => {
+      const kb = (window as unknown as { __kb: Record<string, unknown> }).__kb;
+      const game = kb["game"] as { scene: { getScene(k: string): unknown } };
+      const scene = game.scene.getScene("DirectorMap") as {
+        nodes: { stopId: string; x: number; y: number; r: number; satellite: boolean }[];
+      };
+      return scene.nodes.map((n) => ({
+        stopId: n.stopId, x: n.x, y: n.y, r: n.r, satellite: n.satellite,
+      }));
+    });
+
+    const zoozve = nodes.find((n) => n.stopId === "zoozve");
+    const venus = nodes.find((n) => n.stopId === "venus");
+    expect(zoozve, "Zoozve is not on the inner board").toBeDefined();
+    expect(venus).toBeDefined();
+    const z = zoozve as NonNullable<typeof zoozve>;
+    const v = venus as NonNullable<typeof venus>;
+
+    // A satellite, drawn smaller than a world and OFF the route's own line.
+    expect(z.satellite).toBe(true);
+    expect(z.r).toBeLessThan(v.r);
+    expect(z.y).not.toBe(v.y);
+    // Near its host, and not overlapping it: the arms of the rock have to clear
+    // the planet's rim or the loop reads as a moon stuck to the limb.
+    const gap = Math.hypot(z.x - v.x, z.y - v.y);
+    expect(gap).toBeGreaterThan(v.r + z.r);
+    expect(gap).toBeLessThan(300);
+
+    // Every other stop is still on the line it was on.
+    for (const n of nodes.filter((x) => x.stopId !== "zoozve")) {
+      expect(n.satellite, `${n.stopId} must stay on the route line`).toBe(false);
+      expect(n.y).toBe(v.y);
+    }
+  });
+
+  test("is flyable: focusing it and pressing Enter leaves the map", async ({ page }) => {
+    await mount(page, KEY, { progress: FULL, stopId: "venus" });
+    // Walk focus onto Zoozve rather than assuming an index: it is appended
+    // after the row, so the order is a thing the test should discover.
+    for (let i = 0; i < 8; i += 1) {
+      const s = await snapshot(page, KEY);
+      if (s.focusId === "zoozve") break;
+      await page.keyboard.press("ArrowLeft");
+      await page.waitForTimeout(120);
+    }
+    expect((await snapshot(page, KEY)).focusId).toBe("zoozve");
+  });
+});

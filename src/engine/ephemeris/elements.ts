@@ -207,6 +207,48 @@ export const ELEMENTS: Readonly<Record<StopId, ElementSet>> = {
       omegaDeg: -0.01183482,
     },
   },
+
+  /**
+   * 524522 Zoozve (2002 VE68), Venus's quasi-satellite - NOT from Table 1.
+   *
+   * Every other row here is JPL's major-planet table, which has no asteroids in
+   * it. These are the osculating elements JPL's Small-Body Database returns for
+   * solution 86 at epoch JD 2461200.5, converted into this file's form:
+   *
+   *   varPi = Omega + omega                      = 226.8571405615819
+   *   L     = M + varPi at that epoch            = 155.6936047261322
+   *   L at J2000 = L - n * 9655.5 days           = 173.74782507011332
+   *   dL/century = n * 36525                     = 58489.728092997364
+   *
+   * Round-tripping that back to the JPL epoch lands within 2.5e-12 degrees.
+   *
+   * THE SHAPE ELEMENTS CARRY NO RATES, AND THAT IS A REAL LIMITATION, not an
+   * omission. Zoozve is in a 1:1 resonance with Venus, so its a/e/i/node/peri
+   * librate rather than drift linearly, and a per-century rate fitted to a
+   * resonant object would be wrong in a way a straight line cannot express.
+   * Fixed shape plus a true mean motion is honest over the span this game
+   * reads: it gives the right distance and the right place in the sky now, and
+   * it does not pretend to be a long-baseline ephemeris. AC-17.1's +/-1 deg /
+   * +/-0.05 AU tolerance is a MAJOR-PLANET claim and is not extended to it.
+   */
+  zoozve: {
+    at: {
+      aAu: 0.7235631887843501,
+      e: 0.4101013527116298,
+      iDeg: 9.037338224915954,
+      lDeg: 173.74782507011332,
+      varPiDeg: 226.8571405615819,
+      omegaDeg: 231.4572412643378,
+    },
+    perCentury: {
+      aAu: 0,
+      e: 0,
+      iDeg: 0,
+      lDeg: 58489.728092997364,
+      varPiDeg: 0,
+      omegaDeg: 0,
+    },
+  },
 };
 
 /** Julian date of the J2000.0 epoch, 2000-01-01 12:00 TT. */

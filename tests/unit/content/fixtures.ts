@@ -82,6 +82,7 @@ export const EXPECTED_STOPS: readonly StopId[] = [
   "saturn",
   "uranus",
   "venus",
+  "zoozve",
 ] as const; // alphabetical: bundlesFor() sorts by filename
 
 /**

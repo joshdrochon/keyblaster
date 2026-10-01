@@ -28,9 +28,9 @@ describe("stops (D56, D57)", () => {
   it("runs Earth outward to Pluto, then the bonus pair", () => {
     expect(STOP_IDS).toEqual([
       "earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto",
-      "venus", "mercury",
+      "venus", "mercury", "zoozve",
     ]);
-    expect(STOP_IDS).toHaveLength(9);
+    expect(STOP_IDS).toHaveLength(10);
     expect(ROUTE_STOP_IDS).toEqual([
       "earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto",
     ]);
@@ -62,7 +62,7 @@ describe("stageIndexOf", () => {
     expect(stageIndexOf("earth")).toBe(0);
   });
 
-  it("numbers the eight belt stops 1..8", () => {
+  it("numbers the nine belt stops 1..9", () => {
     expect(stageIndexOf("mars")).toBe(1);
     expect(stageIndexOf("jupiter")).toBe(2);
     expect(stageIndexOf("saturn")).toBe(3);
@@ -71,6 +71,7 @@ describe("stageIndexOf", () => {
     expect(stageIndexOf("pluto")).toBe(6);
     expect(stageIndexOf("venus")).toBe(7);
     expect(stageIndexOf("mercury")).toBe(8);
+    expect(stageIndexOf("zoozve")).toBe(9);
   });
 
   it("is strictly increasing along the route", () => {

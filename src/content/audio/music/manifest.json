@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-30T05:39:45.088Z",
+  "generatedAt": "2026-10-01T01:12:48.391Z",
   "lengthMs": 40000,
   "note": "One piece per stop. The three AC-21.2 intensity layers are derived from this same buffer at playback; generated clips cannot stack.",
   "tracks": [
@@ -42,6 +42,11 @@
       "stopId": "venus",
       "file": "venus.mp3",
       "prompt": "Instrumental background music for a children's space typing game, ages 7 to 11. veiled and heavy, beautiful and unwelcoming, a slow pressure you can hear, golden cloud with something ancient hidden under it. Sustained legato strings and a wordless airy choir pad over a slow clean synthetic pulse, wide reverb, modal and mysterious, curious rather than sad, gentle mallets carrying the melody. A simple memorable melody a child could hum. No vocals, no speech, no sudden loud hits. Steady tempo, loops seamlessly with no gap or change at the loop point."
+    },
+    {
+      "stopId": "zoozve",
+      "file": "zoozve.mp3",
+      "prompt": "Instrumental background music for a children's space typing game, ages 7 to 11. a tiny rock a long way from anything, quiet and curious rather than lonely, small and tumbling slowly in the dark with Venus somewhere close by. Sparse and weightless: a few clean bell tones with a lot of space between them, a soft low pad underneath, almost no percussion, gentle and unhurried. A simple memorable melody a child could hum. No vocals, no speech, no sudden loud hits. Steady tempo, loops seamlessly with no gap or change at the loop point."
     },
     {
       "stopId": "mercury",

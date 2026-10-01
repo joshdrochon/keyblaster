@@ -151,6 +151,10 @@ export function stopBandForStage(stage: number): LiveBand {
  */
 export function difficultyStageOf(stop: StopId): number {
   if (stop === "venus") return stageIndexOf("neptune");
+  // Zoozve sits BETWEEN them and is deliberately the easier of the three: a
+  // 232 m rock is a breath between Venus's pressure and Mercury's glare, and
+  // the inner run needs somewhere to put a dip or it is three peaks in a row.
+  if (stop === "zoozve") return stageIndexOf("uranus");
   if (stop === "mercury") return stageIndexOf("pluto");
   return stageIndexOf(stop);
 }

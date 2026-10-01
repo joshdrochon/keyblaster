@@ -105,7 +105,7 @@ describe("AC-12b.1 / AC-12b.2: the debris table is complete at every stop the ga
    *                                 have 0 word-carrying debris types, has 1"
    */
   it("AC-12b.1: every stop is either a belt stop with materials or the launchpad with none", () => {
-    expect(STOP_IDS.length, "the game's stop list is not empty").toBe(9);
+    expect(STOP_IDS.length, "the game's stop list is not empty").toBe(10);
     // Every key in the table is a real stop, and every real stop is a key.
     expect(Object.keys(DEBRIS_BY_STOP).sort()).toEqual([...STOP_IDS].sort());
 

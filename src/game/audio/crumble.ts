@@ -218,7 +218,8 @@ export type DebrisTypeId =
   | "small-kbo"
   | "venus-coorbital"
   | "mercury-crater-ray"
-  | "mercury-regolith";
+  | "mercury-regolith"
+  | "zoozve-fragment";
 
 /**
  * UR-66's MAPPING: what each debris type is made of, as far as the ear cares.
@@ -260,6 +261,7 @@ export const MATERIAL_BY_DEBRIS_TYPE: Readonly<Record<DebrisTypeId, CrumbleMater
     "venus-coorbital": "rock",
     "mercury-crater-ray": "rock",
     "mercury-regolith": "rock",
+    "zoozve-fragment": "rock",
   });
 
 /**

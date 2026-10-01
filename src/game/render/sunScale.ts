@@ -8,7 +8,7 @@
  * test could reach was a tween's existence rather than its effect.
  */
 import { ELEMENTS } from "@engine/ephemeris/elements.js";
-import { STOP_IDS, type StopId } from "@engine/types.js";
+import { STOP_IDS, isSatelliteStop, satelliteHost, type StopId } from "@engine/types.js";
 import { lightPositionOf, type StopPalette } from "./palette.js";
 
 /** The warm mix at Earth and at Pluto. Every bright stop clears deltaE 30. */
@@ -43,9 +43,19 @@ export const SUN_SHRINK_BY_PLUTO = 0.66;
  * the semi-major axis the ephemeris already carries makes the rule say what it
  * means, and it is the same numbers for a route that does run outward.
  */
-const BY_DISTANCE: readonly StopId[] = [...STOP_IDS].sort(
-  (a, b) => ELEMENTS[a].at.aAu - ELEMENTS[b].at.aAu,
-);
+/**
+ * Distance rank over the PLANETS only.
+ *
+ * A satellite shares its host's orbit - Zoozve's semi-major axis is 0.7236 AU
+ * against Venus's 0.7233 - so ranking it separately inserts a rank between two
+ * neighbours that are in the same place. That is not a rounding wobble: it
+ * moved Venus from -0.167 to -0.333 steps from Earth, which clamped its warmth
+ * to a full mix and made it exactly as warm as Mercury's. A satellite takes its
+ * host's rank, because it is at its host's distance.
+ */
+const BY_DISTANCE: readonly StopId[] = [...STOP_IDS]
+  .filter((id) => !isSatelliteStop(id))
+  .sort((a, b) => ELEMENTS[a].at.aAu - ELEMENTS[b].at.aAu);
 
 /**
  * How far out a stop is, measured in STEPS FROM EARTH along the distance rank.
@@ -58,7 +68,8 @@ const BY_DISTANCE: readonly StopId[] = [...STOP_IDS].sort(
  * bigger and warmer than Earth rather than smaller than Pluto.
  */
 function stepsFromEarth(stopId: StopId): number {
-  const here = BY_DISTANCE.indexOf(stopId);
+  const host = satelliteHost(stopId);
+  const here = BY_DISTANCE.indexOf(host ?? stopId);
   if (here < 0) return 0;
   const earth = BY_DISTANCE.indexOf("earth");
   const last = BY_DISTANCE.indexOf("pluto");

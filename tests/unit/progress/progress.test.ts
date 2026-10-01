@@ -206,12 +206,15 @@ describe("a charted stop can never be a locked stop", () => {
     );
     const view = routeView(mid);
     expect(litCount(mid)).toBe(4);
-    // The bonus pair is locked with them: it opens only once Pluto is lit.
+    // The bonus stops are locked with them: they open only once Pluto is lit.
+    // Zoozve is among them - it is a real stop that is merely drawn hanging off
+    // Venus rather than standing on the line (`SATELLITE_OF`).
     expect(view.filter((s) => s.locked).map((s) => s.stopId)).toEqual([
       "neptune",
       "pluto",
       "venus",
       "mercury",
+      "zoozve",
     ]);
     expect(view.find((s) => s.stopId === "uranus")?.locked).toBe(false);
     expect(view.find((s) => s.stopId === "uranus")?.charted).toBe(false);

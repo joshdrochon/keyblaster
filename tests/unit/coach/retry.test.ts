@@ -99,7 +99,7 @@ describe("UR-64: every stop, every template, every word", () => {
   it("has every stop to sweep and a warp break at each belt", () => {
     // The anti-vacuity row. A sweep over an empty list is green and proves
     // nothing, and this file's whole argument is its coverage.
-    expect(STOP_IDS).toHaveLength(9);
+    expect(STOP_IDS).toHaveLength(10);
     expect(WARP_STOPS).toHaveLength(BELT_STOP_IDS.length);
     for (const stopId of WARP_STOPS) {
       expect(stageBundle(stopId).pool.length).toBeGreaterThan(20);

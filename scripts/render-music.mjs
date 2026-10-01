@@ -90,6 +90,17 @@ const STOPS = [
       "carrying the melody",
   },
   {
+    id: "zoozve",
+    mood:
+      "a tiny rock a long way from anything, quiet and curious rather than lonely, " +
+      "small and tumbling slowly in the dark with Venus somewhere close by",
+    // The breath between Venus's pressure and Mercury's glare. It is the only
+    // stop that is not a world, and it should not try to sound like one.
+    voice:
+      "Sparse and weightless: a few clean bell tones with a lot of space between them, " +
+      "a soft low pad underneath, almost no percussion, gentle and unhurried",
+  },
+  {
     id: "mercury",
     mood:
       "bare, glaring and relentless, the most intense piece in the game, driving and " +

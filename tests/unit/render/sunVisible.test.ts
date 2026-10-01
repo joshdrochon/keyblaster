@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ELEMENTS } from "@engine/ephemeris/elements.js";
-import { STOP_IDS, type StopId } from "@engine/types";
+import { isSatelliteStop, STOP_IDS, type StopId } from "@engine/types";
 import { isBrightStop, lightPositionOf, mixHex, paletteAt, skyStops } from "@game/render/palette";
 import { LAYERS, PINNED_LAYERS, WORLD_SCROLL_LAYERS } from "@game/render/layers";
 import { readFileSync } from "node:fs";
@@ -47,9 +47,17 @@ import {
  * Earth's orbit. `sunScale.ts` ranks by the same ephemeris, so "smaller at
  * every stop" is a claim about this order, not about the array's.
  */
-const BY_DISTANCE: readonly StopId[] = [...STOP_IDS].sort(
-  (a, b) => ELEMENTS[a].at.aAu - ELEMENTS[b].at.aAu,
-);
+/**
+ * The ladder these two orderings assert is "further out is smaller and colder",
+ * one strict step per rank. A SATELLITE has no rank of its own - Zoozve's
+ * semi-major axis is 0.7236 AU against Venus's 0.7233, i.e. the same orbit - so
+ * it draws the same disc at the same warmth as its host by construction
+ * (`sunScale.stepsFromEarth`). Including it would demand that a body be
+ * strictly colder than something it is sitting next to.
+ */
+const BY_DISTANCE: readonly StopId[] = [...STOP_IDS]
+  .filter((id) => !isSatelliteStop(id))
+  .sort((a, b) => ELEMENTS[a].at.aAu - ELEMENTS[b].at.aAu);
 
 const skyTopOf = (id: (typeof STOP_IDS)[number]): string => skyStops(paletteAt(id, false))[0];
 

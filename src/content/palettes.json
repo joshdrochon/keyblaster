@@ -241,5 +241,32 @@
       "debris": "#B4AEA2",
       "plateAccent": "#FFD9A0"
     }
+  },
+  "zoozve": {
+    "name": "Zoozve",
+    "colors": [
+      "#434C5E",
+      "#232A38",
+      "#C8CBD2",
+      "#5A6072",
+      "#2B2F3A",
+      "#07080B"
+    ],
+    "colorRoles": {
+      "venusGlow": "#434C5E",
+      "voidSky": "#232A38",
+      "sunlitFace": "#C8CBD2",
+      "dustGrey": "#5A6072",
+      "shadowSlate": "#2B2F3A",
+      "nightVoid": "#07080B"
+    },
+    "accent": "#7FD4E8",
+    "plate": "#0E1116",
+    "plateText": "#F7FAFF",
+    "colorblind": {
+      "accent": "#FFFFFF",
+      "debris": "#B9BCC6",
+      "plateAccent": "#BFE8F4"
+    }
   }
 }

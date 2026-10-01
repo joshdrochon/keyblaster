@@ -1,4 +1,4 @@
-import type { StopId } from "@engine/types.js";
+import type { MajorPlanetStopId, StopId } from "@engine/types.js";
 
 /**
  * AC-17.1 reference ephemeris.
@@ -47,7 +47,7 @@ export interface ReferenceEpoch {
   readonly jd: number;
   /** The same instant as an ISO string, for readable test names. */
   readonly iso: string;
-  readonly bodies: Readonly<Record<StopId, ReferenceCoords>>;
+  readonly bodies: Readonly<Record<MajorPlanetStopId, ReferenceCoords>>;
 }
 
 /**
@@ -145,7 +145,7 @@ export interface PublishedOrbit {
   readonly inclinationDeg: number;
 }
 
-export const PUBLISHED_ORBITS: Readonly<Record<StopId, PublishedOrbit>> = {
+export const PUBLISHED_ORBITS: Readonly<Record<MajorPlanetStopId, PublishedOrbit>> = {
   mercury: { perihelionAu: 0.3075, aphelionAu: 0.4667, inclinationDeg: 7.004 },
   venus: { perihelionAu: 0.7184, aphelionAu: 0.7282, inclinationDeg: 3.395 },
   earth: { perihelionAu: 0.9833, aphelionAu: 1.0167, inclinationDeg: 0.0 },
@@ -182,7 +182,7 @@ export function angleDeltaDeg(a: number, b: number): number {
  * display by a tenth of a degree and passing.
  */
 export const EXPECTED_ELEMENT_TABLE: Readonly<
-  Record<StopId, { readonly at: readonly number[]; readonly perCentury: readonly number[] }>
+  Record<MajorPlanetStopId, { readonly at: readonly number[]; readonly perCentury: readonly number[] }>
 > = {
   mercury: {
     at: [0.38709927, 0.20563593, 7.00497902, 252.2503235, 77.45779628, 48.33076593],

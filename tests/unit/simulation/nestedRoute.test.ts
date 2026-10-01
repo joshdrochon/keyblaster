@@ -273,14 +273,14 @@ const CLEAN_STOPS: readonly StopId[] = ["mars", "jupiter"];
  * hole the header escalates rather than a new one.
  */
 const PINNED_STALLS: Record<string, Record<string, number>> = {
-  "fast/nesting": { mars: 0, jupiter: 1, saturn: 1, uranus: 2, neptune: 21, pluto: 37, venus: 40, mercury: 40 },
-  "fast/plain": { mars: 0, jupiter: 1, saturn: 1, uranus: 2, neptune: 27, pluto: 40, venus: 40, mercury: 40 },
-  "median/nesting": { mars: 0, jupiter: 0, saturn: 28, uranus: 30, neptune: 40, pluto: 40, venus: 40, mercury: 40 },
-  "median/plain": { mars: 0, jupiter: 0, saturn: 28, uranus: 30, neptune: 40, pluto: 40, venus: 40, mercury: 40 },
-  "slow/nesting": { mars: 0, jupiter: 0, saturn: 36, uranus: 36, neptune: 38, pluto: 40, venus: 40, mercury: 40 },
-  "slow/plain": { mars: 0, jupiter: 0, saturn: 36, uranus: 36, neptune: 39, pluto: 40, venus: 40, mercury: 40 },
-  "grade2/nesting": { mars: 0, jupiter: 1, saturn: 0, uranus: 0, neptune: 5, pluto: 1, venus: 0, mercury: 0 },
-  "grade2/plain": { mars: 0, jupiter: 1, saturn: 0, uranus: 0, neptune: 0, pluto: 1, venus: 0, mercury: 0 },
+  "fast/nesting": { mars: 0, jupiter: 1, saturn: 1, uranus: 2, neptune: 21, pluto: 37, venus: 40, mercury: 40, zoozve: 0 },
+  "fast/plain": { mars: 0, jupiter: 1, saturn: 1, uranus: 2, neptune: 27, pluto: 40, venus: 40, mercury: 40, zoozve: 1 },
+  "median/nesting": { mars: 0, jupiter: 0, saturn: 28, uranus: 30, neptune: 40, pluto: 40, venus: 40, mercury: 40, zoozve: 27 },
+  "median/plain": { mars: 0, jupiter: 0, saturn: 28, uranus: 30, neptune: 40, pluto: 40, venus: 40, mercury: 40, zoozve: 20 },
+  "slow/nesting": { mars: 0, jupiter: 0, saturn: 36, uranus: 36, neptune: 38, pluto: 40, venus: 40, mercury: 40, zoozve: 4 },
+  "slow/plain": { mars: 0, jupiter: 0, saturn: 36, uranus: 36, neptune: 39, pluto: 40, venus: 40, mercury: 40, zoozve: 3 },
+  "grade2/nesting": { mars: 0, jupiter: 1, saturn: 0, uranus: 0, neptune: 5, pluto: 1, venus: 0, mercury: 0, zoozve: 0 },
+  "grade2/plain": { mars: 0, jupiter: 1, saturn: 0, uranus: 0, neptune: 0, pluto: 1, venus: 0, mercury: 0, zoozve: 0 },
 };
 
 const pinnedStalls = (pilot: string, arm: string, stop: StopId): number =>

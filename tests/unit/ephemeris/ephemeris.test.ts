@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BONUS_STOP_IDS, ROUTE_STOP_IDS, STOP_IDS } from "@engine/types.js";
+import {
+  MAJOR_PLANET_STOP_IDS, BONUS_STOP_IDS, ROUTE_STOP_IDS, STOP_IDS } from "@engine/types.js";
 import type { Pulsar } from "@engine/ephemeris/index.js";
 import {
   AU_LIGHT_SECONDS,
@@ -155,7 +156,7 @@ describe("element table", () => {
     // The DE441 fixture proves the numbers are right; this proves they stay
     // right. Without it only Pluto's 12 fields were pinned and the other 72
     // rested entirely on the fixture's tolerance.
-    for (const stop of STOP_IDS) {
+    for (const stop of MAJOR_PLANET_STOP_IDS) {
       const expected = EXPECTED_ELEMENT_TABLE[stop];
       ELEMENT_FIELD_ORDER.forEach((field, column) => {
         expect(ELEMENTS[stop].at[field]).toBe(expected.at[column]);
@@ -372,7 +373,7 @@ describe("solveKepler", () => {
 
 describe("AC-17.1 heliocentric ecliptic coordinates", () => {
   for (const epoch of REFERENCE_EPOCHS) {
-    for (const stop of STOP_IDS) {
+    for (const stop of MAJOR_PLANET_STOP_IDS) {
       const expected = epoch.bodies[stop];
       it(`AC-17.1: ${stop} on ${epoch.iso} matches JPL DE441 within ${LAMBDA_TOLERANCE_DEG} deg / ${R_TOLERANCE_AU} AU`, () => {
         const got = heliocentricEclipticAtJd(stop, epoch.jd);
@@ -426,7 +427,7 @@ describe("AC-17.1 heliocentric ecliptic coordinates", () => {
       const jd =
         TABLE_VALID_FROM_JD +
         rand() * (TABLE_VALID_TO_JD - TABLE_VALID_FROM_JD);
-      for (const stop of STOP_IDS) {
+      for (const stop of MAJOR_PLANET_STOP_IDS) {
         const orbit = PUBLISHED_ORBITS[stop];
         const coords = heliocentricEclipticAtJd(stop, jd);
         expect(coords.rAu).toBeGreaterThan(
@@ -498,7 +499,7 @@ describe("beta sign handling", () => {
       const jd =
         TABLE_VALID_FROM_JD +
         rand() * (TABLE_VALID_TO_JD - TABLE_VALID_FROM_JD);
-      for (const stop of STOP_IDS) {
+      for (const stop of MAJOR_PLANET_STOP_IDS) {
         const coords = heliocentricEclipticAtJd(stop, jd);
         const published = PUBLISHED_ORBITS[stop].inclinationDeg;
         expect(Math.abs(coords.betaDeg)).toBeLessThanOrEqual(published + 0.05);

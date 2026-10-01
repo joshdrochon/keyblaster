@@ -16,7 +16,7 @@ import {
   LANTERN_DESIGN_HEIGHT,
   lanternDesignBox,
 } from "@game/render/lanternGeometry";
-import { BONUS_STOP_IDS, ROUTE_STOP_IDS, type StopId } from "@engine/types";
+import { INNER_BOARD_STOP_IDS, ROUTE_STOP_IDS, type StopId } from "@engine/types";
 import type { StopView } from "@engine/progress/index.js";
 
 /**
@@ -88,7 +88,7 @@ export const nodeStep = (): number => (routeX1() - ROUTE_X0) / (ROUTE_STOP_IDS.l
  * has finished sliding. Three nodes over the same span, so the inner run reads
  * as a shorter, closer hop rather than as the route redrawn.
  */
-export const INNER_STOP_IDS: readonly StopId[] = [...BONUS_STOP_IDS].reverse().concat("earth");
+export const INNER_STOP_IDS: readonly StopId[] = [...INNER_BOARD_STOP_IDS].reverse().concat("earth");
 export const innerNodeStep = (): number =>
   (routeX1() - ROUTE_X0) / (INNER_STOP_IDS.length - 1);
 export const innerNodeX = (i: number): number => ROUTE_X0 + innerNodeStep() * i;
@@ -277,6 +277,42 @@ export function nodeRingBox(
     w: halfW * 2,
     h: caption.bottom + RING_PAD - top,
   };
+}
+
+/**
+ * A satellite stop: drawn hanging off its host rather than standing on the line.
+ *
+ * Zoozve is a 232 m rock that shadows Venus. Drawn as a fourth disc in the row
+ * it would read as a fourth world, which is the one thing it is not, so it gets
+ * a small body on a dashed loop around its host instead. The loop IS the
+ * information: a quasi-satellite goes round the sun, not round the planet, and
+ * a drawn ellipse that never touches the route line says that better than a
+ * caption could.
+ */
+export const SATELLITE_R = 17;
+export const SATELLITE_ORBIT_RX = 175;
+export const SATELLITE_ORBIT_RY = 100;
+/**
+ * Up and to the left: the side the inner run travels, and clear of the host's
+ * caption and star row below it. The loop has to be WIDE - at 104x62 the rock
+ * sat on Venus's rim and its name plate crossed the disc.
+ */
+export const SATELLITE_ANGLE_DEG = 215;
+
+export function satelliteOffset(): { readonly dx: number; readonly dy: number } {
+  const t = (SATELLITE_ANGLE_DEG * Math.PI) / 180;
+  return { dx: SATELLITE_ORBIT_RX * Math.cos(t), dy: SATELLITE_ORBIT_RY * Math.sin(t) };
+}
+
+/** The focus ring for a satellite, which is not on `ROUTE_Y` and is not disc-sized. */
+export function satelliteRingBox(
+  cx: number,
+  cy: number,
+  caption: { readonly halfW: number; readonly bottom: number },
+): PanelBox {
+  const halfW = Math.max(SATELLITE_R, caption.halfW) + RING_PAD;
+  const top = cy - SATELLITE_R - RING_PAD;
+  return { x: cx - halfW, y: top, w: halfW * 2, h: caption.bottom + RING_PAD - top };
 }
 
 /** The declared caption box, for the zones and for a test with no Phaser. */

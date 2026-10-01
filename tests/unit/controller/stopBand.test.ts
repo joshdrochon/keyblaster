@@ -67,15 +67,15 @@ import { HEADROOM_SLOW_IKI_MS } from "@engine/fallTime/index.js";
 const BELTS: readonly StopId[] = BELT_STOP_IDS;
 
 describe("UR-83 / FR-10: every stop is a band of maxLive, not a value", () => {
-  it("reads something: nine stops, and a belt at every one but Earth", () => {
+  it("reads something: ten stops, and a belt at every one but Earth", () => {
     // Anti-vacuity. Every assertion below is a loop over these.
-    expect(STOP_IDS.length).toBe(9);
+    expect(STOP_IDS.length).toBe(10);
     expect(BELTS.length).toBe(STOP_IDS.length - 1);
     expect(BELTS[0]).toBe("mars");
     // Route order, so the bonus pair is at the end and Pluto is the last of
     // the MAIN route's belts rather than the last belt outright.
     expect(BELTS[ROUTE_STOP_IDS.length - 2]).toBe("pluto");
-    expect(BELTS[BELTS.length - 1]).toBe("mercury");
+    expect(BELTS[BELTS.length - 1]).toBe("zoozve");
   });
 
   it("UR-83: the band is inside FR-10's range and is never empty", () => {

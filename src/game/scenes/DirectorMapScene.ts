@@ -71,10 +71,18 @@ import {
   starsCentreForRight,
   type PanelBox,
   doorwayBeckonPx,
+  SATELLITE_R,
+  SATELLITE_ORBIT_RX,
+  SATELLITE_ORBIT_RY,
+  satelliteOffset,
+  satelliteRingBox,
 } from "./support/mapLayout";
 import {
   BONUS_STOP_IDS,
+  INNER_BOARD_STOP_IDS,
   isBonusStop,
+  isSatelliteStop,
+  satelliteHost,
   ROUTE_STOP_IDS,
   STOP_IDS,
   isBeltStop,
@@ -189,6 +197,12 @@ interface BadgeSegmentView {
 interface NodeView {
   readonly stopId: StopId;
   readonly x: number;
+  /** ROUTE_Y for a node on the line; a satellite hangs off its host (UR-165). */
+  readonly y: number;
+  /** Disc radius: a satellite is a rock, not a world, and is drawn far smaller. */
+  readonly r: number;
+  /** True when this is drawn orbiting another stop rather than standing on the line. */
+  readonly satellite: boolean;
   readonly charted: boolean;
   readonly locked: boolean;
   readonly accent: string;
@@ -231,7 +245,7 @@ interface RunLayer {
  * in the order it is handed, so the layout order would open Mercury before
  * Venus had been flown.
  */
-const INNER_ORDER: readonly StopId[] = ["earth", ...BONUS_STOP_IDS];
+const INNER_ORDER: readonly StopId[] = ["earth", ...INNER_BOARD_STOP_IDS];
 
 /**
  * The travel: the gap between Earth's two seats, so the hinge node never
@@ -1051,8 +1065,27 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
         container.add(row);
       }
 
-      nodes.push({ stopId, x, charted, locked, accent: pal.accent, beacon, caption });
+      nodes.push({
+        stopId,
+        x,
+        y: ROUTE_Y,
+        r: NODE_R,
+        satellite: false,
+        charted,
+        locked,
+        accent: pal.accent,
+        beacon,
+        caption,
+      });
     });
+
+    // The satellites, after the line is laid, because each hangs off a node
+    // that has to exist first.
+    for (const sat of routeView(progress, STOP_IDS).filter((v) => isSatelliteStop(v.stopId))) {
+      const host = nodes.find((n) => n.stopId === satelliteHost(sat.stopId));
+      if (host === undefined) continue;
+      nodes.push(this.buildSatellite(container, host, sat));
+    }
 
     // What keeps the route line under the discs and the captions over the
     // lamps, exactly as the depth-sorted display list did. See `RunLayer`.
@@ -1115,6 +1148,98 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     this.switchView(this.mapView === "route" ? "inner" : "route");
   }
 
+  /**
+   * A stop drawn ORBITING another, not standing on the line (UR-165).
+   *
+   * The dashed ellipse is the whole point. Zoozve is a quasi-satellite: it goes
+   * round the sun, not round Venus, and only LOOKS like it loops the planet
+   * from where Venus is standing. A dashed loop that never touches the route
+   * line says exactly that, where a fourth disc in the row would have said it
+   * was a fourth world.
+   */
+  private buildSatellite(
+    container: Phaser.GameObjects.Container,
+    host: NodeView,
+    view: StopView,
+  ): NodeView {
+    const { stopId, charted, locked } = view;
+    const pal = paletteAt(stopId, this.story.ctx.colorblindPalette);
+    const { dx, dy } = satelliteOffset();
+    const cx = host.x + dx;
+    const cy = host.y + dy;
+
+    const orbit = this.add.graphics().setDepth(ROUTE_DEPTH);
+    // THE LOOP IS INFORMATION, NOT A STATUS. Drawn in the stop's own accent
+    // whether or not it is locked, because what it says - this rock travels
+    // with that planet - is true before the player has ever flown it. At
+    // INK.line / 0.4 it was invisible on the chart's navy.
+    orbit.lineStyle(3, hexToNum(pal.accent), locked ? 0.55 : 0.8);
+    // Dashed by hand: Phaser's Graphics has no dash, and a solid ring would
+    // read as a drawn orbit the ship can fly rather than as a relationship.
+    const SEGMENTS = 44;
+    for (let i = 0; i < SEGMENTS; i += 2) {
+      const a0 = (i / SEGMENTS) * Math.PI * 2;
+      const a1 = ((i + 1) / SEGMENTS) * Math.PI * 2;
+      orbit.beginPath();
+      orbit.moveTo(host.x + SATELLITE_ORBIT_RX * Math.cos(a0), host.y + SATELLITE_ORBIT_RY * Math.sin(a0));
+      orbit.lineTo(host.x + SATELLITE_ORBIT_RX * Math.cos(a1), host.y + SATELLITE_ORBIT_RY * Math.sin(a1));
+      orbit.strokePath();
+    }
+
+    // NOT `fillCircle`: a 232 m rock is lumpy, and the silhouette is the one
+    // cue that says "this is not a planet" before the caption is read.
+    const body = this.add.graphics().setDepth(NODE_DEPTH);
+    const fill = locked ? INK.locked : (pal.colorRoles["sunlitFace"] ?? pal.colors[2] ?? INK.locked);
+    body.fillStyle(hexToNum(INK.bgDeep), 1);
+    body.fillCircle(cx, cy, SATELLITE_R + 4);
+    body.fillStyle(hexToNum(fill), 1);
+    body.beginPath();
+    const LOBES = 9;
+    for (let i = 0; i <= LOBES; i += 1) {
+      const a = (i / LOBES) * Math.PI * 2;
+      const wobble = SATELLITE_R * (0.78 + 0.22 * Math.sin(a * 3 + 1.1));
+      const px = cx + wobble * Math.cos(a);
+      const py = cy + wobble * Math.sin(a);
+      if (i === 0) body.moveTo(px, py);
+      else body.lineTo(px, py);
+    }
+    body.closePath();
+    body.fillPath();
+    body.lineStyle(2, hexToNum(locked ? INK.line : pal.accent), locked ? 0.7 : 0.95);
+    body.strokePath();
+
+    const beacon = this.add.graphics().setDepth(6);
+    container.add([orbit, body, beacon]);
+
+    const cap = skyText(this, cx, cy + SATELLITE_R + CAPTION_GAP, this.stopName(stopId), {
+      screen: "map",
+      id: `map.stop.${stopId}`,
+      size: TYPE.label,
+      color: locked ? INK.textDim : INK.text,
+      align: "center",
+      lang: this.story.lang,
+      depth: 7,
+      originX: 0.5,
+      padX: CAPTION_PAD_X,
+      padY: CAPTION_PAD_Y,
+    });
+    container.add([...cap.objects]);
+    const b = cap.text.getBounds();
+
+    return {
+      stopId,
+      x: cx,
+      y: cy,
+      r: SATELLITE_R,
+      satellite: true,
+      charted,
+      locked,
+      accent: pal.accent,
+      beacon,
+      caption: { halfW: b.width / 2 + CAPTION_PAD_X, bottom: b.y + b.height + CAPTION_PAD_Y },
+    };
+  }
+
   /** Make `layer` the run every other part of this screen reads and draws. */
   private adopt(layer: RunLayer): void {
     this.layer = layer;
@@ -1139,7 +1264,9 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
    */
   private stopTargets(): FocusTarget[] {
     return this.nodes.map((n, i) => {
-      const box = nodeRingBox(i, n.caption);
+      const box = n.satellite
+        ? satelliteRingBox(n.x, n.y, n.caption)
+        : nodeRingBox(i, n.caption);
       return {
         id: n.stopId,
         ...box,
@@ -1429,9 +1556,12 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   private drawRoute(time: number): void {
     const g = this.routeG;
     g.clear();
-    for (let i = 0; i < this.nodes.length - 1; i += 1) {
-      const a = this.nodes[i];
-      const b = this.nodes[i + 1];
+    // UR-165: a satellite hangs off its host and is not a point on the route,
+    // so the line steps over it rather than detouring up to it.
+    const online = this.nodes.filter((n) => !n.satellite);
+    for (let i = 0; i < online.length - 1; i += 1) {
+      const a = online[i];
+      const b = online[i + 1];
       if (a === undefined || b === undefined) continue;
       const x0 = a.x + NODE_R + 10;
       const x1 = b.x - NODE_R - 10;
@@ -1468,7 +1598,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     // Sharp attack, long decay: a lighthouse, not a sine.
     const strength = phase < 0.12 ? phase / 0.12 : Math.max(0, 1 - (phase - 0.12) / 0.88) ** 2;
     const lx = node.x;
-    const ly = ROUTE_Y - NODE_R - LAMP_RISE;
+    const ly = node.y - node.r - LAMP_RISE;
     const c = hexToNum(node.accent);
     g.lineStyle(3, c, 0.8);
     g.lineBetween(lx, ROUTE_Y - NODE_R + 14, lx, ly + 6);

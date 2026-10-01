@@ -252,6 +252,11 @@ const MEASURED: Record<string, Record<string, Pin>> = {
     venus: { stalls: 40, worstHull: 0, hitRate: 0.6817 },
     // Re-measured after D103 gave the bonus pair their own difficulty stage.
     mercury: { stalls: 40, worstHull: 0, hitRate: 0.6991 },
+    // MEASURED, like every row here, not chosen. Zoozve is deliberately the
+    // easier of the inner three (`difficultyStageOf` flies it at Uranus's
+    // stage): a 232 m rock is the breath between Venus's pressure and
+    // Mercury's glare, and the inner run needs a dip or it is three peaks.
+    zoozve: { stalls: 0, worstHull: 1, hitRate: 0.9651 },
   },
   median: {
     mars: { stalls: 0, worstHull: 0.5, hitRate: 0.9793 },
@@ -262,6 +267,7 @@ const MEASURED: Record<string, Record<string, Pin>> = {
     pluto: { stalls: 40, worstHull: 0, hitRate: 0.5958 },
     venus: { stalls: 40, worstHull: 0, hitRate: 0.5299 },
     mercury: { stalls: 40, worstHull: 0, hitRate: 0.496 },
+    zoozve: { stalls: 18, worstHull: 0, hitRate: 0.8677 },
   },
   slow: {
     mars: { stalls: 0, worstHull: 3, hitRate: 0.9845 },
@@ -272,6 +278,7 @@ const MEASURED: Record<string, Record<string, Pin>> = {
     pluto: { stalls: 40, worstHull: 0, hitRate: 0.6845 },
     venus: { stalls: 40, worstHull: 0, hitRate: 0.6211 },
     mercury: { stalls: 40, worstHull: 0, hitRate: 0.6117 },
+    zoozve: { stalls: 6, worstHull: 0, hitRate: 0.916 },
   },
   grade2: {
     mars: { stalls: 0, worstHull: 3, hitRate: 0.9901 },
@@ -285,6 +292,7 @@ const MEASURED: Record<string, Record<string, Pin>> = {
     // is the same back-of-route hole the header escalates, two stops wider.
     venus: { stalls: 0, worstHull: 3, hitRate: 0.9836 },
     mercury: { stalls: 0, worstHull: 3, hitRate: 0.9875 },
+    zoozve: { stalls: 0, worstHull: 3, hitRate: 0.9944 },
   },
 };
 

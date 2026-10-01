@@ -187,6 +187,28 @@ const BED_SEEDS: Readonly<Record<StopId, Omit<AmbientBedSpec, "stopId">>> = Obje
     // BRIGHTEST and driest in the game rather than that there is none.
     note: "no air to soften anything: the driest, brightest bed - glare, not weather",
   },
+  /**
+   * A 232 m rock has no air to move, so there is no wind here in the sense the
+   * other beds mean it. What this is instead is the ship close to a small body:
+   * a thin, high, sparse hiss off the hull with almost nothing under it. The
+   * wind layer stays well clear of UR-13's bar because it is BROADBAND, not
+   * because it is loud - this is the quietest bed in the game.
+   */
+  zoozve: {
+    droneHz: 143,
+    partials: [1, 3, 8],
+    droneLevel: 0.05,
+    filterHz: 3100,
+    windLevel: 0.55,
+    windFilterHz: 2900,
+    // 13.5 h is Zoozve's MEASURED rotation period (JPL SBDB). Scaled to a slow
+    // breath rather than used literally: a 13.5 hour cycle is not a sound.
+    shimmerHz: 0.21,
+    shimmerDepth: 0.38,
+    level: 0.22,
+    note: "close to a small tumbling rock: thin hull hiss, almost nothing under it",
+  },
+
   pluto: {
     droneHz: 41,
     partials: [1, 3, 5],

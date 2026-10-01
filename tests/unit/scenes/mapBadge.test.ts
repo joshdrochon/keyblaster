@@ -324,6 +324,7 @@ describe("the tint: each lit segment in its own stop's colour", () => {
       pluto: { normal: 11.28, colourblind: 13.15 },
       venus: { normal: 10.56, colourblind: 16.58 },
       mercury: { normal: 10.38, colourblind: 14.12 },
+      zoozve: { normal: 11.24, colourblind: 14.47 },
     });
   });
 

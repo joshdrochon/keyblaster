@@ -216,11 +216,11 @@ describe("UR-79b / AC-12.2: every stop OWNS far more words than one belt flies",
     // child can ever meet: the eight banks plus the sight list, deduped.
     const banks = EN.flatMap((b) => b.pool);
     const distinct = new Set(banks);
-    expect(banks.length, "bank slots across the eight belt stops").toBe(905);
-    expect(distinct.size, "distinct words across the eight banks").toBe(446);
-    // 675/381 over six belts before the venus/mercury pair; each new bank is
-    // 115 words like the rest. Earlier still, the same six stops carried 270
-    // slots and 178 distinct words.
+    expect(banks.length, "bank slots across the nine belt stops").toBe(1022);
+    expect(distinct.size, "distinct words across the nine banks").toBe(510);
+    // 905/446 over eight belts before Zoozve; 675/381 over six before the
+    // venus/mercury pair. Earlier still, the same six stops carried 270 slots
+    // and 178 distinct words.
     expect(distinct.size).toBeGreaterThan(178 * 2);
   });
 });
