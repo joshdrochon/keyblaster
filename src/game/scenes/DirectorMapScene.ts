@@ -74,6 +74,7 @@ import {
 } from "./support/mapLayout";
 import {
   BONUS_STOP_IDS,
+  isBonusStop,
   ROUTE_STOP_IDS,
   STOP_IDS,
   isBeltStop,
@@ -350,7 +351,11 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     this.shipLivery = undefined;
     this.shipTween = null;
     this.layer = null;
-    this.mapView = "route";
+    // UR-164: come back from Venus or Mercury and the board stays on the inner
+    // run. Returning to the main route threw away the view the player was in
+    // and made them walk back out through Earth's doorway every time.
+    this.mapView =
+      isBonusStop(this.story.stopId) && bonusUnlocked(this.story.progress) ? "inner" : "route";
     this.slide = null;
     this.chipTargets = [];
   }
@@ -402,7 +407,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     // at 3, under the mote plane the discs just left. The board is a container
     // now so the doorway at Earth can slide it; see `RunLayer`.
     this.board = this.add.container(0, 0).setDepth(ROUTE_DEPTH);
-    this.adopt(this.buildRun("route"));
+    this.adopt(this.buildRun(this.mapView));
 
     // --- the personal-best board (D43) -----------------------------------
     //
@@ -550,9 +555,13 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
         painted.destroy();
       },
     };
+    // The stop just flown, when the board opened on it (UR-164); otherwise the
+    // next one to fly, which is what the route has always opened on.
+    const cameFrom = this.nodes.findIndex((n) => n.stopId === this.story.stopId);
+    const nextToFly = this.nodes.findIndex((n) => !n.locked && !n.charted);
     const startIndex = Math.max(
       0,
-      this.nodes.findIndex((n) => !n.locked && !n.charted),
+      this.mapView === "inner" && cameFrom >= 0 ? cameFrom : nextToFly,
     );
     this.menu = createKeyboardMenu(this, ring, targets, {
       axis: "horizontal",

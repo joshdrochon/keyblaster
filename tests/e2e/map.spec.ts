@@ -350,3 +350,38 @@ test.describe("UR-162: the doorway to the bonus pair", () => {
     expect(await doorwayBox(page)).toBeNull();
   });
 });
+
+/**
+ * UR-164: COMING BACK FROM A BONUS STOP LANDS ON THE BONUS BOARD.
+ *
+ * The map rebuilt itself on the main route whatever you had just flown, so a
+ * player working through Venus and Mercury was thrown back to the Earth-to-Pluto
+ * chart after every run and had to walk out through Earth's doorway again.
+ */
+test.describe("UR-164: the inner run keeps its board", () => {
+  test("returning from Mercury opens on the inner run, focused on Mercury", async ({ page }) => {
+    await mount(page, KEY, { progress: PROGRESS_VARIANTS.allSeven, stopId: "mercury" });
+    const s = await snapshot(page, KEY);
+    expect(s.mapView).toBe("inner");
+    expect(s.focusId).toBe("mercury");
+  });
+
+  test("returning from Venus opens on the inner run, focused on Venus", async ({ page }) => {
+    await mount(page, KEY, { progress: PROGRESS_VARIANTS.allSeven, stopId: "venus" });
+    const s = await snapshot(page, KEY);
+    expect(s.mapView).toBe("inner");
+    expect(s.focusId).toBe("venus");
+  });
+
+  test("returning from a main-route stop still opens on the route", async ({ page }) => {
+    await mount(page, KEY, { progress: PROGRESS_VARIANTS.allSeven, stopId: "pluto" });
+    expect((await snapshot(page, KEY)).mapView).toBe("route");
+  });
+
+  test("a bonus stopId with the pair still locked falls back to the route", async ({ page }) => {
+    // The guard that stops a mid-route profile landing on a board it has not
+    // earned - `stopId` is data, and data can be stale or wrong.
+    await mount(page, KEY, { progress: PROGRESS_VARIANTS.midRun, stopId: "venus" });
+    expect((await snapshot(page, KEY)).mapView).toBe("route");
+  });
+});
