@@ -210,7 +210,34 @@ function roundedPoly(
  */
 export function plateRadius(rect: Rect, props: PlateProps = {}): number {
   if (props.corner === "pill") return Math.min(rect.w, rect.h) / 2;
-  return props.radius ?? SPACE.radius;
+  if (props.radius !== undefined) return props.radius;
+  // UR-175: ONE declared corner, scaled for the plates it is too big for.
+  // `SPACE.radius` is 16 and UR-201 collapsed every other radius into it, which
+  // is right for a card and nearly a pill on a 39 px caption. Capping at a
+  // quarter of the shorter side keeps one number in the file and stops a small
+  // plate rounding itself away; anything 64 px or taller is untouched.
+  return Math.min(SPACE.radius, Math.round(Math.min(rect.w, rect.h) / 4));
+}
+
+/**
+ * Stroke a plate's OUTLINE and nothing else, on the corner that plate would
+ * have been drawn with.
+ *
+ * For marking a plate that is already on screen - the Director map rings the
+ * focused stop's name plate (UR-175). It lives here rather than at the call
+ * site because `UR-69` is the rule that a scene does not draw its own rounded
+ * rect, and an outline is still a rounded rect.
+ */
+export function strokePlateOutline(
+  g: Phaser.GameObjects.Graphics,
+  rect: Rect,
+  color: number,
+  alpha: number,
+  width = 2,
+  props: PlateProps = {},
+): void {
+  g.lineStyle(width, color, alpha);
+  g.strokeRoundedRect(rect.x, rect.y, rect.w, rect.h, plateRadius(rect, props));
 }
 
 /**

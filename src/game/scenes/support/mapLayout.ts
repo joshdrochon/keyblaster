@@ -290,19 +290,33 @@ export function nodeRingBox(
  * caption could.
  */
 export const SATELLITE_R = 17;
-export const SATELLITE_ORBIT_RX = 175;
-export const SATELLITE_ORBIT_RY = 100;
+/** How far to the side of its host the satellite sits. */
+export const SATELLITE_DX = -190;
+
+/** `STAR_ROW_GAP`, but hung off a satellite's radius instead of a disc's. */
+export const SATELLITE_STAR_GAP =
+  CAPTION_GAP - CAPTION_PAD_Y + captionPlateH() + SPACE.gap + STAR_R;
+
 /**
- * Up and to the left: the side the inner run travels, and clear of the host's
- * caption and star row below it. The loop has to be WIDE - at 104x62 the rock
- * sat on Venus's rim and its name plate crossed the disc.
+ * How far ABOVE the line it sits.
+ *
+ * Derived from everything that hangs UNDER the body, not picked: the caption
+ * plate, then the star row below it, then air. A satellite is a belt stop like
+ * any other and earns a rating, and the obvious place for that row - straight
+ * under the caption - is the route rail (UR-174). So the rise clears the whole
+ * stack instead, and the lowest ink keeps the same clearance over the line that
+ * the caption had on its own.
  */
-export const SATELLITE_ANGLE_DEG = 215;
+export const SATELLITE_DY =
+  -(SATELLITE_R + SATELLITE_STAR_GAP + STAR_R + 14);
 
 export function satelliteOffset(): { readonly dx: number; readonly dy: number } {
-  const t = (SATELLITE_ANGLE_DEG * Math.PI) / 180;
-  return { dx: SATELLITE_ORBIT_RX * Math.cos(t), dy: SATELLITE_ORBIT_RY * Math.sin(t) };
+  return { dx: SATELLITE_DX, dy: SATELLITE_DY };
 }
+
+/** Where a satellite's caption lands. */
+export const satelliteCaptionY = (): number =>
+  ROUTE_Y + SATELLITE_DY + SATELLITE_R + CAPTION_GAP;
 
 /** The focus ring for a satellite, which is not on `ROUTE_Y` and is not disc-sized. */
 export function satelliteRingBox(
@@ -660,6 +674,19 @@ export const SHIP_EXHAUST = false;
  * denying it, so a later change cannot make it worse unnoticed.
  */
 export const SHIP_Y = 401;
+
+/**
+ * The air between a stop's limb and the ship, derived from `SHIP_Y` rather than
+ * restated, so the one hover height above stays the authority.
+ *
+ * UR-170: the ship only ever moved in x, so over a satellite 96 px above the
+ * line it sat ON the rock. It hovers over whatever it is visiting now, which is
+ * also what makes the trip to a satellite read as a diagonal.
+ */
+export const SHIP_LIMB_GAP = ROUTE_Y - NODE_R - SHIP_Y;
+
+export const shipYFor = (nodeY: number, nodeR: number): number =>
+  nodeY - nodeR - SHIP_LIMB_GAP;
 
 /**
  * The idle bob's amplitude, in px.

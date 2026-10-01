@@ -3770,6 +3770,9 @@ export class FlightScene extends Phaser.Scene {
       // Without this the results screen would rate a six-mark stage on a
       // three-mark curve and call a cleared belt a stall (AC-4.4, @engine/hull).
       maxHull: this.maxHull,
+      // And without THIS it calls one a stall anyway when a canister gave a
+      // mark back, because `hullHits` is cumulative (UR-176).
+      cleared: this.stageComplete,
     };
   }
 

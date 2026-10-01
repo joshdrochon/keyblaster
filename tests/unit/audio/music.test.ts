@@ -8,6 +8,7 @@ import {
   MUSIC_LAYER_COUNT,
   MusicBus,
   intensityIndex,
+  intensityIndexFrom,
   intensityPressure,
   layerGainsDuringChange,
   layerTargetGains,
@@ -322,5 +323,68 @@ describe("UR-10: an intensity change never steps a layer gain", () => {
     music.setIndex(0);
     for (let f = 0; f < 200; f++) music.advance(FRAME_MS);
     expect(gainsOf(music).map((v) => +v.toFixed(5))).toEqual(layerTargetGains(0).map((v) => +v.toFixed(5)));
+  });
+});
+
+/**
+ * UR-168: the owner heard Mercury's music fading in and out.
+ *
+ * The index was a bare threshold, and a bare threshold pumps. Mercury's belt
+ * band is 5-7 live rocks, so pressure runs 5 to 12 astride the 8: a combo break
+ * dropped it by up to 5, flipped index 2 to 1, and faded the drive layer out
+ * over 1.4 s - then the streak rebuilt and it faded back in.
+ */
+describe("UR-168: intensity does not pump on a broken combo", () => {
+  it("steps UP on the bare threshold, with no delay", () => {
+    // Busy is busy. Only the way down pays the deadband.
+    expect(intensityIndexFrom(8, 0, 0)).toBe(2);
+    expect(intensityIndexFrom(4, 0, 0)).toBe(1);
+  });
+
+  it("holds its index when a full combo breaks at Mercury's band", () => {
+    // 7 live rocks and a 10 combo is pressure 12, index 2. The streak breaks:
+    // 7 rocks alone is 7, which is under the 8 but inside the deadband.
+    expect(intensityIndexFrom(7, 10, 0)).toBe(2);
+    expect(intensityIndexFrom(7, 0, 2)).toBe(2);
+    // Without hysteresis the same input stepped down, which is the defect.
+    expect(intensityIndex(7, 0)).toBe(1);
+  });
+
+  it("still steps down on a real lull, not just a lost streak", () => {
+    expect(intensityIndexFrom(5, 0, 2)).toBe(1);
+    expect(intensityIndexFrom(1, 0, 1)).toBe(0);
+  });
+
+  it("never sticks: every index is reachable in both directions", () => {
+    let i = intensityIndexFrom(0, 0, 0);
+    expect(i).toBe(0);
+    i = intensityIndexFrom(12, 10, i);
+    expect(i).toBe(2);
+    i = intensityIndexFrom(0, 0, i);
+    expect(i).toBe(0);
+  });
+
+  it("is monotone in pressure at any held index", () => {
+    for (const held of [0, 1, 2]) {
+      let prev = -1;
+      for (let live = 0; live <= 20; live += 1) {
+        const got = intensityIndexFrom(live, 0, held);
+        expect(got, `held=${held} live=${live} went backwards`).toBeGreaterThanOrEqual(prev);
+        prev = got;
+      }
+    }
+  });
+
+  it("a lost streak never alone steps Mercury's belt down", () => {
+    // The claim the owner's report reduces to. Above the band FLOOR the rocks
+    // alone hold the index, so missing a word cannot cross a threshold.
+    for (let live = 6; live <= 7; live += 1) {
+      for (let combo = 0; combo <= 10; combo += 1) {
+        expect(intensityIndexFrom(live, combo, 2), `live=${live} combo=${combo}`).toBe(2);
+      }
+    }
+    // AT the floor with nothing blasted it still steps down, and should: five
+    // rocks and no streak is a lull, not a broken combo.
+    expect(intensityIndexFrom(5, 0, 2)).toBe(1);
   });
 });

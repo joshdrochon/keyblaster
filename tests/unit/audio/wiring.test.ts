@@ -26,6 +26,7 @@ import { DUCK_DB as DUCK_ATTACK_DB } from "../../../src/game/audio/voice.js";
 import { seededRandom, dbToGain } from "../../../src/game/audio/context.js";
 import { SFX_EVENTS, GENTLE_LIMITS, pitchDirectionOf } from "../../../src/game/audio/sfx.js";
 import {
+  intensityIndexFrom,
   MAX_INTENSITY_INDEX,
   intensityIndex,
   type MusicTrackCatalog,
@@ -340,9 +341,16 @@ describe("D75: the pitched keystroke layer follows the same cue stream", () => {
 describe("AC-21.2: music intensity is driven by the live HUD snapshot", () => {
   it("the index the bus reaches is the one the pure function names", () => {
     const { audio, channel } = harness();
+    // UR-168 made the index PATH-DEPENDENT: stepping down pays a deadband so a
+    // broken combo cannot pump the drive layer. So the rule it is checked
+    // against is `intensityIndexFrom` carrying the running index, not the
+    // stateless `intensityIndex` - the bus is still doing exactly what the pure
+    // function says, the function just takes one more argument now.
+    let expected = 0;
     for (const [live, combo] of [[0, 0], [5, 0], [9, 6], [2, 1]] as const) {
       channel.emit(HUD_EVENT, { liveCount: live, combo });
-      expect(audio.graph.music.index).toBe(intensityIndex(live, combo));
+      expected = intensityIndexFrom(live, combo, expected);
+      expect(audio.graph.music.index).toBe(expected);
     }
     const snap = audio.snapshot();
     expect(snap.hudSamples).toBe(4);

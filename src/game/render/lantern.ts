@@ -254,6 +254,14 @@ export interface LanternRig {
   /** 0..1. The iris opens on fire (AC-24.1). */
   setIris(open: number): void;
   /**
+   * Stop the idle bob where it stands, for the length of a move. Restarting it
+   * at a new base SNAPS the rig there, so a caller that is about to tween must
+   * hold it first or the travel begins with a jump.
+   */
+  holdHover(): void;
+  /** Breathe around `y` again, and resume. Pairs with `holdHover`. */
+  rebaseHover(y: number): void;
+  /**
    * Pulse the lens, so a shot leaves FROM somewhere (UR-116).
    *
    * The owner, watching Flight: the beam read as coming out of nothing. It
@@ -487,17 +495,25 @@ export function drawLantern(
     ease: "Sine.easeInOut",
   });
 
-  if (options.idleBob ?? true) {
-    // Art direction section 5: gentle 2 px bob on a 3 s sine.
-    scene.tweens.add({
+  // The bob's base, so a caller that MOVES the rig can take it with them. It
+  // was baked into the tween's from/to, which pinned the rig at its
+  // construction height forever: the Director map's ship tweened its y to a
+  // satellite and the bob wrote it straight back (UR-170).
+  let bobBase = y;
+  let bob: Phaser.Tweens.Tween | null = null;
+  const startBob = (): void => {
+    bob?.remove();
+    bob = scene.tweens.add({
       targets: rig,
-      y: { from: y - 2, to: y + 2 },
+      y: { from: bobBase - 2, to: bobBase + 2 },
       duration: reducedMotion ? 3000 : 1500,
       yoyo: true,
       repeat: -1,
       ease: "Sine.easeInOut",
     });
-  }
+  };
+  // Art direction section 5: gentle 2 px bob on a 3 s sine.
+  if (options.idleBob ?? true) startBob();
 
   let irisOpen = options.iris ?? 0.72;
 
@@ -519,6 +535,14 @@ export function drawLantern(
 
   return {
     container: rig,
+    holdHover(): void {
+      bob?.remove();
+      bob = null;
+    },
+    rebaseHover(next: number): void {
+      bobBase = next;
+      if (options.idleBob ?? true) startBob();
+    },
     emitterMount,
     iris,
     exhaust,

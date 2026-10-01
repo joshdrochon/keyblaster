@@ -14,6 +14,13 @@ import {
   lanternDesignBox,
 } from "@game/render/lanternGeometry";
 import {
+  SATELLITE_R,
+  SATELLITE_STAR_GAP,
+  SHIP_LIMB_GAP,
+  satelliteOffset,
+  satelliteCaptionY,
+  satelliteRingBox,
+  shipYFor,
   DOORWAY_BECKON_MS,
   DOORWAY_BECKON_PX,
   doorwayBeckonPx,
@@ -269,10 +276,14 @@ describe("UR-53: the Lantern hovers above the current planet", () => {
       resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/render/lantern.ts"),
       "utf8",
     );
-    const m = /y: \{ from: y - (\d+(?:\.\d+)?), to: y \+ (\d+(?:\.\d+)?) \}/.exec(src);
+    // The BASE is an identifier now, not the literal `y`: UR-170 made the bob
+    // rebasable so a ship that flies to a satellite is not dragged back to the
+    // route line. The amplitude is what this guard is about, and it is still
+    // read out of the source rather than trusted.
+    const m = /y: \{ from: (\w+) - (\d+(?:\.\d+)?), to: \1 \+ (\d+(?:\.\d+)?) \}/.exec(src);
     expect(m?.[1], "lantern.ts no longer bobs an idle rig this way").toBeDefined();
-    expect(Number(m?.[1])).toBe(SHIP_BOB);
     expect(Number(m?.[2])).toBe(SHIP_BOB);
+    expect(Number(m?.[3])).toBe(SHIP_BOB);
   });
 
   it("nothing else about the ship moved", () => {
@@ -861,5 +872,98 @@ describe("UR-162: the doorway beckons", () => {
   it("survives a junk clock rather than parking the caret at NaN", () => {
     expect(doorwayBeckonPx(Number.NaN, false)).toBe(0);
     expect(doorwayBeckonPx(Number.POSITIVE_INFINITY, false)).toBe(0);
+  });
+});
+
+/**
+ * UR-165/169/170/171: THE SATELLITE'S GEOMETRY.
+ *
+ * Zoozve is the first stop that is not a point on the route line, and four
+ * separate things assumed every stop was: the caption baseline, the selection
+ * glow, the beacon lamp and the ship's hover. Each was found by eye, one
+ * screenshot at a time. The numbers live here so the next one is not.
+ */
+describe("UR-165: a satellite hangs off its host, clear of the rail", () => {
+  const { dx, dy } = satelliteOffset();
+
+  it("sits ABOVE the line, to the side of its host", () => {
+    expect(dy).toBeLessThan(0);
+    expect(dx).toBeLessThan(0);
+  });
+
+  it("clears its host's disc, so the two never touch", () => {
+    // Centre-to-centre against both radii and the host's rim.
+    const gap = Math.hypot(dx, dy);
+    expect(gap).toBeGreaterThan(NODE_R + NODE_RIM + SATELLITE_R);
+  });
+
+  it("is drawn far smaller than any world", () => {
+    expect(SATELLITE_R).toBeLessThan(NODE_R / 2);
+  });
+
+  it("keeps its whole caption plate off the route line", () => {
+    // THE DEFECT THIS PINS: the first version put the name plate across the
+    // rail. The rise is derived from the plate, so the two cannot drift apart.
+    const plateTop = satelliteCaptionY() - CAPTION_PAD_Y;
+    const plateBottom = plateTop + captionPlateH();
+    expect(plateBottom).toBeLessThan(ROUTE_Y);
+    // And with real air, not by a pixel.
+    expect(ROUTE_Y - plateBottom).toBeGreaterThanOrEqual(10);
+  });
+
+  it("its focus ring wraps the body AND the caption", () => {
+    const cx = 900;
+    const cy = ROUTE_Y + dy;
+    const caption = { halfW: 54, bottom: satelliteCaptionY() + captionPlateH() };
+    const box = satelliteRingBox(cx, cy, caption);
+    expect(box.y).toBeLessThanOrEqual(cy - SATELLITE_R);
+    expect(box.y + box.h).toBeGreaterThanOrEqual(caption.bottom);
+    expect(box.x).toBeLessThanOrEqual(cx - SATELLITE_R);
+    expect(box.x + box.w).toBeGreaterThanOrEqual(cx + SATELLITE_R);
+  });
+});
+
+describe("UR-170: the ship hovers over whatever it is visiting", () => {
+  it("is unchanged over a planet: the shipped hover height", () => {
+    expect(shipYFor(ROUTE_Y, NODE_R)).toBe(SHIP_Y);
+  });
+
+  it("rides higher over a satellite, by exactly the satellite's rise", () => {
+    const { dy } = satelliteOffset();
+    const overSatellite = shipYFor(ROUTE_Y + dy, SATELLITE_R);
+    expect(overSatellite).toBeLessThan(SHIP_Y);
+    // Same air under the hull at either stop - that is what makes it one ship
+    // visiting two kinds of place rather than two hover rules.
+    expect(ROUTE_Y + dy - SATELLITE_R - overSatellite).toBe(SHIP_LIMB_GAP);
+  });
+
+  it("never lands on the body it is visiting", () => {
+    for (const [y, r] of [[ROUTE_Y, NODE_R], [ROUTE_Y + satelliteOffset().dy, SATELLITE_R]] as const) {
+      expect(shipYFor(y, r)).toBeLessThan(y - r);
+    }
+  });
+});
+
+/**
+ * UR-174: a satellite earns a star rating, and the obvious place for it is the
+ * route rail. The rise clears the whole stack instead.
+ */
+describe("UR-174: the satellite's star row clears the line too", () => {
+  it("hangs the row under the caption, not through it", () => {
+    const capBottom = satelliteCaptionY() - CAPTION_PAD_Y + captionPlateH();
+    const starTop = ROUTE_Y + satelliteOffset().dy + SATELLITE_STAR_GAP - STAR_R;
+    expect(starTop).toBeGreaterThanOrEqual(capBottom);
+  });
+
+  it("keeps the LOWEST ink off the rail, with the same air the caption had", () => {
+    const starBottom = ROUTE_Y + satelliteOffset().dy + SATELLITE_STAR_GAP + STAR_R;
+    expect(starBottom).toBeLessThan(ROUTE_Y);
+    expect(ROUTE_Y - starBottom).toBeGreaterThanOrEqual(10);
+  });
+
+  it("is the lowest thing hanging off a satellite, so nothing is under it", () => {
+    const starBottom = ROUTE_Y + satelliteOffset().dy + SATELLITE_STAR_GAP + STAR_R;
+    const capBottom = satelliteCaptionY() - CAPTION_PAD_Y + captionPlateH();
+    expect(starBottom).toBeGreaterThan(capBottom);
   });
 });

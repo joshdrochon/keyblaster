@@ -12,6 +12,7 @@ import {
   transitions,
 } from "./story-lane";
 import { DESIGN_WIDTH } from "../../src/game/sceneKeys.js";
+import { STOP_IDS } from "../../src/engine/types.js";
 import {
   checkWord,
   createAllowlist,
@@ -88,10 +89,11 @@ const allowlistFor = (b: Bundle) =>
 // ---------------------------------------------------------------------------
 
 test.describe("Stage bundles (AC-12.2, AC-12.3, AC-13.2, AC-25.3)", () => {
-  test("AC-12.2 all seven stops ship a bundle and every belt stop has all five parts", () => {
-    expect(BUNDLES.map((b) => b.stopId).sort()).toEqual([
-      "earth", "jupiter", "mars", "neptune", "pluto", "saturn", "uranus",
-    ]);
+  test("AC-12.2 every stop ships a bundle and every belt stop has all five parts", () => {
+    // The MAIN ROUTE's seven, plus the bonus stops. This read seven flat and so
+    // went red the moment D103 added Venus and Mercury; it is keyed on the
+    // engine's own list now, which cannot fall behind it again.
+    expect(BUNDLES.map((b) => b.stopId).sort()).toEqual([...STOP_IDS].sort());
     for (const b of BELT) {
       expect(b.briefing.length, `${b.stopId} briefing length`).toBeGreaterThanOrEqual(3);
       expect(b.briefing.length, `${b.stopId} briefing length`).toBeLessThanOrEqual(5);

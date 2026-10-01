@@ -157,6 +157,26 @@ export const INTENSITY_WEIGHTS = Object.freeze({
 export const INTENSITY_THRESHOLDS: readonly number[] = [4, 8];
 
 /**
+ * How far pressure must FALL below a threshold before the index steps back down
+ * (UR-168).
+ *
+ * Without it the index is a bare threshold, and a bare threshold pumps. Mercury
+ * flies a band of 5-7 live rocks, so its pressure runs 5 to 12 and sits astride
+ * the 8: every combo break drops it by up to 5, flips index 2 to 1, and fades
+ * the DRIVE layer out over `INTENSITY_RAMP_MS`; the combo rebuilds and it fades
+ * back in. The owner heard it as the music fading in and out.
+ *
+ * Pluto flies the identical band and flips just as often. It is inaudible there
+ * because drive is a 2400 Hz highpass and Pluto's track has almost nothing up
+ * there - Mercury's re-rendered track is 14x brighter-edged than any other, so
+ * it is the one stop where that layer carries enough to be missed.
+ *
+ * 2 is half a full combo's worth of pressure: a single broken streak no longer
+ * steps the music down, a real lull still does.
+ */
+export const INTENSITY_HYSTERESIS = 2;
+
+/**
  * Musical pressure from the live state. Exposed because it is the interesting
  * number: `intensityIndex` is just this against two thresholds, and testing the
  * two separately is what keeps the thresholds tunable without rewriting tests.
@@ -173,6 +193,30 @@ export function intensityPressure(liveAsteroids: number, combo: number): number 
  * because a non-monotone intensity curve is the bug you cannot hear in a demo
  * and cannot stop hearing in a long session.
  */
+/**
+ * The index with hysteresis, given where it already is.
+ *
+ * Still pure: the current index is an ARGUMENT, not state, so the whole rule is
+ * testable without a bus. Stepping UP uses the plain threshold - intensity
+ * should answer immediately when a belt gets busy - and only stepping DOWN
+ * pays the deadband.
+ */
+export function intensityIndexFrom(
+  liveAsteroids: number,
+  combo: number,
+  currentIndex: number,
+): number {
+  const pressure = intensityPressure(liveAsteroids, combo);
+  const current = clamp(Math.floor(currentIndex), 0, MAX_INTENSITY_INDEX);
+  let index = 0;
+  for (const [i, threshold] of INTENSITY_THRESHOLDS.entries()) {
+    const step = i + 1;
+    const bar = step <= current ? threshold - INTENSITY_HYSTERESIS : threshold;
+    if (pressure >= bar) index = step;
+  }
+  return clamp(index, 0, MAX_INTENSITY_INDEX);
+}
+
 export function intensityIndex(liveAsteroids: number, combo: number): number {
   const pressure = intensityPressure(liveAsteroids, combo);
   let index = 0;
@@ -576,7 +620,7 @@ export class MusicBus {
    * call it every frame.
    */
   setFromState(liveAsteroids: number, combo: number, rampMs = INTENSITY_RAMP_MS): number {
-    const next = intensityIndex(liveAsteroids, combo);
+    const next = intensityIndexFrom(liveAsteroids, combo, this.currentIndex);
     this.setIndex(next, rampMs);
     return next;
   }

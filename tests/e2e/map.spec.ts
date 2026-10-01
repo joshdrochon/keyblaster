@@ -146,8 +146,12 @@ test.describe("Director map (row 3, D13/D40)", () => {
   test("D40 entry points to the Beacon Log and Settings live here", async ({ page }) => {
     await mount(page, KEY, { progress: PROGRESS_VARIANTS.midRun });
     const s = await snapshot(page, KEY);
+    // The ID is still `beaconLog` - D40's entry point did not move. Only its
+    // LABEL did: UR-198 (51b7ffb, 24 Sep) renamed it to Trophies and this line
+    // was never updated, so it has been red ever since. The chip is read by its
+    // shipped string rather than by a restated one.
     expect(s["entryPoints"]).toEqual(["beaconLog", "settings"]);
-    expect(s.text.join(" ").toLowerCase()).toContain("beacon log");
+    expect(s.text.join(" ").toLowerCase()).toContain("trophies");
     expect(s.text.join(" ").toLowerCase()).toContain("settings");
   });
 
@@ -454,5 +458,143 @@ test.describe("UR-165: Zoozve orbits Venus rather than standing on the line", ()
       await page.waitForTimeout(120);
     }
     expect((await snapshot(page, KEY)).focusId).toBe("zoozve");
+  });
+});
+
+/**
+ * UR-166: ZOOZVE WAS LOCKED, SO IT TOOK NO CLICK AND NO HAND CURSOR.
+ *
+ * Two orders were wrong at once. The board derived `locked` from `INNER_ORDER`
+ * (Earth, Venus, Mercury), which has no Zoozve in it, so Mercury opened the
+ * moment Venus was cleared. The satellite derived its own from `STOP_IDS`,
+ * whose tail is venus, mercury, zoozve, so Zoozve needed MERCURY cleared. A
+ * locked focus target gets `useHandCursor: false` and its `pointerdown`
+ * returns before `activate`, which is why "not clickable" and "no pointer
+ * cursor" were the same defect.
+ */
+test.describe("UR-166: the inner run unlocks in the order it is flown", () => {
+  const cleared = (ids: readonly string[]) =>
+    ids.map((stopId) => ({
+      stopId, cleared: true, stars: 3, bestWpm: 22, bestAccuracy: 0.95,
+      lastWpm: 20, lastAccuracy: 94, beaconPlacedAt: 1,
+    }));
+  const ROUTE = ["earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto"];
+
+  async function lockState(page: import("@playwright/test").Page) {
+    return page.evaluate(() => {
+      const kb = (window as unknown as { __kb: Record<string, unknown> }).__kb;
+      const game = kb["game"] as { scene: { getScene(k: string): unknown } };
+      const scene = game.scene.getScene("DirectorMap") as {
+        nodes: { stopId: string; locked: boolean }[];
+      };
+      return Object.fromEntries(scene.nodes.map((n) => [n.stopId, n.locked]));
+    });
+  }
+
+  test("Venus open, Zoozve and Mercury shut, before any bonus stop is flown", async ({ page }) => {
+    await mount(page, KEY, { progress: cleared(ROUTE), stopId: "earth" });
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForTimeout(600);
+    const locks = await lockState(page);
+    expect(locks["venus"]).toBe(false);
+    expect(locks["zoozve"], "Zoozve must not open before Venus is flown").toBe(true);
+    expect(locks["mercury"], "Mercury must not skip Zoozve").toBe(true);
+  });
+
+  test("flying Venus opens Zoozve, and Zoozve still gates Mercury", async ({ page }) => {
+    await mount(page, KEY, { progress: cleared([...ROUTE, "venus"]), stopId: "venus" });
+    const locks = await lockState(page);
+    expect(locks["zoozve"], "Venus is flown, so Zoozve is open").toBe(false);
+    expect(locks["mercury"], "Mercury waits on Zoozve").toBe(true);
+  });
+
+  test("flying Zoozve opens Mercury", async ({ page }) => {
+    await mount(page, KEY, { progress: cleared([...ROUTE, "venus", "zoozve"]), stopId: "zoozve" });
+    const locks = await lockState(page);
+    expect(locks["mercury"]).toBe(false);
+  });
+
+  test("an open Zoozve is a real pointer target, not just a drawing", async ({ page }) => {
+    await mount(page, KEY, { progress: cleared([...ROUTE, "venus"]), stopId: "venus" });
+    const zone = await page.evaluate(() => {
+      const kb = (window as unknown as { __kb: Record<string, unknown> }).__kb;
+      const game = kb["game"] as { scene: { getScene(k: string): unknown } };
+      const scene = game.scene.getScene("DirectorMap") as { children: { list: unknown[] } };
+      type Z = { name?: string; input?: { cursor?: string } | null; list?: unknown[] };
+      let found: Z | null = null;
+      const walk = (list: unknown[]): void => {
+        for (const raw of list) {
+          const o = raw as Z;
+          if (o.name === "kb-hit:zoozve") found = o;
+          if (Array.isArray(o.list)) walk(o.list);
+        }
+      };
+      walk(scene.children.list);
+      const f = found as Z | null;
+      return f === null ? null : { interactive: f.input != null, cursor: f.input?.cursor ?? "" };
+    });
+    expect(zone, "Zoozve has no hit zone at all").not.toBeNull();
+    const z = zone as NonNullable<typeof zone>;
+    expect(z.interactive).toBe(true);
+    // The hand cursor IS the affordance the owner noticed was missing.
+    expect(z.cursor).toBe("pointer");
+  });
+});
+
+/**
+ * UR-167: a satellite is a STOP, not just a drawing.
+ *
+ * Two things read a stop and found nothing where Zoozve should have been. The
+ * detail panel reads `layer.stops`, which had been filtered to what is drawn on
+ * the LINE, so `find(zoozve)` was undefined and its `?? true` reported a
+ * cleared stop as "Locked". The beacon lamp was struck with a planet's radii
+ * off `ROUTE_Y`, so on a 17 px rock the halo was twice the body and the stem
+ * ran through it.
+ */
+test.describe("UR-167: the satellite reads as a stop everywhere", () => {
+  const cleared = (ids: readonly string[]) =>
+    ids.map((stopId) => ({
+      stopId, cleared: true, stars: 3, bestWpm: 22, bestAccuracy: 0.95,
+      lastWpm: 20, lastAccuracy: 94, beaconPlacedAt: 1,
+    }));
+  const ROUTE = ["earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto"];
+
+  test("a cleared Zoozve offers the flight, it does not report Locked", async ({ page }) => {
+    await mount(page, KEY, {
+      progress: cleared([...ROUTE, "venus", "zoozve"]),
+      stopId: "zoozve",
+    });
+    const s = await snapshot(page, KEY);
+    const screen = s.text.join(" ");
+    expect(screen).toContain("Zoozve");
+    expect(screen.toLowerCase(), "a cleared stop must not read as locked").not.toContain("locked");
+  });
+
+  test("it is counted among the inner beacons once lit", async ({ page }) => {
+    await mount(page, KEY, { progress: cleared([...ROUTE, "venus", "zoozve"]), stopId: "zoozve" });
+    const s = await snapshot(page, KEY);
+    // Three bonus stops, two of them lit.
+    const badge = s.badge as { segments: { lit: boolean }[] } | null;
+    expect(badge, "the inner run has no badge").not.toBeNull();
+    const segments = (badge as { segments: { lit: boolean }[] }).segments;
+    expect(segments.length).toBe(3);
+    expect(segments.filter((x) => x.lit).length).toBe(2);
+  });
+
+  test("its lamp is drawn to its own size, not a planet's", async ({ page }) => {
+    await mount(page, KEY, { progress: cleared([...ROUTE, "venus", "zoozve"]), stopId: "zoozve" });
+    const sizes = await page.evaluate(() => {
+      const kb = (window as unknown as { __kb: Record<string, unknown> }).__kb;
+      const game = kb["game"] as { scene: { getScene(k: string): unknown } };
+      const scene = game.scene.getScene("DirectorMap") as {
+        nodes: { stopId: string; r: number; y: number }[];
+      };
+      return Object.fromEntries(scene.nodes.map((n) => [n.stopId, { r: n.r, y: n.y }]));
+    });
+    // The lamp rides `node.r`, so asserting the radius is asserting the lamp.
+    const z = sizes["zoozve"] as { r: number; y: number };
+    const v = sizes["venus"] as { r: number; y: number };
+    expect(z.r).toBeLessThan(v.r / 2);
+    expect(z.y).toBeLessThan(v.y);
   });
 });
