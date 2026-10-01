@@ -585,14 +585,20 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
         painted.destroy();
       },
     };
-    // The stop just flown, when the board opened on it (UR-164); otherwise the
-    // next one to fly, which is what the route has always opened on.
-    const cameFrom = this.nodes.findIndex((n) => n.stopId === this.story.stopId);
+    // THE NEXT STOP TO FLY, on both boards (UR-177).
+    //
+    // UR-164 kept the inner run's BOARD on screen when you come back from a
+    // bonus stop, which was right, and also moved the focus onto the stop you
+    // had just flown, which was not: the route has always advanced to the next
+    // one, and the inner run quietly stopped doing it. Finishing Venus now
+    // lands on Zoozve, the way finishing Mars lands on Jupiter.
+    //
+    // The stop just flown is only the fallback, for when there is no next one -
+    // the run is complete and standing on the last place you were is better
+    // than snapping to index 0.
     const nextToFly = this.nodes.findIndex((n) => !n.locked && !n.charted);
-    const startIndex = Math.max(
-      0,
-      this.mapView === "inner" && cameFrom >= 0 ? cameFrom : nextToFly,
-    );
+    const cameFrom = this.nodes.findIndex((n) => n.stopId === this.story.stopId);
+    const startIndex = Math.max(0, nextToFly >= 0 ? nextToFly : cameFrom);
     this.menu = createKeyboardMenu(this, ring, targets, {
       axis: "horizontal",
       startIndex: startIndex === -1 ? 0 : startIndex,

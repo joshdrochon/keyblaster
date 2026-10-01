@@ -598,3 +598,51 @@ test.describe("UR-167: the satellite reads as a stop everywhere", () => {
     expect(z.y).toBeLessThan(v.y);
   });
 });
+
+/**
+ * UR-177: finishing a stop lands on the NEXT one, on both boards.
+ *
+ * The route has always opened on the first unlocked, uncharted stop. UR-164
+ * kept the inner run's board on screen when you come back from a bonus stop -
+ * right - and moved focus onto the stop just flown - wrong. The owner noticed
+ * the two boards behaving differently.
+ */
+test.describe("UR-177: the map advances to the next stop", () => {
+  const cleared = (ids: readonly string[]) =>
+    ids.map((stopId) => ({
+      stopId, cleared: true, stars: 3, bestWpm: 22, bestAccuracy: 0.95,
+      lastWpm: 20, lastAccuracy: 94, beaconPlacedAt: 1,
+    }));
+  const ROUTE = ["earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto"];
+
+  test("the ROUTE lands on the next stop, which is the behaviour being matched", async ({ page }) => {
+    await mount(page, KEY, { progress: cleared(["earth", "mars"]), stopId: "mars" });
+    expect((await snapshot(page, KEY)).focusId).toBe("jupiter");
+  });
+
+  test("finishing Venus lands on Zoozve, not back on Venus", async ({ page }) => {
+    await mount(page, KEY, { progress: cleared([...ROUTE, "venus"]), stopId: "venus" });
+    const s = await snapshot(page, KEY);
+    expect(s.mapView, "the inner board still stays put (UR-164)").toBe("inner");
+    expect(s.focusId).toBe("zoozve");
+  });
+
+  test("finishing Zoozve lands on Mercury", async ({ page }) => {
+    await mount(page, KEY, { progress: cleared([...ROUTE, "venus", "zoozve"]), stopId: "zoozve" });
+    const s = await snapshot(page, KEY);
+    expect(s.mapView).toBe("inner");
+    expect(s.focusId).toBe("mercury");
+  });
+
+  test("with the inner run finished it holds the last stop rather than snapping away", async ({
+    page,
+  }) => {
+    await mount(page, KEY, {
+      progress: cleared([...ROUTE, "venus", "zoozve", "mercury"]),
+      stopId: "mercury",
+    });
+    const s = await snapshot(page, KEY);
+    expect(s.mapView).toBe("inner");
+    expect(s.focusId).toBe("mercury");
+  });
+});
