@@ -4,6 +4,8 @@ import {
   findHardcodedStrings,
   scanSource,
 } from "@engine/i18n/index.js";
+import { UI_TABLES } from "@game/ui/strings";
+import { LANGS, STOP_IDS } from "@engine/types.js";
 
 /**
  * AC-14.3 fixtures.
@@ -361,5 +363,26 @@ describe(`AC-14.3: the ${HARDCODED_IGNORE_MARKER} escape hatch`, () => {
   it("exempts every line a multi-line block comment spans", () => {
     const source = `/* i18n-ignore\n*/ this.hud.setText("score");`;
     expect(findHardcodedStrings(source)).toEqual([]);
+  });
+});
+
+/**
+ * UR-178: the profile picker rendered the raw key `ui.stop.zoozve` as a pilot's
+ * furthest beacon. Adding a stop means adding its NAME, in every language, and
+ * nothing was asserting that.
+ */
+describe("UR-178: every stop has a display name in every language", () => {
+  it("names every stop, in every UI language", () => {
+    for (const lang of LANGS) {
+      for (const stop of STOP_IDS) {
+        const key = `ui.stop.${stop}`;
+        const table = UI_TABLES[lang] as Record<string, string>;
+        const value = table[key];
+        expect(typeof value, `${lang} has no ${key}`).toBe("string");
+        expect((value as string).length, `${lang}/${key} is empty`).toBeGreaterThan(0);
+        // The defect was the KEY leaking to screen as its own value.
+        expect(value, `${lang}/${key} renders its own key`).not.toContain("ui.stop.");
+      }
+    }
   });
 });
