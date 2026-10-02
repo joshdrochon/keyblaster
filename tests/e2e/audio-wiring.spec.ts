@@ -32,6 +32,7 @@
  */
 
 import { expect, test, type Page } from "@playwright/test";
+import { STOP_IDS } from "@engine/types.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { missingEvidenceFields } from "./lib/evidenceCompleteness.js";
 import { join, resolve } from "node:path";
@@ -1040,7 +1041,7 @@ test("UR-91 / AC-21.4: the briefing's reveal really sounds, and really ducks the
 });
 
 test("AC-19.1: the settings volume sliders move the live bus gains", async ({ page }) => {
-  await bootReal(page, "?scene=Settings");
+  await bootReal(page, "?scene=Settings&scope=device&returnTo=Title");
   await page.waitForFunction(
     () =>
       document.querySelector(
@@ -1234,7 +1235,11 @@ test("E-MUSIC-1 / UR-12: a real boot fetches the stop's composed track and plays
   // A build that shipped no files would report an empty list here and fall back
   // to the synthesised layers, which is a DIFFERENT state and not this one.
   expect(s.musicTrackIds).toContain("earth");
-  expect(s.musicTrackIds.length).toBe(7);
+  // One per stop, and there are ten: the seven of the main route plus the
+  // inner run's Venus, Zoozve and Mercury (D103, D104, D107). Counted off
+  // STOP_IDS rather than frozen at seven, so the next stop to ship moves this
+  // number by existing instead of by somebody remembering to edit it.
+  expect(s.musicTrackIds.length).toBe(STOP_IDS.length);
 
   // The bytes really came off the server.
   const earth = musicRequests.filter((r) => /earth/.test(r.url));

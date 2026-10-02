@@ -96,6 +96,25 @@ export default defineConfig({
    * Playwright's CPU/2 default. Slower, and it means something.
    */
   workers: Number(process.env["PW_WORKERS"] ?? 3),
+  /**
+   * THE BUDGET IS THE HARNESS'S, NOT THE PRODUCT'S.
+   *
+   * Playwright's default is 30 s. A test here drives the game through REAL key
+   * presses, and `settings.spec` measured one protocol round trip at 0.5-1.1 s
+   * against a software-rendered WebGL game - so a lap of a console, or typing a
+   * name and committing it, spends most of a 30 s budget on round trips before
+   * the first assertion. The failures that produced are `keyboard.press` and
+   * `locator.waitFor` running out mid-test, which read in a report exactly like
+   * a control that stopped answering and are nothing of the kind: the same
+   * tests pass alone and fail in a full run, and the failing SET moves between
+   * runs.
+   *
+   * Raised rather than sprinkling `test.slow()` over the specs that happened to
+   * trip first, because nothing about the assertions changes - they just get
+   * enough clock to finish. A genuinely hung test now takes 90 s to say so,
+   * which is cheap against a suite that already runs for an hour.
+   */
+  timeout: 90_000,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: [

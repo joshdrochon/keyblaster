@@ -191,9 +191,10 @@ test.describe("UR-49: a theme is a skin", () => {
     const shared = [...a.keys()].filter((k) => b.has(k));
 
     expect(fresh.rows.length, "the Title registers its sky-borne text").toBeGreaterThan(0);
-    expect(shared.length, `rows drawn at both stops: ${shared.join(", ")}`).toBeGreaterThanOrEqual(
-      3,
-    );
+    expect(
+      shared.length,
+      `shared: ${shared.join(", ")} | fresh: ${[...a.keys()].join(", ")} | themed: ${[...b.keys()].join(", ")}`,
+    ).toBeGreaterThanOrEqual(3);
 
     const drifted = shared
       .map((k) => ({ row: a.get(k) as Row, other: b.get(k) as Row }))
