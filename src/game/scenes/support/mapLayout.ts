@@ -238,6 +238,38 @@ export const GLOW_ALPHA = 0.30;
 export const GLOW_ALPHA_LOCKED = 0.24;
 
 // ---------------------------------------------------------------------------
+// Saturn's ring
+// ---------------------------------------------------------------------------
+
+/**
+ * Saturn's ring on the map board.
+ *
+ * IT STAYS INSIDE THE HALO. Selecting a node paints `GLOW_RINGS` soft rings
+ * reaching `GLOW_REACH` past the disc. A ring drawn outside that lands a hard
+ * ellipse just beyond a soft halo and reads as two rings - the defect recorded
+ * above the badge note, which cost three bugs on the Title. So the semi-major
+ * axis is held under `NODE_R + GLOW_REACH` and asserted in its test.
+ */
+export const RING_RX = NODE_R * 1.7;
+export const RING_RY = NODE_R * 0.4;
+/** Radians. Off-horizontal so the ring reads as a disc in perspective. */
+export const RING_TILT = -0.24;
+export const RING_WIDTH = 3;
+/**
+ * The inner band, as a fraction of the outer. Two bands read as a ring system;
+ * one reads as a hoop. Both are inside `RING_RX`, so the outer edge is the
+ * bound checked above rather than something a second band can exceed.
+ */
+export const RING_INNER = 0.82;
+
+/** The furthest the ring reaches from the node's centre, at any angle. */
+export function ringReachPx(): number {
+  const c = Math.cos(RING_TILT);
+  const s = Math.sin(RING_TILT);
+  return Math.hypot(RING_RX * c, RING_RX * s);
+}
+
+// ---------------------------------------------------------------------------
 // The focus ring's box
 // ---------------------------------------------------------------------------
 

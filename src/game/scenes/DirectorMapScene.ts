@@ -43,6 +43,11 @@ import {
   NODE_DEPTH,
   NODE_R,
   NODE_RIM,
+  RING_INNER,
+  RING_RX,
+  RING_RY,
+  RING_TILT,
+  RING_WIDTH,
   PANEL_PAD,
   PANEL_STAR_R,
   INNER_STOP_IDS,
@@ -1022,6 +1027,20 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       const shade = locked ? INK.panelSunken : (pal.colors[pal.colors.length - 1] ?? INK.bgDeep);
       disc.fillStyle(hexToNum(INK.bgDeep), 1);
       disc.fillCircle(x, ROUTE_Y, NODE_R + NODE_RIM);
+      // SATURN'S RING, BACK HALF FIRST. The far side of the ring passes BEHIND
+      // the planet, so it is stroked before the body is filled and the front
+      // half is stroked after - which is the whole reason this is two calls and
+      // not one `strokeEllipse`. Without it the ring reads as a hoop laid over
+      // a sticker rather than a disc the planet sits in.
+      const ringInk =
+        locked
+          ? INK.line
+          : (pal.colors[0] ?? pal.colorRoles["atmosphere"] ?? INK.line);
+      // NOT THE ACCENT. The accent is the focus language on this board and a
+      // node does not paint itself in it (see the badge note in mapLayout).
+      if (stopId === "saturn") {
+        drawRingArc(disc, x, ROUTE_Y, ringInk, locked, false);
+      }
       disc.fillStyle(hexToNum(body), 1);
       disc.fillCircle(x, ROUTE_Y, NODE_R);
       // Offset + radius stays under 1.0 so the night side cannot spill past
@@ -1030,6 +1049,9 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       disc.fillCircle(x + NODE_R * 0.22, ROUTE_Y + NODE_R * 0.2, NODE_R * 0.66);
       disc.lineStyle(3, hexToNum(locked ? INK.line : pal.accent), locked ? 0.7 : 0.95);
       disc.strokeCircle(x, ROUTE_Y, NODE_R);
+      if (stopId === "saturn") {
+        drawRingArc(disc, x, ROUTE_Y, ringInk, locked, true);
+      }
 
       const beacon = this.add.graphics().setDepth(6);
       container.add([disc, beacon]);
@@ -1795,3 +1817,39 @@ export const MAP_GEOMETRY = {
   },
   SPACE,
 };
+
+/**
+ * One half of Saturn's ring, as a stroked elliptical arc.
+ *
+ * Phaser's Graphics has `strokeEllipse` but no elliptical ARC, so the curve is
+ * sampled by hand. `front` picks the near half - the one drawn over the planet
+ * - by walking the half of the ellipse whose points fall below the centre once
+ * the tilt is applied.
+ */
+function drawRingArc(
+  g: Phaser.GameObjects.Graphics,
+  cx: number,
+  cy: number,
+  ink: string,
+  locked: boolean,
+  front: boolean,
+): void {
+  const STEPS = 48;
+  const cos = Math.cos(RING_TILT);
+  const sin = Math.sin(RING_TILT);
+  const start = front ? 0 : Math.PI;
+  for (const scale of [1, RING_INNER]) {
+    g.lineStyle(RING_WIDTH * (scale === 1 ? 1 : 0.7), hexToNum(ink), locked ? 0.4 : 0.8);
+    g.beginPath();
+    for (let i = 0; i <= STEPS; i += 1) {
+      const a = start + (i / STEPS) * Math.PI;
+      const ex = Math.cos(a) * RING_RX * scale;
+      const ey = Math.sin(a) * RING_RY * scale;
+      const px = cx + ex * cos - ey * sin;
+      const py = cy + ex * sin + ey * cos;
+      if (i === 0) g.moveTo(px, py);
+      else g.lineTo(px, py);
+    }
+    g.strokePath();
+  }
+}
