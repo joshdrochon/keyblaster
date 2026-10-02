@@ -32,10 +32,49 @@ import {
 
 const SETTINGS = "Settings";
 
+/**
+ * HOW MANY ROWS A HALF OF THE CONSOLE HAS (D108).
+ *
+ * This spec was written against ONE console carrying every setting, and its
+ * count bars said ">= 10" with the comment "this row has eleven controls".
+ * D108 split it: the machine's six (`DEVICE_ROW_IDS`) and the pilot's, of which
+ * five are drawn because UR-132 keeps the hull off the console. So a bar of ten
+ * could not be met by either half and all fourteen of these failed on it.
+ *
+ * Stated per scope rather than relaxed to a number both halves clear, so losing
+ * a row from either one still fails. Mirrors `SettingsScene.DEVICE_ROW_IDS` and
+ * `PILOT_ROW_IDS`; `tests/e2e/settings-scope.spec.ts` owns which ids they are.
+ */
+const DEVICE_ROWS = 5;
+
+/**
+ * Six are declared in `DEVICE_ROW_IDS`; five are drawn. `settings.uiLang` is
+ * built only `if (SHIPPED_LANGS.length > 1)` and D95 ships `["en"]`, so a
+ * selector with one choice - arrows that move nothing - is suppressed rather
+ * than deleted and returns when the list grows. Measured, not assumed:
+ * music, sfx, keyboardLayout, reducedMotion, colorblind.
+ */
+
 /** Move to a control and nudge it, which is how every row here is operated. */
 async function adjust(page: any, id: string, key: string, times = 1) {
   await focusItem(page, SETTINGS, id);
   await press(page, key, times);
+}
+
+/**
+ * WAIT FOR THE SCREEN TO COME BACK, BECAUSE SOME ROWS TEAR IT DOWN.
+ *
+ * `reducedMotion` and `colorblind` go through `applyAndRestart`, so turning one
+ * destroys the scene and builds a new one. A walk that reads the next row
+ * straight after lands in the gap and waits out the whole timeout - which is
+ * what the four 30s and 90s failures in this file were, not a control that
+ * stopped answering. On the machine's half those two rows are fourth and
+ * fifth of five, so the restart now falls MID-walk where it used to fall at
+ * the end of a longer list and hit nothing.
+ */
+async function settle(page: any, id: string) {
+  await screen(page, SETTINGS).waitFor({ state: "attached" });
+  await item(page, SETTINGS, id).waitFor({ state: "attached" });
 }
 
 test.describe("row 11 - settings", () => {
@@ -81,7 +120,7 @@ test.describe("row 11 - settings", () => {
 
     // Every row is reachable: walking the list returns to where it started.
     const count = await items(page, SETTINGS).count();
-    expect(count).toBeGreaterThanOrEqual(10);
+    expect(count).toBe(DEVICE_ROWS);
     await press(page, "ArrowDown", count);
     await assertVisibleFocus(page, SETTINGS);
   });
@@ -104,7 +143,7 @@ test.describe("row 11 - settings", () => {
     const ids = await items(page, SETTINGS).evaluateAll((nodes) =>
       nodes.map((n) => n.getAttribute("data-id") ?? ""),
     );
-    expect(ids.length).toBeGreaterThanOrEqual(10);
+    expect(ids.length).toBe(DEVICE_ROWS);
 
     /**
      * The whole focus state in ONE round trip.
@@ -156,18 +195,29 @@ test.describe("row 11 - settings", () => {
     page,
   }) => {
     test.slow();
-    await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device");
+    // REACHED THE WAY THE GAME REACHES IT. `applyAndRestart` restarts this
+    // scene with `returnTo` and `focus` and NO scope, so the half is recomputed
+    // from `returnTo` - and `reducedMotion` and `colorblind` are both restart
+    // rows. Booting with `scope=device` against a map `returnTo` is a
+    // combination the game never makes (Title passes device, Pause passes
+    // pilot, and both already agree with the default), so the screen came back
+    // as the pilot's half mid-walk and the device row never reattached.
+    await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device&returnTo=Title");
     // Ids are re-read after each change: the typography rows restart the scene.
     const adjustable = await items(page, SETTINGS).evaluateAll((nodes) =>
       nodes
         .filter((n) => n.getAttribute("role") !== "button")
         .map((n) => n.getAttribute("data-id") ?? ""),
     );
-    expect(adjustable.length).toBeGreaterThanOrEqual(9);
+    // Every device row is adjustable: the only non-adjustable row in the old
+    // single console was `resetProgress`, which is on the pilot's half now.
+    expect(adjustable.length).toBe(DEVICE_ROWS);
 
     for (const id of adjustable) {
+      await settle(page, id);
       const before = await item(page, SETTINGS, id).getAttribute("data-value");
       await adjust(page, id, "ArrowRight");
+      await settle(page, id);
       const after = await item(page, SETTINGS, id).getAttribute("data-value");
       // A row whose only choice is the one it is on cannot change - the two
       // language rows ship one language (D95) - but it must still be REACHED
@@ -182,7 +232,15 @@ test.describe("row 11 - settings", () => {
   test("UR-11 a knob reaches both ends and NEVER wraps round", async ({ page }) => {
     // The failure a rotary control invites and the pill slider could not have:
     // one press too many at full volume putting the music back to silent.
-    test.slow();
+    //
+    // ITS OWN CLOCK, BECAUSE THE PRESSES ARE THE TEST. Twenty-nine real key
+    // presses - to the stop, past it, to the other stop, past that - and the
+    // note at the top of this file measures a protocol round trip at 0.5-1.1 s
+    // on a loaded box, so `test.slow()`'s 90 s is not enough on a bad day and
+    // this timed out mid-press rather than failing an assertion. Driving the
+    // value directly instead would delete what is being checked: that the
+    // thirteenth press at full volume does not wrap to silent.
+    test.setTimeout(180_000);
     await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device");
     const music = item(page, SETTINGS, "settings.music");
 
@@ -208,15 +266,23 @@ test.describe("row 11 - settings", () => {
     // seven-year-old cannot read is worse than the slider it replaced. Every
     // control keeps a printed value, and a switch keeps the WORD - so the lamp
     // is never the only thing carrying the state (D41: not colour alone).
-    await seed(page, [{ name: "Ana" }], SETTINGS);
-    const rows = await items(page, SETTINGS).evaluateAll((nodes) =>
-      nodes.map((n) => ({
-        id: n.getAttribute("data-id") ?? "",
-        role: n.getAttribute("role") ?? "",
-        value: n.getAttribute("data-value"),
-        text: n.textContent ?? "",
-      })),
-    );
+    // EVERY control, which after D108 means both halves of the console - the
+    // volume knobs and the two switches named below are the MACHINE's, and the
+    // letter rows are the pilot's. Read off one screen this found whichever
+    // rows that screen happened to carry and reported `undefined` for the rest.
+    await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device");
+    const rowsOn = async (scope: string) => {
+      await open(page, SETTINGS, `&scope=${scope}`);
+      return items(page, SETTINGS).evaluateAll((nodes) =>
+        nodes.map((n) => ({
+          id: n.getAttribute("data-id") ?? "",
+          role: n.getAttribute("role") ?? "",
+          value: n.getAttribute("data-value"),
+          text: n.textContent ?? "",
+        })),
+      );
+    };
+    const rows = [...(await rowsOn("device")), ...(await rowsOn("pilot"))];
     for (const row of rows) {
       if (row.role === "button") continue;
       expect(row.value, `${row.id} has no printed value`).toBeTruthy();
@@ -311,8 +377,12 @@ test.describe("row 11 - settings", () => {
     // will fail loudly the day SHIPPED_LANGS grows - which is when the
     // live-reskin assertions below should be restored.
     await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device");
+    // D108 NAMED THE TWO HALVES. The console used to be one screen headed for
+    // the SHIP; it is two now, and the machine's half is named for nobody -
+    // `ui.settings.headingDevice`, "Game Settings" - because it is settable
+    // with no pilot chosen, which is the whole point of the split.
     const heading = screen(page, SETTINGS).locator('[data-testid="ui-heading"]');
-    await expect(heading).toContainText("ship controls", { ignoreCase: true });
+    await expect(heading).toContainText("game settings", { ignoreCase: true });
 
     // UR-185: with SHIPPED_LANGS at ["en"] the row is not drawn at all - a
     // selector with one choice is arrows that move nothing. The cut is still
@@ -326,7 +396,7 @@ test.describe("row 11 - settings", () => {
     expect(ids, "the one-choice language row is drawn again").not.toContain(
       "settings.uiLang",
     );
-    await expect(heading).toContainText("ship controls", { ignoreCase: true });
+    await expect(heading).toContainText("game settings", { ignoreCase: true });
   });
 
   test("the two rows that could not change anything are GONE from the screen", async ({
@@ -347,11 +417,25 @@ test.describe("row 11 - settings", () => {
     // its input-method RULE by `tests/unit/i18n/shippedLangs.test.ts` over all
     // three languages, and its stored-pair REPAIR by the test directly below,
     // which still runs on the real screen.
-    await seed(page, [{ name: "Ana" }], SETTINGS);
+    // BOTH HALVES, BECAUSE "GONE FROM THE SCREEN" IS A CLAIM ABOUT THE WHOLE
+    // CONSOLE (D108). A removed row that only left the half this test happened
+    // to open is not removed. The rows that must still be present are each
+    // checked on the half that owns them.
+    // ONE SEED, THEN ONE NAVIGATION PER HALF. `seed` writes through the real
+    // store and reloads, so it costs two page boots; the pilot is in storage
+    // after the first, and `open` is a single goto. Paying a full seed per
+    // half is what pushed this file past its 30 s budget.
+    await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device");
+    const rowsOn = async (scope: string): Promise<string[]> => {
+      await open(page, SETTINGS, `&scope=${scope}`);
+      return items(page, SETTINGS).evaluateAll((nodes) =>
+        nodes.map((n) => n.getAttribute("data-id") ?? ""),
+      );
+    };
+    const device = await rowsOn("device");
+    const pilot = await rowsOn("pilot");
+    const ids = [...device, ...pilot];
 
-    const ids = await items(page, SETTINGS).evaluateAll((nodes) =>
-      nodes.map((n) => n.getAttribute("data-id") ?? ""),
-    );
     expect(ids, "a removed row is still on the panel").not.toContain(
       "settings.contentLang",
     );
@@ -360,12 +444,12 @@ test.describe("row 11 - settings", () => {
     );
     // `keyboardLayout` reaches the lock machine and is untouched. `uiLang` has
     // readers throughout but is HIDDEN while one language ships (UR-185), so
-    // the panel is one row shorter than the save is.
-    expect(ids).toContain("settings.keyboardLayout");
-    expect(ids).not.toContain("settings.uiLang");
-    // And the two new rows are here and operable.
-    expect(ids).toContain("settings.dashColor");
-    expect(ids).toContain("settings.avatar");
+    // the panel is one row shorter than the save is. Both are the machine's.
+    expect(device).toContain("settings.keyboardLayout");
+    expect(device).not.toContain("settings.uiLang");
+    // And the two new rows are here and operable. Both are the pilot's.
+    expect(pilot).toContain("settings.dashColor");
+    expect(pilot).toContain("settings.avatar");
   });
 
   test("AC-14.1 an untypeable stored pair is repaired when Settings opens", async ({
@@ -387,11 +471,15 @@ test.describe("row 11 - settings", () => {
     const heading = screen(page, SETTINGS).locator('[data-testid="ui-heading"]');
     // D41: lowercase is the default.
     expect((await settings(page))["uppercase"]).toBe(false);
-    await expect(heading).toHaveText("ship controls", { ignoreCase: true });
+    // The PILOT's half is headed for whoever is flying (D108,
+    // `ui.settings.headingPilot`), where it used to be headed for the ship.
+    // What this test is actually about is unchanged: the case setting redraws
+    // the copy, so the same heading is asserted twice in two cases.
+    await expect(heading).toHaveText("Ana's Controls", { ignoreCase: true });
 
     await adjust(page, "settings.letterCase", "ArrowRight");
     expect((await settings(page))["uppercase"]).toBe(true);
-    await expect(heading).toHaveText("SHIP CONTROLS");
+    await expect(heading).toHaveText("ANA'S CONTROLS");
   });
 
   test("AC-19.1 increased letter spacing persists and widens the type", async ({
@@ -467,8 +555,15 @@ test.describe("row 11 - settings", () => {
     // Two of these three restart the scene in place before the next one is
     // touched, which costs a frame each at headless frame rates.
     test.slow();
+    // ONE SETTING FROM THE PILOT'S HALF AND TWO FROM THE MACHINE'S (D108).
+    // What this test is about is the SAVE, not one screen: all three have to
+    // come back after a reload, and after the split no single screen carries
+    // all three. The device pair is set from the half the Title opens, so the
+    // scope survives `applyAndRestart` - see the walk test above.
     await seed(page, [{ name: "Ana" }], SETTINGS);
     await adjust(page, "settings.letterCase", "ArrowRight");
+
+    await open(page, SETTINGS, "&scope=device&returnTo=Title");
     await adjust(page, "settings.reducedMotion", "ArrowRight");
     await adjust(page, "settings.keyboardLayout", "ArrowRight", 2);
     await page.waitForTimeout(150);
