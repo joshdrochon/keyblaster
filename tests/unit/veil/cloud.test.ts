@@ -25,35 +25,42 @@ describe("AC-27.5: the cloud never hides what the player needs", () => {
     }
   });
 
-  it("never veils the letter being typed", () => {
+  it("keeps the head of the word clear, at every typed count", () => {
     for (let typed = 0; typed <= 12; typed += 1) {
-      expect(isVeiled(typed, typed, W), `the next letter at typed=${typed}`).toBe(false);
-    }
-  });
-
-  it("keeps CLEAR_AHEAD more letters clear beyond it", () => {
-    for (let typed = 0; typed <= 12; typed += 1) {
-      for (let k = 1; k <= CLEAR_AHEAD; k += 1) {
-        expect(isVeiled(typed + k, typed, W), `typed=${typed} +${k}`).toBe(false);
+      for (let i = 0; i <= CLEAR_AHEAD; i += 1) {
+        expect(isVeiled(i, typed, W), `typed=${typed} i=${i}`).toBe(false);
       }
     }
   });
 
-  it("recedes as the word is typed, never advances", () => {
-    let previous = -1;
+  it("DOES NOT MOVE as the word is typed, which is the whole change", () => {
+    // The owner read a travelling band as the letters shifting: every keystroke
+    // turned one letter white->accent AND one grey->white. The boundary is
+    // fixed at the head of the word now, so the only colour change per
+    // keystroke is the accent one the game had before D109.
+    const first = veilFrom(0, W);
     for (let typed = 0; typed <= 12; typed += 1) {
-      const from = veilFrom(typed, W);
-      expect(from, "the cloud moved backwards").toBeGreaterThan(previous);
-      previous = from;
+      expect(veilFrom(typed, W), `the cloud moved at typed=${typed}`).toBe(first);
     }
   });
 
   it("clears entirely by the time the word is finished", () => {
     for (const length of [2, 3, 5, 8]) {
-      const from = veilFrom(length, W);
       for (let i = 0; i < length; i += 1) expect(isVeiled(i, length, W)).toBe(false);
-      expect(from).toBeGreaterThanOrEqual(length);
     }
+  });
+
+  it("a veiled letter stays veiled until it is typed, then lights", () => {
+    // It clears when the cursor has PASSED it, not on arrival: the letter AT
+    // the cursor is still behind cloud, and the underline is what marks it.
+    // That is the cost of a band that does not travel, and it is why the veil
+    // colour is derived against AC-22.8 rather than chosen - the letter being
+    // typed has to stay readable at 4.5:1 (see wordPlateVeil.test.ts).
+    const i = 6;
+    for (let typed = 0; typed <= i; typed += 1) {
+      expect(isVeiled(i, typed, W), `letter ${i} cleared early at typed=${typed}`).toBe(true);
+    }
+    expect(isVeiled(i, i + 1, W), "it never cleared once typed").toBe(false);
   });
 
   it("FAILS OPEN on junk: no cloud rather than an unreadable word", () => {
@@ -66,10 +73,12 @@ describe("AC-27.5: the cloud never hides what the player needs", () => {
   });
 
   it("a short word is never fully behind cloud", () => {
-    // Two and three letter words exist in every pool.
+    // Two and three letter words exist in every pool. CLEAR_AHEAD + 1 letters
+    // are clear from the head, so a word that short carries no cloud at all.
     for (const length of [2, 3]) {
-      const veiled = Array.from({ length }, (_, i) => isVeiled(i, 0, W));
-      expect(veiled.every((v) => v), `a ${length}-letter word vanished`).toBe(false);
+      for (let i = 0; i < length; i += 1) {
+        expect(isVeiled(i, 0, W), `a ${length}-letter word veiled letter ${i}`).toBe(false);
+      }
     }
   });
 });

@@ -49,13 +49,28 @@ export function veilWindowFor(stop: StopId): number | null {
  * veil at all - the mechanic fails OPEN, because a cloud that appears when the
  * clock misbehaves would be a word a child cannot read.
  */
-export function veilFrom(typedCount: number, window: number | null): number {
+export function veilFrom(_typedCount: number, window: number | null): number {
   if (window === null || !Number.isFinite(window) || window < 0) return Number.POSITIVE_INFINITY;
-  const typed = Number.isFinite(typedCount) ? Math.max(0, Math.floor(typedCount)) : 0;
-  return typed + Math.floor(window) + 1;
+  // FIXED AT THE HEAD OF THE WORD, NOT SLIDING WITH THE CURSOR.
+  //
+  // This used to be `typed + window + 1`, so the clear band was a window that
+  // travelled: every keystroke turned one letter white->accent AND one
+  // grey->white, which the owner read as the letters shifting. The boundary is
+  // the same at typed=0 either way; it just no longer moves, so the only colour
+  // change per keystroke is the accent one the game had before D109.
+  return Math.floor(window) + 1;
 }
 
-/** Is letter `i` behind cloud right now? */
+/**
+ * Is letter `i` behind cloud right now?
+ *
+ * A letter already typed is never behind cloud: the plate lights it in the
+ * accent, and this says so rather than leaving the render to be the only thing
+ * that knows. Everything from `veilFrom` onward is veiled and STAYS veiled
+ * until the cursor reaches it, which is what stops the clear band travelling.
+ */
 export function isVeiled(i: number, typedCount: number, window: number | null): boolean {
+  const typed = Number.isFinite(typedCount) ? Math.max(0, Math.floor(typedCount)) : 0;
+  if (i < typed) return false;
   return i >= veilFrom(typedCount, window);
 }
