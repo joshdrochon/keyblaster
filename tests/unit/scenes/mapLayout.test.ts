@@ -14,6 +14,18 @@ import {
   lanternDesignBox,
 } from "@game/render/lanternGeometry";
 import {
+  routeLegIndex,
+  routePulseX,
+  SATELLITE_R,
+  SATELLITE_STAR_GAP,
+  SHIP_LIMB_GAP,
+  satelliteOffset,
+  satelliteCaptionY,
+  satelliteRingBox,
+  shipYFor,
+  DOORWAY_BECKON_MS,
+  DOORWAY_BECKON_PX,
+  doorwayBeckonPx,
   CAPTION_GAP,
   CAPTION_LINES,
   CAPTION_LINE_H,
@@ -63,7 +75,7 @@ import {
   starsCentreForRight,
 } from "@game/scenes/support/mapLayout";
 import { SCENE_STRING_KEYS } from "@game/scenes/lib/strings";
-import { STOP_IDS } from "@engine/types";
+import { ROUTE_STOP_IDS, STOP_IDS } from "@engine/types";
 
 /**
  * THE DIRECTOR MAP, AS GEOMETRY.
@@ -266,10 +278,14 @@ describe("UR-53: the Lantern hovers above the current planet", () => {
       resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/render/lantern.ts"),
       "utf8",
     );
-    const m = /y: \{ from: y - (\d+(?:\.\d+)?), to: y \+ (\d+(?:\.\d+)?) \}/.exec(src);
+    // The BASE is an identifier now, not the literal `y`: UR-170 made the bob
+    // rebasable so a ship that flies to a satellite is not dragged back to the
+    // route line. The amplitude is what this guard is about, and it is still
+    // read out of the source rather than trusted.
+    const m = /y: \{ from: (\w+) - (\d+(?:\.\d+)?), to: \1 \+ (\d+(?:\.\d+)?) \}/.exec(src);
     expect(m?.[1], "lantern.ts no longer bobs an idle rig this way").toBeDefined();
-    expect(Number(m?.[1])).toBe(SHIP_BOB);
     expect(Number(m?.[2])).toBe(SHIP_BOB);
+    expect(Number(m?.[3])).toBe(SHIP_BOB);
   });
 
   it("nothing else about the ship moved", () => {
@@ -428,10 +444,13 @@ describe("UR-54: the map is on the one grid", () => {
   });
 
   it("the route is symmetric about the frame's centre line", () => {
+    // The main board is the seven-stop route; the bonus pair rides its own row
+    // (`INNER_STOP_IDS`), so the node spacing is not over all nine stops.
+    const last = ROUTE_STOP_IDS.length - 1;
     expect(nodeX(0)).toBe(ROUTE_X0);
-    expect(nodeX(STOP_IDS.length - 1)).toBe(routeX1());
-    expect(nodeX(0) + nodeX(STOP_IDS.length - 1)).toBeCloseTo(GAME_WIDTH, 6);
-    expect(nodeStep()).toBeCloseTo((routeX1() - ROUTE_X0) / (STOP_IDS.length - 1), 6);
+    expect(nodeX(last)).toBe(routeX1());
+    expect(nodeX(0) + nodeX(last)).toBeCloseTo(GAME_WIDTH, 6);
+    expect(nodeStep()).toBeCloseTo((routeX1() - ROUTE_X0) / last, 6);
   });
 
   it("nothing hanging off a node reaches the board", () => {
@@ -613,9 +632,11 @@ describe("UR-105: the discs draw above the mote plane", () => {
       resolve(dirname(fileURLToPath(import.meta.url)), "../../../src/game/render/parallax.ts"),
       "utf8",
     );
-    const m = /const NEAR_LIGHT_DEPTH = layer\("nearField"\)\.depth - (\d+(?:\.\d+)?);/.exec(src);
-    expect(m?.[1], "parallax.ts no longer declares NEAR_LIGHT_DEPTH this way").toBeDefined();
-    expect(NODE_DEPTH).toBeGreaterThan(layer("nearField").depth - Number(m?.[1]));
+    // UR-197 moved the tile below the rock planes, so the layer it is derived
+    // from is no longer fixed. The claim here is unchanged: the discs clear it.
+    const m = /const NEAR_LIGHT_DEPTH = layer\("(\w+)"\)\.depth - (\d+(?:\.\d+)?);/.exec(src);
+    expect(m, "parallax.ts no longer declares NEAR_LIGHT_DEPTH this way").not.toBeNull();
+    expect(NODE_DEPTH).toBeGreaterThan(layer(m?.[1] as never).depth - Number(m?.[2]));
   });
 
   it("the ship still passes in FRONT of the planet it hovers over", () => {
@@ -805,5 +826,201 @@ describe("UR-181: the board's lock is on the same scales as the chips'", () => {
 
   it("centres the mark on the word rather than on a number beside it", () => {
     expect(src).toMatch(/this\.panelAction\.y \+ this\.panelAction\.height \/ 2/);
+  });
+});
+
+/**
+ * UR-162. The owner could not find the way to the bonus pair: a 12x24 caret at
+ * stroke 4, beside a 4-px route line and under Earth's rim. It is bigger, it
+ * leans, and it is clickable now.
+ *
+ * The lean is a pure function rather than a tween because a tween can only be
+ * confirmed by watching it, and the tab a probe drives is hidden - its render
+ * loop never advances a frame, so nothing animates and nothing can be measured.
+ */
+describe("UR-162: the doorway beckons", () => {
+  it("never crosses back over the planet", () => {
+    for (let t = 0; t <= DOORWAY_BECKON_MS * 2; t += 17) {
+      const px = doorwayBeckonPx(t, false);
+      expect(px).toBeGreaterThanOrEqual(0);
+      expect(px).toBeLessThanOrEqual(DOORWAY_BECKON_PX);
+    }
+  });
+
+  it("actually moves, rather than sitting at one value", () => {
+    const seen = new Set<number>();
+    for (let t = 0; t < DOORWAY_BECKON_MS; t += 40) seen.add(Math.round(doorwayBeckonPx(t, false)));
+    expect(seen.size).toBeGreaterThan(3);
+  });
+
+  it("reaches both ends of its travel", () => {
+    expect(doorwayBeckonPx(0, false)).toBeCloseTo(0, 5);
+    expect(doorwayBeckonPx(DOORWAY_BECKON_MS / 2, false)).toBeCloseTo(DOORWAY_BECKON_PX, 5);
+  });
+
+  it("returns to rest, so the loop has no seam", () => {
+    expect(doorwayBeckonPx(DOORWAY_BECKON_MS, false)).toBeCloseTo(
+      doorwayBeckonPx(0, false),
+      5,
+    );
+  });
+
+  it("is still under reduced motion (D41: framing movement comes off)", () => {
+    for (let t = 0; t <= DOORWAY_BECKON_MS; t += 97) {
+      expect(doorwayBeckonPx(t, true)).toBe(0);
+    }
+  });
+
+  it("survives a junk clock rather than parking the caret at NaN", () => {
+    expect(doorwayBeckonPx(Number.NaN, false)).toBe(0);
+    expect(doorwayBeckonPx(Number.POSITIVE_INFINITY, false)).toBe(0);
+  });
+});
+
+/**
+ * UR-165/169/170/171: THE SATELLITE'S GEOMETRY.
+ *
+ * Zoozve is the first stop that is not a point on the route line, and four
+ * separate things assumed every stop was: the caption baseline, the selection
+ * glow, the beacon lamp and the ship's hover. Each was found by eye, one
+ * screenshot at a time. The numbers live here so the next one is not.
+ */
+describe("UR-165: a satellite hangs off its host, clear of the rail", () => {
+  const { dx, dy } = satelliteOffset();
+
+  it("sits ABOVE the line, to the side of its host", () => {
+    expect(dy).toBeLessThan(0);
+    expect(dx).toBeLessThan(0);
+  });
+
+  it("clears its host's disc, so the two never touch", () => {
+    // Centre-to-centre against both radii and the host's rim.
+    const gap = Math.hypot(dx, dy);
+    expect(gap).toBeGreaterThan(NODE_R + NODE_RIM + SATELLITE_R);
+  });
+
+  it("is drawn far smaller than any world", () => {
+    expect(SATELLITE_R).toBeLessThan(NODE_R / 2);
+  });
+
+  it("keeps its whole caption plate off the route line", () => {
+    // THE DEFECT THIS PINS: the first version put the name plate across the
+    // rail. The rise is derived from the plate, so the two cannot drift apart.
+    const plateTop = satelliteCaptionY() - CAPTION_PAD_Y;
+    const plateBottom = plateTop + captionPlateH();
+    expect(plateBottom).toBeLessThan(ROUTE_Y);
+    // And with real air, not by a pixel.
+    expect(ROUTE_Y - plateBottom).toBeGreaterThanOrEqual(10);
+  });
+
+  it("its focus ring wraps the body AND the caption", () => {
+    const cx = 900;
+    const cy = ROUTE_Y + dy;
+    const caption = { halfW: 54, bottom: satelliteCaptionY() + captionPlateH() };
+    const box = satelliteRingBox(cx, cy, caption);
+    expect(box.y).toBeLessThanOrEqual(cy - SATELLITE_R);
+    expect(box.y + box.h).toBeGreaterThanOrEqual(caption.bottom);
+    expect(box.x).toBeLessThanOrEqual(cx - SATELLITE_R);
+    expect(box.x + box.w).toBeGreaterThanOrEqual(cx + SATELLITE_R);
+  });
+});
+
+describe("UR-170: the ship hovers over whatever it is visiting", () => {
+  it("is unchanged over a planet: the shipped hover height", () => {
+    expect(shipYFor(ROUTE_Y, NODE_R)).toBe(SHIP_Y);
+  });
+
+  it("rides higher over a satellite, by exactly the satellite's rise", () => {
+    const { dy } = satelliteOffset();
+    const overSatellite = shipYFor(ROUTE_Y + dy, SATELLITE_R);
+    expect(overSatellite).toBeLessThan(SHIP_Y);
+    // Same air under the hull at either stop - that is what makes it one ship
+    // visiting two kinds of place rather than two hover rules.
+    expect(ROUTE_Y + dy - SATELLITE_R - overSatellite).toBe(SHIP_LIMB_GAP);
+  });
+
+  it("never lands on the body it is visiting", () => {
+    for (const [y, r] of [[ROUTE_Y, NODE_R], [ROUTE_Y + satelliteOffset().dy, SATELLITE_R]] as const) {
+      expect(shipYFor(y, r)).toBeLessThan(y - r);
+    }
+  });
+});
+
+/**
+ * UR-174: a satellite earns a star rating, and the obvious place for it is the
+ * route rail. The rise clears the whole stack instead.
+ */
+describe("UR-174: the satellite's star row clears the line too", () => {
+  it("hangs the row under the caption, not through it", () => {
+    const capBottom = satelliteCaptionY() - CAPTION_PAD_Y + captionPlateH();
+    const starTop = ROUTE_Y + satelliteOffset().dy + SATELLITE_STAR_GAP - STAR_R;
+    expect(starTop).toBeGreaterThanOrEqual(capBottom);
+  });
+
+  it("keeps the LOWEST ink off the rail, with the same air the caption had", () => {
+    const starBottom = ROUTE_Y + satelliteOffset().dy + SATELLITE_STAR_GAP + STAR_R;
+    expect(starBottom).toBeLessThan(ROUTE_Y);
+    expect(ROUTE_Y - starBottom).toBeGreaterThanOrEqual(10);
+  });
+
+  it("is the lowest thing hanging off a satellite, so nothing is under it", () => {
+    const starBottom = ROUTE_Y + satelliteOffset().dy + SATELLITE_STAR_GAP + STAR_R;
+    const capBottom = satelliteCaptionY() - CAPTION_PAD_Y + captionPlateH();
+    expect(starBottom).toBeGreaterThan(capBottom);
+  });
+});
+
+/**
+ * UR-191: the travelling light runs the way the SHIP does.
+ *
+ * The main route is laid out in flight order - Earth leftmost, flown outward -
+ * so animating the pulse from the left end was right, and nobody looked again.
+ * The inner run is laid out the other way: Earth sits on the RIGHT and the trip
+ * goes leftward. The lights were running back up the line.
+ */
+describe("UR-191: the route pulse follows the direction of travel", () => {
+  const X0 = 300;
+  const X1 = 900;
+
+  it("runs left to right on the main route", () => {
+    expect(routePulseX(X0, X1, 0, true)).toBe(X0);
+    expect(routePulseX(X0, X1, 1, true)).toBe(X1);
+    expect(routePulseX(X0, X1, 0.25, true)).toBeLessThan(routePulseX(X0, X1, 0.75, true));
+  });
+
+  it("runs right to left on the inner run", () => {
+    expect(routePulseX(X0, X1, 0, false)).toBe(X1);
+    expect(routePulseX(X0, X1, 1, false)).toBe(X0);
+    expect(routePulseX(X0, X1, 0.25, false)).toBeGreaterThan(routePulseX(X0, X1, 0.75, false));
+  });
+
+  it("never leaves the segment, whatever the clock does", () => {
+    for (const t of [-5, -0.1, 1.1, 99, Number.NaN, Number.POSITIVE_INFINITY]) {
+      for (const outward of [true, false]) {
+        const x = routePulseX(X0, X1, t, outward);
+        expect(x).toBeGreaterThanOrEqual(X0);
+        expect(x).toBeLessThanOrEqual(X1);
+      }
+    }
+  });
+
+  it("staggers from the START of the trip, not from the left of the screen", () => {
+    // Three segments. Outward, the first leg is the leftmost; inward it is the
+    // rightmost - so the light nearest the ship's next hop always leads.
+    expect(routeLegIndex(0, 3, true)).toBe(0);
+    expect(routeLegIndex(2, 3, true)).toBe(2);
+    expect(routeLegIndex(0, 3, false)).toBe(2);
+    expect(routeLegIndex(2, 3, false)).toBe(0);
+  });
+
+  it("the stagger is a permutation, so no leg is skipped or doubled", () => {
+    for (const segments of [1, 2, 3, 6]) {
+      for (const outward of [true, false]) {
+        const legs = Array.from({ length: segments }, (_, i) =>
+          routeLegIndex(i, segments, outward),
+        );
+        expect(new Set(legs).size, `segments=${segments} outward=${outward}`).toBe(segments);
+      }
+    }
   });
 });

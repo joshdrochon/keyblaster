@@ -1,0 +1,50 @@
+{
+  "stopId": "venus",
+  "lang": "es",
+  "planetName": "Venus",
+  "chapterTitle": "El planeta bajo las nubes",
+  "briefing": [
+    "Venus se esconde bajo nubes gruesas.",
+    "Las nubes nunca se abren, y nadie ha visto el suelo desde el espacio.",
+    "Solo el radar pudo ver el suelo.",
+    "Venus es el planeta más caliente, pero Mercurio está más cerca del sol.",
+    "Un día allá dura más que un año, porque gira muy despacio."
+  ],
+  "pool": [
+    "venus",
+    "esconde",
+    "bajo",
+    "nubes",
+    "gruesas",
+    "nunca",
+    "abren",
+    "visto",
+    "suelo",
+    "radar",
+    "pudo",
+    "ver",
+    "caliente",
+    "cerca",
+    "sol",
+    "día",
+    "dura",
+    "año",
+    "gira",
+    "tapan",
+    "pasa",
+    "amarillo",
+    "ácido",
+    "roca",
+    "aire"
+  ],
+  "properNouns": [
+    "Venus",
+    "Mercurio"
+  ],
+  "preflightLine": "Las nubes tapan todo. No pienses en el suelo. Solo lee.",
+  "activationWord": null,
+  "warpSentence": "Venus se esconde bajo nubes gruesas.",
+  "beaconHeadline": "faro Venus",
+  "beaconState": "colocado",
+  "beaconFlavor": "Las nubes nunca se abren. La luz pasa igual."
+}

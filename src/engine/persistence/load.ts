@@ -1,4 +1,4 @@
-import type { Profile } from "../types.js";
+import { DEFAULT_DEVICE_SETTINGS, type Profile } from "../types.js";
 import type { StoragePort } from "./port.js";
 import { OLDEST_SUPPORTED_VERSION, migrateToCurrent } from "./migrations.js";
 import {
@@ -7,6 +7,7 @@ import {
   STORAGE_KEY,
   type PersistedState,
   type RepairLog,
+  decodeDeviceSettings,
   decodeProfile,
   isPlainObject,
   newRepairLog,
@@ -118,7 +119,12 @@ function quarantine(storage: StoragePort, raw: string): boolean {
  */
 function freshState(freshProfile: () => Profile): PersistedState {
   const profile = freshProfile();
-  return { version: SCHEMA_VERSION, profiles: [profile], activeProfileId: profile.id };
+  return {
+    version: SCHEMA_VERSION,
+    profiles: [profile],
+    activeProfileId: profile.id,
+    device: { ...DEFAULT_DEVICE_SETTINGS },
+  };
 }
 
 function freshResult(
@@ -241,7 +247,12 @@ export function loadState(storage: StoragePort, options: LoadOptions): LoadResul
   }
 
   return {
-    state: { version: SCHEMA_VERSION, profiles: decoded, activeProfileId },
+    state: {
+      version: SCHEMA_VERSION,
+      profiles: decoded,
+      activeProfileId,
+      device: decodeDeviceSettings(migration.payload["device"], log, "device"),
+    },
     notices,
     fresh: false,
     loadedVersion: version,

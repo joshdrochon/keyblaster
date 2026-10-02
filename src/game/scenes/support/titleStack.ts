@@ -69,6 +69,7 @@ import { HINT_TOP } from "@game/ui/grid";
 export const PRIMARY_W = 460;
 export const PRIMARY_H = 104;
 
+
 /**
  * How far a focus ring reaches outside the control it is around.
  *
@@ -78,6 +79,27 @@ export const PRIMARY_H = 104;
  * specs cannot each carry their own copy of it.
  */
 export const FOCUS_PAD = 14;
+
+/**
+ * THE PRIMARY IS ONE BUTTON CUT IN TWO BY A DIAGONAL (owner's sketch).
+ *
+ * Continue keeps the left part, settings the right, and the two together still
+ * fill `PRIMARY_W` x `PRIMARY_H` - the footprint the single button had. Only
+ * the CUT is diagonal: the outer edges are the original button's, and every
+ * corner on both halves stays rounded.
+ *
+ * `SLICE_LEAN` is how far the cut's top sits right of its bottom. `SLICE_GAP`
+ * is the sky between the halves, taken out of the middle so neither piece
+ * grows past the footprint - and it is TWO focus pads wide because either half
+ * can hold focus, and a ring that reaches into the other half is a highlight
+ * drawn over the thing it is not highlighting.
+ */
+export const SLICE_LEAN = 34;
+export const SLICE_GAP = 2 * FOCUS_PAD + 4;
+/** The cog half, measured across its middle. */
+export const COG_W = 96;
+/** What is left for Continue once the cog and the gap are taken out.  */
+export const CONTINUE_W = PRIMARY_W - COG_W - SLICE_GAP;
 
 /** The plate padding under the status line and the quiet controls. */
 export const CHROME_PAD_Y = 8;
@@ -190,8 +212,15 @@ export interface TitleStackInput {
    * capture.
    */
   readonly statusH: number | null;
-  /** The quiet control's plate height. */
-  readonly settingsH: number;
+  /**
+   * The quiet control's plate height, or null when settings is not a row.
+   *
+   * NULL IS THE SHIPPING STATE. Settings is the right half of the primary, so
+   * the column has one action block and no orphan row under it. The number is
+   * kept because nothing else here knows that, and a screen that puts the
+   * control back on its own line should not have to re-derive the gaps.
+   */
+  readonly settingsH: number | null;
   /** The language row's plate height, or null when it is not shipped (D95). */
   readonly langH: number | null;
   /** The lowest edge the column may reach. Defaults to `STACK_FLOOR`. */
@@ -203,8 +232,8 @@ export interface TitleStackTops {
   readonly primaryY: number;
   /** Top of the status line's plate, or null when there is none. */
   readonly statusY: number | null;
-  /** Top of the quiet control's plate. */
-  readonly settingsY: number;
+  /** Top of the quiet control's plate, or null when it is not a row. */
+  readonly settingsY: number | null;
   /** Top of the language row's plate, or null when it is not shipped. */
   readonly langY: number | null;
   /** The lowest edge the column reaches, focus ring included. */
@@ -242,10 +271,17 @@ export function titleStack(input: TitleStackInput): TitleStackTops {
     // the settings row's own ring is struck at offset 0, so it needs no
     // clearance of its own either.
     const settingsY =
-      statusY === null
-        ? blockBottom + LOCKUP_INNER_GAP
-        : blockBottom + SECONDARY_GAP + FOCUS_PAD;
-    const settingsBottom = settingsY + input.settingsH + FOCUS_PAD;
+      input.settingsH === null
+        ? null
+        : statusY === null
+          ? blockBottom + LOCKUP_INNER_GAP
+          : blockBottom + SECONDARY_GAP + FOCUS_PAD;
+    // With no settings row the primary's block IS the bottom of the actions,
+    // and its ring pad is already in `blockBottom`.
+    const settingsBottom =
+      settingsY === null || input.settingsH === null
+        ? blockBottom
+        : settingsY + input.settingsH + FOCUS_PAD;
 
     const langY = input.langH === null ? null : settingsBottom + QUIET_GAP + FOCUS_PAD;
     const bottom =

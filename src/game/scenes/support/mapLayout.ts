@@ -16,7 +16,7 @@ import {
   LANTERN_DESIGN_HEIGHT,
   lanternDesignBox,
 } from "@game/render/lanternGeometry";
-import { STOP_IDS, type StopId } from "@engine/types";
+import { INNER_BOARD_STOP_IDS, ROUTE_STOP_IDS, type StopId } from "@engine/types";
 import type { StopView } from "@engine/progress/index.js";
 
 /**
@@ -78,7 +78,20 @@ export const NODE_R = 46;
 export const NODE_RIM = 8;
 
 /** Spacing between two adjacent stops. */
-export const nodeStep = (): number => (routeX1() - ROUTE_X0) / (STOP_IDS.length - 1);
+export const nodeStep = (): number => (routeX1() - ROUTE_X0) / (ROUTE_STOP_IDS.length - 1);
+
+/**
+ * THE INNER RUN sits on its own row of three: Mercury, Venus, Earth.
+ *
+ * Earth is in BOTH rows on purpose - it is the hinge the two views turn on, so
+ * the node the player pressed Left from is still under their eye when the board
+ * has finished sliding. Three nodes over the same span, so the inner run reads
+ * as a shorter, closer hop rather than as the route redrawn.
+ */
+export const INNER_STOP_IDS: readonly StopId[] = [...INNER_BOARD_STOP_IDS].reverse().concat("earth");
+export const innerNodeStep = (): number =>
+  (routeX1() - ROUTE_X0) / (INNER_STOP_IDS.length - 1);
+export const innerNodeX = (i: number): number => ROUTE_X0 + innerNodeStep() * i;
 
 /** Where stop `i` sits. The ONE derivation; the discs, the focus ring, the
  *  keep-clear zones and the ship all read it. */
@@ -225,6 +238,38 @@ export const GLOW_ALPHA = 0.30;
 export const GLOW_ALPHA_LOCKED = 0.24;
 
 // ---------------------------------------------------------------------------
+// Saturn's ring
+// ---------------------------------------------------------------------------
+
+/**
+ * Saturn's ring on the map board.
+ *
+ * IT STAYS INSIDE THE HALO. Selecting a node paints `GLOW_RINGS` soft rings
+ * reaching `GLOW_REACH` past the disc. A ring drawn outside that lands a hard
+ * ellipse just beyond a soft halo and reads as two rings - the defect recorded
+ * above the badge note, which cost three bugs on the Title. So the semi-major
+ * axis is held under `NODE_R + GLOW_REACH` and asserted in its test.
+ */
+export const RING_RX = NODE_R * 1.7;
+export const RING_RY = NODE_R * 0.4;
+/** Radians. Off-horizontal so the ring reads as a disc in perspective. */
+export const RING_TILT = -0.24;
+export const RING_WIDTH = 3;
+/**
+ * The inner band, as a fraction of the outer. Two bands read as a ring system;
+ * one reads as a hoop. Both are inside `RING_RX`, so the outer edge is the
+ * bound checked above rather than something a second band can exceed.
+ */
+export const RING_INNER = 0.82;
+
+/** The furthest the ring reaches from the node's centre, at any angle. */
+export function ringReachPx(): number {
+  const c = Math.cos(RING_TILT);
+  const s = Math.sin(RING_TILT);
+  return Math.hypot(RING_RX * c, RING_RX * s);
+}
+
+// ---------------------------------------------------------------------------
 // The focus ring's box
 // ---------------------------------------------------------------------------
 
@@ -264,6 +309,56 @@ export function nodeRingBox(
     w: halfW * 2,
     h: caption.bottom + RING_PAD - top,
   };
+}
+
+/**
+ * A satellite stop: drawn hanging off its host rather than standing on the line.
+ *
+ * Zoozve is a 232 m rock that shadows Venus. Drawn as a fourth disc in the row
+ * it would read as a fourth world, which is the one thing it is not, so it gets
+ * a small body on a dashed loop around its host instead. The loop IS the
+ * information: a quasi-satellite goes round the sun, not round the planet, and
+ * a drawn ellipse that never touches the route line says that better than a
+ * caption could.
+ */
+export const SATELLITE_R = 17;
+/** How far to the side of its host the satellite sits. */
+export const SATELLITE_DX = -190;
+
+/** `STAR_ROW_GAP`, but hung off a satellite's radius instead of a disc's. */
+export const SATELLITE_STAR_GAP =
+  CAPTION_GAP - CAPTION_PAD_Y + captionPlateH() + SPACE.gap + STAR_R;
+
+/**
+ * How far ABOVE the line it sits.
+ *
+ * Derived from everything that hangs UNDER the body, not picked: the caption
+ * plate, then the star row below it, then air. A satellite is a belt stop like
+ * any other and earns a rating, and the obvious place for that row - straight
+ * under the caption - is the route rail (UR-174). So the rise clears the whole
+ * stack instead, and the lowest ink keeps the same clearance over the line that
+ * the caption had on its own.
+ */
+export const SATELLITE_DY =
+  -(SATELLITE_R + SATELLITE_STAR_GAP + STAR_R + 14);
+
+export function satelliteOffset(): { readonly dx: number; readonly dy: number } {
+  return { dx: SATELLITE_DX, dy: SATELLITE_DY };
+}
+
+/** Where a satellite's caption lands. */
+export const satelliteCaptionY = (): number =>
+  ROUTE_Y + SATELLITE_DY + SATELLITE_R + CAPTION_GAP;
+
+/** The focus ring for a satellite, which is not on `ROUTE_Y` and is not disc-sized. */
+export function satelliteRingBox(
+  cx: number,
+  cy: number,
+  caption: { readonly halfW: number; readonly bottom: number },
+): PanelBox {
+  const halfW = Math.max(SATELLITE_R, caption.halfW) + RING_PAD;
+  const top = cy - SATELLITE_R - RING_PAD;
+  return { x: cx - halfW, y: top, w: halfW * 2, h: caption.bottom + RING_PAD - top };
 }
 
 /** The declared caption box, for the zones and for a test with no Phaser. */
@@ -363,7 +458,7 @@ export const BADGE_BAR_GAP = STEP.tight;
  * seven of them. So the height, the radius and the fill-on-track idea are the
  * pre-flight bar's; the division into seven is this screen's.
  *
- * ONE SEGMENT PER STOP, derived from `STOP_IDS` rather than from a literal 7,
+ * ONE SEGMENT PER ROUTE STOP, derived from `ROUTE_STOP_IDS` rather than a literal 7,
  * so a route that gains a stop gains a segment instead of lying.
  *
  * A SEGMENT IS A PILL, WHICH IS HOW IT REACHES THE SHARED COMPONENT.
@@ -378,7 +473,7 @@ export const BAR_H = 8;
 export const SEG_GAP = STEP.hair;
 export const SEG_W = 52;
 export const barWidth = (): number =>
-  SEG_W * STOP_IDS.length + SEG_GAP * (STOP_IDS.length - 1);
+  SEG_W * ROUTE_STOP_IDS.length + SEG_GAP * (ROUTE_STOP_IDS.length - 1);
 
 /**
  * The badge's width: the bar's, plus the padding either side.
@@ -436,20 +531,23 @@ export interface BarSegment {
 }
 
 /**
- * The seven segments, left to right, in the route's own order (`STOP_IDS`).
+ * The route's segments, left to right, in its own order (`ROUTE_STOP_IDS`).
  *
  * IT TAKES THE ROUTE VIEW, so the bar and the discs cannot disagree. The header
  * used to count `isCharted` while the labels read `unlockedStops`, and the
  * capture that came back said "7 of 7 beacons lit" over seven stops labelled
  * "Locked" (see `DirectorMapScene.create`). One derivation, passed in.
  *
- * Matched BY STOP ID rather than by index: `routeView` returns `STOP_IDS`'
+ * Matched BY STOP ID rather than by index: `routeView` returns every stop's
  * order today, and a bar that silently depends on that is a bar that lights the
  * wrong beacon the day it does not.
  */
-export function barSegments(view: readonly StopView[] = []): BarSegment[] {
+export function barSegments(
+  view: readonly StopView[] = [],
+  order: readonly StopId[] = ROUTE_STOP_IDS,
+): BarSegment[] {
   const y = badgeBarY();
-  return STOP_IDS.map((stopId, i) => ({
+  return order.map((stopId, i) => ({
     stopId,
     x: badgeInkLeft() + i * (SEG_W + SEG_GAP),
     y,
@@ -608,6 +706,19 @@ export const SHIP_EXHAUST = false;
  * denying it, so a later change cannot make it worse unnoticed.
  */
 export const SHIP_Y = 401;
+
+/**
+ * The air between a stop's limb and the ship, derived from `SHIP_Y` rather than
+ * restated, so the one hover height above stays the authority.
+ *
+ * UR-170: the ship only ever moved in x, so over a satellite 96 px above the
+ * line it sat ON the rock. It hovers over whatever it is visiting now, which is
+ * also what makes the trip to a satellite read as a diagonal.
+ */
+export const SHIP_LIMB_GAP = ROUTE_Y - NODE_R - SHIP_Y;
+
+export const shipYFor = (nodeY: number, nodeR: number): number =>
+  nodeY - nodeR - SHIP_LIMB_GAP;
 
 /**
  * The idle bob's amplitude, in px.
@@ -841,7 +952,7 @@ export function mapKeepClear(): readonly KeepClearShape[] {
   const capTop = captionPlateTop();
   const starHalf = STAR_R * 2.6 + STAR_R;
 
-  for (let i = 0; i < STOP_IDS.length; i += 1) {
+  for (let i = 0; i < ROUTE_STOP_IDS.length; i += 1) {
     const x = nodeX(i);
     // The planet, measured to the dark rim the disc is drawn on, PLUS the pad:
     // a rock five pixels off Mars's limb is still crossing the map.
@@ -875,3 +986,46 @@ export function mapKeepClear(): readonly KeepClearShape[] {
 
 /** The pad every unplated zone above carries, re-exported so a test can name it. */
 export { KEEP_CLEAR_PAD };
+
+/** How far the doorway caret leans, and how long one lean-and-back takes. */
+export const DOORWAY_BECKON_PX = 9;
+export const DOORWAY_BECKON_MS = 1640;
+
+/**
+ * The doorway's lean at `elapsedMs`, in px along its own direction of travel.
+ *
+ * Always >= 0: the caret leans the way the arrow key goes and returns, it never
+ * crosses back over the planet. D41 takes framing motion off under reduced
+ * motion, and a caret leaning at the edge of the board is framing.
+ */
+export function doorwayBeckonPx(elapsedMs: number, reducedMotion: boolean): number {
+  if (reducedMotion || !Number.isFinite(elapsedMs)) return 0;
+  const phase = (elapsedMs % DOORWAY_BECKON_MS) / DOORWAY_BECKON_MS;
+  return ((1 - Math.cos(phase * Math.PI * 2)) / 2) * DOORWAY_BECKON_PX;
+}
+
+
+// ---------------------------------------------------------------------------
+// The travelling light on a lit route segment
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the pulse sits on a lit segment, at `t` in [0, 1) (UR-191).
+ *
+ * `outward` is "the trip runs left to right on screen", which is true of the
+ * main route - Earth leftmost, flown outward - and FALSE of the inner run,
+ * where Earth sits on the right and the ship flies leftward to Venus, Zoozve
+ * and Mercury. The light was always animated from the left end, so on the inner
+ * board it ran back up the line against the direction of travel.
+ *
+ * Pure, so the rule is a test rather than a thing somebody watches.
+ */
+export function routePulseX(x0: number, x1: number, t: number, outward: boolean): number {
+  const clamped = Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : 0;
+  return outward ? x0 + (x1 - x0) * clamped : x1 - (x1 - x0) * clamped;
+}
+
+/** Which leg of the TRIP a left-to-right segment index is, so the stagger follows the ship. */
+export function routeLegIndex(i: number, segments: number, outward: boolean): number {
+  return outward ? i : Math.max(0, segments - 1 - i);
+}

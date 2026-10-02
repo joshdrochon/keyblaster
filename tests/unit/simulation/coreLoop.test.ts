@@ -311,7 +311,7 @@ describe("AC-6e.4: the retention pipeline reports improvement across a full rout
             "whether a child learns. The simulated learner's recognition latency is DEFINED to fall with hit count (tests/unit/simulation/flight.ts recognitionMs), so the SIGN of the improvement is the model's. What the engine supplies, and what the controls below separate out, is WHICH words come back and how often - and that the words pipeline records and reports the improvement when one exists.",
           harness: "simulateBelt — one serial typist, real fall times, real hull, real pacing",
           route:
-            "six belts, Mars->Pluto, real content pools. Earth is the activation screen and flies no belt (D57), so the full route is six belts and not seven.",
+            "every belt in BELT_STOP_IDS, Mars->Pluto plus the Venus/Mercury bonus pair, real content pools. Earth is the activation screen and flies no belt (D57), so the belt count is one short of the stop count.",
           stops: ROUTE.length,
           seeds: SEEDS,
           measures: "words HIT IN MORE THAN ONE STOP only; a word hit twice inside one belt is a repeat, not a delayed re-test",

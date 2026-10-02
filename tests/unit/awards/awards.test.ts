@@ -14,6 +14,7 @@ import {
   BELT_STOP_IDS,
   DEFAULT_CALIBRATION,
   DEFAULT_SETTINGS,
+  ROUTE_STOP_IDS,
   STOP_IDS,
   type Profile,
   type StopId,
@@ -202,8 +203,10 @@ describe("AC-6d.1c: every trophy in the catalogue is reachable by playing", () =
   });
 
   it("D80: Map Maker needs all seven beacons, and Last Light needs Pluto", () => {
+    // Map Maker is the MAIN ROUTE's seven beacons, so the bonus pair is not
+    // part of the run-up: earth..neptune, then Pluto completes it.
     let profile = freshProfile();
-    for (const stopId of STOP_IDS.slice(0, -1)) profile = playStop(profile, stopId);
+    for (const stopId of ROUTE_STOP_IDS.slice(0, -1)) profile = playStop(profile, stopId);
     expect(profile.trophies).not.toContain("mapMaker");
     expect(profile.trophies).not.toContain("lastLight");
 

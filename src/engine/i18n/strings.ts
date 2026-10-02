@@ -27,7 +27,7 @@ export const EN = {
   "title.tagline": "Type the way through the solar system.",
   "title.play": "Play",
   "title.settings": "Settings",
-  "title.beaconLog": "Beacon Log",
+  "title.beaconLog": "Trophies",
 
   "profile.heading": "Who is flying today?",
   "profile.pilotName": "Pilot Name",
@@ -36,6 +36,8 @@ export const EN = {
   "profile.shipNameDefault": "Lantern",
 
   "map.heading": "Route to Pluto",
+  "map.headingInner": "The Inner Run",
+  "map.goalInner": "Light all three inner beacons",
   "map.locked": "Locked",
   "map.stars": "{stars} of 3 stars",
 
@@ -151,7 +153,7 @@ export const ES: Record<StringKey, string> = {
   "title.tagline": "Escribe el camino por el sistema solar.",
   "title.play": "jugar",
   "title.settings": "ajustes",
-  "title.beaconLog": "registro de balizas",
+  "title.beaconLog": "trofeos",
 
   "profile.heading": "¿Quién vuela hoy?",
   "profile.pilotName": "nombre del piloto",
@@ -161,6 +163,8 @@ export const ES: Record<StringKey, string> = {
   "profile.shipNameDefault": "Lantern",
 
   "map.heading": "ruta a Plutón",
+  "map.headingInner": "la ruta interior",
+  "map.goalInner": "enciende las tres interiores",
   "map.locked": "bloqueado",
   "map.stars": "{stars} de 3 estrellas",
 
@@ -211,7 +215,7 @@ export const HI: Record<StringKey, string> = {
   "title.tagline": "सौर मंडल का रास्ता टाइप करो।",
   "title.play": "खेलो",
   "title.settings": "सेटिंग्स",
-  "title.beaconLog": "बीकन सूची",
+  "title.beaconLog": "ट्रॉफ़ियाँ",
 
   "profile.heading": "आज कौन उड़ान भर रहा है?",
   "profile.pilotName": "पायलट का नाम",
@@ -220,6 +224,8 @@ export const HI: Record<StringKey, string> = {
   "profile.shipNameDefault": "Lantern",
 
   "map.heading": "प्लूटो का रास्ता",
+  "map.headingInner": "भीतरी रास्ता",
+  "map.goalInner": "तीनों भीतरी बीकन जगाओ",
   "map.locked": "बंद",
   "map.stars": "3 में से {stars} तारे",
 

@@ -76,13 +76,63 @@ const STOPS = [
   { id: "uranus", mood: "cold tilted quiet, strange and still, patient" },
   { id: "neptune", mood: "deep blue distance, far from home, steady resolve" },
   { id: "pluto", mood: "the edge of everything, small and triumphant, the long way back" },
+  {
+    id: "venus",
+    mood:
+      "veiled and heavy, beautiful and unwelcoming, a slow pressure you can hear, " +
+      "golden cloud with something ancient hidden under it",
+    // Asked for with Destiny 1's Venus (Skye Lewin's "Ishtar Sink") as the
+    // reference: sustained strings that hand over to a clean synthetic pulse,
+    // ethereal and technological at once rather than sad.
+    voice:
+      "Sustained legato strings and a wordless airy choir pad over a slow clean synthetic " +
+      "pulse, wide reverb, modal and mysterious, curious rather than sad, gentle mallets " +
+      "carrying the melody",
+  },
+  {
+    id: "zoozve",
+    mood:
+      "a tiny rock a long way from anything, quiet and curious rather than lonely, " +
+      "small and tumbling slowly in the dark with Venus somewhere close by",
+    // The breath between Venus's pressure and Mercury's glare. It is the only
+    // stop that is not a world, and it should not try to sound like one.
+    voice:
+      "Sparse and weightless: a few clean bell tones with a lot of space between them, " +
+      "a soft low pad underneath, almost no percussion, gentle and unhurried",
+  },
+  {
+    id: "mercury",
+    mood:
+      "bare, glaring and relentless, the most intense piece in the game, driving and " +
+      "close to the sun, hard metal light with no air and nowhere to hide",
+    // The stock VOICE cancelled this mood outright: "warm and encouraging,
+    // never tense" is the opposite brief and the model obeyed it, which is why
+    // the first Mercury came back as gentle as Saturn's.
+    voice:
+      "Driving and urgent: an insistent repeating synth ostinato, low brass weight " +
+      "underneath, taut propulsive percussion, bright metallic edge. Tense is correct " +
+      "here - this is the hardest place in the game - exciting rather than frightening, " +
+      "no dissonance, no horror, nothing a child would find upsetting",
+  },
 ];
 
-const BRIEF = (mood) =>
-  `Instrumental background music for a children's space typing game, ages 7 to 11. ${mood}. ` +
-  `A simple memorable melody a child could hum, soft synth pads, light gentle percussion, warm and encouraging, ` +
-  `never tense, never sad, no vocals, no speech, no sudden loud hits. ` +
-  `Steady tempo, loops seamlessly with no gap or change at the loop point.`;
+/**
+ * The default instrumentation and affect. A stop may replace it with its own
+ * `voice`, because this clause is an INSTRUCTION and the model weighs it over
+ * the mood: Mercury asked for "the most intense piece in the game" and then
+ * this sentence told the model never to be tense, so it was not.
+ */
+const VOICE =
+  "Soft synth pads, light gentle percussion, warm and encouraging, never tense, never sad";
+
+/** True for every stop, whatever its voice. The child-safety floor and the loop. */
+const INVARIANT =
+  "A simple memorable melody a child could hum. No vocals, no speech, no sudden loud hits. " +
+  "Steady tempo, loops seamlessly with no gap or change at the loop point.";
+
+const BRIEF = (stop) =>
+  `Instrumental background music for a children's space typing game, ages 7 to 11. ` +
+  `${stop.mood}. ${stop.voice ?? VOICE}. ${INVARIANT}`;
 
 /** Rough, and deliberately pessimistic so the cap bites early. */
 const USD_PER_SECOND = 0.008;
@@ -92,7 +142,7 @@ function plan() {
     ...s,
     file: `${s.id}.mp3`,
     onDisk: existsSync(join(OUT, `${s.id}.mp3`)),
-    prompt: BRIEF(s.mood),
+    prompt: BRIEF(s),
   }));
 }
 

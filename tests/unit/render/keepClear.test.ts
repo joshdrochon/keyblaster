@@ -24,7 +24,7 @@ import {
   mapKeepClear,
   nodeX,
 } from "@game/scenes/support/mapLayout";
-import { STOP_IDS } from "@engine/types";
+import { ROUTE_STOP_IDS, STOP_IDS } from "@engine/types";
 
 /**
  * KEEP-CLEAR, ON EVERY SCREEN THAT REGISTERS ONE.
@@ -303,16 +303,18 @@ describe("UR-52 / UR-06: debris keeps off what the screen drew", () => {
   }
 
   it("the map's planets are circles, one per stop, on the route", () => {
+    // The route's own row: the bonus pair sits on the inner row, which this
+    // screen only draws once the player has pressed Left at Earth.
     const zones = mapKeepClear();
-    for (let i = 0; i < STOP_IDS.length; i += 1) {
+    for (let i = 0; i < ROUTE_STOP_IDS.length; i += 1) {
       const planet = zones.find(
         (z) => z.kind === "circle" && z.cy === ROUTE_Y && Math.abs(z.cx - nodeX(i)) < 0.001,
       );
-      expect(planet, `no keep-clear for ${STOP_IDS[i]}`).toBeDefined();
+      expect(planet, `no keep-clear for ${ROUTE_STOP_IDS[i]}`).toBeDefined();
       const lamp = zones.find(
         (z) => z.kind === "circle" && z.cy === lampY() && Math.abs(z.cx - nodeX(i)) < 0.001,
       );
-      expect(lamp, `no keep-clear for ${STOP_IDS[i]}'s beacon`).toBeDefined();
+      expect(lamp, `no keep-clear for ${ROUTE_STOP_IDS[i]}'s beacon`).toBeDefined();
       expect(lamp?.kind === "circle" ? lamp.r : 0).toBe(LAMP_HALO_MAX + KEEP_CLEAR_PAD);
     }
   });

@@ -320,11 +320,11 @@ export const BEACON_LOG = {
   },
 
   trophies: {
-    left: SPACE.gutter + 620 + 40,
-    tileW: 340,
+    left: SPACE.gutter,
+    tileW: 560,
     colGap: 24,
     top: LOG_CONTENT_TOP,
-    rowGap: 22,
+    rowGap: 64,
     /**
      * 4, THE SAME FLOOR THE BEACON COLUMN HAS, not 10.
      *

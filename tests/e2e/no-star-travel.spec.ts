@@ -99,6 +99,11 @@ interface Motion {
   /** Sub-planes of a layer. These are the ones that march; they must not. */
   nestedMoved: number;
   nested: { path: string; dx: number; dy: number }[];
+  /** Moving nodes drawn in an unambiguous SKY texture. The bar is zero. */
+  lightMoved: number;
+  light: { path: string; tex: string }[];
+  /** Sky textures scrolling in texture space. Also zero. */
+  texLightMoved: number;
   maxDx: number;
   maxDy: number;
   /**
@@ -116,13 +121,13 @@ interface Motion {
    * 69.5 px/s through the Briefing window. Measure the property that was
    * reported, not the mechanism that caused it the previous time.
    */
-  texMoved: { path: string; type: string; dtx: number; dty: number }[];
+  texMoved: { path: string; type: string; tex: string; dtx: number; dty: number }[];
   maxTexTravel: number;
 }
 
 async function motionOf(page: Page, scene: string, frames: number): Promise<Motion> {
   return page.evaluate(
-    ([key, n]) => {
+    ([key, n, sky]) => {
       const kb = (window as unknown as { __kb: { game: { scene: { getScene(k: string): unknown } } } })
         .__kb;
       const s = kb.game.scene.getScene(key) as {
@@ -136,10 +141,12 @@ async function motionOf(page: Page, scene: string, frames: number): Promise<Moti
         list?: Node[];
         tilePositionX?: number;
         tilePositionY?: number;
+        texture?: { key?: string };
       };
       interface Row {
         path: string;
         type: string;
+        tex: string;
         x: number;
         y: number;
         tx: number | null;
@@ -154,6 +161,7 @@ async function motionOf(page: Page, scene: string, frames: number): Promise<Moti
           acc.push({
             path,
             type: node.type,
+            tex: node.texture?.key ?? "",
             x: node.x,
             y: node.y,
             tx: node.tilePositionX ?? null,
@@ -168,8 +176,8 @@ async function motionOf(page: Page, scene: string, frames: number): Promise<Moti
       // 16 ms is the frame the game is built for; `update` clamps its own dt.
       for (let i = 0; i < (n as number); i += 1) s.update(i * 16, 16);
       const after = walk();
-      const moved: { path: string; dx: number; dy: number }[] = [];
-      const texMoved: { path: string; type: string; dtx: number; dty: number }[] = [];
+      const moved: { path: string; tex: string; dx: number; dy: number }[] = [];
+      const texMoved: { path: string; type: string; tex: string; dtx: number; dty: number }[] = [];
       for (const a of before) {
         const c = after.find((z) => z.path === a.path);
         if (c === undefined) continue;
@@ -177,7 +185,7 @@ async function motionOf(page: Page, scene: string, frames: number): Promise<Moti
           const dtx = Number((c.tx - a.tx).toFixed(2));
           const dty = Number((c.ty - a.ty).toFixed(2));
           if (Math.abs(dtx) > 0.01 || Math.abs(dty) > 0.01)
-            texMoved.push({ path: a.path, type: a.type, dtx, dty });
+            texMoved.push({ path: a.path, type: a.type, tex: a.tex, dtx, dty });
         }
         if (a.type !== "Container") continue;
         const dx = Number((c.x - a.x).toFixed(2));
@@ -190,14 +198,36 @@ async function motionOf(page: Page, scene: string, frames: number): Promise<Moti
         // stay well under it.
         const rawDy = c.y - a.y;
         const dy = Number((rawDy < -0.01 ? rawDy + 1080 : rawDy).toFixed(2));
-        if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) moved.push({ path: a.path, dx, dy });
+        if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01)
+          moved.push({ path: a.path, tex: a.tex, dx, dy });
       }
       const nested = moved.filter((r) => r.path.includes("/"));
+      // THE SKY, SEPARATED FROM THE WORLD (UR-14 round six).
+      //
+      // `starField.ts`: "MATTER STILL MOVES. Rocks, dust, the veil and the
+      // debris planes all keep their parallax on every screen ... What is
+      // frozen is the sky, not the world." Round five put Flight into the
+      // sweep - correctly, the owner ruled the sky is frozen in flight too -
+      // but the walker above is deliberately type-blind, so on the one screen
+      // with a live belt it counted the falling rocks and could never go green.
+      // Measured: 18 Containers, 18 Graphics, 4 Text and 3 `kb/tex/glow` move
+      // in Flight, and ZERO `kb/tex/mote` or `kb/tex/glint` - the sky is
+      // already frozen there. These two are the light textures named in the
+      // round-three numbers above.
+      const lightMoved = after.filter((r) => {
+        if (!sky.includes(r.tex)) return false;
+        const a = before.find((z) => z.path === r.path);
+        return a !== undefined && (Math.abs(r.x - a.x) > 0.01 || Math.abs(r.y - a.y) > 0.01);
+      });
+      const texLightMoved = texMoved.filter((r) => sky.includes(r.tex));
       return {
         worldSec: Number((((n as number) * 16) / 1000).toFixed(2)),
         containers: before.filter((r) => r.type === "Container").length,
         nestedMoved: nested.length,
         nested: nested.slice(0, 6),
+        lightMoved: lightMoved.length,
+        light: lightMoved.slice(0, 6).map((r) => ({ path: r.path, tex: r.tex })),
+        texLightMoved: texLightMoved.length,
         maxDx: moved.reduce((m, r) => Math.max(m, Math.abs(r.dx)), 0),
         maxDy: moved.reduce((m, r) => Math.max(m, Math.abs(r.dy)), 0),
         texMoved,
@@ -207,7 +237,7 @@ async function motionOf(page: Page, scene: string, frames: number): Promise<Moti
         ),
       };
     },
-    [scene, frames] as [string, number],
+    [scene, frames, SKY_TEXTURES] as [string, number, readonly string[]],
   );
 }
 
@@ -492,36 +522,103 @@ test.describe("UR-14: no screen translates its stars", () => {
 
       // ...and the other two mechanisms, so this test states the whole rule on
       // its own rather than leaning on the tests above it.
-      expect(long.nestedMoved, `${scene} planes travelling: ${JSON.stringify(long.nested)}`).toBe(
-        0,
-      );
-      expect(long.maxDx, `${scene} sideways: ${long.maxDx} px over 19.2 s`).toBeLessThanOrEqual(
-        SWAY_PEAK_TO_PEAK,
-      );
+      //
+      // FLIGHT IS MEASURED ON THE SKY, THE OTHERS ON EVERY NODE. The walker is
+      // type-blind on purpose, and on the fifteen screens with no world that is
+      // the strongest bar available. Flight has a live belt - rocks, their
+      // plates and the ship all move by design (`starField.ts`: "what is frozen
+      // is the sky, not the world") - so a bar of zero over every node cannot
+      // hold there by construction, which is why round five's sweep could never
+      // go green. On Flight the same walk asserts that nothing drawn in a sky
+      // texture moves, in screen space or texture space.
+      if (scene === "Flight") {
+        expect(
+          long.lightMoved,
+          `Flight sky travelling: ${JSON.stringify(long.light)}`,
+        ).toBe(0);
+        expect(long.texLightMoved, "Flight sky scrolling in texture space").toBe(0);
+      } else {
+        expect(long.nestedMoved, `${scene} planes travelling: ${JSON.stringify(long.nested)}`).toBe(
+          0,
+        );
+        expect(long.maxDx, `${scene} sideways: ${long.maxDx} px over 19.2 s`).toBeLessThanOrEqual(
+          SWAY_PEAK_TO_PEAK,
+        );
+      }
     });
   }
 
-  test("the measurement can SEE texture travel, on the one screen that has it", async ({
+  test("the measurement can SEE texture travel, on a tile planted to prove it", async ({
     page,
   }) => {
     /**
      * THE POSITIVE CONTROL, and the reason it is not optional.
      *
-     * Fourteen screens returning `[]` is also what a walker that never looks at
+     * Sixteen screens returning `[]` is also what a walker that never looks at
      * a TileSprite returns - which is precisely how this defect survived two
      * rounds of guards. Standards rule 9: when two causes produce identical
-     * output, run both. Flight is the named exception in
-     * `starField.TRAVELLING_LIGHT`, so it is the one place the same probe must
-     * come back NON-zero. If this goes green at zero, the sweep above is
-     * measuring nothing and says so here rather than in six months.
+     * output, run both.
+     *
+     * IT USED TO BORROW FLIGHT. Flight was the named exception in
+     * `starField.TRAVELLING_LIGHT`, so it was the one screen where this probe
+     * had to come back non-zero. Round five emptied that table - the owner
+     * ruled the sky is frozen in flight too - which left this control asserting
+     * the opposite of the shipped decision, and it failed for being right.
+     *
+     * So the demonstration is synthetic and permanent now, exactly like the
+     * real-frames control at the foot of this file: a TileSprite in a sky
+     * texture is planted and its texture scrolled by hand. It proves the walk
+     * records `tilePosition` and that the diff reaches it, and it cannot be
+     * invalidated by a future ruling about what the game draws.
      */
     test.slow();
-    await boot(page, "Flight");
-    const m = await motionOf(page, "Flight", 600);
+    await boot(page, "Settings");
+    await page.evaluate((tex) => {
+      const s = (
+        window as unknown as {
+          __kb: {
+            game: {
+              scene: {
+                getScene(k: string): {
+                  add: {
+                    tileSprite(
+                      x: number,
+                      y: number,
+                      w: number,
+                      h: number,
+                      key: string,
+                    ): { setDepth(d: number): { name: string } };
+                  };
+                  update(t: number, d: number): void;
+                };
+              };
+            };
+          };
+        }
+      ).__kb.game.scene.getScene("Settings");
+      const tile = s.add.tileSprite(400, 400, 256, 256, tex).setDepth(5);
+      tile.name = "kb-texture-travel-control";
+      // DRIVEN FROM `update` ITSELF, NOT FROM THE "update" EVENT. The stepped
+      // probe calls `scene.update(t, d)` as a METHOD; Phaser emits the event
+      // from its own loop, so an `events.on("update")` handler never fires
+      // under this probe and the control reported a quiet zero - which is the
+      // very failure it exists to catch.
+      const orig = s.update.bind(s);
+      s.update = (time: number, delta: number): void => {
+        orig(time, delta);
+        (tile as unknown as { tilePositionY: number }).tilePositionY += 2;
+      };
+    }, SKY_TEXTURES[0]);
+
+    const m = await motionOf(page, "Settings", 600);
     expect(
       m.maxTexTravel,
-      `Flight is the exception and must actually use it: ${JSON.stringify(m.texMoved)}`,
+      `the walk cannot see a scrolling texture; every [] it reports is worthless: ${JSON.stringify(m.texMoved)}`,
     ).toBeGreaterThan(1);
+    expect(
+      m.texLightMoved,
+      "the sky-texture filter cannot see a scrolling sky tile, so Flight's zero means nothing",
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -642,6 +739,21 @@ test.describe("UR-14: no screen translates its stars", () => {
 const LIGHT_TEXTURES = ["kb/tex/mote", "kb/tex/glint", "kb/tex/glow"] as const;
 
 /**
+ * The subset that is UNAMBIGUOUSLY sky, for the one screen that has a world.
+ *
+ * `glow` is dual-use: `parallax.ts` draws it as an ambient speck, and
+ * `lantern.ts` draws the SHIP'S LENS with it (three images - 335, 452, 474).
+ * The ship bobs, so its glow is supposed to move, and a texture-keyed filter
+ * cannot tell the two apart. Measured on Flight: exactly three `glow` move,
+ * matching the lantern's three. `mote` and `glint` have no such second job.
+ *
+ * This subset is used ONLY for Flight's light assertion. The other fifteen
+ * screens keep the every-node bar of zero, where a travelling `glow` is still
+ * caught - none of them draw a ship.
+ */
+const SKY_TEXTURES = ["kb/tex/mote", "kb/tex/glint"] as const;
+
+/**
  * Rendered, above this a bright thing stops being a speck.
  *
  * The near field's motes run 18-72 px and its glints 14-34. The same `glow`
@@ -679,7 +791,16 @@ const SPECK_SHAPES = ["Arc", "Ellipse", "Curve", "Star", "Polygon"] as const;
  * A new sprite, a new shape object or a new TileSprite that moves fails here
  * and names itself, whether or not this file can tell what it draws.
  */
-const MOVES_BY_DESIGN = ["Container:-:small", "Graphics:-:small", "Image:kb/tex/glow:big"];
+const MOVES_BY_DESIGN = [
+  "Container:-:small",
+  "Graphics:-:small",
+  "Image:kb/tex/glow:big",
+  // Flight's word plates. A plate rides the rock it labels, so it travels for
+  // the same reason the rock does - `starField.ts`: "what is frozen is the sky,
+  // not the world". Measured: five Text nodes move on Flight and none on any
+  // other screen in this sweep, because no other screen has a belt.
+  "Text:-:small",
+];
 
 /**
  * THE FIFTH MECHANISM, FOUND BY THE REAL-FRAMES PASS AND CLOSED.
@@ -777,6 +898,12 @@ async function lightMotion(
   scene: string,
   amount: number,
   realTime: boolean,
+  /**
+   * Which textures count as a point of light. Flight passes the SKY subset:
+   * `glow` is also the Lantern's lens, and the ship is supposed to move. See
+   * `SKY_TEXTURES`.
+   */
+  textures: readonly string[] = LIGHT_TEXTURES,
 ): Promise<LightMotion> {
   return page.evaluate(
     async ([key, n, live, lightTex, speckMax, speckShapes]) => {
@@ -996,7 +1123,12 @@ async function lightMotion(
         if (a.light !== null) {
           movedLights.push({ path: a.path, kind: a.light, type: a.type, dx, dy });
         } else {
-          movedOther.add(`${a.type}:${a.tex ?? "-"}:${a.size > max ? "big" : "small"}`);
+          // A `Text` bakes to its OWN texture, keyed by a per-instance uuid, so
+          // including it makes the signature different on every run and
+          // impossible to put on the inventory. Normalised to "-", exactly as
+          // Container and Graphics already are.
+          const key = a.type === "Text" ? "-" : (a.tex ?? "-");
+          movedOther.add(`${a.type}:${key}:${a.size > max ? "big" : "small"}`);
         }
       }
       return {
@@ -1010,7 +1142,7 @@ async function lightMotion(
         texMoved,
       };
     },
-    [scene, amount, realTime, LIGHT_TEXTURES, SPECK_MAX_PX, SPECK_SHAPES] as [
+    [scene, amount, realTime, textures, SPECK_MAX_PX, SPECK_SHAPES] as [
       string,
       number,
       boolean,
@@ -1028,8 +1160,11 @@ test.describe("UR-14: no point of light changes its place on the screen", () => 
       test.slow();
       await boot(page, scene);
 
-      const short = await lightMotion(page, scene, 120, false);
-      const long = await lightMotion(page, scene, 1200, false);
+      // Flight measures the SKY subset - `glow` is also the ship's lens and the
+      // ship bobs. Every other screen keeps the full light set.
+      const inks = scene === "Flight" ? SKY_TEXTURES : LIGHT_TEXTURES;
+      const short = await lightMotion(page, scene, 120, false, inks);
+      const long = await lightMotion(page, scene, 1200, false, inks);
 
       // THE PROBE CAN SEE. Fourteen screens reporting "no light moved" is also
       // what a classifier that recognises nothing reports (standards rule 9).
@@ -1097,28 +1232,70 @@ test.describe("UR-14: no point of light changes its place on the screen", () => 
     });
   }
 
-  test("Flight is the exception, and it must actually be using it", async ({ page }) => {
+  test("the stepped pass can SEE a carried light, on a speck planted to prove it", async ({
+    page,
+  }) => {
     /**
-     * THE POSITIVE CONTROL. Fourteen empty arrays are also what a walk that
+     * THE POSITIVE CONTROL. Sixteen empty arrays are also what a walk that
      * never reaches a sprite produces - which is precisely how round four
-     * survived round three's guard. Flight holds both entries in
-     * `starField.TRAVELLING_LIGHT`, so it is the one screen where this same
-     * probe, unchanged, must come back full.
+     * survived round three's guard.
      *
-     * Measured on the shipped Flight at 110 px/s of world: all 58 near-plane
-     * sprites travel 572.0 px in 4.0 s, which is 143.0 px/s, which is
-     * `nearField`'s 1.30 times the world speed. Proportional, with no floor.
+     * IT USED TO BORROW FLIGHT, which held both entries in
+     * `starField.TRAVELLING_LIGHT` and so was the one screen where this probe
+     * had to come back full - "all 58 near-plane sprites travel 572.0 px in
+     * 4.0 s". Round five emptied that table, because the owner ruled that stars
+     * are far enough away that nothing in the sky moves, in flight or out of
+     * it. This control then required the sky to travel on the very screen the
+     * ruling froze, and failed for being obsolete rather than for finding
+     * anything.
+     *
+     * Synthetic and permanent now. A sky-textured speck is parented to a
+     * container which is moved from the scene's update, so the light's own x
+     * and y never change and only a WORLD transform can see it - the exact
+     * blind spot that let round four through. If the walk stops reading world
+     * transforms, this goes red here instead of going quiet on sixteen screens.
      */
     test.slow();
-    await boot(page, "Flight");
-    const m = await lightMotion(page, "Flight", 250, false);
+    await boot(page, "Settings");
+    await page.evaluate((tex) => {
+      const s = (
+        window as unknown as {
+          __kb: {
+            game: {
+              scene: {
+                getScene(k: string): {
+                  add: {
+                    container(x: number, y: number): {
+                      setDepth(d: number): { add(c: unknown): unknown; y: number };
+                    };
+                    image(x: number, y: number, key: string): unknown;
+                  };
+                  update(t: number, d: number): void;
+                };
+              };
+            };
+          };
+        }
+      ).__kb.game.scene.getScene("Settings");
+      const carrier = s.add.container(400, 200).setDepth(5);
+      // The speck sits at the container's origin and never moves itself.
+      carrier.add(s.add.image(0, 0, tex));
+      // See the tile control above: `update` is wrapped rather than listened
+      // for, because the stepped probe calls the method directly.
+      const orig = s.update.bind(s);
+      s.update = (time: number, delta: number): void => {
+        orig(time, delta);
+        carrier.y += 2;
+      };
+    }, SKY_TEXTURES[0]);
+
+    const m = await lightMotion(page, "Settings", 250, false);
     expect(
       m.movedLights.length,
-      `Flight's near-plane lights must travel with the world: ${JSON.stringify(
+      `the stepped pass cannot see a light carried by its parent; every zero it reports is worthless: ${JSON.stringify(
         m.movedLights.slice(0, 3),
       )}`,
-    ).toBeGreaterThanOrEqual(50);
-    expect(m.texMoved.length, "Flight's atmosphere pass must travel too").toBeGreaterThan(0);
+    ).toBeGreaterThan(0);
   });
 });
 

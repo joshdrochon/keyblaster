@@ -48,8 +48,11 @@ export {
   plateSize,
   plateOffsetY,
   plateHalfHeightPx,
+  veiledTextColor,
 } from "./wordPlateGeometry.js";
 export type { WordPlateStyle, PlateSize } from "./wordPlateGeometry.js";
+import { isVeiled } from "@engine/veil/index.js";
+import { veiledTextColor } from "./wordPlateGeometry.js";
 
 import {
   PLATE_PAD_X_PX,
@@ -131,6 +134,11 @@ export class WordPlate extends Phaser.GameObjects.Container {
   private readonly underline: Phaser.GameObjects.Graphics;
   private readonly size: PlateSize;
   private typedCount_ = 0;
+  /**
+   * How far ahead of the cursor stays clear of cloud, or null for no cloud
+   * (D109). Set by the scene from the stop; null everywhere but Venus.
+   */
+  private veilWindow: number | null = null;
   private underlinePulse: Phaser.Tweens.Tween | null = null;
 
   constructor(
@@ -301,8 +309,31 @@ export class WordPlate extends Phaser.GameObjects.Container {
     const clamped = Math.max(0, Math.min(this.letters.length, count));
     if (clamped === this.typedCount_) return;
     this.typedCount_ = clamped;
+    this.paintLetters();
+  }
+
+  /**
+   * D109: declare this stop's cloud, null at every stop but Venus. Repaints
+   * through `paintLetters` rather than `setTypedCount`, whose unchanged-count
+   * early-out would swallow the first call and leave Venus uncloaked until the
+   * first keystroke.
+   */
+  setVeilWindow(window: number | null): void {
+    if (window === this.veilWindow) return;
+    this.veilWindow = window;
+    this.paintLetters();
+  }
+
+  private paintLetters(): void {
+    const clamped = this.typedCount_;
     this.letters.forEach((letter, i) => {
-      letter.setColor(i < clamped ? this.style.accent : this.style.plateText);
+      letter.setColor(
+        i < clamped
+          ? this.style.accent
+          : isVeiled(i, clamped, this.veilWindow)
+            ? veiledTextColor(this.style)
+            : this.style.plateText,
+      );
     });
     this.drawUnderline();
   }

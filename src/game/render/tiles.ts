@@ -262,6 +262,7 @@ export function moteTile(
   fill: string,
   accent: string,
   rand: () => number,
+  keepClear?: readonly KeepClearShape[],
 ): TileOp[] {
   const out: TileOp[] = [];
   for (let i = 0; i < 22; i++) {
@@ -277,15 +278,27 @@ export function moteTile(
       additive: false,
     });
   }
+  // THE GLINTS TAKE THE ZONE TOO. They are the only accent-coloured decoration
+  // that never asked: `accentTile`'s diamonds have steered around type since
+  // UR-06, while these landed wherever the stream put them - which on Pluto is
+  // a saturated pink 4-point star sitting on the wordmark. Same reach as a
+  // diamond cluster's anchor, re-drawn rather than dropped, so the count holds.
   for (let i = 0; i < 7; i++) {
     const s = 14 + rand() * 20;
+    let x = rand() * w;
+    let y = rand() * h;
+    for (let tries = 0; tries < 12 && hitsKeepClear(x, y, s, keepClear); tries += 1) {
+      x = rand() * w;
+      y = rand() * h;
+    }
+    if (hitsKeepClear(x, y, s, keepClear)) continue;
     out.push({
       kind: "sprite",
       tex: "glint",
       color: accent,
       alpha: 0.3 + rand() * 0.35,
-      x: rand() * w,
-      y: rand() * h,
+      x,
+      y,
       size: s,
       additive: true,
     });
@@ -571,6 +584,8 @@ const NASA_BELT = "https://science.nasa.gov/solar-system/asteroids/facts/";
 const NASA_SATURN = "https://science.nasa.gov/saturn/facts/";
 const NASA_URANUS = "https://science.nasa.gov/uranus/facts/";
 const NASA_NEPTUNE = "https://science.nasa.gov/neptune/neptune-facts/";
+const NASA_VENUS = "https://science.nasa.gov/venus/venus-facts/";
+const NASA_MERCURY = "https://science.nasa.gov/mercury/facts/";
 const NASA_KUIPER = "https://science.nasa.gov/solar-system/kuiper-belt/facts/";
 
 export const VEIL_BY_STOP: Readonly<Record<string, VeilSpec | null>> = {
@@ -596,6 +611,12 @@ export const VEIL_BY_STOP: Readonly<Record<string, VeilSpec | null>> = {
   // Also real: New Horizons found roughly twenty stacked haze layers at Pluto,
   // and they are blue - against a frost-white surface, which is a gift.
   pluto: { kind: "haze", what: "stacked blue haze layers", source: NASA_KUIPER, warm: false },
+  // The one stop where the veil IS the planet: an unbroken sulfuric-acid cloud
+  // deck from 45 to 70 km, which is why nobody has photographed the ground.
+  venus: { kind: "haze", what: "unbroken sulfuric-acid cloud deck", source: NASA_VENUS, warm: true },
+  // Mercury has no atmosphere to hold a veil. What the ship flies through is the
+  // circumsolar dust ring along its orbit, confirmed by STEREO in 2019.
+  mercury: { kind: "dust", what: "circumsolar dust ring along Mercury's orbit", source: NASA_MERCURY, warm: true },
 };
 
 export function veilFor(stopId: string): VeilSpec | null {

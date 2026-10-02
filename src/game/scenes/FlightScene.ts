@@ -24,7 +24,8 @@ import {
 } from "@game/flight/celebration";
 import { buildParallax, type Parallax } from "@game/render/parallax.js";
 import { TEX } from "@game/render/textures.js";
-import { INK } from "@game/ui/theme.js";
+import { veilWindowFor } from "@engine/veil/index.js";
+import { INK, TYPE } from "@game/ui/theme.js";
 import { paletteAt as stopPaletteAt } from "@game/render/palette.js";
 import { PauseScene } from "./PauseScene.js";
 import {
@@ -197,6 +198,7 @@ import {
 import { HudScene } from "./HudScene.js";
 import { StallScene } from "./StallScene.js";
 import { audioFrom } from "@game/audio/wiring.js";
+import { chargeLevelFor } from "./support/chargeLadder.js";
 import {
   LANTERN_AIM_LIMIT,
   LANTERN_DESIGN_HALF_WIDTH,
@@ -303,6 +305,38 @@ const STALL_SINK_MS = 2400;
 const PLATE_DEPTH = PLATE_LAYER_DEPTH;
 
 /**
+ * The `+points` that rises off a blasted rock.
+ *
+ * INK.text, not the stop's accent: UR-129 made that call for the multiplier
+ * blooming one object away and named this as the other half. Measured against
+ * the sky it rises through, the accent was 1.03:1 at Pluto.
+ *
+ * THE FADE IS SEPARATE FROM THE RISE, and that is the whole reason this was
+ * unreadable. Both were one `Expo.Out` tween, which front-loads: alpha was 0.5
+ * after 70ms and 0.03 by 350ms, so the number flashed rather than being read.
+ * The rise keeps that curve, because the MOTION should be snappy. The alpha
+ * holds at full for `holdMs` and only then fades.
+ *
+ * At PLATE_DEPTH, not shipFx: this is information of the same kind as a word
+ * plate, and UR-204 put the nearest rocks above shipFx, where they covered it.
+ */
+const POINTS_FLOAT = {
+  sizePx: TYPE.body,
+  risePx: 70,
+  holdMs: 420,
+  fadeMs: 380,
+} as const;
+
+/** UR-204. Above the ship, below the word plate. */
+const NEAR_OVER_SHIP = PLATE_LAYER_DEPTH - 0.7;
+/**
+ * Slightly see-through, and ONLY because it now crosses the ship and the words.
+ * Opaque foreground over a child's own ship hides the thing they are steering;
+ * this is the least that keeps it readable underneath.
+ */
+const NEAR_OVER_SHIP_ALPHA = 0.88;
+
+/**
  * Half the Lantern's drawn width, px. Used to work out which spawn columns
  * would drop a rock onto the ship.
  *
@@ -326,6 +360,10 @@ const SHIP_SCALE = SHIP_HALF_WIDTH_PX / LANTERN_DESIGN_HALF_WIDTH;
  * still a snap, and it is the same order as the muzzle flash it leaves from
  * (`render/lantern` MUZZLE_MS 150), so the two read as one event.
  */
+
+/** ?zap=2: a letter shot as a fraction of a kill shot. */
+const ZAP_LETTER_SCALE = 0.45;
+
 const BEAM_MS = 110;
 
 /**
@@ -748,6 +786,8 @@ export class FlightScene extends Phaser.Scene {
   private iris!: Phaser.GameObjects.Graphics;
   /** The blast beam. GAMEPLAY, in the stop's accent - not the rig's light shaft. */
   private beam!: Phaser.GameObjects.Graphics;
+  /** The rock the current charge was earned on. */
+  private zapLockedId: string | null = null;
   /** The rig's plume, dimmed when the engines go quiet (D29). */
   private exhaust!: Phaser.GameObjects.Container;
   private scorchLayer!: Phaser.GameObjects.Container;
@@ -1007,6 +1047,21 @@ export class FlightScene extends Phaser.Scene {
       decorate: ["sky", "celestial", "farField", "midField", "nearField"],
       seed: this.cfg.seed,
     });
+
+    /**
+     * UR-204: the NEAREST rocks pass IN FRONT of the ship, not behind it.
+     *
+     * `nearField` is the closest plane Flight decorates and it sat at depth 5,
+     * under `shipFx` at 6 - so the biggest, blackest, fastest rocks slid
+     * underneath the Lantern and read as being at the same distance as the
+     * typeable debris they cross. They are the foreground; they belong over it.
+     *
+     * NOT over the word plates or the HUD. The plate carries the word a child
+     * is typing, so it keeps `PLATE_DEPTH`, and `NEAR_OVER_SHIP` sits below it.
+     */
+    this.parallax.layerOf("nearField").container
+      .setDepth(NEAR_OVER_SHIP)
+      .setAlpha(NEAR_OVER_SHIP_ALPHA);
 
     this.debrisLayer = this.add.container(0, 0).setDepth(layer("debris").depth);
     this.plateLayer = this.add.container(0, 0).setDepth(PLATE_DEPTH);
@@ -2096,6 +2151,9 @@ export class FlightScene extends Phaser.Scene {
     }
 
     const plate = new WordPlate(this, 0, 0, word, this.plateStyle);
+    // D109: Venus's words arrive behind cloud. Null at every other stop, so
+    // this line is inert everywhere else.
+    plate.setVeilWindow(veilWindowFor(this.cfg.stopId));
     // NOT a child of the rock. See PLATE_DEPTH: every plate draws above every
     // rock, and `updateRocks` carries it to the rock's column each frame.
     this.plateLayer.add(plate);
@@ -2285,6 +2343,19 @@ export class FlightScene extends Phaser.Scene {
 
   private applyLock(event: LockEvent): void {
     this.lock = reduce(this.lock, event);
+    // THE CHARGE BELONGS TO THE LOCKED ROCK, so it dies with the lock -
+    // a new word, a rock blasted, a rock given up on and lost to the ship or
+    // off the bottom of the screen. BEFORE the emits, not after: the first
+    // keystroke of a word both locks the rock AND advances it, so clearing
+    // afterwards wiped the very bloom that keystroke had just drawn.
+    //
+    // Cues cannot express this. `park` never fires (measured - a rock that
+    // falls reports `hit`), and `hit` also fires for rocks the pilot was never
+    // typing, which would dump a charge that is still being earned.
+    if (this.zapCharge && this.lock.lockedId !== this.zapLockedId) {
+      this.zapLockedId = this.lock.lockedId;
+      this.lantern.clearCharge();
+    }
     for (const emit of this.lock.emitted) this.renderEmit(emit);
   }
 
@@ -2345,6 +2416,14 @@ export class FlightScene extends Phaser.Scene {
     this.correctChars += 1;
     this.cue("keystroke");
     const typedCount = [...typed].length;
+    if (this.zapCharge || this.zapPerLetter) {
+      const target = candidateIds[0] ?? this.lock.lockedId;
+      const rock = target === null || target === undefined ? undefined : this.rockById(target);
+      if (rock !== undefined) {
+        if (this.zapPerLetter) this.fireBeam(rock, ZAP_LETTER_SCALE);
+        else this.chargeStep(typedCount, [...rock.word].length);
+      }
+    }
     const live = new Set(candidateIds);
     for (const rock of this.rocks) {
       rock.plate.setTypedCount(live.has(rock.id) ? typedCount : 0);
@@ -2543,6 +2622,7 @@ export class FlightScene extends Phaser.Scene {
         this.setHullLamp(false);
         this.cue("shield");
       }
+      if (this.zapCharge) this.lantern.clearCharge();
       this.fireBeam(rock);
       if (cracking) this.crackShell(rock, points, nowMs, celebration);
       else this.fractureRock(rock, points, celebration);
@@ -2613,31 +2693,52 @@ export class FlightScene extends Phaser.Scene {
    * is the rig's object and the title screen's ship has the same lens. A second
    * muzzle drawn here would be the fourth beam implementation in the file.
    */
-  private fireBeam(rock: LiveRock): void {
+  /** FEEL EXPERIMENT (UR-195). `index` is 1-based; `length` is the whole word. */
+  /**
+   * UR-195 ships DARK. The charging lens is opt-in with `?zap=1` until the
+   * owner has watched it in a real session; production behaves exactly as it
+   * did, and nothing below runs without the flag.
+   */
+  private get zapCharge(): boolean {
+    return new URLSearchParams(window.location.search).get("zap") === "1";
+  }
+
+  /** ?zap=2. The other idea: the blaster FIRES on every correct letter. */
+  private get zapPerLetter(): boolean {
+    return new URLSearchParams(window.location.search).get("zap") === "2";
+  }
+
+  /** UR-195. `index` is 1-based within the word; `length` is the whole word. */
+  private chargeStep(index: number, length: number): void {
+    const { bloom, settle } = chargeLevelFor(index, length);
+    this.lantern.chargePulse(bloom, settle);
+  }
+
+  private fireBeam(rock: LiveRock, scale = 1): void {
     const origin = this.emitterWorldPoint();
     const target = { x: rock.container.x, y: rock.container.y };
     this.beam.clear();
-    this.lantern.setIris(1);
+    this.lantern.setIris(scale);
     // THE PULSE AT THE BASE. Fired with the beam, not after it: the flash is
     // the beam's origin, so a player who sees them as two events sees a bug.
-    this.lantern.flash(1);
+    this.lantern.flash(scale);
     const soft = hexToInt(this.palette.accent);
     const hot = hexToInt(INK.accentSoft);
     this.tweens.addCounter({
       from: 1,
       to: 0,
-      duration: BEAM_MS,
+      duration: scale < 1 ? BEAM_MS * 0.6 : BEAM_MS,
       ease: "Expo.Out",
       onUpdate: (tween) => {
         const v = tween.getValue() ?? 0;
         this.beam.clear();
         // Widest and faintest first, so the passes stack into a falloff
         // rather than overprinting one flat band.
-        this.beam.lineStyle(BEAM_W.bloom * v, soft, 0.1 + 0.16 * v);
+        this.beam.lineStyle(BEAM_W.bloom * v * scale, soft, (0.1 + 0.16 * v) * scale);
         this.beam.lineBetween(origin.x, origin.y, target.x, target.y);
-        this.beam.lineStyle(2 + BEAM_W.body * v, soft, 0.22 + 0.5 * v);
+        this.beam.lineStyle((2 + BEAM_W.body * v) * scale, soft, (0.22 + 0.5 * v) * scale);
         this.beam.lineBetween(origin.x, origin.y, target.x, target.y);
-        this.beam.lineStyle(1 + BEAM_W.core * v, hot, 0.4 + 0.55 * v);
+        this.beam.lineStyle((1 + BEAM_W.core * v) * scale, hot, (0.4 + 0.55 * v) * scale);
         this.beam.lineBetween(origin.x, origin.y, target.x, target.y);
       },
       onComplete: () => {
@@ -2763,17 +2864,23 @@ export class FlightScene extends Phaser.Scene {
     const floater = this.add
       .text(x, y, `+${points}`, {
         fontFamily: this.plateStyle.fontFamily,
-        fontSize: "26px",
-        color: this.palette.accent,
+        fontSize: `${POINTS_FLOAT.sizePx}px`,
+        color: INK.text,
       })
       .setOrigin(0.5)
-      .setDepth(layer("shipFx").depth);
+      .setDepth(PLATE_DEPTH);
     this.tweens.add({
       targets: floater,
-      y: floater.y - 70,
-      alpha: 0,
-      duration: 400,
+      y: floater.y - POINTS_FLOAT.risePx,
+      duration: POINTS_FLOAT.holdMs + POINTS_FLOAT.fadeMs,
       ease: "Expo.Out",
+    });
+    this.tweens.add({
+      targets: floater,
+      alpha: 0,
+      delay: POINTS_FLOAT.holdMs,
+      duration: POINTS_FLOAT.fadeMs,
+      ease: "Sine.In",
       onComplete: () => floater.destroy(),
     });
 
@@ -2867,17 +2974,23 @@ export class FlightScene extends Phaser.Scene {
     const floater = this.add
       .text(x, y, `+${points}`, {
         fontFamily: this.plateStyle.fontFamily,
-        fontSize: "26px",
-        color: this.palette.accent,
+        fontSize: `${POINTS_FLOAT.sizePx}px`,
+        color: INK.text,
       })
       .setOrigin(0.5)
-      .setDepth(layer("shipFx").depth);
+      .setDepth(PLATE_DEPTH);
     this.tweens.add({
       targets: floater,
-      y: floater.y - 70,
-      alpha: 0,
-      duration: 400,
+      y: floater.y - POINTS_FLOAT.risePx,
+      duration: POINTS_FLOAT.holdMs + POINTS_FLOAT.fadeMs,
       ease: "Expo.Out",
+    });
+    this.tweens.add({
+      targets: floater,
+      alpha: 0,
+      delay: POINTS_FLOAT.holdMs,
+      duration: POINTS_FLOAT.fadeMs,
+      ease: "Sine.In",
       onComplete: () => floater.destroy(),
     });
 
@@ -2891,6 +3004,9 @@ export class FlightScene extends Phaser.Scene {
     rock.crackedShellWord = shellWord;
     rock.core = null;
     rock.sizePx = core.sizePx;
+    // The lock reticule goes with the layer it was cut for. Nothing is locked
+    // now, so the player is free to target any rock.
+    for (const child of [...rock.container.list]) if (child !== rock.body) child.destroy();
     rock.plateOffsetY = core.plateOffsetY;
     drawDebris(rock.body, {
       type: rock.debris,
@@ -2901,6 +3017,8 @@ export class FlightScene extends Phaser.Scene {
     });
 
     const plate = new WordPlate(this, x, y + core.plateOffsetY, core.word, this.plateStyle);
+    // D109 again: the core of a two-layer rock gets the same cloud its shell had.
+    plate.setVeilWindow(veilWindowFor(this.cfg.stopId));
     this.plateLayer.add(plate);
     rock.plate = plate;
     plate.setScale(0.7);
@@ -3658,6 +3776,9 @@ export class FlightScene extends Phaser.Scene {
       // Without this the results screen would rate a six-mark stage on a
       // three-mark curve and call a cleared belt a stall (AC-4.4, @engine/hull).
       maxHull: this.maxHull,
+      // And without THIS it calls one a stall anyway when a canister gave a
+      // mark back, because `hullHits` is cumulative (UR-176).
+      cleared: this.stageComplete,
     };
   }
 

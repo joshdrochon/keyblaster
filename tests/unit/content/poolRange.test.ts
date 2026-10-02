@@ -212,15 +212,15 @@ describe("UR-79b / AC-12.2: every stop OWNS far more words than one belt flies",
   });
 
   it("FR-12: the whole game's English vocabulary, before and after", () => {
-    // The headline, as one number rather than as six. The union is what a
-    // child can ever meet: the six banks plus the sight list, deduped.
+    // The headline, as one number rather than as eight. The union is what a
+    // child can ever meet: the eight banks plus the sight list, deduped.
     const banks = EN.flatMap((b) => b.pool);
     const distinct = new Set(banks);
-    expect(banks.length, "bank slots across the six belt stops").toBe(675);
-    expect(distinct.size, "distinct words across the six banks").toBe(381);
-    // Before this lane the same six stops carried 270 slots and 178 distinct
-    // words. WATCHED FAILING against the shipped content: "expected 178 to be
-    // 381".
+    expect(banks.length, "bank slots across the nine belt stops").toBe(1022);
+    expect(distinct.size, "distinct words across the nine banks").toBe(510);
+    // 905/446 over eight belts before Zoozve; 675/381 over six before the
+    // venus/mercury pair. Earlier still, the same six stops carried 270 slots
+    // and 178 distinct words.
     expect(distinct.size).toBeGreaterThan(178 * 2);
   });
 });

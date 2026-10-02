@@ -137,10 +137,23 @@ export function uiSoundBlip(kind: UiSoundKind, amount?: number): void {
 export class FocusList {
   private items: Focusable[] = [];
   private index = 0;
+  private focusable = true;
   private readonly listeners: FocusListener[] = [];
 
-  setItems(items: readonly Focusable[], focusId?: string): void {
+  /**
+   * UR-192: a screen whose rows are a READOUT passes `focusable: false`. The
+   * items are still mirrored and still clickable-free; they simply never take
+   * the ring, because nothing here is operable and a ring on an inert row
+   * promises something Enter does not do.
+   */
+  setItems(items: readonly Focusable[], focusId?: string, focusable = true): void {
     this.items = [...items];
+    this.focusable = focusable;
+    if (!focusable) {
+      this.index = -1;
+      this.paint();
+      return;
+    }
     // START WHERE THE CALLER SAYS, NOT AT ZERO.
     //
     // A screen that restarts itself to redraw under a changed setting used to
@@ -193,6 +206,7 @@ export class FocusList {
   }
 
   get current(): Focusable | null {
+    if (!this.focusable) return null;
     return this.items[this.index] ?? null;
   }
 

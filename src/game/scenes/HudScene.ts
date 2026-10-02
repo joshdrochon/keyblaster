@@ -5,13 +5,14 @@ import { hexToInt } from "@game/render/wordPlate.js";
 import { FLIGHT_EVENTS, type HudSnapshot } from "@game/flight/stage.js";
 import { type FlightCopy, createFlightCopy } from "@game/flight/copy.js";
 import {
+  HUD_PLACE_H,
   HUD_RADIUS,
   hudLeftPlate,
   hudPlacePlate,
   hudRightPlate,
   type HudRect,
 } from "@game/flight/hudLayout.js";
-import { chromeCase, letterSpacingPx } from "@game/ui/theme.js";
+import { INK, chromeCase, letterSpacingPx } from "@game/ui/theme.js";
 import { drawPlate } from "@game/ui/plate.js";
 import { typographyOf } from "@game/scenes/lib/typography.js";
 import type { Lang } from "@engine/types.js";
@@ -39,6 +40,9 @@ import { listenForTrophies } from "@game/ui/trophyToast.js";
  * bar that empties and never a count of what was lost, and the multiplier comes
  * from `hudMultiplierFor` so the screen never shows "x0".
  */
+/** The planet beside the stop name. Radius, px. */
+const PLACE_ICON_R = 9;
+
 export class HudScene extends Phaser.Scene {
   private copy!: FlightCopy;
   private snapshot: HudSnapshot | null = null;
@@ -101,10 +105,13 @@ export class HudScene extends Phaser.Scene {
     const left = this.plateRect(leftRect, plate, accent);
     left.setDepth(layer("hud").depth);
 
+    // ONE RULE, EVERY READOUT: the number in plateText, its caption in accent.
+    // These four alternated - wpm white over accent, combo accent over white -
+    // which reads as a checkerboard rather than as two instruments.
     this.wpmValue = this.text(44, 40, "0", plateText, 34);
     this.wpmLabel = this.text(44, 78, this.copy.t("hud.wpm"), accent, 16, "label");
-    this.comboValue = this.text(150, 40, "x1", accent, 34);
-    this.comboLabel = this.text(150, 78, this.copy.t("hud.combo"), plateText, 16, "label");
+    this.comboValue = this.text(150, 40, "x1", plateText, 34);
+    this.comboLabel = this.text(150, 78, this.copy.t("hud.combo"), accent, 16, "label");
 
     // UR-21: WHERE THE SHIP IS. See `hudLayout.HUD_PLACE_H` for why it is a
     // plate of its own under the instruments rather than a title across the top
@@ -114,24 +121,28 @@ export class HudScene extends Phaser.Scene {
     this.placePlate = this.plateRect(placeRect, plate, accent);
     this.placePlate.setDepth(layer("hud").depth);
     this.placeName = this.text(
-      placeRect.x + 36,
+      placeRect.x + 18 + PLACE_ICON_R * 2 + 14,
       placeRect.y + 11,
       snap?.stopName ?? "",
       plateText,
       24,
       "place",
     );
-    // The stop's own colour, as a short rule beside the name. It is the one
-    // thing on this plate that is not type: a place gets a mark, a readout gets
-    // a caption, and this screen is not allowed captions.
-    //
-    // THE GAP IS 20 PX AND THAT IS FROM LOOKING AT IT. At 5 px the rule sat
-    // hard against the S and the plate read "lSaturn" - a 3x20 bar beside type
-    // at the same height IS a lowercase l until there is enough air for the eye
-    // to stop reading it as one.
+    // A PLANET, NOT A RULE. The 3x16 bar it replaces was the same shape and
+    // height as the type beside it, so at Saturn the plate read "lSaturn". The
+    // map already draws every stop as a lit disc with its night side turned
+    // away; this is that disc at HUD size, and it cannot be read as a letter.
     this.placeMark = this.add.graphics();
+    const markX = placeRect.x + 18 + PLACE_ICON_R;
+    const markY = placeRect.y + HUD_PLACE_H / 2;
     this.placeMark.fillStyle(hexToInt(accent), 1);
-    this.placeMark.fillRoundedRect(placeRect.x + 16, placeRect.y + 15, 3, 16, 1.5);
+    this.placeMark.fillCircle(markX, markY, PLACE_ICON_R);
+    this.placeMark.fillStyle(hexToInt(plate), 0.5);
+    this.placeMark.fillCircle(
+      markX + PLACE_ICON_R * 0.24,
+      markY + PLACE_ICON_R * 0.22,
+      PLACE_ICON_R * 0.66,
+    );
     this.placeMark.setDepth(layer("hud").depth + 1);
 
     const right = this.plateRect(hudRightPlate(this.scale.width), plate, accent);
@@ -151,11 +162,14 @@ export class HudScene extends Phaser.Scene {
       this.scale.width - 132,
       78,
       this.copy.t("flight.hull"),
-      plateText,
+      accent,
       16,
       "label",
     );
-    this.buildHullMarks(this.scale.width - 132, 48, accent);
+    // GOLD, not the stop's accent - the same call UR-157 made for the canister
+    // marker. The shield reads the same at all seven stops, and it matches the
+    // thing that gives it back.
+    this.buildHullMarks(this.scale.width - 132, 48, INK.accent);
 
     this.game.events.on(FLIGHT_EVENTS.hud, this.onSnapshot, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {

@@ -50,9 +50,9 @@ describe("the migration chain", () => {
     // FROM, which is why it reads [1, 2] and not [2, 3].
     const out = migrateToCurrent(v1Payload(), 1);
     expect(out.ok).toBe(true);
-    expect(out.applied).toEqual([1, 2]);
+    expect(out.applied).toEqual([1, 2, 3]);
     expect(out.payload["version"]).toBe(SCHEMA_VERSION);
-    expect(out.payload["version"]).toBe(3);
+    expect(out.payload["version"]).toBe(4);
   });
 
   it("UR-51: v3 gives every migrated profile the cold-start knob, and no other", () => {

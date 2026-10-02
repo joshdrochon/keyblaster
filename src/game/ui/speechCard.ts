@@ -40,7 +40,7 @@ export function drawSpeechCard(
     fill: INK.panel,
     stroke: INK.line,
     alpha: 1,
-    radius: SPACE.radiusCard,
+    radius: SPACE.radius,
   });
   const [speaker, line] = stackRows(box, speechCardRows(lines), "card") as [Rect, Rect];
   return { speaker, line, plate: g };

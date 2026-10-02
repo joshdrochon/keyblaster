@@ -270,11 +270,23 @@ describe("UR-129: the multiplier is the same colour everywhere", () => {
     expect(body).not.toContain("this.palette.accent");
   });
 
-  it("NEGATIVE CONTROL: the +points floater still uses the accent", () => {
-    // The bloom is the thing that changed; the floater is untouched, so a
-    // blanket search-and-replace across the file would fail here.
+  it("the +points floater took the same ink, and on the same argument", () => {
+    // This was a negative control asserting the floater STILL used the accent,
+    // which proved the bloom's fix was specific rather than a blanket replace.
+    // The floater has since been measured against the sky it rises through -
+    // 1.03:1 at Pluto, under the bar at six of seven stops - and given the same
+    // token. The control is spent; what replaces it is the rule both obey.
     const SRC = readFileSync("src/game/scenes/FlightScene.ts", "utf8");
-    expect(SRC).toMatch(/`\+\$\{points\}`[\s\S]{0,200}color: this\.palette\.accent/);
+    expect(SRC).not.toMatch(/`\+\$\{points\}`[\s\S]{0,200}color: this\.palette\.accent/);
+    expect(SRC).toMatch(/`\+\$\{points\}`[\s\S]{0,200}color: INK\.text/);
+  });
+
+  it("the floater's size is on the type scale", () => {
+    // 26px was not on it, and Flight is not in the contact sheet, so the
+    // census that counts sizes never saw it.
+    const SRC = readFileSync("src/game/scenes/FlightScene.ts", "utf8");
+    expect(SRC).toMatch(/sizePx: TYPE\.\w+/);
+    expect(SRC).not.toMatch(/fontSize: "26px"/);
   });
 
   it("the ink is a single declared token, not a hex literal", () => {
@@ -365,5 +377,31 @@ describe("UR-130b: milestones hold longer", () => {
     // 0.055 was the first pass and read as "the same size" between neighbours.
     const step = bloomToScale(6) - bloomToScale(5);
     expect(step).toBeGreaterThanOrEqual(0.08);
+  });
+});
+
+describe("the +points floater is readable, not a flash", () => {
+  const SRC = readFileSync("src/game/scenes/FlightScene.ts", "utf8");
+  const spec = SRC.slice(SRC.indexOf("const POINTS_FLOAT = {"), SRC.indexOf("} as const;", SRC.indexOf("const POINTS_FLOAT = {")));
+  const num = (k: string): number => Number(/(\d+)/.exec(spec.slice(spec.indexOf(k)))?.[1] ?? 0);
+
+  it("holds at full opacity before it starts fading", () => {
+    // One Expo.Out tween drove both the rise and the fade, and Expo.Out
+    // front-loads: alpha was 0.5 after 70ms and 0.03 by 350ms. Measured in the
+    // running game after the split: full to 415ms, gone by 824ms.
+    expect(num("holdMs")).toBeGreaterThanOrEqual(300);
+    expect(num("fadeMs")).toBeGreaterThan(0);
+  });
+
+  it("fades on a curve that does not front-load", () => {
+    const fade = SRC.slice(SRC.indexOf("delay: POINTS_FLOAT.holdMs"));
+    expect(fade.slice(0, 200)).toMatch(/ease: "Sine\.In"/);
+    expect(fade.slice(0, 200)).not.toMatch(/ease: "Expo/);
+  });
+
+  it("draws above the nearest rocks, which UR-204 put over shipFx", () => {
+    const body = SRC.slice(SRC.indexOf("`+${points}`"));
+    expect(body.slice(0, 400)).toMatch(/setDepth\(PLATE_DEPTH\)/);
+    expect(body.slice(0, 400)).not.toMatch(/layer\("shipFx"\)/);
   });
 });

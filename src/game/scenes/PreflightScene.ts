@@ -606,7 +606,7 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     const header = this.add.graphics().setDepth(17);
     paintPlate(header, plate, {
       fill: INK.panel,
-      radius: SPACE.radiusCard,
+      radius: SPACE.radius,
       strokeWidth: 0,
     });
     paintPlate(

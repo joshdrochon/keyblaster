@@ -530,15 +530,13 @@ describe("UR-146: sentence case means the sentence starts with a capital", () =>
   });
 
   it("Earth is a place, so it is capitalised inside a sentence", () => {
-    // The other half of `ui.log.emptyShadow`. The lower-case `ui.stop.earth`
-    // label is D41 chrome and stays; a planet inside a sentence is a name.
-    for (const key of ["ui.log.emptyShadow", "ui.settings.resetDone"] as const) {
+    // The lower-case `ui.stop.earth` label is D41 chrome and stays; a planet
+    // inside a sentence is a name. UR-198 took the planet out of
+    // `ui.log.emptyShadow`, which is now about trophies.
+    for (const key of ["ui.settings.resetDone"] as const) {
       expect(UI_TABLES.en[key], key).not.toMatch(/\bearth\b/);
       expect(UI_TABLES.en[key], key).toMatch(/Earth/);
     }
-    // Spanish capitalises the planet inside a sentence too, and keeps the
-    // lower-case label.
-    expect(UI_TABLES.es["ui.log.emptyShadow"]).toContain("Tierra");
     expect(UI_TABLES.es["ui.stop.earth"]).toBe("tierra");
   });
 });

@@ -76,3 +76,47 @@ describe("isClearableHullHits", () => {
     expect(isClearableHullHits(Number.POSITIVE_INFINITY)).toBe(false);
   });
 });
+
+/**
+ * UR-176: the owner's save read `venus cleared: true, stars: 0` - the one
+ * rating the header says a cleared stage can never carry.
+ *
+ * `hullHits` is CUMULATIVE on purpose (a canister must not erase a hit, or a
+ * run that emptied its hull twice collects three stars). The consequence nobody
+ * reconciled: with repairs, that count can REACH the cap on a run that cleared,
+ * and `hits >= cap` then read as a stall.
+ */
+describe("UR-176: a cleared stage never scores zero", () => {
+  it("floors a cleared run at one star when repairs took it to the cap", () => {
+    expect(starsForHullHits(6, 6, true)).toBe(1);
+    expect(starsForHullHits(9, 6, true)).toBe(1);
+  });
+
+  it("still scores a STALL zero at the same hit count", () => {
+    expect(starsForHullHits(6, 6, false)).toBe(0);
+    expect(starsForHullHits(9, 6, false)).toBe(0);
+  });
+
+  it("defaults to the pre-UR-176 answer, so no existing caller moved", () => {
+    expect(starsForHullHits(3, 3)).toBe(starsForHullHits(3, 3, false));
+    expect(starsForHullHits(3, 3)).toBe(0);
+  });
+
+  it("changes nothing below the cap, cleared or not", () => {
+    for (let hits = 0; hits < 6; hits += 1) {
+      expect(starsForHullHits(hits, 6, true)).toBe(starsForHullHits(hits, 6, false));
+    }
+  });
+
+  it("never reports a cleared run as unrateable", () => {
+    // The guard the results screen draws stars behind has to agree with the
+    // rating, or it refuses to render the star it just awarded.
+    expect(isClearableHullHits(6, 6, true)).toBe(true);
+    expect(isClearableHullHits(6, 6, false)).toBe(false);
+  });
+
+  it("junk input is still unusable, cleared or not", () => {
+    expect(starsForHullHits(Number.NaN, 6, true)).toBe(0);
+    expect(starsForHullHits(Number.POSITIVE_INFINITY, 6, true)).toBe(0);
+  });
+});

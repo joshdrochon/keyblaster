@@ -248,13 +248,13 @@ function drawSwitch(
   // same dark its own module was drawn in, so the whole switch was one dark
   // shape with a white dot floating in it.
   g.fillStyle(hexToNum(PANEL.shadow), SHADOW_ALPHA);
-  g.fillRoundedRect(x + 2, y + 6, w, h, 16);
+  g.fillRoundedRect(x + 2, y + 6, w, h, SPACE.radius);
   g.fillStyle(hexToNum(PANEL.knobShade), 1);
-  g.fillRoundedRect(x, y, w, h, 16);
+  g.fillRoundedRect(x, y, w, h, SPACE.radius);
   g.fillStyle(hexToNum(PANEL.knob), 1);
-  g.fillRoundedRect(x, y, w, h - 5, 16);
+  g.fillRoundedRect(x, y, w, h - 5, SPACE.radius);
   g.lineStyle(2, hexToNum(focused ? accent : PANEL.knobLit), focused ? 1 : 0.5);
-  g.strokeRoundedRect(x, y, w, h - 5, 16);
+  g.strokeRoundedRect(x, y, w, h - 5, SPACE.radius);
 
   // THE SLOT IS THE LAMP. A separate lamp square had to go somewhere the lever
   // never covered, which left no room for a throw worth looking at; backlighting

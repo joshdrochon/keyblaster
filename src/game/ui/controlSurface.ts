@@ -16,6 +16,7 @@ import {
   controlSurfaceLayout,
   lampRowBoxes,
 } from "./controlSurfaceLayout.js";
+import { SPACE } from "./theme.js";
 
 /**
  * THE CONTROL SURFACE, DRAWN (UR-61 and UR-11; D83 vector-in-code).
@@ -59,6 +60,9 @@ const HW = HARDWARE;
 // ---------------------------------------------------------------------------
 
 /** The soft shadow every raised piece of hardware casts, down and right. */
+/** The bezel wraps the face, so its corner is the face's plus the inset. */
+const BEZEL_RADIUS = SPACE.radius + 10;
+
 export function castShadowCircle(
   g: Phaser.GameObjects.Graphics,
   cx: number,
@@ -207,13 +211,13 @@ function paintFace(
 ): void {
   const { x, y, w, h } = parts.bezel;
   g.fillStyle(hexToNum(PANEL.faceShade), 1);
-  g.fillRoundedRect(x, y, w, h, 26);
+  g.fillRoundedRect(x, y, w, h, BEZEL_RADIUS);
   g.lineStyle(2, hexToNum(PANEL.lip), 1);
-  g.strokeRoundedRect(x, y, w, h, 26);
+  g.strokeRoundedRect(x, y, w, h, BEZEL_RADIUS);
 
   const { x: fx, y: fy, w: fw, h: fh } = parts.face;
   g.fillStyle(hexToNum(PANEL.face), 1);
-  g.fillRoundedRect(fx, fy, fw, fh, 16);
+  g.fillRoundedRect(fx, fy, fw, fh, SPACE.radius);
 
   const lit = dash === undefined ? PANEL.faceLit : dashLitSurface(dash);
   const bands = 22;

@@ -201,9 +201,13 @@ test("AC-1.2: every background layer advances each frame, in proportion to its c
   // (which is AC-1.1's other half). So the three roles are named here, and the
   // last assertion in this block makes a new layer that belongs to none of them
   // fail rather than quietly escape the test.
-  const SCROLLING_IDS = ["celestial", "farField", "midField", "debris", "nearField", "foreVeil"];
+  // `celestial` MOVED TO FIXED (UR-161). The sun was sliding down every belt and
+  // wrapping; a body between 0.4 and 40 AU has no parallax against a few seconds
+  // of ship travel, so it is pinned like the sky and the HUD. Same reason
+  // `shipFx` is below: configured with a speed, deliberately not translated.
+  const SCROLLING_IDS = ["farField", "midField", "debris", "nearField", "foreVeil"];
   const PINNED_IDS = ["sky", "hud"];
-  const FIXED_IDS = ["shipFx"];
+  const FIXED_IDS = ["shipFx", "celestial"];
   expect(
     [...SCROLLING_IDS, ...PINNED_IDS, ...FIXED_IDS].sort(),
     "a layer was added or renamed; this test has not been told what it should do",

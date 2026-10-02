@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  BONUS_STOP_IDS,
   LANGS,
+  ROUTE_STOP_IDS,
   STOP_IDS,
+  isBonusStop,
   isLang,
   isStopId,
   stageIndexOf,
@@ -22,16 +25,27 @@ describe("languages (D45)", () => {
 });
 
 describe("stops (D56, D57)", () => {
-  it("runs Earth outward to Pluto, seven stops", () => {
+  it("runs Earth outward to Pluto, then the bonus pair", () => {
     expect(STOP_IDS).toEqual([
       "earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto",
+      "venus", "mercury", "zoozve",
     ]);
-    expect(STOP_IDS).toHaveLength(7);
+    expect(STOP_IDS).toHaveLength(10);
+    expect(ROUTE_STOP_IDS).toEqual([
+      "earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto",
+    ]);
   });
 
-  it("does not include Mercury or Venus (C05: the route starts at Earth)", () => {
-    expect(isStopId("mercury")).toBe(false);
-    expect(isStopId("venus")).toBe(false);
+  // Mercury and Venus are stops now, but they are BONUS stops appended after
+  // Pluto; C05 survives as "the main route starts at Earth", not "they do not exist".
+  it("AC-27.1: keeps Mercury and Venus off the main route (C05)", () => {
+    for (const id of BONUS_STOP_IDS) {
+      expect(isStopId(id)).toBe(true);
+      expect(isBonusStop(id)).toBe(true);
+      expect(ROUTE_STOP_IDS).not.toContain(id);
+    }
+    expect(ROUTE_STOP_IDS[0]).toBe("earth");
+    expect(ROUTE_STOP_IDS.some(isBonusStop)).toBe(false);
   });
 
   it("narrows a valid stop", () => {
@@ -48,13 +62,16 @@ describe("stageIndexOf", () => {
     expect(stageIndexOf("earth")).toBe(0);
   });
 
-  it("numbers the six belt stops 1..6", () => {
+  it("numbers the nine belt stops 1..9", () => {
     expect(stageIndexOf("mars")).toBe(1);
     expect(stageIndexOf("jupiter")).toBe(2);
     expect(stageIndexOf("saturn")).toBe(3);
     expect(stageIndexOf("uranus")).toBe(4);
     expect(stageIndexOf("neptune")).toBe(5);
     expect(stageIndexOf("pluto")).toBe(6);
+    expect(stageIndexOf("venus")).toBe(7);
+    expect(stageIndexOf("mercury")).toBe(8);
+    expect(stageIndexOf("zoozve")).toBe(9);
   });
 
   it("is strictly increasing along the route", () => {

@@ -92,6 +92,8 @@ import {
   type LayerSpec,
   cameraSwayPx,
   idleDriftPx,
+  PINNED_LAYERS,
+  WORLD_SCROLL_LAYERS,
   layer,
 } from "./layers.js";
 import {
@@ -156,22 +158,8 @@ export const EASE = {
   blast: "Expo.easeOut",
 } as const;
 
-/** Layers that translate with the world. See the header note. */
-const SCROLLS: ReadonlySet<LayerId> = new Set<LayerId>([
-  "celestial",
-  "farField",
-  "midField",
-  "debris",
-  "nearField",
-  "foreVeil",
-]);
-
-/**
- * Layers pinned at exactly (0,0) forever. The HUD must not sway - a readout
- * that drifts with the camera is unreadable and breaks rubric item 8 - and the
- * sky is full-bleed, so moving it would only risk an edge.
- */
-const PINNED: ReadonlySet<LayerId> = new Set<LayerId>(["sky", "hud"]);
+const SCROLLS = WORLD_SCROLL_LAYERS;
+const PINNED = PINNED_LAYERS;
 
 /**
  * The four depth planes the ramp is sampled at, far -> near. Four rather than
@@ -188,12 +176,21 @@ const DEPTH_PLANES = 4;
  * silhouettes, over the debris plane at 4. Derived from `layers.ts` rather than
  * typed, because a depth split across two files is a depth with two values.
  */
-const NEAR_LIGHT_DEPTH = layer("nearField").depth - 0.01;
+const NEAR_LIGHT_DEPTH = layer("farField").depth - 0.5;
 
 /** Depth of the pinned floor vignette: in front of the near field, behind the ship. */
 const VIGNETTE_DEPTH = 5.6;
-/** Depth of the atmosphere pass: in front of the foreground veil, behind the HUD. */
-const ATMOSPHERE_DEPTH = 6.8;
+/**
+ * UR-203: BEHIND every plane that carries a rock, not in front of the world.
+ *
+ * At 6.8 this pass drew over everything, and it is ADDITIVE. On Saturn and
+ * Pluto `atmosphereFor` returns "glitter", so its bright specks added light
+ * straight onto the near-black foreground rocks: sparse (0.6% of rock pixels)
+ * but up to 93/255 brighter, which reads as stars showing through a solid rock.
+ * Measured on the Title with every beacon lit, where the palette is Pluto's -
+ * the blue Neptune title uses "streaks" and never showed it.
+ */
+const ATMOSPHERE_DEPTH = layer("farField").depth - 0.1;
 
 /**
  * The atmosphere pass's own flicker, for every screen that is not the one
@@ -767,8 +764,8 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
 
   // --- L0 sky -------------------------------------------------------------
   // Two full-stage gradients (stage start / stage end) crossfaded by
-  // setSkyProgress. Graphics has no gradient fill, so a gradient is a stack of
-  // 1px-tall strips - one draw, no texture memory, and it is genuinely vector.
+  // setSkyProgress. Each is a true two-quad gradient - see `gradient` for the
+  // 96 stacked strips this replaced and why they were there.
   let skyLate: Phaser.GameObjects.Graphics | null = null;
   let starField: StarField | null = null;
   if (decorate.has("sky")) {
@@ -1001,7 +998,7 @@ export function buildParallax(scene: Phaser.Scene, options: ParallaxOptions): Pa
     }
     const lightOps = (ops: readonly TileOp[]): readonly TileOp[] =>
       nearLightTravels ? wrapY(ops, H) : ops;
-    nearLight.add(drawOps(scene, lightOps(moteTile(W, H, nearFill, pal.worldAccent, rand))));
+    nearLight.add(drawOps(scene, lightOps(moteTile(W, H, nearFill, pal.worldAccent, rand, keepClear))));
     // WORLD-BAR item 7. Three of them. Tiny, high contrast, enormous effect -
     // and 4-9 px of opaque saturated colour is the most speck-like thing in the
     // frame, so they hold still with the motes rather than sliding alone.
@@ -1298,6 +1295,36 @@ export function skyAt(pal: StopPalette, t: number): string {
     : mixHex(mid, bottom, (u - SKY_MID_AT) / (1 - SKY_MID_AT));
 }
 
+/**
+ * THE SKY, AS A GRADIENT RATHER THAN AS 96 STACKED STRIPS.
+ *
+ * This used to paint 96 flat rectangles down the frame, each a solid colour, so
+ * at 1080 px every band was 11 px of unchanging sky and the step edges read as
+ * horizontal lines across the whole screen. The owner reported it on Venus and
+ * said it was on every stop, which it was: this is the one painter all ten
+ * share.
+ *
+ * The comment that justified the strips said "Graphics has no gradient fill".
+ * That was never true - `ui/chrome.ts` paints the MENU sky with
+ * `fillGradientStyle`, and it was written in the SAME COMMIT (b4d2774). A wrong
+ * assumption was recorded as an engine constraint, and the comment then
+ * protected the workaround for the life of the file.
+ *
+ * TWO QUADS, NOT ONE. `fillGradientStyle` interpolates per VERTEX, so a single
+ * call carries only two colours down a quad. The sky has three stops meeting at
+ * `SKY_MID_AT`, so each leg gets its own quad.
+ *
+ * The maths is unchanged: both legs use the same `mixHex` endpoints `skyAt`
+ * samples, so the drawn sky now matches what `skyAt` has always CLAIMED it
+ * draws. The strips quantised that claim to 96 levels; this does not quantise
+ * it, which makes the rock-versus-sky separation guards more accurate, not
+ * less.
+ *
+ * WEBGL. `fillGradientStyle` is a no-op under Phaser's Canvas renderer, which
+ * would paint the sky flat rather than banded. The game boots WebGL (see
+ * `boot.ts`); if a Canvas fallback is ever added, this is a thing it has to
+ * answer for.
+ */
 function gradient(
   scene: Phaser.Scene,
   w: number,
@@ -1305,20 +1332,17 @@ function gradient(
   stops: readonly [string, string, string],
 ): Phaser.GameObjects.Graphics {
   const g = scene.add.graphics();
-  const steps = 96;
   const [top, mid, bottom] = stops;
-  for (let i = 0; i < steps; i++) {
-    const t = i / (steps - 1);
-    // Two LINEAR legs meeting at `SKY_MID_AT`. Continuous in value and bounded
-    // in slope - see the note on that constant for the seam this replaced.
-    const hex =
-      t < SKY_MID_AT
-        ? mixHex(top, mid, t / SKY_MID_AT)
-        : mixHex(mid, bottom, (t - SKY_MID_AT) / (1 - SKY_MID_AT));
-    g.fillStyle(hexToNum(hex), 1);
-    // +2 px of overlap: sub-pixel scaling must never show a seam.
-    g.fillRect(0, Math.floor((i * h) / steps), w, Math.ceil(h / steps) + 2);
-  }
+  const split = Math.round(h * SKY_MID_AT);
+  const topN = hexToNum(top);
+  const midN = hexToNum(mid);
+  const bottomN = hexToNum(bottom);
+  // The +1 px overlap is the same reason the strips had one: sub-pixel scaling
+  // must never show the join between the two legs.
+  g.fillGradientStyle(topN, topN, midN, midN, 1);
+  g.fillRect(0, 0, w, split + 1);
+  g.fillGradientStyle(midN, midN, bottomN, bottomN, 1);
+  g.fillRect(0, split, w, h - split);
   return g;
 }
 

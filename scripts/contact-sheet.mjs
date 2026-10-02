@@ -66,6 +66,8 @@ for (const screen of SCREENS) {
       const DECOR = "kb-decor:";
       const sizes = new Set();
       const families = new Set();
+      const colors = new Set();
+      const weights = new Set();
       const edges = new Set();
       /**
        * EVERY ELEMENT, NAMED. The census used to emit a bag of x values, so a
@@ -75,12 +77,15 @@ for (const screen of SCREENS) {
        * can attribute is a number nobody can fix.
        */
       const elements = [];
-      const walk = (node, scene, path, inDecor) => {
+      const POP = "kb-pop:";
+      const walk = (node, scene, path, inDecor, inPop) => {
         let i = 0;
         for (const child of node.list ?? []) {
           i += 1;
           const name = typeof child.name === "string" ? child.name : "";
           const decor = inDecor || name.startsWith(DECOR);
+          const popped =
+            inPop || (name.startsWith(POP) && Math.abs((child.scaleX ?? 1) - 1) > 1e-6);
           const here = `${path}/${child.type}${name === "" ? "" : "#" + name}[${i}]`;
           if (child.visible !== false) {
             if (child.type === "Text") {
@@ -89,16 +94,23 @@ for (const screen of SCREENS) {
               if (style.fontFamily !== undefined) {
                 families.add(String(style.fontFamily).split(",")[0].trim());
               }
+              if (style.color !== undefined && style.color !== null) {
+                colors.add(String(style.color).toLowerCase());
+              }
+              weights.add(
+                style.fontStyle === undefined || style.fontStyle === "" ? "normal" : String(style.fontStyle),
+              );
             }
             if (typeof child.getBounds === "function") {
               const b = child.getBounds();
               if (b.width > 40 && b.height > 8 && b.x > -300 && b.x < 1900) {
-                edges.add(Math.round(b.x));
+                if (!popped) edges.add(Math.round(b.x));
                 elements.push({
                   scene,
                   path: here,
                   type: child.type,
                   decor,
+                  popped,
                   // An element's OWN declaration of what it is anchored by.
                   // 0 left, 0.5 centred, 1 right-anchored. Read off the object
                   // rather than inferred from where it landed.
@@ -111,19 +123,37 @@ for (const screen of SCREENS) {
                     child.type === "Text" && child.style?.fontSize !== undefined
                       ? String(child.style.fontSize)
                       : null,
+                  color:
+                    child.type === "Text" && child.style?.color !== undefined
+                      ? String(child.style.color).toLowerCase()
+                      : null,
+                  alpha: Math.round((child.alpha ?? 1) * 100) / 100,
+                  weight:
+                    child.type === "Text"
+                      ? child.style?.fontStyle === undefined || child.style?.fontStyle === ""
+                        ? "normal"
+                        : String(child.style.fontStyle)
+                      : null,
+                  family:
+                    child.type === "Text" && child.style?.fontFamily !== undefined
+                      ? String(child.style.fontFamily)
+                      : null,
+                  right: Math.round((b.x + b.width) * 100) / 100,
                   text:
                     child.type === "Text" ? String(child.text ?? "").slice(0, 48) : null,
                 });
               }
             }
           }
-          if (child.list !== undefined) walk(child, scene, here, decor);
+          if (child.list !== undefined) walk(child, scene, here, decor, popped);
         }
       };
-      for (const s of game.scene.getScenes(true)) walk(s.children, s.scene.key, s.scene.key, false);
+      for (const s of game.scene.getScenes(true)) walk(s.children, s.scene.key, s.scene.key, false, false);
       return {
         sizes: [...sizes],
         families: [...families],
+        colors: [...colors].sort(),
+        weights: [...weights].sort(),
         edges: [...edges].sort((a, b) => a - b),
         elements,
       };
@@ -131,7 +161,7 @@ for (const screen of SCREENS) {
 
     await page.screenshot({ path: join(OUT, `${screen.key}.png`) });
     rows.push({ key: screen.key, note: screen.note, ...(census ?? { error: "no game on page" }) });
-    console.log(`  ${screen.key.padEnd(13)} ${census === null ? "NO GAME" : `${census.edges.length} edges, ${census.sizes.length} type sizes`}`);
+    console.log(`  ${screen.key.padEnd(13)} ${census === null ? "NO GAME" : `${census.edges.length} edges, ${census.sizes.length} type sizes, ${census.colors.length} inks, ${census.weights.length} weights`}`);
   } catch (error) {
     rows.push({ key: screen.key, error: String(error?.message ?? error).slice(0, 120) });
     console.log(`  ${screen.key.padEnd(13)} ERROR`);
@@ -181,7 +211,7 @@ function pairsOf(items) {
   return out;
 }
 
-const isLayout = (e) => !e.decor && e.type !== "Zone" && e.originX === 0;
+const isLayout = (e) => !e.decor && !e.popped && e.type !== "Zone" && e.originX === 0;
 
 for (const r of rows) {
   const items = r.elements ?? [];

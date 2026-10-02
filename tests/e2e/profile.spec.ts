@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { CALL_SIGN_ADJECTIVES, CALL_SIGN_NOUNS } from "@engine/names/index.js";
 import {
   activeProfile,
   assertNoEmailField,
@@ -337,24 +338,34 @@ test.describe("row 2 - profile create", () => {
     // with one step in it.
     await expect(screen(page, CREATE)).not.toContainText("Step 1 of");
 
-    // And the confirm does not walk into one. It also does not fire on a blank
-    // screen any more: 1a839ee locks it until the name is usable
-    // (MIN_NAME_LENGTH = 2), which is why this used to press Enter on nothing
-    // and then ask why no pilot existed.
-    await focusItem(page, CREATE, "create.launch");
-    await press(page, "Enter");
-    await page.waitForTimeout(200);
-    expect(await activeProfile(page), "a nameless pilot was created").toBeNull();
-    await expect(screen(page, CREATE)).toHaveCount(1);
-
-    // Given a name, it creates the pilot and leaves - straight out, not into a
-    // second beat.
-    await focusItem(page, CREATE, "create.name");
-    await typeName(page, "Rin");
+    // And the confirm does not walk into one. It USED to refuse to fire on a
+    // blank screen at all - 1a839ee locked it until the name reached
+    // MIN_NAME_LENGTH - and this asserted that no pilot appeared. The owner
+    // then asked for the Halo behaviour: the placeholder is a generated call
+    // sign, and launching without typing accepts the one on screen
+    // (`ProfileCreateScene.suggestedName`). So a pilot IS created now, and
+    // what this checks is that it is the call sign the child was looking at
+    // rather than a blank or the schema's shrug.
+    // READ OFF THE ENGINE, NOT THE PAGE. The row's text is its LABEL ("Type
+    // Your Name"); the suggestion lives in `ProfileCreateScene.suggestedName`
+    // and is never mirrored into the DOM, so there is nothing on screen to
+    // compare against. The 810 combinations are exported, so the check is that
+    // the committed name is one the generator can actually produce - which a
+    // blank, the schema's "Pilot" shrug, or a stale draft all fail.
     await focusItem(page, CREATE, "create.launch");
     await press(page, "Enter");
     await page.waitForTimeout(300);
-    expect(await activeProfile(page)).not.toBeNull();
+    const made = await activeProfile(page);
+    expect(made, "launching on the placeholder created no pilot").not.toBeNull();
+    const name = String(made?.["name"] ?? "");
+    const callSigns = new Set(
+      CALL_SIGN_ADJECTIVES.flatMap((a) => CALL_SIGN_NOUNS.map((n) => `${a}${n}`)),
+    );
+    expect(
+      callSigns.has(name),
+      `"${name}" is not a call sign this generator can make`,
+    ).toBe(true);
+    // Straight out, not into a second beat.
     await expect(screen(page, CREATE)).toHaveCount(0);
   });
 
@@ -447,7 +458,12 @@ test.describe("row 2 - a new pilot screen starts blank", () => {
     // The mirror carries the field's VALUE, and the field draws the placeholder
     // exactly when the value is empty (`ui/controls.ts` TextField.setValue).
     await expect(item(page, CREATE, "create.name")).toHaveAttribute("data-value", "");
-    await expect(item(page, CREATE, "create.name")).toContainText("Type Your Name");
+    // The placeholder is a generated call sign now, not a fixed invitation, so
+    // what this asserts is what the test is named for: whatever it offers, it
+    // is not the name the last child committed.
+    const offered = ((await item(page, CREATE, "create.name").textContent()) ?? "").trim();
+    expect(offered, "the field opened empty of any suggestion").not.toBe("");
+    expect(offered, "the last pilot's name followed the next child").not.toContain("Rin");
   });
 
   test("an abandoned name does not follow the next child in either (Esc, not a commit)", async ({

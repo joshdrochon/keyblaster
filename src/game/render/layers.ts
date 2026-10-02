@@ -105,6 +105,32 @@ export function cameraSwayPx(elapsedMs: number, reducedMotion: boolean): number 
 }
 
 /** Idle drift offset for a layer, so no frame is ever identical (rubric 2). */
+/**
+ * Layers that translate down the frame with the world.
+ *
+ * `celestial` IS NOT ONE. UR-152 found the sun walking down the Title over
+ * about twenty seconds and pinned it there with a per-scene `pin` option, which
+ * fixed one screen and left the same disc sliding across every belt: at
+ * speed 0.05 it crosses two thirds of a 1080 frame in a minute and then wraps.
+ * A body between 0.4 and 40 AU has no parallax against a few seconds of ship
+ * travel, so the pin is the physically correct answer and it belongs here
+ * rather than at one call site (UR-161).
+ */
+export const WORLD_SCROLL_LAYERS: ReadonlySet<LayerId> = new Set<LayerId>([
+  "farField",
+  "midField",
+  "debris",
+  "nearField",
+  "foreVeil",
+]);
+
+/** Held at exactly (0,0): the full-bleed sky, the HUD, and the light source. */
+export const PINNED_LAYERS: ReadonlySet<LayerId> = new Set<LayerId>([
+  "sky",
+  "celestial",
+  "hud",
+]);
+
 export function idleDriftPx(spec: LayerSpec, elapsedMs: number, reducedMotion: boolean): number {
   if (!spec.idleDrift) return 0;
   // Drift continues under reduced motion: D41 removes shake and sway, not the

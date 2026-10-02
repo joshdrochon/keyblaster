@@ -68,13 +68,26 @@ export const CLEARED_STAGE_STARS: readonly Stars[] = [3, 2, 1] as const;
 export function starsForHullHits(
   hullHits: number,
   maxHull: number = HULL_HITS_PER_STAGE,
+  cleared = false,
 ): Stars {
   if (!Number.isFinite(hullHits)) return 0;
   if (hullHits <= 0) return 3;
   const cap = Number.isFinite(maxHull) ? Math.floor(maxHull) : HULL_HITS_PER_STAGE;
-  if (cap <= 0) return 0;
+  if (cap <= 0) return cleared ? 1 : 0;
   const hits = Math.floor(hullHits);
-  if (hits >= cap) return 0;
+  // UR-176: `hits >= cap` IS a stall - unless a canister gave a mark back.
+  //
+  // `hullHits` counts every hit ever taken this stage, deliberately: a run that
+  // emptied its hull twice and collected twenty canisters must not be awarded
+  // three stars (see `FlightScene.hullHitsTaken`). But a repair also means the
+  // CUMULATIVE count can reach the cap on a run that never actually died, and
+  // this branch then rated a cleared belt 0 - the one value the block above
+  // says a cleared belt can never carry. The owner hit it on Venus: the save
+  // read `cleared: true, stars: 0`.
+  //
+  // Only the caller knows which it was, so the caller says. 0 stays reserved
+  // for a stage that did not clear.
+  if (hits >= cap) return cleared ? 1 : 0;
   const band = 3 - Math.ceil((hits * 3) / cap);
   // hits is in [1, cap - 1], so the band is in [0, 2]; the clamp only bites on
   // the top slice of a long hull, where 0 would be a lie about a cleared stage.
@@ -89,8 +102,11 @@ export function starsForHullHits(
 export function isClearableHullHits(
   hullHits: number,
   maxHull: number = HULL_HITS_PER_STAGE,
+  cleared = false,
 ): boolean {
   // Defined in terms of starsForHullHits so the two can never disagree about
-  // what counts as a stall, including on junk input.
-  return starsForHullHits(hullHits, maxHull) !== 0;
+  // what counts as a stall, including on junk input - and it takes `cleared`
+  // for the same reason that does (UR-176). Without it the results screen
+  // refuses to draw the very star the rating just awarded.
+  return starsForHullHits(hullHits, maxHull, cleared) !== 0;
 }

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { STOP_IDS } from "@engine/types";
+import { ELEMENTS } from "@engine/ephemeris/elements.js";
+import { isSatelliteStop, STOP_IDS, type StopId } from "@engine/types";
 import { isBrightStop, lightPositionOf, mixHex, paletteAt, skyStops } from "@game/render/palette";
+import { LAYERS, PINNED_LAYERS, WORLD_SCROLL_LAYERS } from "@game/render/layers";
 import { readFileSync } from "node:fs";
 import { deltaE, hexToLab } from "@game/flight/stage";
 import {
@@ -39,6 +41,24 @@ import {
  * (AC-22.3, `render/depth.test.ts`, the rubric's deltaE 10).
  */
 
+/**
+ * The stops ranked by DISTANCE from the sun, which is no longer route order:
+ * Venus and Mercury are bonus stops at the end of `STOP_IDS` and inside
+ * Earth's orbit. `sunScale.ts` ranks by the same ephemeris, so "smaller at
+ * every stop" is a claim about this order, not about the array's.
+ */
+/**
+ * The ladder these two orderings assert is "further out is smaller and colder",
+ * one strict step per rank. A SATELLITE has no rank of its own - Zoozve's
+ * semi-major axis is 0.7236 AU against Venus's 0.7233, i.e. the same orbit - so
+ * it draws the same disc at the same warmth as its host by construction
+ * (`sunScale.stepsFromEarth`). Including it would demand that a body be
+ * strictly colder than something it is sitting next to.
+ */
+const BY_DISTANCE: readonly StopId[] = [...STOP_IDS]
+  .filter((id) => !isSatelliteStop(id))
+  .sort((a, b) => ELEMENTS[a].at.aAu - ELEMENTS[b].at.aAu);
+
 const skyTopOf = (id: (typeof STOP_IDS)[number]): string => skyStops(paletteAt(id, false))[0];
 
 const SUN_WARM = "#F6A93B";
@@ -55,15 +75,15 @@ const coreFor = (id: (typeof STOP_IDS)[number]): string => {
  */
 const radiusFor = (id: (typeof STOP_IDS)[number]): number => sunRadius(paletteAt(id, false));
 
-describe("the sun shrinks along the route and never grows", () => {
-  it("is strictly smaller at every stop than at the one before", () => {
+describe("AC-27.2: the sun shrinks along the route and never grows", () => {
+  it("is strictly smaller at every stop than at the one nearer the sun", () => {
     // `sunScale.ts` says the disc should be "smaller at every stop". Nothing
     // enforced it, because the brightness step was applied after the curve.
-    const radii = STOP_IDS.map(radiusFor);
+    const radii = BY_DISTANCE.map(radiusFor);
     for (let i = 1; i < radii.length; i += 1) {
       expect(
         radii[i]!,
-        `${STOP_IDS[i]} (${radii[i]!.toFixed(1)}) is not smaller than ${STOP_IDS[i - 1]} (${radii[i - 1]!.toFixed(1)})`,
+        `${BY_DISTANCE[i]} (${radii[i]!.toFixed(1)}) is not smaller than ${BY_DISTANCE[i - 1]} (${radii[i - 1]!.toFixed(1)})`,
       ).toBeLessThan(radii[i - 1]!);
     }
   });
@@ -115,15 +135,28 @@ describe("the disc is tellable from its own sky at every stop", () => {
     }
   });
 
-  it("NEGATIVE CONTROL: the old rule fails this file", () => {
+  it("NEGATIVE CONTROL: the old rule is worse at every bright stop", () => {
     // What shipped, so "the bar is clearable" is not mistaken for "the bar is
-    // loose". Pluto is the one that proves it.
+    // loose". Stated as a COMPARISON rather than as "pluto lands under 10":
+    // that number was a fact about how pale Pluto's sky happened to be, and it
+    // went quiet the moment the sky was darkened (10.8, so the filter matched
+    // nothing and the control asserted nothing). The claim that matters -
+    // washing the disc toward white loses separation the warm mix keeps - is
+    // true of the rule, not of one palette.
     const old = (id: (typeof STOP_IDS)[number]): string =>
       mixHex(skyTopOf(id), "#FFFFFF", isBrightStop(paletteAt(id, false)) ? 0.9 : 0.74);
-    const failing = STOP_IDS.filter(
-      (id) => deltaE(hexToLab(old(id)), hexToLab(skyTopOf(id))) <= 10,
-    );
-    expect(failing).toEqual(["pluto"]);
+    const oldD = (id: (typeof STOP_IDS)[number]): number =>
+      deltaE(hexToLab(old(id)), hexToLab(skyTopOf(id)));
+    const BRIGHT = ["mars", "jupiter", "saturn", "uranus", "pluto"] as const;
+    for (const id of BRIGHT) {
+      const now = deltaE(hexToLab(coreFor(id)), hexToLab(skyTopOf(id)));
+      expect(now, `${id}: the old rule was no worse than the current one`).toBeGreaterThan(
+        oldD(id),
+      );
+    }
+    // And somewhere it was not merely worse but unusable. Pluto is still that
+    // stop, at deltaE 10.8 against the 30 the assertion above demands.
+    expect(Math.min(...BRIGHT.map(oldD))).toBeLessThan(15);
   });
 });
 
@@ -136,12 +169,14 @@ describe("the disc is tellable from its own sky at every stop", () => {
  * mask the parallax to a 812 px aperture at x 1012 (0.527..0.950 of 1920), and
  * `lightPositionOf` sweeps the route across the whole frame:
  *
- *     earth 0.259  mars 0.334  jupiter 0.415  saturn 0.500
- *     uranus 0.585  neptune 0.666  pluto 0.741
+ *     earth 0.259  mars 0.314  jupiter 0.374  saturn 0.436
+ *     uranus 0.500  neptune 0.564  pluto 0.626  venus 0.686  mercury 0.741
  *
- * The four that fall left of 0.527 are exactly the four reported missing. The
- * three that happened to land inside are why it looked like a per-stop bug
- * rather than a placement rule that was never written.
+ * The ones that fall left of 0.527 are the stops reported missing. The ones
+ * that happened to land inside are why it looked like a per-stop bug rather
+ * than a placement rule that was never written. The sweep is spread over all
+ * nine stops (`lightAngleOf`), so the bonus pair pulled every route stop
+ * leftward and Uranus joined the four originally reported.
  */
 
 const bandX = lightBandX;
@@ -152,12 +187,12 @@ describe("on a windowed screen the sun is inside the glass", () => {
   const at = (id: (typeof STOP_IDS)[number]): number =>
     lightPositionOf(paletteAt(id, false)).x;
 
-  it("NEGATIVE CONTROL: the old full-frame placement missed the glass at four stops", () => {
+  it("NEGATIVE CONTROL: the old full-frame placement missed the glass at five stops", () => {
     const outside = STOP_IDS.filter((id) => {
       const cx = FRAME_W * at(id);
       return cx < WIN.x || cx > WIN.x + WIN.w;
     });
-    expect(outside).toEqual(["earth", "mars", "jupiter", "saturn"]);
+    expect(outside).toEqual(["earth", "mars", "jupiter", "saturn", "uranus"]);
   });
 
   it("every stop's disc now lands wholly within the aperture", () => {
@@ -251,12 +286,15 @@ describe("the route curve is applied exactly once (UR-160)", () => {
 });
 
 describe("the far stops are colder than the near ones (UR-162)", () => {
-  it("mixes less warmth at every step out along the route", () => {
-    const mixes = STOP_IDS.map(sunWarmthForStop);
+  it("mixes less warmth at every step further from the sun", () => {
+    // By distance, not by route order: Venus and Mercury are the two WARMEST
+    // stops in the game and they are the last two entries in `STOP_IDS`.
+    const mixes = BY_DISTANCE.map(sunWarmthForStop);
     for (let i = 1; i < mixes.length; i += 1) {
-      expect(mixes[i]!, `${STOP_IDS[i]} is not cooler than ${STOP_IDS[i - 1]}`).toBeLessThan(
-        mixes[i - 1]!,
-      );
+      expect(
+        mixes[i]!,
+        `${BY_DISTANCE[i]} is not cooler than ${BY_DISTANCE[i - 1]}`,
+      ).toBeLessThan(mixes[i - 1]!);
     }
   });
 
@@ -291,5 +329,36 @@ describe("the lip is an edge, not a ring round the disc (UR-162)", () => {
       const d = deltaE(hexToLab(lipFor(id)), hexToLab(coreFor(id)));
       expect(d, `${id}: lip is deltaE ${d.toFixed(1)} from its own core`).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * UR-161. UR-152 found this and fixed one screen: the Title passes
+ * `pin: ["celestial"]`, so the sun stopped walking into the wordmark THERE and
+ * went on sliding down every belt, where nobody had a mark to notice it
+ * against. The owner reported it on Mercury, which is where it became obvious -
+ * D103 gives Mercury the biggest, warmest disc in the game on the darkest sky.
+ */
+describe("UR-161: the sun does not travel", () => {
+  it("is pinned for every scene, not just the Title", () => {
+    expect(PINNED_LAYERS.has("celestial")).toBe(true);
+    expect(WORLD_SCROLL_LAYERS.has("celestial")).toBe(false);
+  });
+
+  it("still scrolls everything the world is made of", () => {
+    for (const id of ["farField", "midField", "debris", "nearField", "foreVeil"] as const) {
+      expect(WORLD_SCROLL_LAYERS.has(id), `${id} must still scroll`).toBe(true);
+    }
+  });
+
+  it("keeps AC-22.1's five distinct scrolling speeds without counting the sun", () => {
+    const speeds = new Set(
+      LAYERS.filter((l) => WORLD_SCROLL_LAYERS.has(l.id)).map((l) => l.speed),
+    );
+    expect(speeds.size).toBeGreaterThanOrEqual(5);
+  });
+
+  it("pins nothing that carries a rock", () => {
+    expect(PINNED_LAYERS.has("debris")).toBe(false);
   });
 });

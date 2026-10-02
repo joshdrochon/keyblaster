@@ -33,10 +33,22 @@ export interface StageTally {
   /** Counted for the engine only; never surfaced as a score (D31). */
   readonly typos: number;
   /**
-   * Fewer than `maxHull` for a cleared stage; reaching `maxHull` is a stall,
-   * not a rating (D27, D29).
+   * Hull marks TAKEN this stage - cumulative, so a canister repair does not
+   * erase one. It can therefore REACH `maxHull` on a run that cleared, which
+   * is why `cleared` below exists (UR-176).
    */
   readonly hullHits: number;
+  /**
+   * Did the stage finish, or did the hull empty?
+   *
+   * `hullHits` alone cannot answer it once canisters are in play, and 0 stars
+   * is reserved for a stall. Optional and defaults FALSE, which is exactly the
+   * behaviour every caller had before it existed: the flag is only ever read at
+   * `hits >= maxHull`, and that WAS a stall by definition until canisters made
+   * the cumulative count reachable on a clear. So an old fixture is unchanged
+   * and only a caller that knows - the flight - gets the new answer.
+   */
+  readonly cleared?: boolean;
   /**
    * The stage's hull capacity (`@engine/hull.hullForStage`). Optional, and it
    * defaults to D27's three: every caller written before the hull started
@@ -266,7 +278,11 @@ export function computeStageResults(input: StageResultsInput): StageResults {
     accuracyDelta:
       previous === null ? null : stageAccuracy - previous.lastAccuracy,
     previousStopId: previous?.stopId ?? null,
-    stars: starsForHullHits(tally.hullHits, tally.maxHull ?? HULL_HITS_PER_STAGE),
+    stars: starsForHullHits(
+      tally.hullHits,
+      tally.maxHull ?? HULL_HITS_PER_STAGE,
+      tally.cleared ?? false,
+    ),
     words: exposures.map(wordProgressMarker),
     retention: retentionLine(exposures),
   };

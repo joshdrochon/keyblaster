@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EN,
   ES,
+  HI,
   LANG_EXPANSION,
   STRING_KEYS,
   fits,
@@ -67,8 +68,13 @@ describe("overflowingLangs", () => {
 
 describe("widestLength", () => {
   it("is the longest rendering across all three languages", () => {
+    // Asserted as the RULE rather than against one language: UR-198 renamed
+    // this key and the longest rendering moved from Spanish to Hindi, which a
+    // test naming a language cannot survive.
     const key = "title.beaconLog";
-    expect(widestLength(key)).toBe(ES[key].length);
+    expect(widestLength(key)).toBe(
+      Math.max(EN[key].length, ES[key].length, HI[key].length),
+    );
   });
 
   it("is zero when no language has the key", () => {
@@ -93,7 +99,8 @@ describe("the design brief's +25% budget against the real translations", () => {
     "map.locked", // Locked -> Bloqueado, +50%
     "profile.nameShip", // Name your ship -> Ponle nombre a tu nave, +64%
     "profile.pilotName", // Pilot name -> Nombre del piloto, +70%
-    "title.beaconLog", // Beacon Log -> Registro de balizas, +90%
+    // "title.beaconLog" came OFF this list at UR-198: "Trophies" -> "trofeos"
+    // is SHORTER, because the rename replaced a two-word label with one word.
     // "title.tagline" used to be here. It came OFF the list when the tagline
     // became a sentence ("Light the way through the solar system.", 39 chars) // no-user-quotes-ok: the game's OWN former tagline, superseded by UR-65; a report quoted it back, which is why the corpus matches
     // rather than a short label ("Light the way home.", 19). Spanish expands a

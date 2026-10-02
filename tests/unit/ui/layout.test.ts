@@ -197,30 +197,14 @@ describe("the beacon log fits the 1920x1080 frame", () => {
     });
   }
 
-  it("the trophy grid sits inside the right gutter", () => {
+  it("the trophy grid spans the full content width, gutter to gutter", () => {
+    // UR-198: the beacon column left the screen, so the grid starts at the
+    // left gutter (96) instead of clearing a column beside it.
     const t = BEACON_LOG.trophies;
-    expect(t.left).toBeGreaterThanOrEqual(
-      BEACON_LOG.beacons.x + BEACON_LOG.beacons.w,
-    );
+    expect(t.left).toBe(96);
     expect(t.left + t.tileW * 3 + t.colGap * 2).toBe(1824);
   });
 
-  it("the beacon column clears the keyboard hint, in both scripts", () => {
-    const b = BEACON_LOG.beacons;
-    // 96 px is the measured row at the nominal glyph; 118 is the same row with
-    // a wrapped Devanagari label, which is the worst case the screen can draw.
-    for (const rowHeight of [96, 106, 118]) {
-      const heights: number[] = new Array(7).fill(rowHeight);
-      const plan = fitPlan(heights, b);
-      expect(plan.fits).toBe(true);
-      const rects = flowColumn(
-        heights.map((h) => h - (b.glyph - plan.glyph)),
-        { left: b.x, top: b.top, width: b.w, rowGap: plan.rowGap },
-      );
-      expect(bottomOf(rects)).toBeLessThanOrEqual(BEACON_LOG.hintTop);
-      expect(bottomOf(rects)).toBeLessThanOrEqual(b.bottom);
-    }
-  });
 
   /**
    * THE SECTION CAPTIONS HAVE THEIR OWN BAND.

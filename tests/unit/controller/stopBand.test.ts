@@ -19,7 +19,15 @@ import {
   stopBandForStage,
   type ControllerState,
 } from "@engine/controller/index.js";
-import { BELT_STOP_IDS, DEFAULT_CALIBRATION, STOP_IDS, type StopId } from "@engine/types.js";
+import {
+  BONUS_STOP_IDS,
+  isBonusStop,
+  BELT_STOP_IDS,
+  DEFAULT_CALIBRATION,
+  ROUTE_STOP_IDS,
+  STOP_IDS,
+  type StopId,
+} from "@engine/types.js";
 import { HEADROOM_SLOW_IKI_MS } from "@engine/fallTime/index.js";
 
 /**
@@ -59,12 +67,15 @@ import { HEADROOM_SLOW_IKI_MS } from "@engine/fallTime/index.js";
 const BELTS: readonly StopId[] = BELT_STOP_IDS;
 
 describe("UR-83 / FR-10: every stop is a band of maxLive, not a value", () => {
-  it("reads something: the route is six belts and seven stops", () => {
+  it("reads something: ten stops, and a belt at every one but Earth", () => {
     // Anti-vacuity. Every assertion below is a loop over these.
-    expect(STOP_IDS.length).toBe(7);
-    expect(BELTS.length).toBe(6);
+    expect(STOP_IDS.length).toBe(10);
+    expect(BELTS.length).toBe(STOP_IDS.length - 1);
     expect(BELTS[0]).toBe("mars");
-    expect(BELTS[BELTS.length - 1]).toBe("pluto");
+    // Route order, so the bonus pair is at the end and Pluto is the last of
+    // the MAIN route's belts rather than the last belt outright.
+    expect(BELTS[ROUTE_STOP_IDS.length - 2]).toBe("pluto");
+    expect(BELTS[BELTS.length - 1]).toBe("zoozve");
   });
 
   it("UR-83: the band is inside FR-10's range and is never empty", () => {
@@ -93,16 +104,36 @@ describe("UR-83 / FR-10: every stop is a band of maxLive, not a value", () => {
      * same control the ceiling assertion below reads `mars ceiling: expected 7
      * to be less than 7`.
      */
-    for (let i = 1; i < BELTS.length; i += 1) {
-      const prev = stopBand(BELTS[i - 1]!);
-      const here = stopBand(BELTS[i]!);
-      expect(here.floor, `${BELTS[i]} floor`).toBeGreaterThanOrEqual(prev.floor);
-      expect(here.ceiling, `${BELTS[i]} ceiling`).toBeGreaterThanOrEqual(prev.ceiling);
+    // The STRICT climb is the MAIN ROUTE's, and it is the only place route
+    // order means increasing difficulty. D103's bonus pair is appended after
+    // Pluto but is NOT past it: `difficultyStageOf` flies Venus at Neptune's
+    // stage and Mercury at Pluto's, because Pluto already sits one setting
+    // short of FR-10's cap. So the bonus pair is asserted
+    // to sit INSIDE the route's range rather than to continue climbing.
+    const routeBelts = BELTS.filter((b) => !isBonusStop(b));
+    for (let i = 1; i < routeBelts.length; i += 1) {
+      const prev = stopBand(routeBelts[i - 1]!);
+      const here = stopBand(routeBelts[i]!);
+      expect(here.floor, `${routeBelts[i]} floor`).toBeGreaterThanOrEqual(prev.floor);
+      expect(here.ceiling, `${routeBelts[i]} ceiling`).toBeGreaterThanOrEqual(prev.ceiling);
       expect(
         here.floor + here.ceiling,
-        `${BELTS[i]} is no harder than ${BELTS[i - 1]}`,
+        `${routeBelts[i]} is no harder than ${routeBelts[i - 1]}`,
       ).toBeGreaterThan(prev.floor + prev.ceiling);
     }
+
+    const pluto = stopBand("pluto");
+    const mars = stopBand("mars");
+    for (const bonus of BONUS_STOP_IDS) {
+      const band = stopBand(bonus);
+      expect(band.floor, `${bonus} is harder than the first belt`).toBeGreaterThan(mars.floor);
+      expect(band.floor, `${bonus} is past Pluto`).toBeLessThanOrEqual(pluto.floor);
+      expect(band.ceiling, `${bonus} is past Pluto`).toBeLessThanOrEqual(pluto.ceiling);
+    }
+    expect(
+      stopBand("mercury").floor,
+      "Mercury should be the harder of the two",
+    ).toBeGreaterThanOrEqual(stopBand("venus").floor);
   });
 
   it("UR-83: adjacent bands OVERLAP, so nobody is scheduled a difficulty", () => {

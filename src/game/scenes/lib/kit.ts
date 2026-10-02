@@ -263,7 +263,10 @@ export function skyText(
         alpha: SKY_PLATE.alpha,
         stroke: SKY_PLATE.stroke,
         strokeAlpha: 0.55,
-        radius: SKY_PLATE.radius,
+        // NO EXPLICIT RADIUS (UR-175). `SKY_PLATE.radius` is `SPACE.radius`, so
+        // passing it changed nothing except opting out of `plateRadius`'s cap -
+        // which is the whole point of the cap, and why a one-line caption kept
+        // drawing a card's 16 px corner and reading as a pill.
         rhythm: "chip",
       },
     );

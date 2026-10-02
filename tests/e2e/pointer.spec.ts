@@ -174,7 +174,7 @@ test.describe("AC-18.1: the pointer reaches everything the keyboard does", () =>
   test("AC-18.1: Settings is operable end to end with the mouse alone", async ({
     page,
   }) => {
-    await open(page, "Settings");
+    await open(page, "Settings", "&scope=device");
     await settle(page, 400);
 
     const boxes = await hitBoxes(page, "Settings");
@@ -219,7 +219,7 @@ test.describe("AC-18.1: the pointer reaches everything the keyboard does", () =>
   }) => {
     // The whole point of the change is that it costs the keyboard nothing. A
     // pure-keyboard walk of the same screen, with no mouse event of any kind.
-    await open(page, "Settings");
+    await open(page, "Settings", "&scope=device");
     await settle(page, 400);
 
     const ids = await items(page, "Settings").evaluateAll((nodes) =>

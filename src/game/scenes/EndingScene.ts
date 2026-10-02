@@ -1,5 +1,14 @@
 import Phaser from "phaser";
-import { STOP_IDS, type StopId } from "@engine/types";
+/**
+ * THE ENDING CARD IS THE MAIN ROUTE'S, not every stop's (UR-172).
+ *
+ * It iterated `STOP_IDS`, so the moment D103 appended the bonus pair the card
+ * that closes the story grew two more beacons, and Zoozve made it three. The
+ * whole point of `progress.litCount` counting the route alone is that finishing
+ * the story must not read as "seven of ten" - and the card said exactly that in
+ * lamps instead of in numbers.
+ */
+import { ROUTE_STOP_IDS, type StopId } from "@engine/types";
 import { SCENE_KEYS } from "@game/sceneKeys";
 import { layer } from "@game/render/layers";
 import { buildParallax, EASE, type Parallax } from "@game/render/parallax";
@@ -148,7 +157,7 @@ export class EndingScene extends Phaser.Scene {
       // that was not the one being drawn to.
       width: this.scale.width,
       height: this.scale.height,
-      stopCount: STOP_IDS.length,
+      stopCount: ROUTE_STOP_IDS.length,
       closingLine: this.lane.copy.text("ending.shadowLine"),
       headlineSize: ENDING_TYPE.heading,
       labelSize: ENDING_TYPE.stopName,
@@ -290,7 +299,7 @@ export class EndingScene extends Phaser.Scene {
     made.push(rail);
 
     const y = this.layout.rail.y;
-    STOP_IDS.forEach((stopId, i) => {
+    ROUTE_STOP_IDS.forEach((stopId, i) => {
       const accent = paletteFor(stopId).accent;
       const cx = this.layout.lampX[i] ?? this.layout.rail.from;
 
@@ -319,7 +328,7 @@ export class EndingScene extends Phaser.Scene {
     });
 
     // The names go on last so nothing in the route can cover them.
-    STOP_IDS.forEach((stopId, i) => {
+    ROUTE_STOP_IDS.forEach((stopId, i) => {
       const cx = this.layout.lampX[i] ?? this.layout.rail.from;
       this.platedInto(
         made,
@@ -475,7 +484,7 @@ export class EndingScene extends Phaser.Scene {
     }
 
     const start = this.lane.reducedMotion ? 150 : ZOOM_MS * 0.4;
-    STOP_IDS.forEach((stopId, i) => {
+    ROUTE_STOP_IDS.forEach((stopId, i) => {
       this.time.delayedCall(start + i * BEACON_INTERVAL_MS, () => {
         const lamp = this.lamps.get(stopId);
         if (lamp === undefined) return;
@@ -527,7 +536,7 @@ export class EndingScene extends Phaser.Scene {
       scene: SCENE_KEYS.ending,
       stopId: this.lane.stopId,
       accent: this.lane.palette.accent,
-      beacons: STOP_IDS.length,
+      beacons: ROUTE_STOP_IDS.length,
       litOrder: [...this.litOrder],
       litCount: this.litOrder.length,
       shadowLine: this.shadowLine?.text ?? "",

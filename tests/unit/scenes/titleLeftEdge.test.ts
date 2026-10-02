@@ -63,17 +63,36 @@ describe("UR-80: every block on the title starts on one visible line", () => {
     expect(FOCUS_PAD).toBe(14);
   });
 
-  it("gives all three plated lines the bled x, not just the one that was noticed", () => {
-    // The tagline, the status line under the primary and the quiet rows are the
-    // three plated blocks. Fixing one and not the others is how this screen got
-    // three edges in the first place.
+  it("every sky line starts on the column - bled if it is plated, bare if not", () => {
+    // Stronger than the count this replaces. That one asserted "three calls use
+    // PLATED_X", which said nothing about a line that carries no plate: the
+    // tagline lost its pill and the count went 3 -> 2 with no statement left
+    // about where it had gone. Each call is now classified and checked.
     //
-    // WATCHED FAILING, with the tagline reverted to COLUMN_X:
-    //   expected 2 to be 3
+    // WATCHED FAILING, with the tagline put back on PLATED_X while unplated:
+    //   tagline is unplated, so it bleeds nothing and belongs on COLUMN_X
     const s = source();
-    const plain = (s.match(/skyText\(this, PLATED_X,/g) ?? []).length;
-    const inherited = (s.match(/skyText\(this, PLATED_X - PRIMARY_X,/g) ?? []).length;
-    expect(plain + inherited, "a plated line was left on the bare column").toBe(3);
+    // The centred and flowed lines (the quiet label, the language row) are not
+    // column blocks and are skipped by name.
+    const COLUMN = ["COLUMN_X", "PLATED_X", "PLATED_X-PRIMARY_X"];
+    const onColumn = s
+      .split("skyText(this,")
+      .slice(1)
+      .map((part) => ({
+        at: part.slice(0, part.indexOf(",")).replace(/\s+/g, ""),
+        opts: part.slice(0, part.indexOf("\n    })")),
+      }))
+      .filter((c) => COLUMN.includes(c.at));
+    // Two since settings became the primary's other half rather than a plated
+    // word on its own line: the tagline and the primary's status line.
+    expect(onColumn.length, "the column blocks on this screen are no longer two").toBe(2);
+    for (const { at, opts } of onColumn) {
+      if (/plated:\s*true/.test(opts)) {
+        expect(at, "an unplated line bleeds nothing, so it belongs on COLUMN_X").toBe("COLUMN_X");
+      } else {
+        expect(at, "a plated line was left on the bare column").not.toBe("COLUMN_X");
+      }
+    }
   });
 
   it("takes the primary's inset back off its own status line", () => {
@@ -104,30 +123,30 @@ describe("UR-80: every block on the title starts on one visible line", () => {
     ).toBe(true);
   });
 
-  it("lands a quiet row's ring on the column, hugging its plate (UR-88)", () => {
-    // A ring that only misaligns while its row holds focus is the same defect,
-    // visible less often. The quiet row reports its PLATE's rectangle, so the
-    // ring needs no inset and no stand-off: the plate's own left edge already
-    // IS the column, and a ring struck on it is the button's outline.
+  it("every control reports the box its ring is struck on (UR-88)", () => {
+    // UR-88 was a control reporting its TEXT's rectangle while the ring was
+    // struck around whatever it reported, so the plate stuck out of its own
+    // highlight. The quiet row that had the defect is gone - settings is the
+    // primary's other half now - so the guard is restated as the PROPERTY
+    // rather than as that row's two literals, which would have gone quiet with
+    // it and taken the rule with them.
     //
-    // The earlier version of this stood the ring off by `FOCUS_PAD` around a
-    // box that was the TEXT's, so the plate stuck out of its own highlight -
-    // reported on the settings row.
-    //
-    // WATCHED FAILING, with the ring struck around the text box again:
-    //   the quiet row's ring is not struck on its plate: expected false to be true
-    const s = source();
+    // WATCHED FAILING, with `width: item.text.width + SKY_PLATE.padX * 2` put
+    // back on a builder:
+    //   a control reports a TEXT-derived width, so its ring is not its plate
+    const src = source();
+    const builders = src.split("): MenuItem {").slice(1);
+    // primary, cog, and the language row that only ships with a second lang.
+    expect(builders.length, "the title no longer builds three controls").toBe(3);
+    for (const b of builders) {
+      expect(
+        /width:\s*\w+\.text\.width/.test(b),
+        "a control reports a TEXT-derived width, so its ring is not its plate",
+      ).toBe(false);
+    }
     expect(
-      /width: item\.text\.width \+ SKY_PLATE\.padX \* 2,/.test(s),
-      "the quiet row reports its text box, so its ring is narrower than the " +
-        "button it is around",
+      /return \{ x: item\.root\.x, y: top, w: item\.width, h: item\.height \};/.test(src),
+      "the ring is no longer struck on the box each control reports",
     ).toBe(true);
-    expect(
-      /offset: item\.id === "primary" \? FOCUS_PAD : SPACE\.focusRingOffset,/.test(s),
-      "the quiet row's ring is not struck on its plate",
-    ).toBe(true);
-    expect(/return \{ x: item\.root\.x, y: top, w: item\.width, h: item\.height \};/.test(s)).toBe(
-      true,
-    );
   });
 });

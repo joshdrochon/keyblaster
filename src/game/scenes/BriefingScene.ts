@@ -119,7 +119,7 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
   /** The blocks the reveal walks through, in the order it walks them (UR-59). */
   private typed: TypedBlock[] = [];
   /**
-   * The pilot's name, drawn in the accent over the first word of the closing
+   * The pilot's name, drawn in INK.accent over the first word of the closing
    * line, and the index of the block it sits on inside `typed` (UR-126).
    *
    * BOTH, because the overlay has to REVEAL WITH ITS LINE. Drawn once and left
@@ -432,7 +432,7 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
       // that fit at Mars collided at five other stops.
       build("eyebrow", text.text("briefing.heading"), TYPE.caption, INK.textDim, STEP.tight, "header"),
       build("planet", this.bundle.planetName, TYPE.heading, INK.text, STEP.tight, "header"),
-      build("chapter", this.bundle.chapterTitle, TYPE.label, accent, STEP.pad, "header"),
+      build("chapter", this.bundle.chapterTitle, TYPE.label, INK.accent, STEP.pad, "header"),
       // `text.fill`, not the raw sentence: Earth's opening line carries C07's
       // `{shipName}` token and `stageBundle` hands the prose over unbound, so
       // the first briefing in the game printed "{shipName}" at a child.
@@ -503,7 +503,7 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     if (pilotName.length > 0 && shipReadyAt !== undefined) {
       this.nameOverlay = label(this, shipReadyAt.x, shipReadyAt.y, pilotName, {
         size: TYPE.body,
-        color: accent,
+        color: INK.accent,
         lang,
       }).setDepth(19);
       this.nameOverlayText = pilotName;
@@ -523,19 +523,19 @@ export class BriefingScene extends Phaser.Scene implements Snapshotable {
     // Three bespoke rounded rects until now; two of them were the last two
     // entries on `platePainters.BLOCKED_ON_ANOTHER_LANE`, which is now empty.
     // Every number that was written here is a token: the shadow's offset is
-    // `STEP.hair` across and `STEP.tight` down, the corner is `SPACE.radiusCard`
+    // `STEP.hair` across and `STEP.tight` down, the corner is `SPACE.radius`
     // - the same one the Title's primary button draws - and the spine is a pill
     // rather than a rect with a hand-picked 4.
     const g = this.add.graphics().setDepth(17);
     paintPlate(
       g,
       { x: laid.page.x + STEP.hair, y: laid.page.y + STEP.tight, w: laid.page.w, h: laid.page.h },
-      { fill: INK.bgDeep, alpha: 0.5, radius: SPACE.radiusCard, strokeWidth: 0 },
+      { fill: INK.bgDeep, alpha: 0.5, radius: SPACE.radius, strokeWidth: 0 },
     );
     paintPlate(
       g,
       { x: laid.page.x, y: laid.page.y, w: laid.page.w, h: laid.page.h },
-      { fill: paper, radius: SPACE.radiusCard, strokeWidth: 0 },
+      { fill: paper, radius: SPACE.radius, strokeWidth: 0 },
     );
     // A single ribbon of the stop's accent down the spine. No rules, no grid.
     // Inset one `STEP.inset` from the page's edge on all four sides, which is

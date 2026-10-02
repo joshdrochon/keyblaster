@@ -44,6 +44,8 @@ interface KbWindow {
         selectProfile(id: string): boolean;
         deleteProfile(id: string): boolean;
         activeProfile(): Record<string, unknown> | null;
+        /** The pilot's half with the device's on top (D108). */
+        settingsFor(id?: string): Record<string, unknown>;
         flush(): unknown;
       };
     };
@@ -145,7 +147,28 @@ export async function activeProfile(
   });
 }
 
+/**
+ * THE SETTINGS THE GAME READS, WHICH IS BOTH HALVES (D108).
+ *
+ * This used to return `profile.settings` alone. D108 split the console: six
+ * keys - volume, sfx, keyboard layout, UI language, reduced motion and the
+ * colourblind palette - belong to the MACHINE and are stored beside the
+ * profiles, not on one, because they have to be settable with no pilot chosen.
+ * A spec that turned the music down and then read the pilot's half got the
+ * value it started with and reported that nothing had changed, when what had
+ * actually happened was that the setting moved to the other half.
+ *
+ * So this goes through `store.settingsFor()` - the game's OWN merge, the one
+ * every scene reads - rather than re-implementing the overlay here, where it
+ * could drift from the real one and quietly agree with a broken build.
+ */
 export async function settings(page: Page): Promise<Record<string, unknown>> {
+  const merged = await page.evaluate(() => {
+    const store = (window as unknown as KbWindow).__kb?.services.store;
+    if (!store) return null;
+    return store.settingsFor() as unknown as Record<string, unknown>;
+  });
+  if (merged !== null) return merged;
   const profile = await activeProfile(page);
   return (profile?.["settings"] as Record<string, unknown>) ?? {};
 }

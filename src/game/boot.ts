@@ -1073,8 +1073,22 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
       ? requested
       : (discovered[0]?.key ?? null);
 
+  // `?scene=X` starts a scene with no data, so a screen whose shape depends on
+  // scene data could not be deep-booted at all - Settings draws the device or
+  // the pilot half from its opener (D108), and every spec that deep-booted it
+  // silently got the pilot's. Same shape as the `reducedMotion` / `colorblind`
+  // params above: a boot-time knob, read once, with no effect when absent.
+  const startData = ((): Record<string, string> | undefined => {
+    const scope = params.get("scope");
+    const returnTo = params.get("returnTo");
+    const data: Record<string, string> = {};
+    if (scope !== null) data["scope"] = scope;
+    if (returnTo !== null) data["returnTo"] = returnTo;
+    return Object.keys(data).length > 0 ? data : undefined;
+  })();
+
   game.events.once(Phaser.Core.Events.READY, () => {
-    if (startKey !== null) game.scene.start(startKey);
+    if (startKey !== null) game.scene.start(startKey, startData);
   });
 
   // The debug surface the e2e suite reads. Game-layer only; nothing in

@@ -134,6 +134,15 @@ export class BeaconScene extends Phaser.Scene {
       // (+5, -8, +11, -15) that runs at any world speed, so the planes marched
       // across the frame while the comment next to them said they did not.
       crossDrift: false,
+      // UR-173: THE MAST IS THE ONLY THING ON `shipFx` HERE, AND IT IS A
+      // STRUCTURE. `crossDrift: false` gates the decorative planes' advance and
+      // nothing else, so the layer still took `idleDriftPx` (+/-6 px on a 12 s
+      // sine, `speed` 1.00) plus camera sway (+/-2.5 px on a 6 s one) - up to
+      // +/-8.5 px of horizontal wander on a tower planted in the ground. On
+      // Flight that drift IS the camera being alive; here the only occupant is
+      // scenery, so the layer is pinned. The comment two lines up has claimed
+      // nothing travels on this screen since UR-50.5; this is what made it true.
+      pin: ["shipFx"],
       seed: 0x8e11,
     });
 

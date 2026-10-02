@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BELT_STOP_IDS } from "@engine/types.js";
 import {
   PALETTE_STOP_IDS,
   ROCK_SKY_SPAN,
@@ -221,8 +222,8 @@ describe("UR-47 / AC-22.4: a word-asteroid never matches the sky it falls throug
   it("every stop that has a belt is covered, and Earth's empty belt is deliberate", () => {
     // ANTI-VACUITY, and it is not decoration. The loops below are over a derived
     // list; a table that lost its rows would make every one of them pass by
-    // iterating nothing. D57 gives the launchpad no belt, so six is the number.
-    expect(STOPS_WITH_A_BELT.length).toBe(6);
+    // iterating nothing. D57 gives the launchpad no belt, so it is every other stop.
+    expect(STOPS_WITH_A_BELT.length).toBe(BELT_STOP_IDS.length);
     expect(DEBRIS_BY_STOP.earth).toHaveLength(0);
   });
 

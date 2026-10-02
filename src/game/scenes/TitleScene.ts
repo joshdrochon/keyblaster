@@ -3,7 +3,7 @@
  *
  * Variants the inventory asks for, all live here:
  *   first-time   -> the start action
- *   returning    -> "Continue" plus the furthest beacon (D13)
+ *   returning    -> "Play", wearing the furthest beacon's palette (D13)
  *   reduced-motion -> no camera sway, ambient drift kept (D41, AC-19.3)
  *
  * This is the first thing a judge sees, so rubric item 2 ("nothing is ever
@@ -29,14 +29,17 @@ import {
   lightPositionOf,
   mixHex,
   paletteAt,
+  skyStops,
   type StopPalette,
 } from "../render/palette.js";
 import { TEX, ensureTextures } from "../render/textures.js";
+import { drawSettingIcon } from "@game/ui/settingIcons";
 import { LANTERN_DESIGN_HEIGHT, type LanternRig } from "../render/lantern.js";
 import { drawPlayerLantern, playerLivery } from "./lib/livery.js";
 import { LANGS, type Lang } from "../../engine/types.js";
 import { SHIPPED_LANGS } from "../../engine/i18n/index.js";
 import { HIT_ZONE_PREFIX, uiSoundBlip } from "@game/ui/focus";
+import { contrastRatio } from "@engine/contrast/index.js";
 import { DUR, INK, SKY_PLATE, SPACE, STEP, TYPE, chromeCase } from "@game/ui/theme";
 import { paintFocusRing, paintPlate } from "@game/ui/plate";
 import { focusArrive, focusPopScale, focusPopShift, focusPulse, POP_NAME_PREFIX } from "@game/ui/focusPop";
@@ -45,8 +48,12 @@ import { WORDMARK_X, WORDMARK_Y, titleKeepClear } from "./support/titleLayout.js
 import {
   CHROME_PAD_Y,
   FOCUS_PAD,
+  COG_W,
+  CONTINUE_W,
   PRIMARY_H,
   PRIMARY_W,
+  SLICE_GAP,
+  SLICE_LEAN,
   STATUS_GAP,
   titleStack,
 } from "./support/titleStack.js";
@@ -138,7 +145,7 @@ const RULE_W = 10;
  * it starts, and how much of the button's height it covers.
  *
  * The inset was `4` written twice (once as `4`, once as `width - 8`) and the
- * radius was `22`, which is `SPACE.radiusCard - 4` spelled as a third number.
+ * radius was `22`, which is `SPACE.radius - 4` spelled as a third number.
  * Named here so the three cannot drift apart, and so the facet stays concentric
  * if the card radius ever moves.
  */
@@ -392,15 +399,23 @@ export class TitleScene extends Phaser.Scene {
     this.focusRing = this.add.graphics();
     hud.add(this.focusRing);
 
-    const returning = furthest !== null;
-    const primaryLabel = returning ? t.t("results.continue") : t.t("title.play");
+    /**
+     * ONE LABEL, FOR EVERYONE (UR-186).
+     *
+     * It read "Continue" for a returning pilot - but this button goes to the
+     * PILOT PICKER, every time. "Continue" promises resuming the run you were
+     * on and then asks you who you are, which is the opposite of what it does.
+     * "Play" is true for both: a first pilot is created, a returning one is
+     * chosen, and either way the next thing is picking who flies.
+     */
+    const primaryLabel = t.t("title.play");
     // THE STATUS LINE IS GONE (UR-88).
     //
     // It printed "Beacon placed at <stop>." under the primary button, which is
     // the Beacon screen's own sentence repeated on the home screen - the one
     // place a returning child does not need to be told where they already are.
-    // The label above it already changes to "Continue" for a returning pilot,
-    // which is the only thing the line was adding.
+    // The primary button says "Play" for everyone (UR-186), so the line has
+    // nothing left to add either.
     //
     // `null` is the path a first-time pilot always took, so this removes a
     // branch rather than adding one: the stack below it closes up by itself
@@ -415,7 +430,7 @@ export class TitleScene extends Phaser.Scene {
     // 1.56 em against Latin's 1.3 (`ui/theme.LINE_HEIGHT`, measured) - so a
     // column placed from constants is a column that has guessed them.
     const primary = this.buildPrimary(primaryLabel, primarySub, WORDMARK_X + PRIMARY_X, 0);
-    const settings = this.buildQuiet(t.t("title.settings"), WORDMARK_X, 0);
+    const settings = this.buildCog(WORDMARK_X + PRIMARY_X + CONTINUE_W + SLICE_GAP, 0);
     // D95: the language row only exists when there is a choice to make. With a
     // single shipped language it is a one-option selector, which is noise on
     // the first screen a child sees - and it was still offering ES and हिं
@@ -430,11 +445,13 @@ export class TitleScene extends Phaser.Scene {
       markBottom: mark.bottom,
       primaryH: PRIMARY_H,
       statusH: this.statusPlateH,
-      settingsH: settings.plateH,
+      // null: settings is the primary's other half, not a row of its own.
+      settingsH: null,
       langH: lang?.plateH ?? null,
     });
     primary.root.setY(stack.primaryY + primary.plateTop);
-    settings.root.setY(stack.settingsY + settings.plateTop);
+    // The same button, so the same baseline.
+    settings.root.setY(stack.primaryY);
     if (lang !== null && stack.langY !== null) lang.root.setY(stack.langY + lang.plateTop);
     this.stackOverflow = stack.overflow;
 
@@ -503,14 +520,6 @@ export class TitleScene extends Phaser.Scene {
     const c = this.add.container(WORDMARK_X, WORDMARK_Y);
     const cream = "#F7F2E6";
 
-    const glow = this.add
-      .image(250, 46, TEX.glow)
-      .setDisplaySize(900, 360)
-      .setTint(hexToNum(this.accent))
-      .setAlpha(0.2)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    c.add(glow);
-
     // THE ONE STRING ON THIS SCREEN THAT KEEPS ITS CAPITALS. D41 lowercases
     // chrome; a wordmark is a logo, not chrome, and it is drawn rather than
     // translated - it is the same six letters in every locale.
@@ -544,24 +553,36 @@ export class TitleScene extends Phaser.Scene {
       ease: EASE.blast,
     });
 
-    // The tagline is chrome, so it is lowercase (D41) and on a plate: on a
-    // bright stop's sky - Saturn's is near ivory - cream type on open sky is
-    // unreadable, and the Title wears the palette of the furthest beacon.
-    const sub = skyText(this, PLATED_X, 178, chromeCase(tagline, typographyOf(this).uppercase), {
+    // NO PLATE, and the type starts on the column with the K rather than 22 px
+    // right of it. Owner's call, made looking at the built screen.
+    //
+    // The registry gets the HARDER of the two sky stops the line can sit over,
+    // not the first one to hand: a row that records the flattering value is the
+    // "trust me" `kit.ts` forbids.
+    const skyBehind = skyStops(pal).slice(0, 2);
+    const skyWorst =
+      contrastRatio(INK.accent, skyBehind[0] ?? "") <=
+      contrastRatio(INK.accent, skyBehind[1] ?? "")
+        ? skyBehind[0]
+        : skyBehind[1];
+    const sub = skyText(this, COLUMN_X, 178, chromeCase(tagline, typographyOf(this).uppercase), {
+      plated: true,
       screen: "title",
       id: "title.tagline",
       size: TYPE.body,
-      // UR-65: gold, not the dim ink the menu chrome uses. At textDim on a
-      // plate the tagline read as another button sitting under the wordmark,
-      // which is what it looked like next to the settings control. A FIXED
-      // token, never the loaded stop's accent - coding-standards rule 1: a
-      // theme may change the background and nothing else, and this line is
-      // type.
+      // UR-65's gold. Owner's call over the measured alternative: on the five
+      // bright skies this reads 1.21-1.50:1 and the shadow below is the only
+      // thing carrying it, which WCAG cannot score.
       color: INK.accent,
+      // The registry's contrast row has to name what is really behind the type.
+      plateFill: skyWorst,
       lang: this.langOf(),
       depth: 1,
       padY: 8,
     });
+    // The same trick the wordmark uses two blocks up, scaled to body size: a
+    // dark edge is the only thing holding this line off a near-white sky.
+    sub.text.setShadow(0, 3, "#00000080", 8, false, true);
     if (sub.plate !== null) c.add(sub.plate);
     c.add(sub.text);
 
@@ -592,7 +613,7 @@ export class TitleScene extends Phaser.Scene {
     x: number,
     y: number,
   ): MenuItem {
-    const width = PRIMARY_W;
+    const width = CONTINUE_W;
     const height = PRIMARY_H;
     const root = this.add.container(x, y);
     const pop = this.popContainer(root, "primary");
@@ -609,7 +630,7 @@ export class TitleScene extends Phaser.Scene {
     paintPlate(
       plate,
       { x: COLUMN_X, y: 0, w: width, h: height },
-      { fill: this.accent, radius: SPACE.radiusCard, strokeWidth: 0 },
+      { fill: this.accent, radius: SPACE.radius, strokeWidth: 0, lean: SLICE_LEAN },
     );
     paintPlate(
       plate,
@@ -622,8 +643,11 @@ export class TitleScene extends Phaser.Scene {
       {
         fill: mixHex(this.accent, "#FFFFFF", 0.35),
         alpha: 0.5,
-        radius: SPACE.radiusCard - FACET_INSET,
+        radius: SPACE.radius - FACET_INSET,
         strokeWidth: 0,
+        // The facet is shorter than the plate, so the plate's px of lean would
+        // be a STEEPER cut on it. Scaled, the two diagonals are parallel.
+        lean: SLICE_LEAN * FACET_FRACTION,
       },
     );
     pop.add(plate);
@@ -698,45 +722,71 @@ export class TitleScene extends Phaser.Scene {
     };
   }
 
-  private buildQuiet(label: string, x: number, y: number): MenuItem {
+  /**
+   * SETTINGS IS THE OTHER HALF OF THE PRIMARY, NOT A ROW UNDER IT.
+   *
+   * It used to be a plated word on its own line below the primary's caption -
+   * the only thing on the column with nothing above or below it, which is what
+   * made it read as orphaned. Same control: same id, same focus order, same
+   * destination. What changed is that it is the right side of one button that
+   * has been cut in two, so the cut is the only diagonal on either piece.
+   */
+  private buildCog(x: number, y: number): MenuItem {
     const root = this.add.container(x, y);
     const pop = this.popContainer(root, "settings");
-    const item = skyText(this, PLATED_X, 0, chromeCase(label, typographyOf(this).uppercase), {
-      screen: "title",
-      id: "title.settings",
-      size: TYPE.body,
-      color: INK.text,
-      lang: this.langOf(),
-      depth: 1,
-      padY: CHROME_PAD_Y,
-    });
-    if (item.plate !== null) pop.add(item.plate);
-    pop.add(item.text);
+
+    const plate = this.add.graphics();
+    paintPlate(
+      plate,
+      { x: COLUMN_X, y: 0, w: COG_W, h: PRIMARY_H },
+      {
+        fill: this.accent,
+        radius: SPACE.radius,
+        strokeWidth: 0,
+        lean: SLICE_LEAN,
+        diagonal: "left",
+      },
+    );
+    paintPlate(
+      plate,
+      {
+        x: COLUMN_X + FACET_INSET,
+        y: FACET_INSET,
+        w: COG_W - FACET_INSET * 2,
+        h: PRIMARY_H * FACET_FRACTION,
+      },
+      {
+        fill: mixHex(this.accent, "#FFFFFF", 0.35),
+        alpha: 0.5,
+        radius: SPACE.radius - FACET_INSET,
+        strokeWidth: 0,
+        lean: SLICE_LEAN * FACET_FRACTION,
+        diagonal: "left",
+      },
+    );
+    pop.add(plate);
+
+    const glyph = this.add.graphics();
+    drawSettingIcon(glyph, "cog", COLUMN_X + COG_W / 2, PRIMARY_H / 2, COG_W * 0.44, BUTTON_INK);
+    pop.add(glyph);
+
     return {
       id: "settings",
       root,
       pop,
-      // THE PLATE'S RECTANGLE, NOT THE TEXT'S (UR-88).
-      //
-      // This used to report the TEXT's box, and the focus ring is struck around
-      // whatever a row reports - so the ring was drawn around the words while
-      // the button it was meant to be around is `SKY_PLATE.padX` wider at each
-      // end. The plate stuck out of its own highlight.
-      //
-      // `skyText` cuts the plate from the text's bounds, so the plate starts
-      // `padX` left of the text and `CHROME_PAD_Y` above it. `PLATED_X` is
-      // exactly `padX`, which is why the plate's left edge is `root.x`.
-      width: item.text.width + SKY_PLATE.padX * 2,
-      height: item.text.height + CHROME_PAD_Y * 2,
-      plateH: item.text.height + CHROME_PAD_Y * 2,
-      plateTop: CHROME_PAD_Y,
+      width: COG_W,
+      height: PRIMARY_H,
+      plateH: PRIMARY_H,
+      plateTop: 0,
       // Esc out of Settings goes back where it was opened from, and its
       // default is the map - which is not where a Title player came from.
-      activate: () => this.goto(SCENE_KEYS.settings, { returnTo: SCENE_KEYS.title }),
+      // D108: the Title has no pilot, so it opens the DEVICE half. Asked for
+      // explicitly rather than inferred, so the intent survives a later change
+      // to how `returnTo` is read.
+      activate: () =>
+        this.goto(SCENE_KEYS.settings, { returnTo: SCENE_KEYS.title, scope: "device" }),
     };
   }
-
-  /** D45: visible, but quiet. Left/Right moves along it; Enter applies. */
   private buildLangRow(x: number, y: number): MenuItem {
     const root = this.add.container(x, y);
     const pop = this.popContainer(root, "lang");
@@ -846,7 +896,7 @@ export class TitleScene extends Phaser.Scene {
     // A quiet row now reports its PLATE, so its ring needs no inset: the plate's
     // own left edge is already the column. The primary's root carries
     // `PRIMARY_X` so that ITS ring lands there instead.
-    const top = item.id === "primary" ? item.root.y : item.root.y - item.plateTop;
+    const top = item.plateTop === 0 ? item.root.y : item.root.y - item.plateTop;
     return { x: item.root.x, y: top, w: item.width, h: item.height };
   }
 
@@ -904,8 +954,12 @@ export class TitleScene extends Phaser.Scene {
         // The quiet row's ring used to be struck at 0, i.e. ON its own plate
         // edge, so half the stroke was hidden behind it and it read as thinner
         // than every other control's. The app's stand-off shows all 4 px.
-        offset: item.id === "primary" ? FOCUS_PAD : SPACE.focusRingOffset,
-        radius: item.id === "primary" ? SPACE.radiusCard : SPACE.radius,
+        offset: FOCUS_PAD,
+        radius: SPACE.radius,
+        // Each half's ring carries that half's cut, so a focused button is
+        // outlined in its own shape rather than in a rectangle.
+        lean: item.id === "lang" ? 0 : SLICE_LEAN,
+        diagonal: item.id === "settings" ? "left" : "right",
       },
     );
   }

@@ -31,7 +31,9 @@ import { describe, expect, it } from "vitest";
 const SRC = readFileSync("src/game/scenes/ProfileCreateScene.ts", "utf8");
 
 describe("UR-146: the create screen will not commit an unnamed pilot", () => {
-  it("the forward button's locked state is derived from the typed name", () => {
+  it.skip("the forward button's locked state is derived from the typed name", () => {
+    // SUPERSEDED BY UR-187, kept so the history is readable: the gate existed
+    // because blank meant "Pilot". Blank means the shown call sign now.
     expect(SRC).toMatch(/button\.locked = this\.draft\.pilotName\.trim\(\)\.length < MIN_NAME_LENGTH;/);
   });
 
@@ -49,7 +51,17 @@ describe("UR-146: the create screen will not commit an unnamed pilot", () => {
     expect(SRC).toMatch(/this\.forward = button;[\s\S]{0,40}this\.syncForward\(\);/);
   });
 
-  it("only the beat that collects the name is gated", () => {
+  it("UR-187: nothing is gated - a blank field accepts the suggestion", () => {
+    // UR-146 LOCKED this button on a blank name because blank fell through to
+    // the schema's "Pilot" - a pilot the child never named. The placeholder is
+    // a real call sign now and blank ACCEPTS it, so the accident is gone and
+    // locking the only way forward would just be telling a child off (D31).
+    expect(SRC).toMatch(/button\.locked = false;/);
+    expect(SRC).toMatch(/name: this\.draft\.pilotName\.trim\(\) \|\| this\.suggestedName,/);
+    expect(SRC).toMatch(/placeholder: this\.suggestedName,/);
+  });
+
+  it.skip("only the beat that collects the name is gated", () => {
     // The ship and ship-name beats are off today (`ENABLED_CREATE_STEPS`), but
     // gating them on a pilot name would be wrong if they come back.
     expect(SRC).toMatch(/if \(this\.currentStep\(\) !== "pilot"\)[\s\S]{0,80}locked = false;/);
@@ -65,8 +77,11 @@ describe("UR-146: the create screen will not commit an unnamed pilot", () => {
     // The fix is the button, not the fallback. A change here would mean a
     // child with an older save could lose the name their profile already has.
     const schema = readFileSync("src/engine/persistence/schema.ts", "utf8");
+    // The SCHEMA fallback is still untouched - an older save keeps its name.
+    // What changed is the scene: blank now takes the shown call sign rather
+    // than falling through to the schema's shrug (UR-187).
     expect(schema).toContain('export const DEFAULT_PROFILE_NAME = "Pilot";');
-    expect(SRC).toMatch(/name: this\.draft\.pilotName\.trim\(\),/);
+    expect(SRC).toMatch(/name: this\.draft\.pilotName\.trim\(\) \|\| this\.suggestedName,/);
   });
 
   it("a locked control genuinely refuses Enter", () => {

@@ -17,7 +17,16 @@ export function isLang(value: string): value is Lang {
   return (LANGS as readonly string[]).includes(value);
 }
 
-/** The seven stops, Earth outward to Pluto (D56, D57). */
+/**
+ * Every stop. The first seven are the main route, Earth outward to Pluto
+ * (D56, D57); Venus and Mercury are the bonus pair, inward from Earth, and
+ * they are LAST in this array rather than in orbital order.
+ *
+ * ORDER IS ROUTE ORDER, NOT DISTANCE. `nextStop` walks this array and
+ * `STOP_IDS[0]` is where a new pilot launches, so putting the inner planets
+ * where they physically belong would start the game at Mercury. Anything that
+ * wants distance ranks by the ephemeris instead - see `render/sunScale`.
+ */
 export type StopId =
   | "earth"
   | "mars"
@@ -25,7 +34,10 @@ export type StopId =
   | "saturn"
   | "uranus"
   | "neptune"
-  | "pluto";
+  | "pluto"
+  | "venus"
+  | "mercury"
+  | "zoozve";
 
 export const STOP_IDS: readonly StopId[] = [
   "earth",
@@ -35,7 +47,81 @@ export const STOP_IDS: readonly StopId[] = [
   "uranus",
   "neptune",
   "pluto",
+  "venus",
+  "mercury",
+  "zoozve",
 ] as const;
+
+/** The main route: what a pilot flies before anything is a bonus. */
+export const ROUTE_STOP_IDS: readonly StopId[] = STOP_IDS.slice(0, 7);
+
+/**
+ * The bonus pair, in the order the inner run visits them.
+ *
+ * Earth -> Venus -> Mercury: outward-in, so the sun grows and the difficulty
+ * climbs together. They unlock only once Pluto is lit.
+ */
+export const BONUS_STOP_IDS: readonly StopId[] = ["venus", "zoozve", "mercury"];
+
+/**
+ * The bonus stops that are DRAWN AS A PLANET ON THE BOARD.
+ *
+ * A stop and a node on the chart are not the same thing, and Zoozve is the
+ * first place that shows. It is a 232 m rock that shadows Venus - a
+ * quasi-satellite, not a world - so drawing it as a fourth disc in the row
+ * would put it in the same visual class as Mercury and state something untrue.
+ * It is a real stop in every other sense: it unlocks, it is flown, it has a
+ * belt, a bed and a beacon. It just hangs off Venus instead of standing on the
+ * line. See `SATELLITE_OF`.
+ */
+export const INNER_BOARD_STOP_IDS: readonly StopId[] = ["venus", "mercury"];
+
+/**
+ * Stops drawn attached to another stop rather than on the route line, and what
+ * they are attached to. Empty for every stop on the board.
+ */
+export const SATELLITE_OF: Readonly<Partial<Record<StopId, StopId>>> = Object.freeze({
+  zoozve: "venus",
+});
+
+/** The stop this one orbits, or null when it stands on the line itself. */
+export function satelliteHost(value: StopId): StopId | null {
+  return SATELLITE_OF[value] ?? null;
+}
+
+export function isSatelliteStop(value: StopId): boolean {
+  return satelliteHost(value) !== null;
+}
+
+/**
+ * The stops that come from JPL's major-planet table (D15, AC-17.1).
+ *
+ * Zoozve is a 236 m asteroid, not a planet: it has no row in Table 1, no
+ * published reference coordinates, and AC-17.1's +/-1 deg / +/-0.05 AU
+ * tolerance is a claim about that table. Every ephemeris check keys on THIS
+ * list, so adding a non-planet stop can never silently weaken a planet's bar.
+ */
+export const MAJOR_PLANET_STOP_IDS = [
+  "earth",
+  "mars",
+  "jupiter",
+  "saturn",
+  "uranus",
+  "neptune",
+  "pluto",
+  "venus",
+  "mercury",
+] as const;
+
+export type MajorPlanetStopId = (typeof MAJOR_PLANET_STOP_IDS)[number];
+
+export function isMajorPlanet(value: StopId): value is MajorPlanetStopId {
+  return (MAJOR_PLANET_STOP_IDS as readonly StopId[]).includes(value);
+}
+
+export function isBonusStop(value: StopId): boolean {
+  return BONUS_STOP_IDS.includes(value);
+}
 
 export function isStopId(value: string): value is StopId {
   return (STOP_IDS as readonly string[]).includes(value);
@@ -157,6 +243,83 @@ export const DEFAULT_SETTINGS: Settings = {
   relativeBoard: false,
   dashColor: "amber",
 };
+
+/**
+ * THE SETTINGS THAT BELONG TO THE MACHINE, NOT TO A PILOT (D108).
+ *
+ * `Settings` is one shape and stays one shape - forty-one files read it and a
+ * split type would touch every one. What splits is OWNERSHIP: these six keys
+ * are stored once for the device and shadow whatever a profile carries, and
+ * the rest stay on the profile.
+ *
+ * The test for each key is "would a sibling sharing this laptop want it
+ * different?". Volume, calm motion, the colour-safe palette, the keyboard and
+ * the menu language are about the room and the hardware; letter case, letter
+ * spacing, the words' language, the input method, the board and the dash
+ * colour are about one child's eyes and hands.
+ *
+ * It is also the only honest answer to the bug this came from: Settings opens
+ * from the Title, where no pilot is chosen, and every row there was being
+ * written to whichever profile happened to be active - or discarded when there
+ * was none.
+ */
+export const DEVICE_SETTING_KEYS = [
+  "musicVolume",
+  "sfxVolume",
+  "keyboardLayout",
+  "uiLang",
+  "reducedMotion",
+  "colorblindPalette",
+] as const;
+
+export type DeviceSettingKey = (typeof DEVICE_SETTING_KEYS)[number];
+
+/** The device's half of `Settings`. Stored once, beside the profiles. */
+export type DeviceSettings = Pick<Settings, DeviceSettingKey>;
+
+/** Keys that stay on the profile. Derived, so the two can never overlap. */
+export type PilotSettingKey = Exclude<keyof Settings, DeviceSettingKey>;
+
+export const PILOT_SETTING_KEYS = (Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]).filter(
+  (k): k is PilotSettingKey => !(DEVICE_SETTING_KEYS as readonly string[]).includes(k),
+);
+
+export const DEFAULT_DEVICE_SETTINGS: DeviceSettings = {
+  musicVolume: DEFAULT_SETTINGS.musicVolume,
+  sfxVolume: DEFAULT_SETTINGS.sfxVolume,
+  keyboardLayout: DEFAULT_SETTINGS.keyboardLayout,
+  uiLang: DEFAULT_SETTINGS.uiLang,
+  reducedMotion: DEFAULT_SETTINGS.reducedMotion,
+  colorblindPalette: DEFAULT_SETTINGS.colorblindPalette,
+};
+
+/** Split a patch into the half that goes to the device and the half that does not. */
+export function splitSettingsPatch(patch: Partial<Settings>): {
+  readonly device: Partial<DeviceSettings>;
+  readonly pilot: Partial<Settings>;
+} {
+  const device: Record<string, unknown> = {};
+  const pilot: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) continue;
+    if ((DEVICE_SETTING_KEYS as readonly string[]).includes(k)) device[k] = v;
+    else pilot[k] = v;
+  }
+  return { device: device as Partial<DeviceSettings>, pilot: pilot as Partial<Settings> };
+}
+
+/**
+ * What a scene reads: the profile's settings with the device's half on top.
+ *
+ * The device ALWAYS wins for its six keys, so a profile saved before D108 (or
+ * written by an old build) cannot drag the volume back.
+ */
+export function effectiveSettings(
+  profileSettings: Settings,
+  device: DeviceSettings,
+): Settings {
+  return { ...profileSettings, ...device };
+}
 
 /** Star rating for a cleared stage, from hull hits (D27, AC-4.4). */
 export type Stars = 0 | 1 | 2 | 3;

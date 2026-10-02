@@ -270,7 +270,7 @@ export function windowRect(): Rect {
  * The Briefing next door already solved it and is the standard: ONE card, with
  * a ribbon of the stop's accent down the spine and a run of three lines inside
  * it - an eyebrow, the planet's name, a chapter. So this is that treatment,
- * with the same tokens (`SPACE.radiusCard`, `STEP.inset`, `STEP.hair`) and the
+ * with the same tokens (`SPACE.radius`, `STEP.inset`, `STEP.hair`) and the
  * same order of importance.
  *
  * THE ORDER FLIPS, AND THAT IS THE POINT. The two chips made "Pre-flight" the

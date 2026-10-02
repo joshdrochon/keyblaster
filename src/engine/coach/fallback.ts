@@ -102,6 +102,18 @@ const EN: LangFallback = {
         "This is the last stop on the map.",
       ],
     },
+    venus: {
+      note: "Good flying, pilot. The cloud is thick here, so let's take it slower together.",
+      variants: ["Venus is covered in thick clouds.", "The clouds never open."],
+    },
+    mercury: {
+      note: "Good flying, pilot. Mercury has no air at all. Let's take the next one slower.",
+      variants: ["Mercury has no air at all.", "It is the closest planet to the sun."],
+    },
+    zoozve: {
+      note: "Good flying, pilot. Zoozve is a tiny rock. Let's take the next one slower.",
+      variants: ["Zoozve rides along with Venus.", "It is not a moon."],
+    },
   },
   cleanByStop: {
     earth: {
@@ -133,6 +145,18 @@ const EN: LangFallback = {
     neptune: {
       note: "Every single word. Out here in the deep dark, that is real flying.",
       variants: ["Neptune is deep blue and very far.", "The wind out here is the fastest."],
+    },
+    venus: {
+      note: "Not one word got away, pilot. You flew a whole belt you could not see through.",
+      variants: ["Venus is covered in thick clouds.", "It is the hottest planet of all."],
+    },
+    mercury: {
+      note: "Every word, first try, this close to the sun. That was the hardest light on the map.",
+      variants: ["Mercury has no air at all.", "It is the planet closest to the sun."],
+    },
+    zoozve: {
+      note: "Not one word got away, on the smallest stop of all. Nice flying.",
+      variants: ["Zoozve rides along with Venus.", "Its name came from a mistake."],
     },
     pluto: {
       note: "The last belt, and not one word got past you. Look how far you have come.",

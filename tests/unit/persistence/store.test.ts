@@ -69,8 +69,11 @@ describe("debounced writes", () => {
     expect(storage.setCalls).toBe(0);
     clock.advance(DEBOUNCE_MS);
     expect(storage.setCalls).toBe(1);
-    const state = stored(storage) as { profiles: Array<{ settings: { sfxVolume: number } }> };
-    expect(state.profiles[0]?.settings.sfxVolume).toBe(19 / 20);
+    // D108: sfxVolume is DEVICE-owned, so it lands beside the profiles rather
+    // than inside one. The point of this test is the coalescing, and that is
+    // unchanged - one write, carrying the last value.
+    const state = stored(storage) as { device: { sfxVolume: number } };
+    expect(state.device.sfxVolume).toBe(19 / 20);
   });
 
   it("flush() writes immediately and cancels the pending timer", () => {
@@ -120,7 +123,7 @@ describe("storage failure degrades, never crashes", () => {
 
     expect(store.degraded).toBe(true);
     expect(store.dirty).toBe(true); // still pending, so a later flush retries
-    expect(store.activeProfile()?.settings.musicVolume).toBe(0.2); // memory wins
+    expect(store.settingsFor().musicVolume).toBe(0.2); // memory wins (D108: device-owned)
     const failures = store.notices.filter((n) => n.code === "write-failed");
     expect(failures).toHaveLength(1);
     expect(failures[0]?.blocking).toBe(false);

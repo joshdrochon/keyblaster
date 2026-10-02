@@ -1,3 +1,4 @@
+import { ROUTE_STOP_IDS } from "@engine/types";
 import type { Rect } from "./layout.js";
 import { HARDWARE, type Point, detentStops, rivetPositions } from "./panel.js";
 import { COLUMN_GAP, contentWidth, pageInset } from "./grid.js";
@@ -115,12 +116,12 @@ export const CONSOLE_STRIP = {
    */
   h: 124,
   /**
-   * SEVEN, one per stop, and the one that burns is the stop you are at. Nine
-   * lit at `i % 3 === 0` is decoration in the shape of a readout: three lamps
-   * of nine burning says something specific and false. A count that matches the
-   * route says the true thing for free.
+   * ONE PER MAIN-ROUTE STOP, and the one that burns is the stop you are at.
+   * Derived so it cannot drift: the bonus pair is not on this readout, because
+   * the lamps are the route's own progress and a player on the inner run has
+   * already finished it.
    */
-  lamps: 7,
+  lamps: ROUTE_STOP_IDS.length,
 } as const;
 
 /**

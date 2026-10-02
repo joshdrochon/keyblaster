@@ -5,7 +5,7 @@ import {
   createProfileStore,
   loadState,
 } from "@engine/persistence/index.js";
-import { STOP_IDS, type Profile, type StopProgress } from "@engine/types.js";
+import { ROUTE_STOP_IDS, type Profile, type StopProgress } from "@engine/types.js";
 import { applyUnlocks, canEquipShip, equipShip } from "@engine/unlocks/index.js";
 import { FakeClock, FakeStorage } from "../persistence/fixtures.js";
 
@@ -153,7 +153,12 @@ describe("UR-48: equipping an earned hull (AC-6d.1b, D73, D79)", () => {
       expect(canEquipShip(pilot, id), `${beacons} beacons did not open ${id}`).toBe(true);
       expect(equipShip(pilot, id).shipId).toBe(id);
     }
-    expect(STOP_IDS.length, "seven beacons must be reachable on this route").toBe(7);
+    // ship-4 wants seven beacons, and seven is the MAIN ROUTE: the bonus pair
+    // is not a hull gate, so the last hull is still earned at Pluto.
+    expect(
+      ROUTE_STOP_IDS.length,
+      "seven beacons must be reachable on this route",
+    ).toBe(7);
   });
 
   it("AC-19.1 an earned hull is worn, and survives a reload", () => {

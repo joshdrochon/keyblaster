@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import {
   activeProfile,
   assertVisibleFocus,
+  open,
   press,
   screen,
   seed,
@@ -82,24 +83,34 @@ test.describe("UR-132: the hull row is not on the console", () => {
   test("the hull row is not built, and nothing else lost its place", async ({
     page,
   }) => {
-    await seed(page, [FIVE_BEACONS], SETTINGS);
+    // EACH CLAIM ON THE HALF THAT OWNS IT (D108). The console is two screens
+    // now: `settings.hull` is a PILOT row, suppressed by this ticket, while
+    // the keyboard layout and the UI language are the MACHINE's. Asserting all
+    // three against one screen is what broke here - whichever half is open,
+    // two of the three ids are absent for a reason that has nothing to do with
+    // the row being turned off.
+    // One seed, then one navigation per half - `seed` costs two page boots.
+    await seed(page, [FIVE_BEACONS], SETTINGS, "&scope=device");
+    const rowsOn = async (scope: string): Promise<string[]> => {
+      await open(page, SETTINGS, `&scope=${scope}`);
+      return screen(page, SETTINGS)
+        .locator('[data-testid="ui-item"]')
+        .evaluateAll((nodes) => nodes.map((n) => n.getAttribute("data-id") ?? ""));
+    };
 
-    const ids = await screen(page, SETTINGS)
-      .locator('[data-testid="ui-item"]')
-      .evaluateAll((nodes) => nodes.map((n) => n.getAttribute("data-id") ?? ""));
+    const pilot = await rowsOn("pilot");
+    expect(pilot, "the hull row is drawn again - restore this file").not.toContain(HULL);
 
-    expect(ids, "the hull row is drawn again - restore this file").not.toContain(
-      HULL,
-    );
+    const device = await rowsOn("device");
     // UR-185 turned the other one-choice row off in the same column.
-    expect(ids).not.toContain("settings.uiLang");
-    expect(ids).toContain("settings.keyboardLayout");
+    expect(device).not.toContain("settings.uiLang");
+    expect(device).toContain("settings.keyboardLayout");
 
     // A lap of the list that comes back where it started is what says nothing
     // fell off the focus order when the two rows went. Counted off the rows
     // actually drawn rather than a fixed number, which is what broke here.
     const first = await screen(page, SETTINGS).getAttribute("data-focus");
-    await press(page, "ArrowDown", ids.length);
+    await press(page, "ArrowDown", device.length);
     expect(await screen(page, SETTINGS).getAttribute("data-focus")).toBe(first);
     await assertVisibleFocus(page, SETTINGS);
   });

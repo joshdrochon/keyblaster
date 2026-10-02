@@ -263,20 +263,28 @@ const STALL_RATE_CEILING = 0.2;
 /** The belts every pilot still flies clean on both arms. */
 const CLEAN_STOPS: readonly StopId[] = ["mars", "jupiter"];
 
-/** Stalls of 40, in route order. See the header for what moved them. */
-const PINNED_STALLS: Record<string, readonly number[]> = {
-  "fast/nesting": [0, 1, 1, 2, 21, 37],
-  "fast/plain": [0, 1, 1, 2, 27, 40],
-  "median/nesting": [0, 0, 28, 30, 40, 40],
-  "median/plain": [0, 0, 28, 30, 40, 40],
-  "slow/nesting": [0, 0, 36, 36, 38, 40],
-  "slow/plain": [0, 0, 36, 36, 39, 40],
-  "grade2/nesting": [0, 1, 0, 0, 5, 1],
-  "grade2/plain": [0, 1, 0, 0, 0, 1],
+/**
+ * Stalls of 40, PER STOP. See the header for what moved them.
+ *
+ * Keyed by stop rather than by index: the Venus/Mercury bonus pair is appended
+ * to `BELT_STOP_IDS`, so a positional row would have slid. The bonus cells are
+ * the measurement as it arrived - the exempt tail flies both clean, and
+ * fast/median/slow lose every belt at both, which is the same back-of-route
+ * hole the header escalates rather than a new one.
+ */
+const PINNED_STALLS: Record<string, Record<string, number>> = {
+  "fast/nesting": { mars: 0, jupiter: 1, saturn: 1, uranus: 2, neptune: 21, pluto: 37, venus: 40, mercury: 40, zoozve: 0 },
+  "fast/plain": { mars: 0, jupiter: 1, saturn: 1, uranus: 2, neptune: 27, pluto: 40, venus: 40, mercury: 40, zoozve: 1 },
+  "median/nesting": { mars: 0, jupiter: 0, saturn: 28, uranus: 30, neptune: 40, pluto: 40, venus: 40, mercury: 40, zoozve: 27 },
+  "median/plain": { mars: 0, jupiter: 0, saturn: 28, uranus: 30, neptune: 40, pluto: 40, venus: 40, mercury: 40, zoozve: 20 },
+  "slow/nesting": { mars: 0, jupiter: 0, saturn: 36, uranus: 36, neptune: 38, pluto: 40, venus: 40, mercury: 40, zoozve: 4 },
+  "slow/plain": { mars: 0, jupiter: 0, saturn: 36, uranus: 36, neptune: 39, pluto: 40, venus: 40, mercury: 40, zoozve: 3 },
+  "grade2/nesting": { mars: 0, jupiter: 1, saturn: 0, uranus: 0, neptune: 5, pluto: 1, venus: 0, mercury: 0, zoozve: 0 },
+  "grade2/plain": { mars: 0, jupiter: 1, saturn: 0, uranus: 0, neptune: 0, pluto: 1, venus: 0, mercury: 0, zoozve: 0 },
 };
 
 const pinnedStalls = (pilot: string, arm: string, stop: StopId): number =>
-  PINNED_STALLS[`${pilot}/${arm}`]?.[BELT_STOP_IDS.indexOf(stop)] ?? 0;
+  PINNED_STALLS[`${pilot}/${arm}`]?.[stop] ?? 0;
 
 const ARMS = (
   withNesting: Record<string, RouteRow>,

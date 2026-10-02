@@ -6,13 +6,13 @@
  *
  * WHY THERE IS NO FILE. D63 planned to render the beds with ElevenLabs at build
  * time. There is no key (D88 records the same gap for the voice), so a lane that
- * shipped seven `.mp3` references would ship seven 404s and an audio rubric that
- * passes on paper. The beds are therefore SYNTHESISED: a drone stack, a filtered
- * noise wind, and a slow shimmer, tuned per planet. Seven real beds that play
- * beat seven filenames that do not.
+ * shipped a `.mp3` reference per stop would ship that many 404s and an audio
+ * rubric that passes on paper. The beds are therefore SYNTHESISED: a drone
+ * stack, a filtered noise wind, and a slow shimmer, tuned per planet. Real beds
+ * that play beat filenames that do not.
  *
  * When the key lands, `buildBedVoice` becomes a looping buffer source over a
- * decoded file and the rest of this module - the seven-entry table, the
+ * decoded file and the rest of this module - the table, the
  * crossfade, the bus - is unchanged. Same swap shape as music.ts and voice.ts.
  *
  * The stop list comes from `src/engine/types.ts`, not from a local literal, so
@@ -148,6 +148,67 @@ const BED_SEEDS: Readonly<Record<StopId, Omit<AmbientBedSpec, "stopId">>> = Obje
     level: 0.23,
     note: "the fastest winds in the solar system, heard from far away",
   },
+  venus: {
+    droneHz: 68,
+    partials: [1, 2, 3],
+    droneLevel: 0.18,
+    filterHz: 360,
+    windLevel: 0.94,
+    windFilterHz: 175,
+    shimmerHz: 0.04,
+    shimmerDepth: 0.09,
+    level: 0.26,
+    note: "92 bar of hot CO2: the densest, most muffled bed - pressure, not air",
+  },
+  mercury: {
+    droneHz: 98,
+    partials: [1, 4, 7],
+    // Cut with the wind below, not independently: UR-13 measures the drone as a
+    // FRACTION of the bed, so quietening the wind alone pushed 98 Hz back over
+    // the bar at 0.0804 against 0.08. The airless world keeps its hard light by
+    // being BRIGHT, not by being loud.
+    droneLevel: 0.075,
+    filterHz: 2400,
+    // 0.8 BURIED THE MUSIC (UR-163). Mercury is the only stop whose wind AND
+    // whose track are both bright, so they compete for one band - and at
+    // 2200 Hz the ear adds another 1.2 dB on top. A-weighted, the old bed was
+    // 12.5 dB louder than Venus's and tied for loudest in the game while
+    // Mercury's music measured within 1.1 dB of every other stop's. The wind
+    // stays broadband, which is all UR-13 ever needed; it stops shouting.
+    windLevel: 0.4,
+    windFilterHz: 2200,
+    shimmerHz: 0.34,
+    shimmerDepth: 0.32,
+    level: 0.28,
+    // Mercury has no atmosphere, so the first pass gave it almost no wind -
+    // physically honest and a pure 98 Hz tone, which is UR-13's defect exactly.
+    // The bed is a fiction either way (vacuum is silent), so the fiction obeys
+    // UR-13: hiss carries it, and what says "no air" is that the hiss is the
+    // BRIGHTEST and driest in the game rather than that there is none.
+    note: "no air to soften anything: the driest, brightest bed - glare, not weather",
+  },
+  /**
+   * A 232 m rock has no air to move, so there is no wind here in the sense the
+   * other beds mean it. What this is instead is the ship close to a small body:
+   * a thin, high, sparse hiss off the hull with almost nothing under it. The
+   * wind layer stays well clear of UR-13's bar because it is BROADBAND, not
+   * because it is loud - this is the quietest bed in the game.
+   */
+  zoozve: {
+    droneHz: 143,
+    partials: [1, 3, 8],
+    droneLevel: 0.05,
+    filterHz: 3100,
+    windLevel: 0.55,
+    windFilterHz: 2900,
+    // 13.5 h is Zoozve's MEASURED rotation period (JPL SBDB). Scaled to a slow
+    // breath rather than used literally: a 13.5 hour cycle is not a sound.
+    shimmerHz: 0.21,
+    shimmerDepth: 0.38,
+    level: 0.22,
+    note: "close to a small tumbling rock: thin hull hiss, almost nothing under it",
+  },
+
   pluto: {
     droneHz: 41,
     partials: [1, 3, 5],
@@ -162,7 +223,7 @@ const BED_SEEDS: Readonly<Record<StopId, Omit<AmbientBedSpec, "stopId">>> = Obje
   },
 });
 
-/** Seven beds, one per stop, keyed by the engine's own stop list. */
+/** One bed per stop, keyed by the engine's own stop list. */
 export const AMBIENT_BEDS: readonly AmbientBedSpec[] = STOP_IDS.map((stopId) => {
   const seed = BED_SEEDS[stopId];
   return { stopId, ...seed };

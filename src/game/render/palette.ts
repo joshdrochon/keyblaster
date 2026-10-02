@@ -1030,6 +1030,7 @@ export function atmosphereFor(id: string): AtmosphereKind {
   switch (id) {
     case "mars":
     case "jupiter":
+    case "mercury":
       return "dust";
     case "saturn":
     case "pluto":
@@ -1037,6 +1038,8 @@ export function atmosphereFor(id: string): AtmosphereKind {
     case "uranus":
     case "neptune":
       return "streaks";
+    case "venus":
+      return "haze";
     default:
       return "haze";
   }

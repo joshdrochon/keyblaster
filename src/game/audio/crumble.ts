@@ -215,7 +215,11 @@ export type DebrisTypeId =
   | "neptune-ring-dust"
   | "kuiper-water-ice"
   | "kuiper-methane-ammonia-ice"
-  | "small-kbo";
+  | "small-kbo"
+  | "venus-coorbital"
+  | "mercury-crater-ray"
+  | "mercury-regolith"
+  | "zoozve-fragment";
 
 /**
  * UR-66's MAPPING: what each debris type is made of, as far as the ear cares.
@@ -254,6 +258,10 @@ export const MATERIAL_BY_DEBRIS_TYPE: Readonly<Record<DebrisTypeId, CrumbleMater
     "kuiper-water-ice": "ice",
     "kuiper-methane-ammonia-ice": "ice",
     "small-kbo": "ice",
+    "venus-coorbital": "rock",
+    "mercury-crater-ray": "rock",
+    "mercury-regolith": "rock",
+    "zoozve-fragment": "rock",
   });
 
 /**

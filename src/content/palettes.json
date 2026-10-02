@@ -164,16 +164,16 @@
   "pluto": {
     "name": "Pluto",
     "colors": [
-      "#F2F4F8",
-      "#D6D3EA",
+      "#DCDEE2",
+      "#C3C0D6",
       "#F5E6D0",
       "#9A9BB0",
       "#4A4C63",
       "#14151F"
     ],
     "colorRoles": {
-      "frost": "#F2F4F8",
-      "paleLilac": "#D6D3EA",
+      "frost": "#DCDEE2",
+      "paleLilac": "#C3C0D6",
       "heartCream": "#F5E6D0",
       "coldGray": "#9A9BB0",
       "shadowSlate": "#4A4C63",
@@ -186,6 +186,87 @@
       "accent": "#111318",
       "debris": "#F5E6D0",
       "plateAccent": "#FFC9D8"
+    }
+  },
+  "venus": {
+    "name": "Venus",
+    "colors": [
+      "#FBF0CE",
+      "#F2DFA2",
+      "#DCBE79",
+      "#B08E4E",
+      "#4A3A22",
+      "#16120C"
+    ],
+    "colorRoles": {
+      "cloudTop": "#FBF0CE",
+      "sulfurCream": "#F2DFA2",
+      "cloudTan": "#DCBE79",
+      "deckShadow": "#B08E4E",
+      "nightSide": "#4A3A22",
+      "void": "#16120C"
+    },
+    "accent": "#D9C23A",
+    "plate": "#0E1116",
+    "plateText": "#F7FAFF",
+    "colorblind": {
+      "accent": "#111318",
+      "debris": "#6E6154",
+      "plateAccent": "#FFF0B8"
+    }
+  },
+  "mercury": {
+    "name": "Mercury",
+    "colors": [
+      "#554C42",
+      "#2A241F",
+      "#C9C3B8",
+      "#6A5F52",
+      "#33322F",
+      "#08080A"
+    ],
+    "colorRoles": {
+      "glareSky": "#554C42",
+      "nightSky": "#2A241F",
+      "craterRay": "#C9C3B8",
+      "hollowTan": "#6A5F52",
+      "shadowGrey": "#33322F",
+      "nightVoid": "#08080A"
+    },
+    "accent": "#FFB03A",
+    "plate": "#0E1116",
+    "plateText": "#F7FAFF",
+    "colorblind": {
+      "accent": "#FFFFFF",
+      "debris": "#B4AEA2",
+      "plateAccent": "#FFD9A0"
+    }
+  },
+  "zoozve": {
+    "name": "Zoozve",
+    "colors": [
+      "#434C5E",
+      "#232A38",
+      "#C8CBD2",
+      "#5A6072",
+      "#2B2F3A",
+      "#07080B"
+    ],
+    "colorRoles": {
+      "venusGlow": "#434C5E",
+      "voidSky": "#232A38",
+      "sunlitFace": "#C8CBD2",
+      "dustGrey": "#5A6072",
+      "shadowSlate": "#2B2F3A",
+      "nightVoid": "#07080B"
+    },
+    "accent": "#7FD4E8",
+    "plate": "#0E1116",
+    "plateText": "#F7FAFF",
+    "colorblind": {
+      "accent": "#FFFFFF",
+      "debris": "#B9BCC6",
+      "plateAccent": "#BFE8F4"
     }
   }
 }

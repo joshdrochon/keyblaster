@@ -254,6 +254,14 @@ export interface LanternRig {
   /** 0..1. The iris opens on fire (AC-24.1). */
   setIris(open: number): void;
   /**
+   * Stop the idle bob where it stands, for the length of a move. Restarting it
+   * at a new base SNAPS the rig there, so a caller that is about to tween must
+   * hold it first or the travel begins with a jump.
+   */
+  holdHover(): void;
+  /** Breathe around `y` again, and resume. Pairs with `holdHover`. */
+  rebaseHover(y: number): void;
+  /**
    * Pulse the lens, so a shot leaves FROM somewhere (UR-116).
    *
    * The owner, watching Flight: the beam read as coming out of nothing. It
@@ -261,6 +269,14 @@ export interface LanternRig {
    * air, with no light at the end it left from.
    */
   flash(strength?: number): void;
+  /**
+   * FEEL EXPERIMENT (?zap=1). One keystroke of a charging blaster: the lens
+   * jumps to `peak` and settles to `rest`, then HOLDS there until the next
+   * call. Both are 0..1 of a full flash, so 1 is exactly what `flash(1)` draws.
+   */
+  chargePulse(peak: number, rest: number): void;
+  /** ?zap=1. Charge spent or abandoned: back to dark. */
+  clearCharge(): void;
   setColorway(colorway: LanternColorway): void;
   /** Repaint in a profile's four colours; `undefined` restores the colourway. */
   setLivery(livery: LanternLivery | undefined): void;
@@ -287,6 +303,9 @@ const MUZZLE_PEAK_ALPHA = 0.85;
 /** Multiple of `LENS_R` the flash starts at, falling back to the glow's 4x. */
 const MUZZLE_SPREAD = 7;
 const MUZZLE_MS = 150;
+
+/** ?zap=1. How long a keystroke takes to fall from its bloom to its rest. */
+const CHARGE_SETTLE_MS = 190;
 
 export const LANTERN_AIM_LIMIT = Phaser.Math.DegToRad(26);
 const AIM_LIMIT = LANTERN_AIM_LIMIT;
@@ -476,17 +495,25 @@ export function drawLantern(
     ease: "Sine.easeInOut",
   });
 
-  if (options.idleBob ?? true) {
-    // Art direction section 5: gentle 2 px bob on a 3 s sine.
-    scene.tweens.add({
+  // The bob's base, so a caller that MOVES the rig can take it with them. It
+  // was baked into the tween's from/to, which pinned the rig at its
+  // construction height forever: the Director map's ship tweened its y to a
+  // satellite and the bob wrote it straight back (UR-170).
+  let bobBase = y;
+  let bob: Phaser.Tweens.Tween | null = null;
+  const startBob = (): void => {
+    bob?.remove();
+    bob = scene.tweens.add({
       targets: rig,
-      y: { from: y - 2, to: y + 2 },
+      y: { from: bobBase - 2, to: bobBase + 2 },
       duration: reducedMotion ? 3000 : 1500,
       yoyo: true,
       repeat: -1,
       ease: "Sine.easeInOut",
     });
-  }
+  };
+  // Art direction section 5: gentle 2 px bob on a 3 s sine.
+  if (options.idleBob ?? true) startBob();
 
   let irisOpen = options.iris ?? 0.72;
 
@@ -508,6 +535,14 @@ export function drawLantern(
 
   return {
     container: rig,
+    holdHover(): void {
+      bob?.remove();
+      bob = null;
+    },
+    rebaseHover(next: number): void {
+      bobBase = next;
+      if (options.idleBob ?? true) startBob();
+    },
     emitterMount,
     iris,
     exhaust,
@@ -562,6 +597,33 @@ export function drawLantern(
           muzzleTween = null;
         },
       });
+    },
+
+    chargePulse(peak: number, rest: number): void {
+      const hi = Phaser.Math.Clamp(peak, 0, 1);
+      const lo = Phaser.Math.Clamp(rest, 0, hi);
+      muzzleTween?.remove();
+      const size = (k: number): number => LENS_R * MUZZLE_SPREAD * k;
+      muzzle.setAlpha(MUZZLE_PEAK_ALPHA * hi);
+      muzzle.setDisplaySize(size(hi), size(hi));
+      muzzleTween = scene.tweens.add({
+        targets: muzzle,
+        alpha: MUZZLE_PEAK_ALPHA * lo,
+        displayWidth: size(lo),
+        displayHeight: size(lo),
+        duration: CHARGE_SETTLE_MS,
+        ease: "Cubic.easeOut",
+        onComplete: () => {
+          muzzleTween = null;
+        },
+      });
+    },
+
+    clearCharge(): void {
+      muzzleTween?.remove();
+      muzzleTween = null;
+      muzzle.setAlpha(0);
+      muzzle.setDisplaySize(0, 0);
     },
 
     setColorway(next: LanternColorway): void {

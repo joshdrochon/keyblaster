@@ -1,4 +1,11 @@
-import type { Profile, Settings } from "../types.js";
+import {
+  DEFAULT_SETTINGS,
+  effectiveSettings,
+  splitSettingsPatch,
+  type DeviceSettings,
+  type Profile,
+  type Settings,
+} from "../types.js";
 import type { CancelTimer, Clock, IdSource, StoragePort } from "./port.js";
 import { type LoadResult, type Notice, loadState, notice } from "./load.js";
 import {
@@ -61,6 +68,20 @@ export interface ProfileStore {
   /** Replace a profile through a pure updater. Returns the new profile. */
   updateProfile(id: string, update: (profile: Profile) => Profile): Profile | null;
   updateSettings(id: string, patch: Partial<Settings>): Profile | null;
+  /**
+   * The six settings that belong to the MACHINE (D108). Separate from
+   * `updateSettings` because they are stored once, beside the profiles, and are
+   * settable with no pilot chosen - which is the whole point.
+   */
+  updateDeviceSettings(patch: Partial<DeviceSettings>): DeviceSettings;
+  /** The device's half, as stored. */
+  deviceSettings(): DeviceSettings;
+  /**
+   * What a scene should read: a profile's settings with the device's half on
+   * top. Falls back to the defaults when there is no profile, so a Title with
+   * no pilot still reports the volume the player set.
+   */
+  settingsFor(id?: string): Settings;
   /** D41 "reset progress": keeps the pilot, clears everything they earned. */
   resetProgress(id: string): Profile | null;
   /** Write now if dirty. Wire to visibilitychange and to the results screen. */
@@ -98,6 +119,13 @@ export function createProfileStore(options: ProfileStoreOptions): ProfileStore {
   let dirty = loadResult.dirty;
   let degraded = false;
   let cancel: CancelTimer | null = null;
+
+  /** The one place the device record is written, so every path debounces. */
+  function applyDevice(patch: Partial<DeviceSettings>): DeviceSettings {
+    state.device = { ...state.device, ...patch };
+    schedule();
+    return { ...state.device };
+  }
 
   /** Trailing-edge debounce: the timer restarts on every mutation. */
   function schedule(): void {
@@ -231,7 +259,26 @@ export function createProfileStore(options: ProfileStoreOptions): ProfileStore {
     },
 
     updateSettings(id, patch) {
-      return store.updateProfile(id, (p) => ({ ...p, settings: { ...p.settings, ...patch } }));
+      // Only the PILOT half ever reaches a profile. A device key arriving here
+      // is routed rather than dropped: callers hand over one flat patch and
+      // should not have to know which half each key is in (D108).
+      const { device, pilot } = splitSettingsPatch(patch);
+      if (Object.keys(device).length > 0) applyDevice(device);
+      if (Object.keys(pilot).length === 0) return this.getProfile(id);
+      return store.updateProfile(id, (p) => ({ ...p, settings: { ...p.settings, ...pilot } }));
+    },
+
+    updateDeviceSettings(patch) {
+      return applyDevice(patch);
+    },
+
+    deviceSettings() {
+      return { ...state.device };
+    },
+
+    settingsFor(id) {
+      const profile = id === undefined ? this.activeProfile() : this.getProfile(id);
+      return effectiveSettings(profile?.settings ?? DEFAULT_SETTINGS, state.device);
     },
 
     resetProgress(id) {

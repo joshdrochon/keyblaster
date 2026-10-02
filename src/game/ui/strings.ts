@@ -97,6 +97,7 @@ export const UI_EN = {
    */
   "ui.pick.hint":
     "Arrow Keys to Move · Enter to Choose · Delete to Remove a Pilot · Esc to Go Back", // i18n-ignore
+  "ui.common.hintBack": "Esc to Go Back", // i18n-ignore
   "ui.common.cancel": "Cancel", // i18n-ignore
   "ui.common.on": "On", // i18n-ignore
   "ui.common.off": "Off", // i18n-ignore
@@ -168,15 +169,19 @@ export const UI_EN = {
   "ui.stop.uranus": "Uranus", // i18n-ignore
   "ui.stop.neptune": "Neptune", // i18n-ignore
   "ui.stop.pluto": "Pluto", // i18n-ignore
+  "ui.stop.venus": "Venus", // i18n-ignore
+  "ui.stop.mercury": "Mercury", // i18n-ignore
+  "ui.stop.zoozve": "Zoozve", // i18n-ignore
 
   // --- 10 beacon log -------------------------------------------------------
-  "ui.log.heading": "Beacon Log", // i18n-ignore
+  "ui.log.heading": "Trophies", // i18n-ignore
   "ui.log.beacons": "Beacons", // i18n-ignore
   "ui.log.trophies": "Trophies", // i18n-ignore
   "ui.log.lit": "{n} of {total} lit", // i18n-ignore
+  "ui.log.lit.one": "Lit", // i18n-ignore
   "ui.log.notLit": "Not Lit Yet", // i18n-ignore
   "ui.log.coords": "λ {lam}°   β {beta}°   r {r} au", // i18n-ignore
-  "ui.log.emptyShadow": "Only Earth is lit. Six more are waiting for us.", // i18n-ignore
+  "ui.log.emptyShadow": "No trophies yet. Every one of them is still out there.", // i18n-ignore
   "ui.log.earned": "Earned", // i18n-ignore
   "ui.log.notYet": "Not Yet", // i18n-ignore
   "ui.log.trophyCount": "{n} of {total} earned", // i18n-ignore
@@ -209,6 +214,8 @@ export const UI_EN = {
 
   // --- 11 settings ---------------------------------------------------------
   "ui.settings.heading": "Ship Controls", // i18n-ignore
+  "ui.settings.headingDevice": "Game Settings", // i18n-ignore
+  "ui.settings.headingPilot": "{pilotName}'s Controls", // i18n-ignore
   "ui.settings.hull": "Your Ship", // i18n-ignore
   "ui.settings.hullFlying": "Flying Now", // i18n-ignore
   "ui.settings.hullEquip": "Press enter to fly this one", // i18n-ignore
@@ -276,6 +283,7 @@ export const UI_ES: Record<UiStringKey, string> = {
   // Spanish has +25% to spend, not more.
   "ui.pick.hint":
     "teclas de flecha para moverte · enter para elegir · supr para borrar un piloto · esc para volver", // i18n-ignore
+  "ui.common.hintBack": "esc para volver", // i18n-ignore
   "ui.common.cancel": "cancelar", // i18n-ignore
   "ui.common.on": "sí", // i18n-ignore
   "ui.common.off": "no", // i18n-ignore
@@ -329,14 +337,18 @@ export const UI_ES: Record<UiStringKey, string> = {
   "ui.stop.uranus": "urano", // i18n-ignore
   "ui.stop.neptune": "neptuno", // i18n-ignore
   "ui.stop.pluto": "plutón", // i18n-ignore
+  "ui.stop.venus": "venus", // i18n-ignore
+  "ui.stop.mercury": "mercurio", // i18n-ignore
+  "ui.stop.zoozve": "Zoozve", // i18n-ignore
 
-  "ui.log.heading": "registro de balizas", // i18n-ignore
+  "ui.log.heading": "trofeos", // i18n-ignore
   "ui.log.beacons": "balizas", // i18n-ignore
   "ui.log.trophies": "trofeos", // i18n-ignore
   "ui.log.lit": "{n} de {total} encendidas", // i18n-ignore
+  "ui.log.lit.one": "encendida", // i18n-ignore
   "ui.log.notLit": "todavía apagada", // i18n-ignore
   "ui.log.coords": "λ {lam}°   β {beta}°   r {r} ua", // i18n-ignore
-  "ui.log.emptyShadow": "Solo la Tierra está encendida. Seis más nos esperan.", // i18n-ignore
+  "ui.log.emptyShadow": "Todavía no hay trofeos. Todos siguen ahí fuera.", // i18n-ignore
   "ui.log.earned": "conseguido", // i18n-ignore
   "ui.log.notYet": "todavía no", // i18n-ignore
   "ui.log.trophyCount": "{n} de {total} conseguidos", // i18n-ignore
@@ -367,6 +379,8 @@ export const UI_ES: Record<UiStringKey, string> = {
   "ui.trophy.lastLight.how": "coloca la baliza en plutón", // i18n-ignore
 
   "ui.settings.heading": "controles de la nave", // i18n-ignore
+  "ui.settings.headingDevice": "ajustes del juego", // i18n-ignore
+  "ui.settings.headingPilot": "controles de {pilotName}", // i18n-ignore
   "ui.settings.hull": "tu nave", // i18n-ignore
   "ui.settings.hullFlying": "volando ahora", // i18n-ignore
   "ui.settings.hullEquip": "pulsa enter para volar esta", // i18n-ignore
@@ -421,6 +435,7 @@ export const UI_HI: Record<UiStringKey, string> = {
   "ui.common.hintKeys": "तीर बटन से चलो · एंटर से चुनो · एस्केप से वापस", // i18n-ignore
   "ui.common.hintAdjust":
     "ऊपर/नीचे से चलो · बाएँ/दाएँ से बदलो · एस्केप से वापस", // i18n-ignore
+  "ui.common.hintBack": "एस्केप से वापस", // i18n-ignore
   // "हटाओ" is the verb `ui.pick.remove` and `ui.pick.removeYes` already use
   // for this action, so the hint and the dialog it opens say the same word.
   "ui.pick.hint":
@@ -478,14 +493,18 @@ export const UI_HI: Record<UiStringKey, string> = {
   "ui.stop.uranus": "अरुण", // i18n-ignore
   "ui.stop.neptune": "वरुण", // i18n-ignore
   "ui.stop.pluto": "प्लूटो", // i18n-ignore
+  "ui.stop.venus": "शुक्र", // i18n-ignore
+  "ui.stop.mercury": "बुध", // i18n-ignore
+  "ui.stop.zoozve": "ज़ूज़्वे", // i18n-ignore
 
-  "ui.log.heading": "बीकन सूची", // i18n-ignore
+  "ui.log.heading": "ट्रॉफ़ियाँ", // i18n-ignore
   "ui.log.beacons": "बीकन", // i18n-ignore
   "ui.log.trophies": "इनाम", // i18n-ignore
   "ui.log.lit": "{total} में से {n} जगीं", // i18n-ignore
+  "ui.log.lit.one": "जगी", // i18n-ignore
   "ui.log.notLit": "अभी नहीं जगी", // i18n-ignore
   "ui.log.coords": "λ {lam}°   β {beta}°   r {r} au", // i18n-ignore
-  "ui.log.emptyShadow": "अभी सिर्फ़ पृथ्वी जगी है। छह और हमारा इंतज़ार कर रही हैं।", // i18n-ignore
+  "ui.log.emptyShadow": "अभी कोई ट्रॉफ़ी नहीं। सब अब भी बाहर इंतज़ार कर रही हैं।", // i18n-ignore
   "ui.log.earned": "मिल गया", // i18n-ignore
   "ui.log.notYet": "अभी नहीं", // i18n-ignore
   "ui.log.trophyCount": "{total} में से {n} मिले", // i18n-ignore
@@ -516,6 +535,8 @@ export const UI_HI: Record<UiStringKey, string> = {
   "ui.trophy.lastLight.how": "प्लूटो पर बीकन लगाओ", // i18n-ignore
 
   "ui.settings.heading": "यान के बटन", // i18n-ignore
+  "ui.settings.headingDevice": "खेल की सेटिंग", // i18n-ignore
+  "ui.settings.headingPilot": "{pilotName} के बटन", // i18n-ignore
   "ui.settings.hull": "तुम्हारा यान", // i18n-ignore
   "ui.settings.hullFlying": "अभी उड़ रहा है", // i18n-ignore
   "ui.settings.hullEquip": "इसे उड़ाने के लिए एंटर दबाओ", // i18n-ignore

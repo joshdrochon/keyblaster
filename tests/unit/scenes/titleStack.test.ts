@@ -111,9 +111,9 @@ function gapsFor(input: {
     statusTop: tops.statusY,
     statusBottom:
       tops.statusY === null || input.statusH === null ? null : tops.statusY + input.statusH,
-    settingsTop: tops.settingsY,
+    settingsTop: tops.settingsY ?? 0,
   });
-  return { gaps, overflow: tops.overflow, bottom: tops.settingsY + settingsH + FOCUS_PAD };
+  return { gaps, overflow: tops.overflow, bottom: (tops.settingsY ?? 0) + settingsH + FOCUS_PAD };
 }
 
 describe("UR-68: the Title's menu column is a budget, not four constants", () => {
@@ -168,7 +168,9 @@ describe("UR-68: the Title's menu column is a budget, not four constants", () =>
       settingsH: MEASURED.settings,
       langH: null,
     });
-    expect(withLine.settingsY - withoutLine.settingsY).toBeGreaterThanOrEqual(MEASURED.status);
+    expect((withLine.settingsY ?? 0) - (withoutLine.settingsY ?? 0)).toBeGreaterThanOrEqual(
+      MEASURED.status,
+    );
     expect(withLine.primaryY).toBe(withoutLine.primaryY);
   });
 
@@ -270,7 +272,7 @@ describe("UR-68: the Title's menu column is a budget, not four constants", () =>
         primaryBottom: tops.primaryY + PRIMARY_H,
         statusTop: tops.statusY,
         statusBottom: (tops.statusY ?? 0) + dev(TYPE.label),
-        settingsTop: tops.settingsY,
+        settingsTop: tops.settingsY ?? 0,
       });
       // No caption means the LOCKUP gap (UR-151); with one, MIN_CLEAR.
       const floor = tops.statusY === null ? LOCKUP_INNER_GAP : MIN_CLEAR;
@@ -287,7 +289,9 @@ describe("UR-68: the Title's menu column is a budget, not four constants", () =>
         settingsH: MEASURED.settings,
         langH: null,
       });
-      expect(tops.settingsY + MEASURED.settings + FOCUS_PAD).toBeLessThanOrEqual(STACK_FLOOR);
+      expect((tops.settingsY ?? 0) + MEASURED.settings + FOCUS_PAD).toBeLessThanOrEqual(
+        STACK_FLOOR,
+      );
       expect(tops.overflow).toBe(0);
     }
   });
@@ -316,7 +320,7 @@ describe("UR-68: the Title's menu column is a budget, not four constants", () =>
       primaryBottom: low.primaryY + PRIMARY_H,
       statusTop: low.statusY,
       statusBottom: (low.statusY ?? 0) + MEASURED.status,
-      settingsTop: low.settingsY,
+      settingsTop: low.settingsY ?? 0,
     });
     expect(gaps).toEqual([STATUS_GAP, SECONDARY_GAP + FOCUS_PAD - QUIET_RING_OFFSET]);
   });
@@ -360,5 +364,34 @@ describe("UR-68: the Title's menu column is a budget, not four constants", () =>
     const gaps = clearGaps({ ...plateOnly, statusBottom: 150 });
     expect(gaps[0]).toBe(110 - (100 + FOCUS_PAD));
     expect(gaps[1]).toBe(200 - QUIET_RING_OFFSET - 150);
+  });
+
+  it("with settings cut out of the primary, there is no settings row at all", () => {
+    // THE SHIPPING SHAPE. `settingsH: null` says settings is not a row - it is
+    // the right half of the primary - so the column must not reserve a line for
+    // it, and the actions must end at the primary's own ring.
+    const withRow = titleStack({
+      markBottom: MARK_BOTTOM_NEPTUNE,
+      primaryH: PRIMARY_H,
+      statusH: MEASURED.status,
+      settingsH: MEASURED.settings,
+      langH: null,
+    });
+    const sliced = titleStack({
+      markBottom: MARK_BOTTOM_NEPTUNE,
+      primaryH: PRIMARY_H,
+      statusH: MEASURED.status,
+      settingsH: null,
+      langH: null,
+    });
+    expect(sliced.settingsY, "half a button is not a row").toBeNull();
+    // What is ABOVE it is untouched: cutting the button changes where the
+    // column ends, never where the primary sits.
+    expect(sliced.primaryY).toBe(withRow.primaryY);
+    expect(sliced.statusY).toBe(withRow.statusY);
+    // And the column gets the whole row back.
+    expect(withRow.bottom - sliced.bottom).toBeGreaterThanOrEqual(MEASURED.settings);
+    expect(sliced.bottom).toBeLessThanOrEqual(STACK_FLOOR);
+    expect(sliced.overflow).toBe(0);
   });
 });

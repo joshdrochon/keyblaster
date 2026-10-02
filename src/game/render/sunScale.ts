@@ -7,7 +7,8 @@
  * asserted. Two defects tonight survived precisely because the only thing a
  * test could reach was a tween's existence rather than its effect.
  */
-import { STOP_IDS, type StopId } from "@engine/types.js";
+import { ELEMENTS } from "@engine/ephemeris/elements.js";
+import { STOP_IDS, isSatelliteStop, satelliteHost, type StopId } from "@engine/types.js";
 import { lightPositionOf, type StopPalette } from "./palette.js";
 
 /** The warm mix at Earth and at Pluto. Every bright stop clears deltaE 30. */
@@ -30,21 +31,55 @@ export const SUN_SHRINK_BY_PLUTO = 0.66;
  * lit by (WORLD-BAR item 4). A frame lit from nowhere is a worse lie than a
  * generous disc.
  *
- * So it is a legibility curve with the right SHAPE: smaller at every stop,
- * ending at about a third. Linear in ROUTE ORDER rather than in AU, because
- * the route is what the child experiences - Earth to Mars is half an AU and
- * Uranus to Pluto is sixteen, so a curve in AU would spend its whole range
- * before Jupiter and then look static for the rest of the game.
+ * So it is a legibility curve with the right SHAPE: one step per stop, ending
+ * at about a third. Evenly spaced per STOP rather than in AU, because Earth to
+ * Mars is half an AU and Uranus to Pluto is sixteen - a curve in AU spends its
+ * whole range before Jupiter and then looks static for the rest of the game.
  *
- *     earth 1.00  mars 0.89  jupiter 0.78  saturn 0.67
- *     uranus 0.56  neptune 0.45  pluto 0.34
+ * THE RANK IS BY DISTANCE, NOT BY ARRAY POSITION. It used to be
+ * `STOP_IDS.indexOf`, which gave the right answer only because the route ran
+ * outward and the array happened to be in that order. A stop CLOSER to the sun
+ * than Earth would have been handed the smallest disc in the game. Ranking by
+ * the semi-major axis the ephemeris already carries makes the rule say what it
+ * means, and it is the same numbers for a route that does run outward.
  */
+/**
+ * Distance rank over the PLANETS only.
+ *
+ * A satellite shares its host's orbit - Zoozve's semi-major axis is 0.7236 AU
+ * against Venus's 0.7233 - so ranking it separately inserts a rank between two
+ * neighbours that are in the same place. That is not a rounding wobble: it
+ * moved Venus from -0.167 to -0.333 steps from Earth, which clamped its warmth
+ * to a full mix and made it exactly as warm as Mercury's. A satellite takes its
+ * host's rank, because it is at its host's distance.
+ */
+const BY_DISTANCE: readonly StopId[] = [...STOP_IDS]
+  .filter((id) => !isSatelliteStop(id))
+  .sort((a, b) => ELEMENTS[a].at.aAu - ELEMENTS[b].at.aAu);
+
+/**
+ * How far out a stop is, measured in STEPS FROM EARTH along the distance rank.
+ *
+ * Anchored on Earth rather than on the array's first entry so that every stop
+ * on the shipped route keeps the exact number it had before D103 added two
+ * closer ones: spreading the curve over nine ranks moved Earth off zero and
+ * cost Mars 1.3 deltaE of sun-versus-sky separation, which put it under the
+ * project's bar. A stop inside Earth's orbit gets a NEGATIVE step, so it is
+ * bigger and warmer than Earth rather than smaller than Pluto.
+ */
+function stepsFromEarth(stopId: StopId): number {
+  const host = satelliteHost(stopId);
+  const here = BY_DISTANCE.indexOf(host ?? stopId);
+  if (here < 0) return 0;
+  const earth = BY_DISTANCE.indexOf("earth");
+  const last = BY_DISTANCE.indexOf("pluto");
+  const span = Math.max(1, last - earth);
+  return (here - earth) / span;
+}
+
 export function sunScaleForStop(stopId?: StopId): number {
   if (stopId === undefined) return 1;
-  const i = STOP_IDS.indexOf(stopId);
-  if (i < 0) return 1;
-  const last = Math.max(1, STOP_IDS.length - 1);
-  return 1 - (i / last) * SUN_SHRINK_BY_PLUTO;
+  return 1 - stepsFromEarth(stopId) * SUN_SHRINK_BY_PLUTO;
 }
 
 const SUN_BASE_R = 80;
@@ -116,12 +151,12 @@ export function sunGeometry(
  *
  * Warmth buys separation from a pale sky, and the amount needed is not the
  * same everywhere: Mars needs almost all of it, Pluto needs half and reads as
- * a desert sun with more. Route-linked, so the far stops stay cold and pale.
+ * a desert sun with more. Ranked by distance for the same reason the size is.
  */
 export function sunWarmthForStop(stopId?: StopId): number {
   if (stopId === undefined) return SUN_WARM_NEAR;
-  const i = STOP_IDS.indexOf(stopId);
-  if (i < 0) return SUN_WARM_NEAR;
-  const last = Math.max(1, STOP_IDS.length - 1);
-  return SUN_WARM_NEAR + (i / last) * (SUN_WARM_FAR - SUN_WARM_NEAR);
+  // A stop inside Earth's orbit has a NEGATIVE step, so it mixes warmer than
+  // Earth rather than flattening onto it. Capped at a full mix.
+  const t = stepsFromEarth(stopId);
+  return Math.min(1, SUN_WARM_NEAR + t * (SUN_WARM_FAR - SUN_WARM_NEAR));
 }

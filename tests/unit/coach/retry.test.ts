@@ -18,7 +18,7 @@ import { quotedWords } from "@game/scenes/support/coachHighlight.js";
 import { retryCandidatesFor } from "@game/scenes/support/composeRequest.js";
 import { hasStageBundle, stageBundle } from "@game/scenes/lib/content.js";
 import { coachAllowlist, sightWordList } from "@game/scenes/support/vocab.js";
-import { STOP_IDS, type StopId } from "@engine/types";
+import { BELT_STOP_IDS, STOP_IDS, type StopId } from "@engine/types";
 
 /**
  * UR-64 - SHADOW MAY NOT OFFER A RETRY THE SENTENCE DOES NOT GIVE.
@@ -96,11 +96,11 @@ function screenFor(
 }
 
 describe("UR-64: every stop, every template, every word", () => {
-  it("has seven stops to sweep and six warp breaks in them", () => {
+  it("has every stop to sweep and a warp break at each belt", () => {
     // The anti-vacuity row. A sweep over an empty list is green and proves
     // nothing, and this file's whole argument is its coverage.
-    expect(STOP_IDS).toHaveLength(7);
-    expect(WARP_STOPS).toHaveLength(6);
+    expect(STOP_IDS).toHaveLength(10);
+    expect(WARP_STOPS).toHaveLength(BELT_STOP_IDS.length);
     for (const stopId of WARP_STOPS) {
       expect(stageBundle(stopId).pool.length).toBeGreaterThan(20);
     }

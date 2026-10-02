@@ -105,7 +105,7 @@ describe("AC-12b.1 / AC-12b.2: the debris table is complete at every stop the ga
    *                                 have 0 word-carrying debris types, has 1"
    */
   it("AC-12b.1: every stop is either a belt stop with materials or the launchpad with none", () => {
-    expect(STOP_IDS.length, "the game's stop list is not empty").toBe(7);
+    expect(STOP_IDS.length, "the game's stop list is not empty").toBe(10);
     // Every key in the table is a real stop, and every real stop is a key.
     expect(Object.keys(DEBRIS_BY_STOP).sort()).toEqual([...STOP_IDS].sort());
 
@@ -168,7 +168,7 @@ describe("AC-12b.1 / AC-12b.2: the debris table is complete at every stop the ga
   });
 });
 
-describe("AC-22.4: no material at any stop is drawn in black", () => {
+describe("AC-22.4 / AC-27.3: no material at any stop is drawn in black", () => {
   /**
    * WHY `MIN_ROCK_LUMA` IS THE RIGHT BAR FOR THE RAW `fill`, AND NOT A NEW ONE.
    *
@@ -331,12 +331,13 @@ describe("AC-12.1: a stop with no belt still draws visible scenery", () => {
    * The nearField and foreVeil rocks are drawn in it at every stop, belt or not,
    * and palette.ts states outright that it is meant to be the frame's darkest
    * element. So the check is not "is it dark" - it is that Earth is built the
-   * same way the other six are, and that no stop's ink has collapsed to pure
-   * black. Measured, all seven:
+   * same way the other eight are, and that no stop's ink has collapsed to pure
+   * black. Measured, all nine:
    *
-   *   neptune 7.3 · earth 9.4 · uranus 11.2 · pluto 12.7 · mars 24.6 ·
-   *   jupiter 26.8 · saturn 30.3        against each stop's darkest sky value:
-   *   12.7 · 15.9 · 18.7 · 21.8 · 42.4 · 46.0 · 52.2
+   *   mercury 6.1 · neptune 7.3 · earth 9.4 · venus 10.6 · uranus 11.2 ·
+   *   pluto 12.7 · mars 24.6 · jupiter 26.8 · saturn 30.3
+   *   against each stop's darkest sky value:
+   *   10.2 · 12.7 · 15.9 · 18.5 · 18.7 · 21.8 · 42.4 · 46.0 · 52.2
    *
    * WATCHED FAILING with `foregroundObjectInk` returning `"#000000"`:
    *   "earth foreground ink #000000 is luminance 0.0 - pure black is not a
@@ -359,7 +360,7 @@ describe("AC-12.1: a stop with no belt still draws visible scenery", () => {
         `${id} foreground ink ${ink} (${v.toFixed(1)}) is not darker than its own darkest sky (${darkestSky.toFixed(1)}); the near objects would stop silhouetting`,
       ).toBeGreaterThan(0);
     }
-    expect(readings).toHaveLength(7);
+    expect(readings).toHaveLength(STOP_IDS.length);
   });
 });
 

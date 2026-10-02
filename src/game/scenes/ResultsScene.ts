@@ -643,7 +643,7 @@ export class ResultsScene extends Phaser.Scene {
    * that looks like a score.
    */
   private starsParts(): { parts: Part[]; height: number } {
-    if (!isClearableHullHits(this.tally.hullHits, this.tally.maxHull)) {
+    if (!isClearableHullHits(this.tally.hullHits, this.tally.maxHull, this.tally.cleared ?? false)) {
       return { parts: [], height: 0 };
     }
     const contentW = REPORT_CONTENT_W;
@@ -689,7 +689,7 @@ export class ResultsScene extends Phaser.Scene {
    */
   private hullPiece(): Piece {
     if (this.tally.hullHits > 0) return EMPTY_PIECE("hull");
-    if (!isClearableHullHits(this.tally.hullHits, this.tally.maxHull)) {
+    if (!isClearableHullHits(this.tally.hullHits, this.tally.maxHull, this.tally.cleared ?? false)) {
       return EMPTY_PIECE("hull");
     }
     this.mark("hull");
@@ -1159,7 +1159,7 @@ export class ResultsScene extends Phaser.Scene {
       stars: r.stars,
       // The stage's own hull, not D27's three: a six-mark belt cleared with
       // three marks gone is a CLEARED belt (@engine/hull, AC-4.4).
-      starsRendered: isClearableHullHits(this.tally.hullHits, this.tally.maxHull),
+      starsRendered: isClearableHullHits(this.tally.hullHits, this.tally.maxHull, this.tally.cleared ?? false),
       /** D80: trophies this run earned. The Beacon Log is where they are read. */
       trophiesEarned: [...this.earnedTrophies],
       fasterWords: r.words.filter((w) => w.faster).map((w) => w.word),

@@ -18,19 +18,19 @@ const build = (): { ctx: NullAudioContext; ambient: AmbientBus } => {
 };
 
 describe("AC-21.1: a per-planet ambient bed exists for every stop", () => {
-  it("AC-21.1: there are exactly seven beds, one per engine stop", () => {
-    expect(AMBIENT_BEDS.length).toBe(7);
+  it("AC-21.1: there is exactly one bed per engine stop", () => {
+    expect(AMBIENT_BEDS.length).toBe(STOP_IDS.length);
     expect(AMBIENT_BEDS.map((b) => b.stopId)).toEqual([...STOP_IDS]);
   });
 
   it("AC-21.1: every stop's bed is genuinely different from the others", () => {
-    // Seven copies of one drone would satisfy a naive count and fail the
+    // Nine copies of one drone would satisfy a naive count and fail the
     // player, so the distinguishing parameters are asserted distinct.
     const drones = AMBIENT_BEDS.map((b) => b.droneHz);
-    expect(new Set(drones).size).toBe(7);
-    expect(new Set(AMBIENT_BEDS.map((b) => b.filterHz)).size).toBe(7);
-    expect(new Set(AMBIENT_BEDS.map((b) => b.windLevel)).size).toBe(7);
-    expect(new Set(AMBIENT_BEDS.map((b) => b.shimmerHz)).size).toBe(7);
+    expect(new Set(drones).size).toBe(STOP_IDS.length);
+    expect(new Set(AMBIENT_BEDS.map((b) => b.filterHz)).size).toBe(STOP_IDS.length);
+    expect(new Set(AMBIENT_BEDS.map((b) => b.windLevel)).size).toBe(STOP_IDS.length);
+    expect(new Set(AMBIENT_BEDS.map((b) => b.shimmerHz)).size).toBe(STOP_IDS.length);
   });
 
   it("keeps every bed inside sane synthesis bounds", () => {
@@ -65,9 +65,9 @@ describe("AC-21.1: beds crossfade on transition", () => {
     expect(ctx.labelledWith("ambient.bed.").length).toBe(1);
     expect(ambient.gainOf("earth")).toBeCloseTo(bedSpec("earth").level, 9);
     expect(ambient.activeStop).toBe("earth");
-    // Lazily: six unheard beds are six wasted oscillator stacks (AC-22.9).
+    // Lazily: every unheard bed is a wasted oscillator stack (AC-22.9).
     expect(ambient.builtBeds()).toEqual(["earth"]);
-    expect(ambient.bedIds().length).toBe(7);
+    expect(ambient.bedIds().length).toBe(STOP_IDS.length);
   });
 
   it("AC-21.1: both beds are audible through the middle of a transition", () => {
@@ -114,7 +114,7 @@ describe("AC-21.1: beds crossfade on transition", () => {
     expect(ambient.gainOf("earth")).toBe(0);
   });
 
-  it("AC-21.1: the whole seven-stop route crossfades, never cuts", () => {
+  it("AC-21.1: every stop in the list crossfades, never cuts", () => {
     const { ctx, ambient } = build();
     const first = STOP_IDS[0]!;
     ambient.start(first);
@@ -127,8 +127,8 @@ describe("AC-21.1: beds crossfade on transition", () => {
       ambient.advance(AMBIENT_CROSSFADE_MS / 2);
       previous = stop;
     }
-    expect(ambient.builtBeds().length).toBe(7);
-    expect(ctx.labelledWith("ambient.bed.").length).toBe(7);
+    expect(ambient.builtBeds().length).toBe(STOP_IDS.length);
+    expect(ctx.labelledWith("ambient.bed.").length).toBe(STOP_IDS.length);
   });
 
   it("holds equal power through the move, so there is no hole in the middle", () => {

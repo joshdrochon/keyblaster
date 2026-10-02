@@ -1,5 +1,6 @@
 import { SCHEMA_VERSION, isPlainObject } from "./schema.js";
 import { DEFAULT_KNOBS } from "../controller/knobs.js";
+import { DEVICE_SETTING_KEYS } from "../types.js";
 import { SAMPLE_CAP } from "../words/index.js";
 
 /**
@@ -29,6 +30,7 @@ export type Migration = (payload: Record<string, unknown>) => Record<string, unk
 export const MIGRATIONS: Readonly<Record<number, Migration>> = {
   1: v1ToV2,
   2: v2ToV3,
+  3: v3ToV4,
 };
 
 /** The oldest payload version this build can still read. */
@@ -189,4 +191,44 @@ function v2ToV3(payload: Record<string, unknown>): Record<string, unknown> {
       isPlainObject(raw) ? { ...raw, knobs: raw["knobs"] ?? { ...DEFAULT_KNOBS } } : raw,
     ),
   };
+}
+
+
+// ---------------------------------------------------------------------------
+// v3 -> v4
+// ---------------------------------------------------------------------------
+
+/**
+ * v4 lifts six settings off the profile and onto the DEVICE (D108).
+ *
+ * Volume, calm motion, the colour-safe palette, the keyboard and the menu
+ * language are about the machine, not about a child - and Settings opens from
+ * the Title, where no pilot is selected. Before this they were written to
+ * whichever profile happened to be active, or discarded when there was none.
+ *
+ * NOBODY IS ASKED TO SET THEM AGAIN. The device record is seeded from the
+ * ACTIVE profile, because that is the save whose values the player last saw on
+ * screen; with no active profile the first one is used, and with no profiles at
+ * all the defaults. The six keys are deliberately LEFT on every profile: an
+ * older build reading a v4 payload still finds what it expects, and
+ * `effectiveSettings` has the device shadow them, so nothing downstream can
+ * read a stale copy by accident.
+ */
+function v3ToV4(payload: Record<string, unknown>): Record<string, unknown> {
+  const profiles = Array.isArray(payload["profiles"]) ? payload["profiles"] : [];
+  const activeId = payload["activeProfileId"];
+  const source =
+    profiles.find(
+      (p) => isRecord(p) && typeof activeId === "string" && p["id"] === activeId,
+    ) ?? profiles[0];
+  const settings = isRecord(source) && isRecord(source["settings"]) ? source["settings"] : {};
+  const device: Record<string, unknown> = {};
+  for (const key of DEVICE_SETTING_KEYS) {
+    if (settings[key] !== undefined) device[key] = settings[key];
+  }
+  return { ...payload, version: 4, device };
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { STOP_IDS } from "@engine/types.js";
 import { join, resolve } from "node:path";
 // @ts-expect-error - .mjs tooling module, no type declarations by design
 import { RUBRIC, STATUS } from "../../gauntlet/rubric.mjs";
@@ -49,7 +50,9 @@ const run = (files: Record<string, unknown>): Promise<Result> =>
 // because its only job here is to be the passing half.
 // ---------------------------------------------------------------------------
 
-const STOPS = ["earth", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto"];
+// Every stop, from the engine: the item sizes its own gate off `STOP_IDS`, so a
+// pasted list of seven made the passing half fail the row count instead.
+const STOPS: readonly string[] = STOP_IDS;
 
 function healthyPlate(): { rows: unknown[] } {
   const rows = [];

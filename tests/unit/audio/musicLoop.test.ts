@@ -277,3 +277,4 @@ describe("E-MUSIC-1: seven independently generated pieces are brought to one lev
     expect(levelTrimFor(ctx.createBuffer(1, 64, SR))).toBe(1);
   });
 });
+
