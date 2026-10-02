@@ -121,6 +121,44 @@ export function meetsPlateContrast(plate: string, text: string): boolean {
 // ---------------------------------------------------------------------------
 
 /** Display form of a word under the letter-case setting (D41). */
+/**
+ * THE COLOUR A VEILED LETTER TAKES (D109).
+ *
+ * Venus's far letters sit behind cloud. The colour is DERIVED by walking the
+ * resting text toward the plate until it is about to breach `PLATE_MIN_CONTRAST`
+ * and then stepping back - so the cloud is as thick as the legibility bar
+ * allows and never one step thicker. A literal here would be a number nobody
+ * re-measures when a palette changes; this cannot drift, because it asks.
+ *
+ * Falls back to the resting colour when even the first step would breach, which
+ * is "no visible cloud" rather than "an unreadable word" (D31).
+ */
+export function veiledTextColor(style: WordPlateStyle): string {
+  const steps = 10;
+  let best = style.plateText;
+  for (let i = 1; i <= steps; i += 1) {
+    const candidate = mixToward(style.plateText, style.plate, (i / steps) * VEIL_MAX_MIX);
+    if (!meetsPlateContrast(style.plate, candidate)) break;
+    best = candidate;
+  }
+  return best;
+}
+
+/** Never walk further than this toward the plate, whatever the contrast allows. */
+export const VEIL_MAX_MIX = 0.5;
+
+/** Linear mix in sRGB bytes. Enough for a tint; the contrast check is the judge. */
+export function mixToward(from: string, to: string, t: number): string {
+  const [r1, g1, b1] = hexToRgb(from);
+  const [r2, g2, b2] = hexToRgb(to);
+  const k = Math.min(1, Math.max(0, t));
+  const byte = (a: number, b: number): string =>
+    Math.round(a * (1 - k) + b * k)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${byte(r1, r2)}${byte(g1, g2)}${byte(b1, b2)}`;
+}
+
 export function displayWord(word: string, uppercase: boolean): string {
   return uppercase ? word.toUpperCase() : word;
 }

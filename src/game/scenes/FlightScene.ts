@@ -24,6 +24,7 @@ import {
 } from "@game/flight/celebration";
 import { buildParallax, type Parallax } from "@game/render/parallax.js";
 import { TEX } from "@game/render/textures.js";
+import { veilWindowFor } from "@engine/veil/index.js";
 import { INK, TYPE } from "@game/ui/theme.js";
 import { paletteAt as stopPaletteAt } from "@game/render/palette.js";
 import { PauseScene } from "./PauseScene.js";
@@ -2150,6 +2151,9 @@ export class FlightScene extends Phaser.Scene {
     }
 
     const plate = new WordPlate(this, 0, 0, word, this.plateStyle);
+    // D109: Venus's words arrive behind cloud. Null at every other stop, so
+    // this line is inert everywhere else.
+    plate.setVeilWindow(veilWindowFor(this.cfg.stopId));
     // NOT a child of the rock. See PLATE_DEPTH: every plate draws above every
     // rock, and `updateRocks` carries it to the rock's column each frame.
     this.plateLayer.add(plate);
@@ -3013,6 +3017,8 @@ export class FlightScene extends Phaser.Scene {
     });
 
     const plate = new WordPlate(this, x, y + core.plateOffsetY, core.word, this.plateStyle);
+    // D109 again: the core of a two-layer rock gets the same cloud its shell had.
+    plate.setVeilWindow(veilWindowFor(this.cfg.stopId));
     this.plateLayer.add(plate);
     rock.plate = plate;
     plate.setScale(0.7);

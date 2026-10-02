@@ -254,19 +254,22 @@ revealing a smaller rock with its own word which must also be typed.
 - AC-26.6 The core's word is chosen at the shell's spawn and its first letter is reserved for the shell's whole life, so a revealed core never shares a first letter with any live word (AC-2.1 at the reveal); and the core's plate is cleared against the live board by the same column rule as the shell's, so it can never cover another word (AC-22.8). → U (`tests/unit/nested/liveLetters.test.ts` with a negative control; `tests/unit/spawn/nestedKeepOut.test.ts`; the 3456-board sweep in `tests/unit/flight/plateSeparation.test.ts`).
 
 
-**FR-27 The inner run: three bonus stops, Venus, Zoozve and Mercury (D103, D104, D106, D107).**
+**FR-27 The inner run: three bonus stops, Venus, Zoozve and Mercury (D103, D104, D106, D107, D109).**
 
 The seven-stop route of D56 is unchanged and is still the game. Venus and
 Mercury are optional stops that do not exist for a player until Pluto is lit and
 are reached by flying INWARD from Earth. They are built to the same bar as every
 other stop - their own palette, debris, ambient bed, music, prose and Shadow
-lines - and they carry one mechanic the main route does not: a blasted rock
-disturbs its neighbour.
+lines - and Venus carries one mechanic the main route does not: its cloud deck
+reaches the word plate, so letters ahead of the cursor sit behind haze.
 
 - AC-27.1 Venus and Mercury are BONUS stops: they do not unlock until Pluto is charted, they are not on the main board, and they are reached by pressing Left at Earth, which slides in a second row of Mercury, Venus and Earth. `litCount`, `routeComplete`, Map Maker and the ending card all count the MAIN route only, so finishing the story never reads as "7 of 9". → U (`tests/unit/types.test.ts` for the route/bonus split, `tests/unit/progress/progress.test.ts` for the unlock chain and the counts) + E (`tests/e2e/map.spec.ts`).
 - AC-27.2 Route order is no longer distance order, so anything that means DISTANCE ranks by the ephemeris rather than by array position: the sun's size and warmth curve is anchored on Earth, every main-route stop keeps the exact value it had before the bonus pair existed, and a stop inside Earth's orbit draws a bigger, warmer sun than Earth's. → U (`tests/unit/render/sunVisible.test.ts`, `tests/unit/scenes/sunScale.test.ts`, `tests/unit/ephemeris/ephemeris.test.ts` for the semi-major-axis ordering).
 - AC-27.3 Mercury is drawn as an airless world, not a glowing one: no rock at any stop is painted as self-luminous, Mercury's sky carries the game's widest frame value range, and its debris is lit regolith rather than red-hot. Venus is drawn as the cloud deck seen from above and its debris is dark, because its sky is the brightest in the game. → U (`tests/unit/render/debrisTableSweep.test.ts` for the value range and the no-black/no-glow bars, `tests/unit/render/wordRockSeparation.test.ts` for rock-versus-sky separation at both stops).
 - AC-27.4 A stop is not necessarily a node, and not necessarily a planet. 524522 Zoozve is a real bonus stop - it unlocks, it is flown, it has a belt, a bed, a beacon and a bank - and it is DRAWN orbiting Venus on a dashed loop rather than standing on the route line: smaller than any world, off the line's own y, clear of its host's rim, and with every other stop still on that line. Its ephemeris row is JPL's Small-Body Database rather than the major-planet table, and no JPL-table tolerance is claimed for it. → U (`tests/unit/types.test.ts` for the board/route split, `tests/unit/render/sunVisible.test.ts` and `tests/unit/scenes/sunScale.test.ts` for a satellite taking its host's distance rank, `tests/unit/ephemeris/ephemeris.test.ts` keyed on `MAJOR_PLANET_STOP_IDS`) + E (`tests/e2e/map.spec.ts`).
+- AC-27.5 Venus's cloud reaches the word: a letter more than `CLEAR_AHEAD` beyond the cursor is drawn dimmed toward the plate, and typing pushes the haze back, so the veil recedes monotonically and is gone by the last letter. It never covers a letter already typed, never the letter being typed, and never the next two; a short word is therefore never fully hidden. A malformed window produces no veil rather than an unreadable word. → U (`tests/unit/veil/cloud.test.ts`).
+- AC-27.6 The cloud is as thick as legibility allows and no thicker: the veiled colour is walked toward the plate and stopped at the last step still clearing AC-22.8's 4.5:1 bar, capped at `VEIL_MAX_MIX`, so no palette edit can thicken it past readable and a palette with no headroom gets resting text instead of a cloud. Venus is the only stop with an entry, so every other belt renders exactly as before. → U (`tests/unit/render/wordPlateVeil.test.ts` swept over every shipped palette in both colourblind states, `tests/unit/veil/cloud.test.ts` for the one-stop scope).
+
 
 ---
 
