@@ -2,6 +2,7 @@ import { SCENE_KEYS } from "@game/sceneKeys";
 import { SHIPPED_LANGS, resolveContentLang } from "@engine/i18n";
 import { type KeyboardLayout, type Lang, type Settings } from "@engine/types";
 import { MenuScene } from "@game/ui/MenuScene";
+import { appFor } from "@game/ui/app";
 import { type Control } from "@game/ui/controls";
 import {
   type HullChoice,
@@ -167,11 +168,26 @@ export class SettingsScene extends MenuScene {
     // Settings set it to the Title, and the map - which passes no `returnTo` -
     // then inherited it and drew the device half under the map's own heading.
     this.returnTo = data?.returnTo ?? SCENE_KEYS.map;
-    // The Title has no pilot, so it gets the device half whether or not it
-    // asked. Everything else defaults to the pilot's.
-    this.scope =
-      data?.scope ?? (this.returnTo === SCENE_KEYS.title ? "device" : "pilot");
+    // PILOT SCOPE REQUIRES A PILOT. This used to default on `returnTo` alone -
+    // the Title's device half, everything else the pilot's - which reads right
+    // until there is nobody flying: a deep boot, a first run, or the state
+    // `deleteProfile` deliberately leaves after the last pilot goes. Then the
+    // screen drew five rows that could apply to no one and hid the six that
+    // always work, volume included (found by the Oct 1 e2e sweep, not by the
+    // D108 audit, which never ran it).
+    this.scope = this.pilotExists()
+      ? (data?.scope ?? (this.returnTo === SCENE_KEYS.title ? "device" : "pilot"))
+      : "device";
     this.restoreFocus = data?.focus ?? null;
+  }
+
+  /** Safe in `init`, where `this.app` is not assigned yet. */
+  private pilotExists(): boolean {
+    try {
+      return appFor(this).profile() !== null;
+    } catch {
+      return false;
+    }
   }
 
   /**

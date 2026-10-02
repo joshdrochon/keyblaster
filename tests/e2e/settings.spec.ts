@@ -71,7 +71,7 @@ test.describe("row 11 - settings", () => {
      * `data-focus-ring="true"`, `data-focus="settings.music"` and eleven items.
      */
     test.slow();
-    await seed(page, [{ name: "Ana" }], SETTINGS);
+    await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device");
     await assertVisibleFocus(page, SETTINGS);
 
     const first = await screen(page, SETTINGS).getAttribute("data-focus");
@@ -100,7 +100,7 @@ test.describe("row 11 - settings", () => {
     page,
   }) => {
     test.slow();
-    await seed(page, [{ name: "Ana" }], SETTINGS);
+    await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device");
     const ids = await items(page, SETTINGS).evaluateAll((nodes) =>
       nodes.map((n) => n.getAttribute("data-id") ?? ""),
     );
@@ -156,7 +156,7 @@ test.describe("row 11 - settings", () => {
     page,
   }) => {
     test.slow();
-    await seed(page, [{ name: "Ana" }], SETTINGS);
+    await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device");
     // Ids are re-read after each change: the typography rows restart the scene.
     const adjustable = await items(page, SETTINGS).evaluateAll((nodes) =>
       nodes
@@ -183,7 +183,7 @@ test.describe("row 11 - settings", () => {
     // The failure a rotary control invites and the pill slider could not have:
     // one press too many at full volume putting the music back to silent.
     test.slow();
-    await seed(page, [{ name: "Ana" }], SETTINGS);
+    await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device");
     const music = item(page, SETTINGS, "settings.music");
 
     await adjust(page, "settings.music", "ArrowRight", 8);
@@ -260,7 +260,7 @@ test.describe("row 11 - settings", () => {
   test("AC-19.1 music volume persists and applies with no reload", async ({
     page,
   }) => {
-    await seed(page, [{ name: "Ana" }], SETTINGS);
+    await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device");
     const before = (await settings(page))["musicVolume"] as number;
     await adjust(page, "settings.music", "ArrowLeft", 3);
     const after = (await settings(page))["musicVolume"] as number;
@@ -274,7 +274,7 @@ test.describe("row 11 - settings", () => {
   test("AC-19.1 sfx volume persists and reaches the sound manager", async ({
     page,
   }) => {
-    await seed(page, [{ name: "Ana" }], SETTINGS);
+    await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device");
     await adjust(page, "settings.sfx", "ArrowLeft", 4);
     const stored = (await settings(page))["sfxVolume"] as number;
     expect(stored).toBeLessThan(0.8);
@@ -286,7 +286,7 @@ test.describe("row 11 - settings", () => {
   });
 
   test("AC-19.1 / AC-19.2 keyboard layout persists", async ({ page }) => {
-    await seed(page, [{ name: "Ana" }], SETTINGS);
+    await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device");
     expect((await settings(page))["keyboardLayout"]).toBe("qwerty");
     await adjust(page, "settings.keyboardLayout", "ArrowRight");
     expect((await settings(page))["keyboardLayout"]).toBe("azerty");
@@ -310,7 +310,7 @@ test.describe("row 11 - settings", () => {
     // signature failure (docs/audit.md). It now asserts the cut instead, and
     // will fail loudly the day SHIPPED_LANGS grows - which is when the
     // live-reskin assertions below should be restored.
-    await seed(page, [{ name: "Ana" }], SETTINGS);
+    await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device");
     const heading = screen(page, SETTINGS).locator('[data-testid="ui-heading"]');
     await expect(heading).toContainText("ship controls", { ignoreCase: true });
 
@@ -410,7 +410,7 @@ test.describe("row 11 - settings", () => {
   test("AC-19.1 / AC-19.3 reduced motion persists and reaches every scene", async ({
     page,
   }) => {
-    await seed(page, [{ name: "Ana" }], SETTINGS);
+    await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device");
     await adjust(page, "settings.reducedMotion", "ArrowRight");
     expect((await settings(page))["reducedMotion"]).toBe(true);
     // The shared scene context is what other lanes read for shake and sway, so
@@ -425,7 +425,7 @@ test.describe("row 11 - settings", () => {
   test("AC-19.1 colourblind palette persists and re-dresses the screen", async ({
     page,
   }) => {
-    await seed(page, [{ name: "Ana" }], SETTINGS);
+    await seed(page, [{ name: "Ana" }], SETTINGS, "&scope=device");
     const before = (await snapshot(page, SETTINGS))["accent"];
     expect(before).toBe("#FFC857");
 

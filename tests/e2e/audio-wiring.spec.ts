@@ -959,7 +959,10 @@ test("UR-91 / AC-21.4: the briefing's reveal really sounds, and really ducks the
     const kb = window as unknown as {
       __kb: {
         game: { scene: { getScene(k: string): unknown } };
-        audio: { snapshot(): Record<string, unknown> };
+        audio: {
+          snapshot(): Record<string, unknown>;
+          graph: { ducker: { scheduledReductionDb(): Record<string, number> } };
+        };
       };
     };
     const scene = kb.__kb.game.scene.getScene("Briefing") as {
@@ -976,14 +979,31 @@ test("UR-91 / AC-21.4: the briefing's reveal really sounds, and really ducks the
 
     // THE DEEPEST THE MUSIC GOT, not the first sample of it. DUCK_ATTACK_MS is
     // 120, so the frame after `beginTransmission` still reads the resting gain.
-    let quietest = Number.POSITIVE_INFINITY;
+    // WHAT THE DUCK IS READ OFF, AND WHY NOT THE GAIN NODE.
+    //
+    // This used to poll `busGains.music` for its minimum. That field is the
+    // bus's RESTING gain by its own definition, and the duck is a SCHEDULED
+    // ramp - and `graph.ts` is explicit that "there is no honest way to read a
+    // ramp back off a real AudioParam", because Web Audio exposes no automation
+    // introspection. Headless, the context never advances the ramp, so the poll
+    // returned the resting value byte-for-byte and reported a 0 dB duck on a
+    // duck that fired correctly.
+    //
+    // So this reads what the ducker COMMITTED, which is a true statement about
+    // the graph on every context. The AUDIO is measured by rendering it, in
+    // tests/unit/audio/rendered.test.ts - that is the check that catches a ramp
+    // which never arrives, and this one does not pretend to.
+    let deepestDb = 0;
     let sawRunning = false;
     const deadline = performance.now() + 25_000;
     while (performance.now() < deadline) {
       const tw = scene.snapshot().typewriter;
       if (tw.enabled && !tw.complete) {
         sawRunning = true;
-        quietest = Math.min(quietest, busesOf(audio.snapshot())["music"] as number);
+        const music = audio.graph.ducker.scheduledReductionDb()["music"];
+        if (typeof music === "number" && Number.isFinite(music)) {
+          deepestDb = Math.min(deepestDb, music);
+        }
       }
       if (sawRunning && tw.complete) break;
       await new Promise((r) => requestAnimationFrame(() => r(null)));
@@ -993,7 +1013,7 @@ test("UR-91 / AC-21.4: the briefing's reveal really sounds, and really ducks the
     const done = audio.snapshot();
     return {
       resting,
-      quietest,
+      deepestDb,
       sawRunning,
       ticks: done["transmissionTicks"] as number,
       via: done["transmissionVia"] as string[],
@@ -1009,8 +1029,8 @@ test("UR-91 / AC-21.4: the briefing's reveal really sounds, and really ducks the
 
   // AC-21.4: the world got out of Shadow's way while he transmitted...
   expect(
-    20 * Math.log10(seen.quietest / seen.resting),
-    `deepest music duck in dB (resting ${seen.resting}, quietest ${seen.quietest}, samples ${String((seen as unknown as { samples?: number }).samples)})`,
+    seen.deepestDb,
+    `deepest music duck the ducker committed, in dB (resting gain ${seen.resting})`,
   ).toBeLessThanOrEqual(-6 + FLOAT32_DB_SLOP);
 
   // ...and it was handed straight back. A duck left open is a game that plays

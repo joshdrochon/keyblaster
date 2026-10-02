@@ -363,18 +363,23 @@ test.describe("UR-162: the doorway to the bonus pair", () => {
  * chart after every run and had to walk out through Earth's doorway again.
  */
 test.describe("UR-164: the inner run keeps its board", () => {
-  test("returning from Mercury opens on the inner run, focused on Mercury", async ({ page }) => {
+  // WHAT THIS BLOCK OWNS IS THE BOARD, NOT THE FOCUS. Both tests used to assert
+  // focus landed on the stop just flown; UR-177 replaced that rule outright -
+  // the owner reported the two boards behaving differently - so the focus
+  // assertions below pin UR-177's answer and the block below owns the rest.
+  // `allSeven` charts no bonus stop, so Venus is the next to fly from either.
+  test("returning from Mercury opens on the inner run", async ({ page }) => {
     await mount(page, KEY, { progress: PROGRESS_VARIANTS.allSeven, stopId: "mercury" });
     const s = await snapshot(page, KEY);
     expect(s.mapView).toBe("inner");
-    expect(s.focusId).toBe("mercury");
+    expect(s.focusId, "UR-177: the next stop to fly, not the one just flown").toBe("venus");
   });
 
-  test("returning from Venus opens on the inner run, focused on Venus", async ({ page }) => {
+  test("returning from Venus opens on the inner run", async ({ page }) => {
     await mount(page, KEY, { progress: PROGRESS_VARIANTS.allSeven, stopId: "venus" });
     const s = await snapshot(page, KEY);
     expect(s.mapView).toBe("inner");
-    expect(s.focusId).toBe("venus");
+    expect(s.focusId, "UR-177: Venus is both where we came from and next to fly").toBe("venus");
   });
 
   test("returning from a main-route stop still opens on the route", async ({ page }) => {
