@@ -3,7 +3,7 @@
  *
  * Variants the inventory asks for, all live here:
  *   first-time   -> the start action
- *   returning    -> "Continue" plus the furthest beacon (D13)
+ *   returning    -> "Play", wearing the furthest beacon's palette (D13)
  *   reduced-motion -> no camera sway, ambient drift kept (D41, AC-19.3)
  *
  * This is the first thing a judge sees, so rubric item 2 ("nothing is ever
@@ -399,15 +399,23 @@ export class TitleScene extends Phaser.Scene {
     this.focusRing = this.add.graphics();
     hud.add(this.focusRing);
 
-    const returning = furthest !== null;
-    const primaryLabel = returning ? t.t("results.continue") : t.t("title.play");
+    /**
+     * ONE LABEL, FOR EVERYONE (UR-186).
+     *
+     * It read "Continue" for a returning pilot - but this button goes to the
+     * PILOT PICKER, every time. "Continue" promises resuming the run you were
+     * on and then asks you who you are, which is the opposite of what it does.
+     * "Play" is true for both: a first pilot is created, a returning one is
+     * chosen, and either way the next thing is picking who flies.
+     */
+    const primaryLabel = t.t("title.play");
     // THE STATUS LINE IS GONE (UR-88).
     //
     // It printed "Beacon placed at <stop>." under the primary button, which is
     // the Beacon screen's own sentence repeated on the home screen - the one
     // place a returning child does not need to be told where they already are.
-    // The label above it already changes to "Continue" for a returning pilot,
-    // which is the only thing the line was adding.
+    // The primary button says "Play" for everyone (UR-186), so the line has
+    // nothing left to add either.
     //
     // `null` is the path a first-time pilot always took, so this removes a
     // branch rather than adding one: the stack below it closes up by itself
@@ -772,7 +780,11 @@ export class TitleScene extends Phaser.Scene {
       plateTop: 0,
       // Esc out of Settings goes back where it was opened from, and its
       // default is the map - which is not where a Title player came from.
-      activate: () => this.goto(SCENE_KEYS.settings, { returnTo: SCENE_KEYS.title }),
+      // D108: the Title has no pilot, so it opens the DEVICE half. Asked for
+      // explicitly rather than inferred, so the intent survives a later change
+      // to how `returnTo` is read.
+      activate: () =>
+        this.goto(SCENE_KEYS.settings, { returnTo: SCENE_KEYS.title, scope: "device" }),
     };
   }
   private buildLangRow(x: number, y: number): MenuItem {

@@ -214,6 +214,8 @@ export const UI_EN = {
 
   // --- 11 settings ---------------------------------------------------------
   "ui.settings.heading": "Ship Controls", // i18n-ignore
+  "ui.settings.headingDevice": "Game Settings", // i18n-ignore
+  "ui.settings.headingPilot": "{pilotName}'s Controls", // i18n-ignore
   "ui.settings.hull": "Your Ship", // i18n-ignore
   "ui.settings.hullFlying": "Flying Now", // i18n-ignore
   "ui.settings.hullEquip": "Press enter to fly this one", // i18n-ignore
@@ -377,6 +379,8 @@ export const UI_ES: Record<UiStringKey, string> = {
   "ui.trophy.lastLight.how": "coloca la baliza en plutón", // i18n-ignore
 
   "ui.settings.heading": "controles de la nave", // i18n-ignore
+  "ui.settings.headingDevice": "ajustes del juego", // i18n-ignore
+  "ui.settings.headingPilot": "controles de {pilotName}", // i18n-ignore
   "ui.settings.hull": "tu nave", // i18n-ignore
   "ui.settings.hullFlying": "volando ahora", // i18n-ignore
   "ui.settings.hullEquip": "pulsa enter para volar esta", // i18n-ignore
@@ -531,6 +535,8 @@ export const UI_HI: Record<UiStringKey, string> = {
   "ui.trophy.lastLight.how": "प्लूटो पर बीकन लगाओ", // i18n-ignore
 
   "ui.settings.heading": "यान के बटन", // i18n-ignore
+  "ui.settings.headingDevice": "खेल की सेटिंग", // i18n-ignore
+  "ui.settings.headingPilot": "{pilotName} के बटन", // i18n-ignore
   "ui.settings.hull": "तुम्हारा यान", // i18n-ignore
   "ui.settings.hullFlying": "अभी उड़ रहा है", // i18n-ignore
   "ui.settings.hullEquip": "इसे उड़ाने के लिए एंटर दबाओ", // i18n-ignore

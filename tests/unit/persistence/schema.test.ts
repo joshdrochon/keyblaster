@@ -21,7 +21,8 @@ import {
   serializeState,
 } from "@engine/persistence/index.js";
 import { SAMPLE_CAP } from "@engine/words/index.js";
-import { DEFAULT_CALIBRATION, DEFAULT_SETTINGS, STOP_IDS } from "@engine/types.js";
+import {
+  DEFAULT_DEVICE_SETTINGS, DEFAULT_CALIBRATION, DEFAULT_SETTINGS, STOP_IDS } from "@engine/types.js";
 import { FakeStorage, populatedProfile, wordRecord } from "./fixtures.js";
 
 const freshProfile = () => blankProfile({ id: "fresh", createdAt: 0 });
@@ -91,8 +92,19 @@ describe("blankProfile / blankProgress", () => {
   });
 
   it("emptyState is a valid, profile-less state", () => {
-    expect(emptyState()).toEqual({ version: SCHEMA_VERSION, profiles: [], activeProfileId: null });
-    expect(serializeState(emptyState())).toBe(`{"version":${SCHEMA_VERSION},"activeProfileId":null,"profiles":[]}`);
+    // D108: the device's six settings are stored beside the profiles, so an
+    // empty state carries them at their defaults rather than nothing.
+    expect(emptyState()).toEqual({
+      version: SCHEMA_VERSION,
+      profiles: [],
+      activeProfileId: null,
+      device: { ...DEFAULT_DEVICE_SETTINGS },
+    });
+    const json = JSON.parse(serializeState(emptyState())) as Record<string, unknown>;
+    expect(json["version"]).toBe(SCHEMA_VERSION);
+    expect(json["profiles"]).toEqual([]);
+    expect(json["activeProfileId"]).toBeNull();
+    expect(json["device"]).toEqual({ ...DEFAULT_DEVICE_SETTINGS });
   });
 
   it("bookFor returns an empty book rather than undefined", () => {

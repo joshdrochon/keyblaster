@@ -244,6 +244,83 @@ export const DEFAULT_SETTINGS: Settings = {
   dashColor: "amber",
 };
 
+/**
+ * THE SETTINGS THAT BELONG TO THE MACHINE, NOT TO A PILOT (D108).
+ *
+ * `Settings` is one shape and stays one shape - forty-one files read it and a
+ * split type would touch every one. What splits is OWNERSHIP: these six keys
+ * are stored once for the device and shadow whatever a profile carries, and
+ * the rest stay on the profile.
+ *
+ * The test for each key is "would a sibling sharing this laptop want it
+ * different?". Volume, calm motion, the colour-safe palette, the keyboard and
+ * the menu language are about the room and the hardware; letter case, letter
+ * spacing, the words' language, the input method, the board and the dash
+ * colour are about one child's eyes and hands.
+ *
+ * It is also the only honest answer to the bug this came from: Settings opens
+ * from the Title, where no pilot is chosen, and every row there was being
+ * written to whichever profile happened to be active - or discarded when there
+ * was none.
+ */
+export const DEVICE_SETTING_KEYS = [
+  "musicVolume",
+  "sfxVolume",
+  "keyboardLayout",
+  "uiLang",
+  "reducedMotion",
+  "colorblindPalette",
+] as const;
+
+export type DeviceSettingKey = (typeof DEVICE_SETTING_KEYS)[number];
+
+/** The device's half of `Settings`. Stored once, beside the profiles. */
+export type DeviceSettings = Pick<Settings, DeviceSettingKey>;
+
+/** Keys that stay on the profile. Derived, so the two can never overlap. */
+export type PilotSettingKey = Exclude<keyof Settings, DeviceSettingKey>;
+
+export const PILOT_SETTING_KEYS = (Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]).filter(
+  (k): k is PilotSettingKey => !(DEVICE_SETTING_KEYS as readonly string[]).includes(k),
+);
+
+export const DEFAULT_DEVICE_SETTINGS: DeviceSettings = {
+  musicVolume: DEFAULT_SETTINGS.musicVolume,
+  sfxVolume: DEFAULT_SETTINGS.sfxVolume,
+  keyboardLayout: DEFAULT_SETTINGS.keyboardLayout,
+  uiLang: DEFAULT_SETTINGS.uiLang,
+  reducedMotion: DEFAULT_SETTINGS.reducedMotion,
+  colorblindPalette: DEFAULT_SETTINGS.colorblindPalette,
+};
+
+/** Split a patch into the half that goes to the device and the half that does not. */
+export function splitSettingsPatch(patch: Partial<Settings>): {
+  readonly device: Partial<DeviceSettings>;
+  readonly pilot: Partial<Settings>;
+} {
+  const device: Record<string, unknown> = {};
+  const pilot: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) continue;
+    if ((DEVICE_SETTING_KEYS as readonly string[]).includes(k)) device[k] = v;
+    else pilot[k] = v;
+  }
+  return { device: device as Partial<DeviceSettings>, pilot: pilot as Partial<Settings> };
+}
+
+/**
+ * What a scene reads: the profile's settings with the device's half on top.
+ *
+ * The device ALWAYS wins for its six keys, so a profile saved before D108 (or
+ * written by an old build) cannot drag the volume back.
+ */
+export function effectiveSettings(
+  profileSettings: Settings,
+  device: DeviceSettings,
+): Settings {
+  return { ...profileSettings, ...device };
+}
+
 /** Star rating for a cleared stage, from hull hits (D27, AC-4.4). */
 export type Stars = 0 | 1 | 2 | 3;
 

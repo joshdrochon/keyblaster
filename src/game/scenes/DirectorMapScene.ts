@@ -72,6 +72,8 @@ import {
   starsCentreForRight,
   type PanelBox,
   doorwayBeckonPx,
+  routeLegIndex,
+  routePulseX,
   SATELLITE_R,
   SATELLITE_STAR_GAP,
   satelliteOffset,
@@ -958,6 +960,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       make("beaconLog", logX, text.text("title.beaconLog"), () =>
         goTo(this, SCENE_KEYS.beaconLog, this.forward()),
       ),
+      // D108: a pilot is selected here, so this is THEIR half - which is also
+      // `SettingsScene`'s default for any `returnTo` that is not the Title.
       make("settings", settingsX, text.text("title.settings"), () =>
         goTo(this, SCENE_KEYS.settings, this.forward()),
       ),
@@ -1628,6 +1632,19 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     // UR-165: a satellite hangs off its host and is not a point on the route,
     // so the line steps over it rather than detouring up to it.
     const online = this.nodes.filter((n) => !n.satellite);
+    /**
+     * THE PULSE TRAVELS THE WAY THE SHIP DOES (UR-191).
+     *
+     * `online` is sorted left to right, and the pulse was always animated from
+     * its left end to its right. On the main route that IS the trip - Earth is
+     * leftmost and you fly outward - so it read correctly and nobody looked
+     * again. The inner run is laid out the other way round: Earth sits on the
+     * RIGHT and you fly leftward, Venus then Zoozve then Mercury. So the lights
+     * were running back up the line against the direction of travel.
+     *
+     * One boolean, because the board has one direction either way.
+     */
+    const outward = this.mapView === "route";
     for (let i = 0; i < online.length - 1; i += 1) {
       const a = online[i];
       const b = online[i + 1];
@@ -1638,8 +1655,11 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       if (bothLit) {
         g.lineStyle(4, hexToNum(a.accent), 0.55);
         g.lineBetween(x0, ROUTE_Y, x1, ROUTE_Y);
-        const phase = ((time / BLINK_PERIOD_MS) - i * BLINK_STAGGER) % 1;
-        const px = x0 + (x1 - x0) * ((phase + 1) % 1);
+        // Stagger by position ALONG THE TRIP too, so the segment nearest the
+        // start leads and the lights read as one run rather than as a row.
+        const leg = routeLegIndex(i, online.length - 1, outward);
+        const phase = ((time / BLINK_PERIOD_MS) - leg * BLINK_STAGGER) % 1;
+        const px = routePulseX(x0, x1, (phase + 1) % 1, outward);
         g.fillStyle(hexToNum(INK.accentSoft), 0.9);
         g.fillCircle(px, ROUTE_Y, 6);
         g.fillStyle(hexToNum(INK.accentSoft), 0.25);

@@ -4,6 +4,7 @@ import type { Notice } from "@engine/persistence";
 import { isShipped, resolveContentLang } from "@engine/i18n";
 import { equipShip as equipShipOnProfile } from "@engine/unlocks/index.js";
 import {
+  splitSettingsPatch,
   DEFAULT_SETTINGS,
   type Profile,
   type Settings,
@@ -106,11 +107,19 @@ export function appFor(scene: Phaser.Scene): App {
   const app: App = {
     services: bundle,
     profile: () => store.activeProfile(),
-    settings: () => store.activeProfile()?.settings ?? DEFAULT_SETTINGS,
+    // THE PILOT'S SETTINGS WITH THE DEVICE'S HALF ON TOP (D108). Every reader
+    // in the game goes through here, so the merge happens once: volume, calm
+    // motion, the colour-safe palette, the keyboard and the menu language come
+    // from the machine, everything else from whoever is flying. With no pilot
+    // at all the device half still applies, which is what makes the Title's
+    // Settings screen honest.
+    settings: () => store.settingsFor(),
 
     t(): MenuTranslator {
       const profile = store.activeProfile();
-      const lang = profile?.settings.uiLang ?? bundle.t.lang;
+      // uiLang is a DEVICE setting (D108): the menus are in one language for
+      // the machine, not per child.
+      const lang = store.deviceSettings().uiLang ?? bundle.t.lang;
       const shipName = profile?.shipName ?? "";
       // THE PILOT'S OWN NAME IS PART OF THE CACHE KEY. Without it, switching
       // profiles would keep the previous pilot's name in every string that
@@ -144,8 +153,10 @@ export function appFor(scene: Phaser.Scene): App {
 
     applySettings(patch): Settings {
       const profile = store.activeProfile();
-      if (!profile) return DEFAULT_SETTINGS;
-      const merged: Settings = { ...profile.settings, ...patch };
+      // NO PROFILE IS NO LONGER A DEAD END (D108). The device half is settable
+      // from the Title before anyone has been created, and it used to be
+      // accepted on screen and thrown away here.
+      const merged: Settings = { ...store.settingsFor(), ...patch };
       // AC-14.1 repair. A stored profile can carry
       // { contentLang: "hi", inputMethod: "latin" } - a pair the engine can
       // produce and nothing else repairs - so it is fixed on EVERY write, not
@@ -164,7 +175,9 @@ export function appFor(scene: Phaser.Scene): App {
         merged.inputMethod,
         merged.uiLang,
       );
-      const updated = store.updateSettings(profile.id, merged);
+      const { device, pilot } = splitSettingsPatch(merged);
+      store.updateDeviceSettings(device);
+      if (profile) store.updateSettings(profile.id, pilot);
       // AC-19.1 "without a reload": push the change into everything that is
       // already on screen. The context is what other lanes' scenes read for
       // reduced motion and the colourblind palette; setLang rebuilds the shared
@@ -175,7 +188,7 @@ export function appFor(scene: Phaser.Scene): App {
       cached = null;
       // A settings change is worth keeping even if the tab dies next second.
       store.flush();
-      return updated?.settings ?? merged;
+      return store.settingsFor();
     },
 
     equipShip(shipId): string | null {

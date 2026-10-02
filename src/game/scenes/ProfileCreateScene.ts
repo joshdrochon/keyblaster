@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { ACTION_BUTTON } from "@game/ui/grid";
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { MAX_NAME_LENGTH, MIN_NAME_LENGTH } from "@engine/persistence";
+import { randomCallSign } from "@engine/names/index.js";
 import { CONTENT_TOP, HEADING_EYEBROW_TOP, HEADING_TOP, MenuScene } from "@game/ui/MenuScene";
 import {
   type Control,
@@ -100,6 +101,16 @@ export class ProfileCreateScene extends MenuScene {
     shipName: "",
   });
 
+  /**
+   * THE SUGGESTED CALL SIGN (UR-187).
+   *
+   * Rolled ONCE per visit to this screen, not per frame and not per keystroke:
+   * a placeholder that changes while you look at it is not a suggestion, it is
+   * a slot machine. Doing nothing accepts it, which is what makes it an offer
+   * rather than a label.
+   */
+  private suggestedName = "";
+
   private stepNodes: Phaser.GameObjects.GameObject[] = [];
   private stepControls: Control[] = [];
   /**
@@ -112,6 +123,23 @@ export class ProfileCreateScene extends MenuScene {
 
   constructor() {
     super({ key: SCENE_KEYS.profileCreate });
+  }
+
+  /**
+   * ONE ROLL PER VISIT, AND A NEW ONE EVERY VISIT (UR-189).
+   *
+   * This lived in `build` behind `if (this.suggestedName === "")`, which is the
+   * stale-instance bug UR-188 is a guard for: Phaser REUSES the scene, so the
+   * second pilot a child created was offered the first pilot's call sign, and
+   * two GoldenSparks is what the owner got.
+   *
+   * `init` is the right home because it runs exactly once per entry, where
+   * `build` re-runs on a rebuild - a language or letter-case change - and a
+   * suggestion that re-rolled under the child's hands is a slot machine rather
+   * than an offer.
+   */
+  init(): void {
+    this.suggestedName = randomCallSign(Math.random);
   }
 
   protected build(): void {
@@ -258,7 +286,7 @@ export class ProfileCreateScene extends MenuScene {
         width,
         value: this.draft.pilotName,
         maxLength: MAX_NAME_LENGTH,
-        placeholder: this.t.t("profile.pilotName"),
+        placeholder: this.suggestedName,
         onChange: (value) => {
           this.draft.pilotName = value;
           this.syncForward();
@@ -510,12 +538,21 @@ export class ProfileCreateScene extends MenuScene {
   private syncForward(): void {
     const button = this.forward;
     if (button === null) return;
-    // Only the beat that collects the name gates on it.
-    if (this.currentStep() !== "pilot") {
-      button.locked = false;
-      return;
-    }
-    button.locked = this.draft.pilotName.trim().length < MIN_NAME_LENGTH;
+    /**
+     * NOTHING IS GATED ANY MORE (UR-187 supersedes UR-146).
+     *
+     * UR-146 locked this button on a blank name, and it was right to: blank
+     * fell through to the schema's "Pilot", so one press of Enter on an
+     * untouched screen minted a pilot the child had not named. The defect was
+     * the SHRUG, not the empty field.
+     *
+     * A blank field now accepts the call sign the placeholder has been showing
+     * all along, which is a real name and a visible one. So pressing straight
+     * through is a choice rather than an accident, and locking the only way
+     * forward would be the game telling a child they did it not-right - the one
+     * thing it never says (D31).
+     */
+    button.locked = false;
   }
 
   private advance(): void {
@@ -537,9 +574,12 @@ export class ProfileCreateScene extends MenuScene {
   private createProfile(): void {
     const store = this.app.services.store;
     const created = store.createProfile({
-      // Blank falls back to the schema's default name; no validation dialog,
-      // because "you did it not-right" is the one thing this game never says.
-      name: this.draft.pilotName.trim(),
+      // BLANK ACCEPTS THE SUGGESTION (UR-187). It used to fall through to the
+      // schema's "Pilot", which is the game shrugging; the placeholder is a
+      // real name the child has been looking at, so taking it is the one
+      // outcome that matches what the screen showed them. Still no validation
+      // dialog - "you did it not-right" is the one thing this game never says.
+      name: this.draft.pilotName.trim() || this.suggestedName,
       avatar: this.draft.avatarId,
       shipId: this.draft.shipId,
       shipName: this.draft.shipName.trim() || this.t.t("profile.shipNameDefault"),

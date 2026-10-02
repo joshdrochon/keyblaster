@@ -971,3 +971,29 @@ export function doorwayBeckonPx(elapsedMs: number, reducedMotion: boolean): numb
   const phase = (elapsedMs % DOORWAY_BECKON_MS) / DOORWAY_BECKON_MS;
   return ((1 - Math.cos(phase * Math.PI * 2)) / 2) * DOORWAY_BECKON_PX;
 }
+
+
+// ---------------------------------------------------------------------------
+// The travelling light on a lit route segment
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the pulse sits on a lit segment, at `t` in [0, 1) (UR-191).
+ *
+ * `outward` is "the trip runs left to right on screen", which is true of the
+ * main route - Earth leftmost, flown outward - and FALSE of the inner run,
+ * where Earth sits on the right and the ship flies leftward to Venus, Zoozve
+ * and Mercury. The light was always animated from the left end, so on the inner
+ * board it ran back up the line against the direction of travel.
+ *
+ * Pure, so the rule is a test rather than a thing somebody watches.
+ */
+export function routePulseX(x0: number, x1: number, t: number, outward: boolean): number {
+  const clamped = Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : 0;
+  return outward ? x0 + (x1 - x0) * clamped : x1 - (x1 - x0) * clamped;
+}
+
+/** Which leg of the TRIP a left-to-right segment index is, so the stagger follows the ship. */
+export function routeLegIndex(i: number, segments: number, outward: boolean): number {
+  return outward ? i : Math.max(0, segments - 1 - i);
+}

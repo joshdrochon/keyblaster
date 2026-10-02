@@ -809,14 +809,25 @@ export class Tile extends Control {
     // unearned trophy's name is the invitation; it has to be readable.
     this.title.setColor(this.locked ? INK.textDim : INK.text);
     if (this.selected && !this.locked) {
-      // Selection is a filled bar under the tile, not a colour swap: it still
-      // reads desaturated (rubric 4) and under the colourblind palette.
-      this.g.fillStyle(hexToNum(this.style.accent), 1);
-      this.g.fillRoundedRect(
-        SPACE.rowPadX,
-        this.boxH - 10,
-        this.boxW - SPACE.rowPadX * 2,
-        6,
+      /**
+       * SELECTION IS A BORDER ROUND THE TILE (UR-190).
+       *
+       * It was a 6 px filled bar across the tile's bottom edge, which reads as
+       * an underline on the LABEL rather than as a mark on the tile - and sat
+       * close enough to the edge to look like a rendering artefact. A ring
+       * encloses the thing being chosen, which is what selection means.
+       *
+       * Still a SHAPE and not a colour swap, so the rule it was written for
+       * holds: it reads desaturated (rubric 4) and under the colourblind
+       * palette, where hue alone would not.
+       */
+      strokePlate(
+        this.g,
+        2,
+        2,
+        this.boxW - 4,
+        this.boxH - 4,
+        hexToNum(this.style.accent),
         3,
       );
     }

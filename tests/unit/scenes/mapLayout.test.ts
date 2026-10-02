@@ -14,6 +14,8 @@ import {
   lanternDesignBox,
 } from "@game/render/lanternGeometry";
 import {
+  routeLegIndex,
+  routePulseX,
   SATELLITE_R,
   SATELLITE_STAR_GAP,
   SHIP_LIMB_GAP,
@@ -965,5 +967,60 @@ describe("UR-174: the satellite's star row clears the line too", () => {
     const starBottom = ROUTE_Y + satelliteOffset().dy + SATELLITE_STAR_GAP + STAR_R;
     const capBottom = satelliteCaptionY() - CAPTION_PAD_Y + captionPlateH();
     expect(starBottom).toBeGreaterThan(capBottom);
+  });
+});
+
+/**
+ * UR-191: the travelling light runs the way the SHIP does.
+ *
+ * The main route is laid out in flight order - Earth leftmost, flown outward -
+ * so animating the pulse from the left end was right, and nobody looked again.
+ * The inner run is laid out the other way: Earth sits on the RIGHT and the trip
+ * goes leftward. The lights were running back up the line.
+ */
+describe("UR-191: the route pulse follows the direction of travel", () => {
+  const X0 = 300;
+  const X1 = 900;
+
+  it("runs left to right on the main route", () => {
+    expect(routePulseX(X0, X1, 0, true)).toBe(X0);
+    expect(routePulseX(X0, X1, 1, true)).toBe(X1);
+    expect(routePulseX(X0, X1, 0.25, true)).toBeLessThan(routePulseX(X0, X1, 0.75, true));
+  });
+
+  it("runs right to left on the inner run", () => {
+    expect(routePulseX(X0, X1, 0, false)).toBe(X1);
+    expect(routePulseX(X0, X1, 1, false)).toBe(X0);
+    expect(routePulseX(X0, X1, 0.25, false)).toBeGreaterThan(routePulseX(X0, X1, 0.75, false));
+  });
+
+  it("never leaves the segment, whatever the clock does", () => {
+    for (const t of [-5, -0.1, 1.1, 99, Number.NaN, Number.POSITIVE_INFINITY]) {
+      for (const outward of [true, false]) {
+        const x = routePulseX(X0, X1, t, outward);
+        expect(x).toBeGreaterThanOrEqual(X0);
+        expect(x).toBeLessThanOrEqual(X1);
+      }
+    }
+  });
+
+  it("staggers from the START of the trip, not from the left of the screen", () => {
+    // Three segments. Outward, the first leg is the leftmost; inward it is the
+    // rightmost - so the light nearest the ship's next hop always leads.
+    expect(routeLegIndex(0, 3, true)).toBe(0);
+    expect(routeLegIndex(2, 3, true)).toBe(2);
+    expect(routeLegIndex(0, 3, false)).toBe(2);
+    expect(routeLegIndex(2, 3, false)).toBe(0);
+  });
+
+  it("the stagger is a permutation, so no leg is skipped or doubled", () => {
+    for (const segments of [1, 2, 3, 6]) {
+      for (const outward of [true, false]) {
+        const legs = Array.from({ length: segments }, (_, i) =>
+          routeLegIndex(i, segments, outward),
+        );
+        expect(new Set(legs).size, `segments=${segments} outward=${outward}`).toBe(segments);
+      }
+    }
   });
 });

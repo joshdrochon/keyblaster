@@ -1,6 +1,9 @@
 import {
   DEFAULT_CALIBRATION,
   DEFAULT_SETTINGS,
+  DEFAULT_DEVICE_SETTINGS,
+  DEVICE_SETTING_KEYS,
+  type DeviceSettings,
   EASE_MAX,
   EASE_MIN,
   EASE_NEW,
@@ -61,7 +64,7 @@ export const QUARANTINE_KEY = `${STORAGE_KEY}:quarantine`;
  *
  * Adding v3 is one function in migrations.ts plus this number.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /** Ship name default, fixed by C07 / AC-6b.1. */
 export const DEFAULT_SHIP_NAME = "Lantern";
@@ -111,6 +114,13 @@ export interface PersistedState {
   profiles: Profile[];
   /** null is legal and usable: it means "no profile selected yet". */
   activeProfileId: string | null;
+  /**
+   * The six settings that belong to the machine (D108). Stored ONCE, beside the
+   * profiles rather than inside one, because the Title offers them with no
+   * pilot selected - and before this they were written to whichever profile
+   * happened to be active, or dropped when there was none.
+   */
+  device: DeviceSettings;
 }
 
 /**
@@ -725,21 +735,65 @@ function encodeProfile(profile: Profile): Record<string, unknown> {
 }
 
 /** The exact object written under STORAGE_KEY. */
-export function encodeState(state: PersistedState): Record<string, unknown> {
+/**
+ * The device's six settings, repaired like any other stored record (D108).
+ *
+ * A payload written before D108 has no `device` key at all, which is not a
+ * repair - it is a v3 save, and `migrations.v3ToV4` seeds it from the active
+ * profile so a child who already turned the music down keeps it down. Anything
+ * else missing or malformed falls back to the default for that one key.
+ */
+export function decodeDeviceSettings(
+  raw: unknown,
+  log: RepairLog,
+  path: string,
+): DeviceSettings {
+  if (!isPlainObject(raw)) {
+    if (raw !== undefined) repaired(log, path);
+    return { ...DEFAULT_DEVICE_SETTINGS };
+  }
+  const full = decodeSettings(
+    { ...DEFAULT_SETTINGS, ...raw },
+    log,
+    path,
+  );
+  const out = {} as Record<string, unknown>;
+  for (const key of DEVICE_SETTING_KEYS) out[key] = full[key];
+  return out as DeviceSettings;
+}
+
+/**
+ * `device` is optional HERE and required on `PersistedState` on purpose: a
+ * decoded state always has one, and a caller building a payload by hand - every
+ * fixture in the persistence tests - should not have to restate the defaults to
+ * serialise a save that predates D108.
+ */
+export function encodeState(
+  state: Omit<PersistedState, "device"> & { device?: DeviceSettings },
+): Record<string, unknown> {
   return {
     version: SCHEMA_VERSION,
     activeProfileId: state.activeProfileId,
+    // D108: the device's six, stored once beside the profiles.
+    device: { ...DEFAULT_DEVICE_SETTINGS, ...state.device },
     profiles: state.profiles.map(encodeProfile),
   };
 }
 
-export function serializeState(state: PersistedState): string {
+export function serializeState(
+  state: Omit<PersistedState, "device"> & { device?: DeviceSettings },
+): string {
   return JSON.stringify(encodeState(state));
 }
 
 /** A state with no profiles: first run, or the last profile was deleted. */
 export function emptyState(): PersistedState {
-  return { version: SCHEMA_VERSION, profiles: [], activeProfileId: null };
+  return {
+    version: SCHEMA_VERSION,
+    profiles: [],
+    activeProfileId: null,
+    device: { ...DEFAULT_DEVICE_SETTINGS },
+  };
 }
 
 /** `lang` is typed as string in Profile["words"]; keep the narrow view handy. */

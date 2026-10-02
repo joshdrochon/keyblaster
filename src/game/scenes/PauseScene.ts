@@ -63,7 +63,12 @@ export class PauseScene extends MenuScene {
   }
 
   init(data?: { from?: string }): void {
-    if (data?.from) this.from = data.from;
+    // ASSIGN, NEVER CONDITIONALLY (UR-188). Phaser reuses the scene instance,
+    // so `if (data?.from)` keeps the PREVIOUS launch's value when a later one
+    // omits it. `openFrom` always passes one today, which makes this latent
+    // rather than live - and latent is exactly how the Settings scope bug got
+    // in. The default belongs here, not in a field initialiser nobody re-runs.
+    this.from = data?.from ?? SCENE_KEYS.flight;
   }
 
   /**
@@ -299,7 +304,7 @@ export class PauseScene extends MenuScene {
     if (this.scene.get(SCENE_KEYS.settings) === null) return;
     // Launch BEFORE sleeping: a sleeping scene's ScenePlugin no longer runs its
     // queued operations, so sleeping first swallows the launch.
-    this.scene.launch(SCENE_KEYS.settings, { returnTo: SCENE_KEYS.pause });
+    this.scene.launch(SCENE_KEYS.settings, { returnTo: SCENE_KEYS.pause, scope: "pilot" });
     this.scene.sleep();
   }
 

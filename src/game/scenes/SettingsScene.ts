@@ -109,11 +109,51 @@ const AVATAR_GLYPH = 52;
  */
 const SHOW_HULL_ROW = false;
 
+/**
+ * Which half of `Settings` a screen is showing (D108).
+ *
+ * `device` is the machine's: volume, the keyboard, the menu language, calm
+ * motion and the colour-safe palette. `pilot` is one child's: their ship, mark
+ * and colour, letter case and spacing, and their progress.
+ */
+export type SettingsScope = "device" | "pilot";
+
+/** Row ids the DEVICE screen shows. Everything else is the pilot's. */
+export const DEVICE_ROW_IDS: readonly string[] = [
+  "settings.music",
+  "settings.sfx",
+  "settings.keyboardLayout",
+  "settings.uiLang",
+  "settings.reducedMotion",
+  "settings.colorblind",
+];
+
+/** Row ids the PILOT screen shows. Stated, not derived, so a new row must choose. */
+export const PILOT_ROW_IDS: readonly string[] = [
+  "settings.hull",
+  "settings.avatar",
+  "settings.dashColor",
+  "settings.letterCase",
+  "settings.letterSpacing",
+  "settings.resetProgress",
+];
+
 export class SettingsScene extends MenuScene {
   static readonly KEY = SCENE_KEYS.settings;
 
   /** Scene data: where to go on Esc, and which row to re-focus after a restart. */
   private returnTo: string = SCENE_KEYS.map;
+  /**
+   * WHICH HALF OF SETTINGS THIS SCREEN IS SHOWING (D108).
+   *
+   * Opened from the Title there is no pilot, so only the machine's settings can
+   * honestly be offered. Opened from the map or from a pause there is one, so
+   * the screen is theirs and says whose. The rows are the same controls either
+   * way; what changes is which are built.
+   */
+  private scope: SettingsScope = "pilot";
+  /** Row ids this build actually drew, for the scope specs. */
+  private drawnRowIds: readonly string[] = [];
   private restoreFocus: string | null = null;
   private resetStage = 0;
 
@@ -121,8 +161,16 @@ export class SettingsScene extends MenuScene {
     super({ key: SCENE_KEYS.settings });
   }
 
-  init(data?: { returnTo?: string; focus?: string }): void {
-    if (data?.returnTo) this.returnTo = data.returnTo;
+  init(data?: { returnTo?: string; focus?: string; scope?: SettingsScope }): void {
+    // RESET, NEVER CARRY OVER. Phaser reuses the scene instance, so
+    // `if (data?.returnTo)` left the PREVIOUS opener's value in place: Title ->
+    // Settings set it to the Title, and the map - which passes no `returnTo` -
+    // then inherited it and drew the device half under the map's own heading.
+    this.returnTo = data?.returnTo ?? SCENE_KEYS.map;
+    // The Title has no pilot, so it gets the device half whether or not it
+    // asked. Everything else defaults to the pilot's.
+    this.scope =
+      data?.scope ?? (this.returnTo === SCENE_KEYS.title ? "device" : "pilot");
     this.restoreFocus = data?.focus ?? null;
   }
 
@@ -171,7 +219,12 @@ export class SettingsScene extends MenuScene {
    * nothing.
    */
   protected build(): void {
-    this.addHeading("ui.settings.heading");
+    // D108: the screen says WHOSE settings these are. The device half belongs
+    // to the machine and names no one; the pilot half carries their name,
+    // because the bug this came from was a screen that could not say.
+    this.addHeading(
+      this.scope === "device" ? "ui.settings.headingDevice" : "ui.settings.headingPilot",
+    );
     this.repairLanguagePair();
     const s = this.app.settings();
     const [leftCol, rightCol] = consoleColumns(2) as [ConsoleColumn, ConsoleColumn];
@@ -433,11 +486,26 @@ export class SettingsScene extends MenuScene {
     // The one destructive action is set apart from the toggles by a wider gap
     // and is the last thing in the column (D31: it is not hidden, and it is not
     // shouted at either - it simply is not mixed in with the switches).
-    const leftBottom = this.layoutColumn(left, leftX);
+    // D108: KEEP ONLY THIS SCREEN'S HALF, after every control is built.
+    //
+    // Filtering here rather than at each `push` is deliberate: the rows carry
+    // their own ids, so one list decides what is shown and a row added later
+    // has to appear in `DEVICE_ROW_IDS` or `PILOT_ROW_IDS` to be drawn at all -
+    // which is what stops a new setting quietly landing on the wrong screen.
+    const inScope = (c: Control): boolean =>
+      (this.scope === "device" ? DEVICE_ROW_IDS : PILOT_ROW_IDS).includes(c.id);
+    const dropped = [...left, ...right].filter((c) => !inScope(c));
+    if (this.scope === "device") dropped.push(resetKey);
+    for (const c of dropped) c.destroy();
+    const leftShown = left.filter(inScope);
+    const rightShown = right.filter(inScope);
+
+    this.drawnRowIds = [...leftShown, ...rightShown].map((c) => c.id);
+    const leftBottom = this.layoutColumn(leftShown, leftX);
     const rightBottom = this.layoutColumn(
-      right,
+      rightShown,
       rightX,
-      [resetKey],
+      this.scope === "pilot" ? [resetKey] : [],
       SETTINGS_CONSOLE.keyGap,
     );
 
@@ -447,7 +515,13 @@ export class SettingsScene extends MenuScene {
     this.addHint("ui.common.hintAdjust");
     // The id goes IN, so the list never paints at index 0 first. Restoring
     // afterwards left one frame of the ring on the music row (UR-73).
-    this.setControls([...left, ...right, resetKey], this.restoreFocus ?? undefined);
+    // Focus follows what is DRAWN, or Tab walks onto a destroyed control.
+    this.setControls(
+      this.scope === "pilot"
+        ? [...leftShown, ...rightShown, resetKey]
+        : [...leftShown, ...rightShown],
+      this.restoreFocus ?? undefined,
+    );
   }
 
   /**
@@ -847,6 +921,10 @@ export class SettingsScene extends MenuScene {
       settings: { ...s },
       resetStage: this.resetStage,
       returnTo: this.returnTo,
+      // D108: which half this screen is showing, and the rows it actually
+      // DREW - so a spec can assert the scope rather than infer it from copy.
+      scope: this.scope,
+      rowIds: [...this.drawnRowIds],
       // The hull actually WORN, read back off the profile rather than echoed
       // from the row: a row reporting its own argument would say "ship-4" for a
       // press `@engine/unlocks.equipShip` refused.
