@@ -1363,7 +1363,7 @@ export class FlightScene extends Phaser.Scene {
     // be pausing something that is no longer a belt.
     if (event.key === "Escape" && !this.stalled && !this.stageComplete) {
       event.preventDefault();
-      PauseScene.openFrom(this);
+      PauseScene.openFrom(this, this.cfg.stopId);
       return;
     }
 

@@ -399,8 +399,14 @@ async function openTitle(
         stackOverflow: number;
       },
   );
-  const column = columnOf(await textsOf(page));
-  expect(column, `no column found at ${stop ?? "new pilot"} ${view.width}x${view.height}`)
+  const seenTexts = await textsOf(page);
+  const column = columnOf(seenTexts);
+  expect(
+    column,
+    `no column found at ${stop ?? "new pilot"} ${view.width}x${view.height}: ${JSON.stringify(
+      seenTexts.map((t) => ({ size: t.size, y: Math.round(t.y), h: Math.round(t.h), py: Math.round(t.parentY) })),
+    )}`,
+  )
     .not.toBeNull();
   return { column: column as Column, reported: bag.stackOverflow, furthest: bag.furthestBeacon };
 }

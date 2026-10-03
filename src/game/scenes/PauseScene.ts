@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { type StopId } from "@engine/types";
 import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { MenuScene } from "@game/ui/MenuScene";
 import { type Control, MenuButton } from "@game/ui/controls";
@@ -35,6 +36,8 @@ export class PauseScene extends MenuScene {
 
   /** The scene underneath, paused while this is up. */
   private from: string = SCENE_KEYS.flight;
+  /** The stop the belt below was flying, so quitting returns to its board. */
+  private stopId: StopId | null = null;
   private frozen = false;
   /**
    * The overlay is opened BY a key and then closed by the same key, so the very
@@ -57,18 +60,26 @@ export class PauseScene extends MenuScene {
    * Phaser log a warning every time a child pressed Esc; here it is simply a
    * belt with no pause menu, which is what that harness is.
    */
-  static openFrom(scene: Phaser.Scene): void {
+  static openFrom(scene: Phaser.Scene, stopId?: StopId): void {
     if (scene.scene.get(SCENE_KEYS.pause) === null) return;
-    scene.scene.launch(SCENE_KEYS.pause, { from: scene.scene.key });
+    scene.scene.launch(SCENE_KEYS.pause, { from: scene.scene.key, stopId });
   }
 
-  init(data?: { from?: string }): void {
+  init(data?: { from?: string; stopId?: StopId }): void {
     // ASSIGN, NEVER CONDITIONALLY (UR-188). Phaser reuses the scene instance,
     // so `if (data?.from)` keeps the PREVIOUS launch's value when a later one
     // omits it. `openFrom` always passes one today, which makes this latent
     // rather than live - and latent is exactly how the Settings scope bug got
     // in. The default belongs here, not in a field initialiser nobody re-runs.
     this.from = data?.from ?? SCENE_KEYS.flight;
+    // THE STOP THE BELT WAS, SO QUITTING LANDS ON THE BOARD IT WAS FLOWN FROM.
+    // `quitToMap` used to start the map with no data at all, which left it
+    // deriving the stop from `context.stopId` - and only the Results, Warp and
+    // Beacon lanes write that, so a belt QUIT halfway never set it and the map
+    // fell back to the route. Fly Venus, quit, and the board was the
+    // Earth-to-Pluto chart (UR-164 holds for the ways OUT of a stop, and this
+    // was the one way out that did not carry it).
+    this.stopId = data?.stopId ?? null;
   }
 
   /**
@@ -332,7 +343,7 @@ export class PauseScene extends MenuScene {
     }
     this.frozen = false;
     this.scene.stop();
-    this.goTo(SCENE_KEYS.map);
+    this.goTo(SCENE_KEYS.map, this.stopId === null ? undefined : { stopId: this.stopId });
   }
 
   override update(time: number, delta: number): void {
