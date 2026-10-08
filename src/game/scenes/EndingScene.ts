@@ -102,8 +102,13 @@ import {
  * lane and are not touched here.
  */
 
-const BEACON_INTERVAL_MS = 220;
-const ZOOM_MS = 1800;
+/** The rail draws itself Earth to Pluto. Replaced a camera zoom that cropped the frame. */
+const RAIL_DRAW_MS = 2200;
+
+/** The bloom: a lamp opens from nothing to its resting size and stops there. */
+const HALO_FROM = 0;
+/** One leg, so a lamp finishes opening as the pulse reaches the next. */
+const HALO_BLOOM_MS = Math.round(RAIL_DRAW_MS / (ROUTE_STOP_IDS.length - 1));
 
 interface Lamp {
   readonly halo: Phaser.GameObjects.Graphics;
@@ -124,6 +129,9 @@ export class EndingScene extends Phaser.Scene {
   private menu!: KeyboardMenu;
   private lamps = new Map<StopId, Lamp>();
   private litOrder: StopId[] = [];
+  private litRail: Phaser.GameObjects.Graphics | null = null;
+  /** How far the line has been drawn, in world x. */
+  private penX = 0;
   private shadowLine: Phaser.GameObjects.Text | null = null;
   /** Latched on a render pass; see `latchOnRender`. Never sampled. */
   private shadowLineDrawn!: DrawLatch;
@@ -137,6 +145,8 @@ export class EndingScene extends Phaser.Scene {
     this.initData = data;
     this.litOrder = [];
     this.lamps = new Map();
+    this.litRail = null;
+    this.penX = 0;
     this.shadowLine = null;
   }
 
@@ -254,11 +264,15 @@ export class EndingScene extends Phaser.Scene {
           id: "ending.heading",
           size: ENDING_TYPE.heading,
           color: ENDING_INK.heading,
-          align: "center",
+          align: "left",
           lang: this.lane.lang,
           depth: layer("hud").depth + 3,
-          originX: 0.5,
-          padY: 14,
+          originX: 0,
+          // `plated`: it is already on the band's plate, and a second one under
+          // the title would be a card inside a card. The band's fill is named
+          // so the row stays measurable.
+          plated: true,
+          plateFill: ENDING_PLATE.panel,
         },
       ),
     );
@@ -298,6 +312,9 @@ export class EndingScene extends Phaser.Scene {
     );
     made.push(rail);
 
+    this.litRail = this.add.graphics();
+    made.push(this.litRail);
+
     const y = this.layout.rail.y;
     ROUTE_STOP_IDS.forEach((stopId, i) => {
       const accent = paletteFor(stopId).accent;
@@ -305,12 +322,15 @@ export class EndingScene extends Phaser.Scene {
 
       // The sweep: a soft corona that arrives one stop at a time and then
       // blinks forever (D13).
+      // Drawn at the origin, moved to the lamp: a Graphics scales about its own origin.
       const halo = this.add.graphics();
       halo.fillStyle(hexToNum(accent), 0.14);
-      halo.fillCircle(cx, y, this.layout.lampHaloRadius);
+      halo.fillCircle(0, 0, this.layout.lampHaloRadius);
       halo.fillStyle(hexToNum(accent), 0.3);
-      halo.fillCircle(cx, y, this.layout.lampHaloRadius * 0.55);
+      halo.fillCircle(0, 0, this.layout.lampHaloRadius * 0.55);
+      halo.setPosition(cx, y);
       halo.setAlpha(0);
+      halo.setScale(HALO_FROM);
       made.push(halo);
       this.lamps.set(stopId, { halo });
 
@@ -472,46 +492,96 @@ export class EndingScene extends Phaser.Scene {
    * still taken before it finishes is still a composed screen - seven coloured
    * stops on a rail, the headline, the closing line and the way out.
    */
-  private playCard(): void {
-    if (!this.lane.reducedMotion) {
-      this.cameras.main.setZoom(1.5);
-      this.tweens.add({
-        targets: this.cameras.main,
-        zoom: 1,
-        duration: ZOOM_MS,
-        ease: EASE.arrive,
-      });
+  /** The map's own route line: a leg wears the accent of the stop it leaves. One pulse, at the head. */
+  private drawLitRail(x: number, drawing: boolean): void {
+    const g = this.litRail;
+    if (g === null) return;
+    g.clear();
+    const y = this.layout.rail.y;
+    const xs = this.layout.lampX;
+    for (let i = 1; i < xs.length; i += 1) {
+      const a = xs[i - 1];
+      const b = xs[i];
+      const from = ROUTE_STOP_IDS[i - 1];
+      if (a === undefined || b === undefined || from === undefined) continue;
+      if (x <= a) break;
+      g.lineStyle(4, hexToNum(paletteFor(from).accent), 0.55);
+      g.lineBetween(a, y, Math.min(x, b), y);
     }
+    if (!drawing) return;
+    g.fillStyle(hexToNum(INK.accentSoft), 0.9);
+    g.fillCircle(x, y, 6);
+    g.fillStyle(hexToNum(INK.accentSoft), 0.25);
+    g.fillCircle(x, y, 14);
+  }
 
-    const start = this.lane.reducedMotion ? 150 : ZOOM_MS * 0.4;
-    ROUTE_STOP_IDS.forEach((stopId, i) => {
-      this.time.delayedCall(start + i * BEACON_INTERVAL_MS, () => {
-        const lamp = this.lamps.get(stopId);
-        if (lamp === undefined) return;
-        this.litOrder.push(stopId);
-        if (this.lane.reducedMotion) {
-          lamp.halo.setAlpha(1);
-          return;
-        }
+  /** Idempotent: the sweep crosses a lamp's x on several frames. */
+  private lightLamp(stopId: StopId): void {
+    if (this.litOrder.includes(stopId)) return;
+    const lamp = this.lamps.get(stopId);
+    if (lamp === undefined) return;
+    this.litOrder.push(stopId);
+    if (this.lane.reducedMotion) {
+      lamp.halo.setAlpha(1).setScale(1);
+      return;
+    }
+    // `arrive`, not `pop`: a back-ease would carry it past its resting radius.
+    this.tweens.add({
+      targets: lamp.halo,
+      alpha: { from: 0, to: 1 },
+      scale: { from: HALO_FROM, to: 1 },
+      duration: HALO_BLOOM_MS,
+      ease: EASE.arrive,
+      onComplete: () => {
+        // The blink that never stops: on the map these seven are lit forever
+        // after (D13).
         this.tweens.add({
           targets: lamp.halo,
-          alpha: 1,
-          duration: 300,
-          ease: EASE.pop,
-          onComplete: () => {
-            // The blink that never stops: on the map these seven are lit
-            // forever after (D13).
-            this.tweens.add({
-              targets: lamp.halo,
-              alpha: { from: 1, to: 0.62 },
-              duration: 1400,
-              yoyo: true,
-              repeat: -1,
-              ease: EASE.drift,
-            });
-          },
+          alpha: { from: 1, to: 0.62 },
+          duration: 1400,
+          yoyo: true,
+          repeat: -1,
+          ease: EASE.drift,
         });
-      });
+      },
+    });
+  }
+
+  /** Reduced motion keeps the seven lit and drops only the drawing. */
+  private playCard(): void {
+    const xs = this.layout.lampX;
+    const from = xs[0] ?? this.layout.rail.from;
+    const to = xs[xs.length - 1] ?? this.layout.rail.to;
+
+    this.penX = from;
+    if (this.lane.reducedMotion) {
+      this.penX = to;
+      this.drawLitRail(to, false);
+      for (const stopId of ROUTE_STOP_IDS) this.lightLamp(stopId);
+      return;
+    }
+
+    this.lightLamp(ROUTE_STOP_IDS[0] ?? "earth");
+    const pen = { x: from };
+    this.tweens.add({
+      targets: pen,
+      x: to,
+      duration: RAIL_DRAW_MS,
+      // Constant speed: an ease makes the end legs twice the middle ones.
+      ease: "Linear",
+      onUpdate: () => {
+        this.penX = pen.x;
+        this.drawLitRail(pen.x, true);
+        ROUTE_STOP_IDS.forEach((stopId, i) => {
+          const at = xs[i];
+          if (at !== undefined && pen.x >= at) this.lightLamp(stopId);
+        });
+      },
+      onComplete: () => {
+        this.penX = to;
+        this.drawLitRail(to, false);
+        for (const stopId of ROUTE_STOP_IDS) this.lightLamp(stopId);
+      },
     });
   }
 

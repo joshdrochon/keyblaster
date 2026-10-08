@@ -162,9 +162,11 @@ describe("AC-21.2: layers crossfade by intensity", () => {
 describe("the music bus drives itself from game state", () => {
   it("AC-21.2: setFromState maps live asteroids and combo onto the index", () => {
     const { music } = build();
-    expect(music.setFromState(0, 0)).toBe(0);
-    expect(music.index).toBe(0);
-    expect(music.setFromState(9, 0)).toBe(MAX_INTENSITY_INDEX);
+    // The bus follows `intensityIndexFrom`, which answers the top layer for
+    // every board now (see the describe below). The WIRING is the claim here.
+    expect(music.setFromState(0, 0)).toBe(MAX_INTENSITY_INDEX);
+    expect(music.index).toBe(MAX_INTENSITY_INDEX);
+    expect(music.setFromState(9, 10)).toBe(MAX_INTENSITY_INDEX);
     expect(music.index).toBe(MAX_INTENSITY_INDEX);
   });
 
@@ -334,57 +336,49 @@ describe("UR-10: an intensity change never steps a layer gain", () => {
  * dropped it by up to 5, flipped index 2 to 1, and faded the drive layer out
  * over 1.4 s - then the streak rebuilt and it faded back in.
  */
-describe("UR-168: intensity does not pump on a broken combo", () => {
-  it("steps UP on the bare threshold, with no delay", () => {
-    // Busy is busy. Only the way down pays the deadband.
-    expect(intensityIndexFrom(8, 0, 0)).toBe(2);
-    expect(intensityIndexFrom(4, 0, 0)).toBe(1);
-  });
-
-  it("holds its index when a full combo breaks at Mercury's band", () => {
-    // 7 live rocks and a 10 combo is pressure 12, index 2. The streak breaks:
-    // 7 rocks alone is 7, which is under the 8 but inside the deadband.
-    expect(intensityIndexFrom(7, 10, 0)).toBe(2);
-    expect(intensityIndexFrom(7, 0, 2)).toBe(2);
-    // Without hysteresis the same input stepped down, which is the defect.
-    expect(intensityIndex(7, 0)).toBe(1);
-  });
-
-  it("still steps down on a real lull, not just a lost streak", () => {
-    expect(intensityIndexFrom(5, 0, 2)).toBe(1);
-    expect(intensityIndexFrom(1, 0, 1)).toBe(0);
-  });
-
-  it("never sticks: every index is reachable in both directions", () => {
-    let i = intensityIndexFrom(0, 0, 0);
-    expect(i).toBe(0);
-    i = intensityIndexFrom(12, 10, i);
-    expect(i).toBe(2);
-    i = intensityIndexFrom(0, 0, i);
-    expect(i).toBe(0);
-  });
-
-  it("is monotone in pressure at any held index", () => {
-    for (const held of [0, 1, 2]) {
-      let prev = -1;
-      for (let live = 0; live <= 20; live += 1) {
-        const got = intensityIndexFrom(live, 0, held);
-        expect(got, `held=${held} live=${live} went backwards`).toBeGreaterThanOrEqual(prev);
-        prev = got;
+describe("UR-168 / D-music: every belt plays the full stack", () => {
+  /**
+   * THE LAYERING IS OFF (owner, Oct 6). Index 0 is a 700 Hz lowpass - the
+   * "other room" - and reaching the top layer needed a combo of 8 to 10 while
+   * the board was full, which the belt rarely gives. The muffled layer was the
+   * normal state and the crisp one the exception, which the owner heard as the
+   * music being broken.
+   *
+   * `intensityIndexFrom` therefore answers MAX for everything. The pressure
+   * model it used to consult is still exported and still asserted below, so
+   * putting layering back is one line and arrives with its rules intact.
+   */
+  it("answers the top layer whatever the board is doing", () => {
+    for (const live of [0, 1, 4, 5, 7, 8, 12, 20]) {
+      for (const combo of [0, 1, 5, 10]) {
+        for (const held of [0, 1, 2]) {
+          expect(
+            intensityIndexFrom(live, combo, held),
+            `live=${live} combo=${combo} held=${held}`,
+          ).toBe(MAX_INTENSITY_INDEX);
+        }
       }
     }
   });
 
-  it("a lost streak never alone steps Mercury's belt down", () => {
-    // The claim the owner's report reduces to. Above the band FLOOR the rocks
-    // alone hold the index, so missing a word cannot cross a threshold.
+  it("a lost streak cannot step the belt down, which was the report", () => {
     for (let live = 6; live <= 7; live += 1) {
       for (let combo = 0; combo <= 10; combo += 1) {
-        expect(intensityIndexFrom(live, combo, 2), `live=${live} combo=${combo}`).toBe(2);
+        expect(intensityIndexFrom(live, combo, 2), `live=${live} combo=${combo}`).toBe(
+          MAX_INTENSITY_INDEX,
+        );
       }
     }
-    // AT the floor with nothing blasted it still steps down, and should: five
-    // rocks and no streak is a lull, not a broken combo.
-    expect(intensityIndexFrom(5, 0, 2)).toBe(1);
+  });
+
+  it("the pressure model it used to consult is unchanged", () => {
+    // Kept asserted so the thresholds cannot rot while they are off the path.
+    expect(intensityIndex(8, 0)).toBe(2);
+    expect(intensityIndex(4, 0)).toBe(1);
+    expect(intensityIndex(7, 0)).toBe(1);
+    expect(intensityIndex(7, 10)).toBe(2);
+    expect(intensityIndex(0, 0)).toBe(0);
   });
 });
+
+

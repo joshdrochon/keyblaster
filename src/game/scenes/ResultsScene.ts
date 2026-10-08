@@ -133,6 +133,9 @@ import {
  * and asserts it, so the number the rubric measures and the number the screen
  * draws cannot drift apart again.
  */
+const HEADER_TITLE_GAP = 10;
+const HEADER_TRAILING_GAP = 18;
+
 const PANEL_ALPHA = 1;
 /**
  * What the panel ink ACTUALLY composites to over the brightest sky a stop can
@@ -290,6 +293,15 @@ export class ResultsScene extends Phaser.Scene {
     // D31 failure mode: a number that reads as a verdict where the honest
     // answer is silence. See `buildPersonalBest`.
     this.hasPreviousRun = this.stopProgress.bestWpm > 0;
+    // VIEWING HOOK, TEMPORARY - see the note on `?trophies=1`. A deep boot has
+    // no previous run, so the "your best here" line never draws and cannot be
+    // judged. `?best=22` forces one. Remove with the other hook.
+    const forcedBest = Number(new URLSearchParams(window.location.search).get("best") ?? "");
+    if (Number.isFinite(forcedBest) && forcedBest > 0) {
+      this.stopProgress = { ...this.stopProgress, bestWpm: forcedBest };
+      this.hasPreviousRun = true;
+      this.isNewBest = false;
+    }
 
     // The run is now written back. This is the second half of the clear Beacon
     // started: Beacon knows the stop was charted, this screen knows the stars,
@@ -345,8 +357,8 @@ export class ResultsScene extends Phaser.Scene {
     this.reportPlate = this.add.graphics().setDepth(0);
     hud.add(this.reportPlate);
 
-    this.buildHeader();
     this.reportPieces = [
+      this.headerPiece(),
       this.statsPiece(),
       this.hullPiece(),
       this.personalBestPiece(),
@@ -433,6 +445,13 @@ export class ResultsScene extends Phaser.Scene {
     if (!store || !profile) return;
     const award = this.initData?.award ?? null;
     this.earnedTrophies = newTrophies(profile, award);
+    // VIEWING HOOK, TEMPORARY. The trophies block only draws what THIS run
+    // earned (D74), so a deep boot shows nothing and the block cannot be
+    // judged. `?trophies=1` fills it with the first three in the catalogue so
+    // the layout and ink can be looked at. Remove once the design is settled.
+    const want = new URLSearchParams(window.location.search).get("trophies");
+    if (want === "1") this.earnedTrophies = TROPHIES.slice(0, 3).map((d) => d.id);
+    if (want === "all") this.earnedTrophies = TROPHIES.map((d) => d.id);
     if (this.earnedTrophies.length === 0) return;
     store.updateProfile(profile.id, (p: Profile) => awardTrophies(p, award));
     store.flush();
@@ -524,32 +543,26 @@ export class ResultsScene extends Phaser.Scene {
   // The stage report
   // -------------------------------------------------------------------------
 
-  private buildHeader(): void {
-    // ON A PLATE, BOTH OF THEM. The heading measured 1.72:1 in the stop accent
-    // on Mars' ochre sky and the stop name was little better.
-    const h = headerText(0, undefined, 12);
-    skyText(this, h.x, h.y, this.lane.copy.text("results.heading"), {
-      screen: "results",
-      id: "results.heading",
+  private headerPiece(): Piece {
+    const parts: Part[] = [];
+    const head = this.ink("results.heading", 0, 0, this.lane.copy.text("results.heading"), {
       size: TYPE.heading,
       color: this.lane.palette.accent,
-      lang: this.lane.lang,
-      depth: layer("hud").depth + 2,
-      padY: 12,
     });
-    const sub = headerText(1, undefined, 8);
-    skyText(this, sub.x, sub.y, this.lane.copy.stopName(this.stopId), {
-      screen: "results",
-      // The stop name is a proper noun from content (D41), so it is the one
-      // string on this screen that keeps its capital.
-      id: "results.stop",
-      size: TYPE.body,
-      color: INK.textDim,
-      lang: this.lane.lang,
-      depth: layer("hud").depth + 2,
-      padY: 8,
-    });
+    parts.push(head);
+    const headH = (head.obj as Phaser.GameObjects.Text).height;
+    const stop = this.ink(
+      "results.stop",
+      0,
+      headH + HEADER_TITLE_GAP,
+      this.lane.copy.stopName(this.stopId),
+      { size: TYPE.body, color: INK.textDim },
+    );
+    parts.push(stop);
+    const height =
+      stop.dy + (stop.obj as Phaser.GameObjects.Text).height + HEADER_TRAILING_GAP;
     this.mark("heading");
+    return { id: "heading", parts, height };
   }
 
   /**
@@ -648,7 +661,27 @@ export class ResultsScene extends Phaser.Scene {
     }
     const contentW = REPORT_CONTENT_W;
     const left = contentW - STARS_W;
-    const cy = 56;
+    // THE CAPTION SITS ABOVE ITS MARK, LIKE THE TWO COLUMNS BESIDE IT.
+    // "Words Per Minute" and "Accuracy" both label the thing under them and
+    // start on their column's left edge; the stars did the opposite - a centred
+    // caption BELOW - so one row carried two patterns and the stars read as a
+    // different kind of thing from the numbers they sit with.
+    const caption = this.ink(
+      "results.stars.caption",
+      left,
+      0,
+      this.lane.copy.text("map.stars", { stars: this.results.stars }),
+      { size: TYPE.caption, color: INK.textDim },
+    );
+    // THE SAME OPTICAL GAP AS THE NUMBERS BESIDE IT, WHICH IS NOT THE SAME
+    // NUMBER. The two value columns put a Text at `captionH + 6`, and a Text's
+    // box carries the font's internal leading - the empty band above the cap
+    // height - so the gap you SEE is 6 plus that. Measured on the shipped face
+    // at TYPE.display: font ascent 72, glyph ascent 53, so 19 px of air the
+    // stars do not have, because a Graphics starts painting at its edge. Six
+    // px against twenty-five is why the stars sat tight under their caption.
+    const DISPLAY_LEADING_PX = 19;
+    const cy = (caption.obj as Phaser.GameObjects.Text).height + 6 + DISPLAY_LEADING_PX + 24;
     const g = this.add.graphics().setDepth(2);
     for (let i = 0; i < 3; i += 1) {
       const cx = left + 24 + i * 66;
@@ -665,16 +698,9 @@ export class ResultsScene extends Phaser.Scene {
       }
     }
     this.mark("stars");
-    const caption = this.ink(
-      "results.stars.caption",
-      left + STARS_W / 2,
-      cy + 40,
-      this.lane.copy.text("map.stars", { stars: this.results.stars }),
-      { size: TYPE.caption, color: INK.textDim, align: "center", originX: 0.5 },
-    );
     return {
-      parts: [{ obj: g, dx: 0, dy: 0 }, caption],
-      height: caption.dy + (caption.obj as Phaser.GameObjects.Text).height,
+      parts: [caption, { obj: g, dx: 0, dy: 0 }],
+      height: cy + 24,
     };
   }
 
@@ -728,21 +754,50 @@ export class ResultsScene extends Phaser.Scene {
           wpm: Math.round(this.stopProgress.bestWpm),
         });
     this.mark(this.isNewBest ? "personal-best-new" : "personal-best");
-    const part = this.ink(
-      this.isNewBest ? "results.personalBest.new" : "results.personalBest",
-      0,
-      0,
-      line,
-      {
+    if (this.isNewBest) {
+      const part = this.ink("results.personalBest.new", 0, 0, line, {
         size: TYPE.label,
-        color: this.isNewBest ? this.lane.palette.accent : INK.textDim,
+        color: this.lane.palette.accent,
         wrapWidth: REPORT_CONTENT_W,
-      },
+      });
+      return {
+        id: "personal-best",
+        height: (part.obj as Phaser.GameObjects.Text).height,
+        parts: [part],
+      };
+    }
+
+    // THE FIGURE CARRIES THE ACCENT, THE SENTENCE AROUND IT DOES NOT - the
+    // same split the two value columns make, where the caption is dim and the
+    // number is not. Phaser's Text has no inline colour, so this is two Texts
+    // laid end to end, cut at the NUMBER rather than at a fixed offset: the
+    // digits are the one anchor that survives a translation reordering the
+    // words around them.
+    const at = line.search(/\d/);
+    const head = at > 0 ? line.slice(0, at) : "";
+    const tail = at > 0 ? line.slice(at) : line;
+    const parts: Part[] = [];
+    let dx = 0;
+    if (head !== "") {
+      const lead = this.ink("results.personalBest", 0, 0, head, {
+        size: TYPE.label,
+        color: INK.textDim,
+      });
+      parts.push(lead);
+      dx = (lead.obj as Phaser.GameObjects.Text).width;
+    }
+    const value = this.ink(
+      head === "" ? "results.personalBest" : "results.personalBest.value",
+      dx,
+      0,
+      tail,
+      { size: TYPE.label, color: this.lane.palette.accent },
     );
+    parts.push(value);
     return {
       id: "personal-best",
-      height: (part.obj as Phaser.GameObjects.Text).height,
-      parts: [part],
+      height: (value.obj as Phaser.GameObjects.Text).height,
+      parts,
     };
   }
 
@@ -918,15 +973,27 @@ export class ResultsScene extends Phaser.Scene {
       0,
       0,
       this.lane.copy.text("results.trophiesHeading"),
-      { size: TYPE.label, color: this.lane.palette.accent },
+      { size: TYPE.label, color: INK.text },
     );
-    const body = this.ink(
-      "results.trophies.line",
-      0,
-      (heading.obj as Phaser.GameObjects.Text).height + 8,
-      this.lane.copy.text("results.trophiesList", { names: names.join("  ·  ") }),
-      { size: TYPE.caption, color: INK.text, wrapWidth: REPORT_CONTENT_W },
-    );
+    // One line always: the only block here with no ceiling. Full set is on the trophies screen.
+    const line = (shown: string[]): string =>
+      shown.length === names.length
+        ? this.lane.copy.text("results.trophiesList", { names: shown.join("  ·  ") })
+        : this.lane.copy.text("results.trophiesMore", {
+            names: shown.join("  ·  "),
+            count: String(names.length - shown.length),
+          });
+
+    const body = this.ink("results.trophies.line", 0, (heading.obj as Phaser.GameObjects.Text).height + 8, line(names), {
+      size: TYPE.caption,
+      color: this.lane.palette.accent,
+      wrapWidth: REPORT_CONTENT_W,
+    });
+    // Drop a name at a time until it fits. One always stays.
+    const text = body.obj as Phaser.GameObjects.Text;
+    for (let shown = names.length - 1; shown >= 1 && text.getWrappedText().length > 1; shown -= 1) {
+      text.setText(line(names.slice(0, shown)));
+    }
     return {
       id: "trophies",
       height: body.dy + (body.obj as Phaser.GameObjects.Text).height,

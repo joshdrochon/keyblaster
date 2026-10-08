@@ -354,14 +354,14 @@ describe("AC-21.2: music intensity is driven by the live HUD snapshot", () => {
     }
     const snap = audio.snapshot();
     expect(snap.hudSamples).toBe(4);
-    expect(snap.musicIndices).toContain(0);
     expect(snap.musicIndices).toContain(MAX_INTENSITY_INDEX);
   });
 
-  it("a HUD snapshot missing its numbers reads as a calm screen, not as NaN", () => {
+  it("a HUD snapshot missing its numbers is still a number, not NaN", () => {
     const { audio, channel } = harness();
     channel.emit(HUD_EVENT, {});
-    expect(audio.graph.music.index).toBe(0);
+    expect(Number.isFinite(audio.graph.music.index)).toBe(true);
+    expect(audio.graph.music.index).toBe(MAX_INTENSITY_INDEX);
   });
 
   it("advance() moves the intensity ramp the HUD started", () => {

@@ -1322,10 +1322,11 @@ describe("A-21.2: the music index follows live asteroids and combo", () => {
     return { indices: [...snap.musicIndices], hudSamples: snap.hudSamples, samples };
   };
 
-  it("a belt that fills and empties moves the index through every layer", () => {
-    // A real stage: the board fills, a combo builds, rocks are cleared. The
-    // thresholds are pressure 4 and 8 (INTENSITY_THRESHOLDS), and pressure is
-    // asteroids + half the combo.
+  it("a belt that fills and empties stays on the full stack", () => {
+    // THE LAYERING IS OFF (owner, Oct 6): index 0 is a 700 Hz lowpass and the
+    // belt rarely gave the pressure to leave it, so the muffled layer was the
+    // normal state. Every belt plays the full stack now. This renders a real
+    // stage and asserts the index never drops out of it.
     const stream: Array<{ live: number; combo: number }> = [];
     for (const live of [0, 1, 2, 3, 5, 6, 8, 10, 7, 4, 2, 0]) {
       for (let hold = 0; hold < 16; hold++) stream.push({ live, combo: Math.min(10, live) });
@@ -1333,18 +1334,16 @@ describe("A-21.2: the music index follows live asteroids and combo", () => {
     const flown = flyStage(stream);
 
     expect(flown.hudSamples).toBe(stream.length);
-    // The predicate A-21.2 actually asks for, measured here rather than read
-    // out of a file: the index MOVED, through more than one value.
-    expect(flown.indices.length).toBeGreaterThanOrEqual(2);
-    // And it reached the top layer, so all three really are reachable in play.
-    expect(flown.indices).toContain(0);
-    expect(Math.max(...flown.indices)).toBe(MAX_INTENSITY_INDEX);
+    // Measured off the render rather than read out of a file: whatever the
+    // board did, the bus only ever sat on the top layer.
+    expect(flown.indices).toEqual([MAX_INTENSITY_INDEX]);
   });
 
-  it("an empty board never leaves index 0, so the index is not just counting frames", () => {
+  it("an empty board is the full stack too, and the HUD is still being read", () => {
     const flown = flyStage(Array.from({ length: 60 }, () => ({ live: 0, combo: 0 })));
+    // `hudSamples` is what proves the index is not simply ignoring the bus.
     expect(flown.hudSamples).toBe(60);
-    expect(flown.indices).toEqual([0]);
+    expect(flown.indices).toEqual([MAX_INTENSITY_INDEX]);
   });
 
   /**
@@ -1366,8 +1365,6 @@ describe("A-21.2: the music index follows live asteroids and combo", () => {
       for (let hold = 0; hold < 3; hold++) stream.push({ live, combo: live });
     }
     const flown = flyStage(stream);
-    expect(flown.indices.length).toBeGreaterThanOrEqual(2);
-
     const worst = largestStep(flown.samples);
     const ownStep = stepQuantile(flown.samples, 0.999);
     // Against the signal's own step distribution, as every click test here is.

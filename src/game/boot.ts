@@ -1081,9 +1081,11 @@ export async function bootGame(options: BootOptions = {}): Promise<Phaser.Game> 
   const startData = ((): Record<string, string> | undefined => {
     const scope = params.get("scope");
     const returnTo = params.get("returnTo");
+    const stopId = params.get("stopId");
     const data: Record<string, string> = {};
     if (scope !== null) data["scope"] = scope;
     if (returnTo !== null) data["returnTo"] = returnTo;
+    if (stopId !== null && isStopId(stopId)) data["stopId"] = stopId;
     return Object.keys(data).length > 0 ? data : undefined;
   })();
 

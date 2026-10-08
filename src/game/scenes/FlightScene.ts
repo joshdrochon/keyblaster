@@ -49,6 +49,14 @@ import {
 import { createAllowlist } from "@engine/allowlist/index.js";
 import { fallTimeIkiMs, fallTimeMs } from "@engine/fallTime/index.js";
 import {
+  hasHeat,
+  heatMultiplier,
+  heatOf,
+  heatStep,
+  isHotRock,
+  shouldWarnHot,
+} from "@engine/heat/index.js";
+import {
   type LockEmit,
   type LockEvent,
   type LockOptions,
@@ -129,6 +137,7 @@ import {
 } from "@game/flight/stage.js";
 import {
   CANISTER_HINT_KEY,
+  HOT_HINT_KEY,
   NESTED_HINT_KEY,
   hintLead,
   type FlightCopy,
@@ -164,6 +173,9 @@ import { shouldWarnNested } from "@engine/nested/index.js";
  * belt. Namespaced like `kb.audio`, which is the registry's other tenant.
  */
 const NESTED_HINT_REGISTRY_KEY = "kb.flight.nestedHintSaid";
+
+/** D110's once-per-run flag. Same reasoning as the nested one above. */
+const HOT_HINT_REGISTRY_KEY = "kb.flight.hotHintSaid";
 import { estimateSpeechMs } from "@game/audio/voice.js";
 import {
   SCORCH_CORE_H,
@@ -419,6 +431,12 @@ interface LiveRock {
   plate: WordPlate;
   /** Mutable for the same reason: the core is a smaller rock. */
   sizePx: number;
+  /** D110: which heat value this rock is currently drawn at. -1 until set. */
+  heatStep: number;
+  /** D110: this rock arrived hot. One in three at Mercury, false everywhere else. */
+  readonly hot: boolean;
+  /** The debris variant this rock was drawn with, so a redraw keeps its shape. */
+  readonly variantIndex: number;
   readonly debris: DebrisType;
   readonly isCanister: boolean;
   /**
@@ -523,6 +541,11 @@ export interface FlightDebugState {
   readonly canisterHintSaid: boolean;
   /** UR-148: has the two-layer warning been said on this RUN yet? */
   readonly nestedHintSaid: boolean;
+  /** D110: has Shadow named the hot rock on this RUN yet? */
+  readonly hotHintSaid: boolean;
+  /** D110: hot rocks on the board, and how many are still unresolved. */
+  readonly hotRocks: number;
+  readonly liveHotRocks: number;
   /** The gap the belt is currently holding between rocks, ms (@engine/pacing). */
   readonly spawnGapMs: number;
   /**
@@ -549,6 +572,9 @@ export interface FlightDebugState {
   readonly rocks: readonly {
     readonly id: string;
     readonly word: string;
+    /** D110: arrived hot, and the 0-255 heat it was last painted at. */
+    readonly hot: boolean;
+    readonly heatStep: number;
     readonly sizePx: number;
     readonly x: number;
     readonly y: number;
@@ -726,6 +752,8 @@ export class FlightScene extends Phaser.Scene {
   private stageComplete = false;
   private knobChanges = 0;
   private nextRockIndex = 0;
+  /** D110: counts only the rocks that CAN be hot, so one in three holds. */
+  private hotCycle = 0;
   private lastHudAtMs = 0;
   private skyPaintedAt = -1;
   private stallStartedAtMs: number | null = null;
@@ -847,6 +875,7 @@ export class FlightScene extends Phaser.Scene {
     this.calmTween = null;
     this.knobChanges = 0;
     this.nextRockIndex = 0;
+    this.hotCycle = 0;
     this.parked = null;
     this.retentionWords = new Set<string>();
     this.combo = INITIAL_COMBO_STATE;
@@ -1427,6 +1456,7 @@ export class FlightScene extends Phaser.Scene {
       this.aimEmitter();
       this.maybeHintCanister(time);
       this.maybeWarnNested(time);
+      this.maybeWarnHot(time);
       this.checkStageEnd();
     }
 
@@ -1479,11 +1509,34 @@ export class FlightScene extends Phaser.Scene {
    * AC-2.3's "the plate hangs level under a TUMBLING rock" could not be
    * measured, because the rock under test was not tumbling.
    */
+  /** How far down its fall a rock is, 0 at spawn and 1 at the ship. */
+  private fallProgressOf(rock: LiveRock): number {
+    if (!Number.isFinite(rock.fallMs) || rock.fallMs <= 0) return 1;
+    return (this.time.now - rock.spawnedAtMs) / rock.fallMs;
+  }
+
+  /** D110: repaint a hot rock whenever its heat moves a visible amount. */
+  private coolRock(rock: LiveRock, fallProgress: number): void {
+    if (!rock.hot) return;
+    const step = heatStep(heatOf(fallProgress));
+    if (step === rock.heatStep) return;
+    rock.heatStep = step;
+    drawDebris(rock.body, {
+      type: rock.debris,
+      variantIndex: rock.variantIndex,
+      sizePx: rock.sizePx,
+      lightAngle: -Math.PI / 4,
+      fillOverride: this.cfg.colorblindPalette ? this.palette.colorblind.debris : null,
+      heat: step / 255,
+    });
+  }
+
   private updateRocks(now: number, dtSeconds: number): void {
     for (const rock of [...this.rocks]) {
       if (rock.resolved) continue;
       const t = (now - rock.spawnedAtMs) / rock.fallMs;
       rock.container.y = rock.fromY + (rock.toY - rock.fromY) * t;
+      this.coolRock(rock, t);
       // `ROCK_DRIFT_PX`, not a literal 10: `@engine/spawn`'s plate keep-out
       // widens every band by twice this so two rocks cannot sway into each
       // other's word, and a sway the engine does not know about would be a
@@ -1594,6 +1647,38 @@ export class FlightScene extends Phaser.Scene {
     this.registry.set(NESTED_HINT_REGISTRY_KEY, true);
     audioFrom(this.registry)?.speak({
       id: NESTED_HINT_KEY,
+      text,
+      kind: "scripted",
+    });
+  }
+
+  /** D110. Once per run, when a hot rock is actually on the board. */
+  private maybeWarnHot(now: number): void {
+    const saidThisRun = this.registry.get(HOT_HINT_REGISTRY_KEY) === true;
+    if (saidThisRun) return;
+    if (!hasHeat(this.cfg.stopId)) return;
+
+    const rock = this.rocks.find((r) => !r.resolved && r.hot);
+    if (rock === undefined) return;
+
+    const text = this.copy.t(HOT_HINT_KEY);
+    const say = shouldWarnHot({
+      stopId: this.cfg.stopId,
+      saidThisRun,
+      leadMs: estimateSpeechMs(hintLead(text)),
+      hot: {
+        centreY: rock.container.y,
+        sizePx: rock.sizePx,
+        viewportHeight: this.scale.height,
+        msToBreach: rock.spawnedAtMs + rock.fallMs - now,
+      },
+    });
+    if (!say) return;
+
+    // Claimed before the bus call: a throw between the two would say it twice.
+    this.registry.set(HOT_HINT_REGISTRY_KEY, true);
+    audioFrom(this.registry)?.speak({
+      id: HOT_HINT_KEY,
       text,
       kind: "scripted",
     });
@@ -2121,6 +2206,12 @@ export class FlightScene extends Phaser.Scene {
     const id = `rock-${this.nextRockIndex}`;
     this.nextRockIndex += 1;
 
+    // D110. Canisters and shells have their own painters; `coolRock` repaints with
+    // `drawDebris`, so only plain rocks are eligible and only they advance the cycle.
+    const hotEligible = !isCanister && core === null;
+    const hot = hotEligible && isHotRock(this.cfg.stopId, this.hotCycle);
+    if (hotEligible) this.hotCycle += 1;
+
     const body = this.add.graphics();
     if (isCanister) {
       drawShieldCanister(body, {
@@ -2147,6 +2238,7 @@ export class FlightScene extends Phaser.Scene {
         sizePx,
         lightAngle: -Math.PI / 4,
         fillOverride: this.cfg.colorblindPalette ? this.palette.colorblind.debris : null,
+        heat: hot ? heatOf(0) : 0,
       });
     }
 
@@ -2166,6 +2258,9 @@ export class FlightScene extends Phaser.Scene {
     const rock: LiveRock = {
       id,
       word,
+      heatStep: -1,
+      hot,
+      variantIndex: this.nextRockIndex,
       container,
       body,
       plate,
@@ -2561,6 +2656,12 @@ export class FlightScene extends Phaser.Scene {
         [...word].length,
         this.combo.multiplier,
       );
+    }
+    // D110: a hot rock pays more. The heat is read from how far it had fallen
+    // at the instant it was blasted, so the bonus is what the player's timing
+    // earned rather than anything about the word.
+    if (rock !== undefined && rock.hot) {
+      points = Math.round(points * heatMultiplier(heatOf(this.fallProgressOf(rock))));
     }
     this.score += points;
     this.hits += 1;
@@ -3952,11 +4053,16 @@ export class FlightScene extends Phaser.Scene {
           knobChanges: this.knobChanges,
           canisterHintSaid: this.canisterHintSaid,
           nestedHintSaid: this.registry.get(NESTED_HINT_REGISTRY_KEY) === true,
+          hotHintSaid: this.registry.get(HOT_HINT_REGISTRY_KEY) === true,
+          hotRocks: this.rocks.filter((r) => r.hot).length,
+          liveHotRocks: this.rocks.filter((r) => r.hot && !r.resolved).length,
           spawnGapMs: this.lastSpawnGapMs,
           skyProgress: Math.max(0, this.skyPaintedAt),
           rocks: this.rocks.map((r) => ({
             id: r.id,
             word: r.word,
+            hot: r.hot,
+            heatStep: r.heatStep,
             sizePx: r.sizePx,
             x: r.container.x,
             y: r.container.y,

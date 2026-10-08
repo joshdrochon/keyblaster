@@ -1,4 +1,6 @@
+import { HINT_PAD } from "@game/ui/hintLine";
 import {
+  ACTION_PAIR,
   CONTENT_TOP,
   HINT_TOP,
   headerBlockBottom,
@@ -142,9 +144,13 @@ export const BOARD_MIN_H = 380;
  * only two of them were pressable. The hint is the same line every other screen
  * carries bottom-left; it needed a band of its own, and this is where that band
  * came from.
+ *
+ * DERIVED from the button row's own floor. At 900 against a floor of 908 the
+ * declared 44 px of air was really 8, so the row sat on the panel the moment
+ * the buttons took the shared 88 px height. It only became derivable once the
+ * trophy line was capped to one line - that block had no ceiling and ate the
+ * budget on its own.
  */
-export const PANEL_MAX_BOTTOM = 900;
-
 /**
  * The radius used when hiding the light source.
  *
@@ -158,9 +164,9 @@ export const SUN_R = 86;
 /** Slack around the disc, so the crisp lip on its edge is covered too. */
 export const SUN_CLEARANCE = 18;
 
-export const BUTTON_W = 420;
-export const BUTTON_H = 64;
-export const BUTTON_GAP_X = 40;
+export const BUTTON_W = ACTION_PAIR.w;
+export const BUTTON_H = ACTION_PAIR.h;
+export const BUTTON_GAP_X = ACTION_PAIR.gapX;
 /** Air between the bottom of the taller panel and the button row. */
 export const BUTTON_GAP_Y = 44;
 /**
@@ -182,7 +188,20 @@ export const BUTTON_Y_MIN = 740;
  * band to keep clear.
  */
 export const HINT_Y = HINT_TOP;
-export const BUTTON_Y_MAX = 908;
+/** Derived, so a taller button cannot walk into the hint band. */
+/**
+ * As low as the row may go: the hint's own ink, less the button.
+ *
+ * This screen's hint sits BELOW the buttons rather than beside them (see
+ * PANEL_MAX_BOTTOM) so the only thing it has to clear is that line. It was
+ * `HINT_TOP - BLOCK_GAP - BUTTON_H`, 40 px higher, which cost a full report 40
+ * px it does not have.
+ */
+export const BUTTON_Y_MAX = HINT_TOP + HINT_PAD.y - BUTTON_H;
+
+/** The button row's floor, minus the air declared above it. */
+export const PANEL_MAX_BOTTOM = BUTTON_Y_MAX - BUTTON_GAP_Y;
+
 
 /** Clear air between a panel edge and Shadow. */
 export const SHADOW_GAP = 24;

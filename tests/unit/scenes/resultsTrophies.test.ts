@@ -152,9 +152,11 @@ describe("stage report - the trophies section", () => {
   });
 
   it("holds even when every trophy in the catalogue lands at once", () => {
-    // Twelve names wrap to three lines at caption size in the panel's content
-    // width: heading 24 + 8 + 3 x 26 = 110.
-    const laid = lay([...FULL, { id: "trophies", height: 110 }]);
+    // TWELVE NAMES ARE STILL ONE LINE. They used to wrap to three (heading 24 +
+    // 8 + 3 x 26 = 110) and that block alone pushed a full report past the
+    // buttons; `ResultsScene.trophiesPiece` now drops names until the line fits
+    // and ends "and N more", so the block is the same height whatever lands.
+    const laid = lay([...FULL, TROPHY_BLOCK]);
     const blocks = laid.reportContent.filter((b) => b.height > 0);
     for (const b of blocks) {
       expect(

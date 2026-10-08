@@ -300,11 +300,19 @@ export function actionButton(width: number = DESIGN_WIDTH): Rect {
 /** The lowest edge of the forward action. Nothing may be drawn below it. */
 export const ACTION_BUTTON_BOTTOM = ACTION_BUTTON.y + ACTION_BUTTON.h;
 
+
 /** Vertical air between two stacked blocks. */
 export const BLOCK_GAP = 40;
 
 /** Horizontal air between two columns. */
 export const COLUMN_GAP = 40;
+
+/** Two forward actions side by side. Same size as a single one; position stays the screen's. */
+export const ACTION_PAIR = {
+  w: ACTION_BUTTON.w,
+  h: ACTION_BUTTON.h,
+  gapX: COLUMN_GAP,
+} as const;
 
 // ---------------------------------------------------------------------------
 // Derived, at call time

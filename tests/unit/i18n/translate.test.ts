@@ -24,6 +24,21 @@ const PARTIAL: Readonly<Record<Lang, StringTable>> = {
 
 const MISSING = "title.settings" as StringKey;
 
+/**
+ * The key the C07 binding tests drive, with `{shipName}` put back.
+ *
+ * SHIPPED COPY NO LONGER CARRIES IT (see the C07 test below), and a mechanism
+ * test that dies when a sentence is reworded was testing the sentence. These
+ * tables are the fixture; `createTranslator` takes them the same way it takes
+ * the real ones.
+ */
+const SHIP_KEY = "results.shipIntact" as StringKey;
+const SHIP_TABLES: Readonly<Record<Lang, StringTable>> = {
+  en: { ...EN, [SHIP_KEY]: "The {shipName} came through without a scratch." },
+  es: { ...ES, [SHIP_KEY]: "La {shipName} llegó sin un solo rasguño." },
+  hi: { ...HI, [SHIP_KEY]: "{shipName} पर एक खरोंच भी नहीं आई।" },
+};
+
 describe("string tables (FR-14, D45)", () => {
   it("es and hi cover every en key", () => {
     for (const key of STRING_KEYS) {
@@ -58,16 +73,19 @@ describe("string tables (FR-14, D45)", () => {
     }
   });
 
-  it("C07: the ship is referred to as {shipName} where it is named at all", () => {
-    // MOVED OFF `briefing.shipReady` (C27). That line now addresses the PILOT
-    // by name - "{pilotName}, our ship is fuelled and ready." - because the
-    // ship-name beat of profile creation is switched off
-    // (`support/createFlow.ENABLED_CREATE_STEPS`) while the pilot beat is on,
-    // so `{shipName}` there only ever rendered the default. `results.shipIntact`
-    // still carries it, and carries this claim with it.
-    expect(EN["results.shipIntact"]).toContain("{shipName}");
-    expect(ES["results.shipIntact"]).toContain("{shipName}");
-    expect(HI["results.shipIntact"]).toContain("{shipName}");
+  it("C07: a string that names the ship names it in every language", () => {
+    // NO SHIPPED STRING NAMES THE SHIP TODAY. `briefing.shipReady` moved to the
+    // pilot's name (C27) and `results.shipIntact` became "Your ship came
+    // through without a scratch." (owner, Oct 7) - nobody knew what the Lantern
+    // was. The CLAIM is that a ship is never named by a literal (the test above)
+    // and that `{shipName}` is all-or-nothing across the three tables, which is
+    // what re-arms this the moment a string carries it again. The binding
+    // machinery itself is exercised against SHIP_TABLES below.
+    for (const key of STRING_KEYS) {
+      const named = EN[key].includes("{shipName}");
+      expect(ES[key].includes("{shipName}"), `es/${key}`).toBe(named);
+      expect(HI[key].includes("{shipName}"), `hi/${key}`).toBe(named);
+    }
   });
 
   it("C27: the briefing addresses the pilot by the name they typed", () => {
@@ -143,7 +161,7 @@ describe("createTranslator", () => {
   });
 
   it("resolves Hindi and interpolates the ship name (C07)", () => {
-    const t = createTranslator({ lang: "hi", mode: "dev" });
+    const t = createTranslator({ lang: "hi", mode: "dev", tables: SHIP_TABLES });
     expect(t.t("results.shipIntact", { shipName: "दीप" })).toContain("दीप");
     expect(t.t("results.shipIntact", { shipName: "दीप" })).not.toContain("{");
   });
@@ -164,7 +182,7 @@ describe("createTranslator", () => {
 describe("C07: {shipName} is bound once, not at every call site", () => {
   /** How the app builds a translator: the profile's ship name, bound once. */
   const forProfile = (shipName: string, lang: Lang = "en") =>
-    createTranslator({ lang, mode: "dev", defaults: { shipName } });
+    createTranslator({ lang, mode: "dev", tables: SHIP_TABLES, defaults: { shipName } });
 
   it("C07: every key that names the ship renders with no placeholder left", () => {
     // The critic's point: nothing asserted any caller supplies {shipName}.
@@ -213,7 +231,7 @@ describe("C07: {shipName} is bound once, not at every call site", () => {
 
   it("defaults apply to the English fallback path too", () => {
     const partial: Readonly<Record<Lang, StringTable>> = {
-      en: EN,
+      en: SHIP_TABLES.en,
       es: {},
       hi: {},
     };
@@ -289,13 +307,17 @@ describe("missing-key policy (FR-14)", () => {
   });
 
   it("prod leaves an unsupplied placeholder readable, not 'undefined'", () => {
-    const t = createTranslator({ lang: "en", mode: "prod" });
+    const t = createTranslator({ lang: "en", mode: "prod", tables: SHIP_TABLES });
     expect(t.t("results.shipIntact")).toContain("{shipName}");
     expect(t.t("results.shipIntact")).not.toContain("undefined");
   });
 
   it("the English fallback is still interpolated", () => {
-    const t = createTranslator({ lang: "es", mode: "prod", tables: PARTIAL });
+    const t = createTranslator({
+      lang: "es",
+      mode: "prod",
+      tables: { en: SHIP_TABLES.en, es: PARTIAL.es, hi: PARTIAL.hi },
+    });
     expect(t.t("results.shipIntact", { shipName: "Lantern" })).toBe(
       "The Lantern came through without a scratch.",
     );

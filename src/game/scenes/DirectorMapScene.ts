@@ -883,6 +883,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       },
       hexToNum(INK.accent),
       node.locked ? 0.55 : 0.95,
+      SPACE.focusRingWidth,
     );
     // THE GLOW IS THE SELECTION GOLD, NOT THE STOP'S ACCENT (UR-92).
     //
@@ -1511,6 +1512,7 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
 
     this.panelTitle.setText(this.stopName(stop));
     this.panelChapter.setText(bundle?.chapterTitle ?? "");
+    this.panelChapter.setColor(locked ? INK.textDim : paletteAt(stop, this.story.ctx.colorblindPalette).accent);
 
     // Earth has no flight, so it has no WPM and no accuracy to be best at.
     //

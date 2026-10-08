@@ -154,6 +154,8 @@ const LANE_EN = {
   "results.trophiesHeading": "Trophies Earned",
   /** The names themselves come from `ui/catalog.TROPHIES` via `ui/strings`. */
   "results.trophiesList": "{names}",
+  /** Capped to one line; the full set is on the trophies screen. */
+  "results.trophiesMore": "{names} and {count} more",
   "results.personalBest": "Your best here: {wpm} wpm",
   "results.newPersonalBest": "That is your best run here.",
   "results.replay": "Fly It Again",
@@ -228,6 +230,7 @@ const LANE_ES: Partial<Record<LaneStringKey, string>> = {
   "results.retentionPlain": "volvieron {count}. {percent}% a la primera.",
   "results.trophiesHeading": "Trofeos conseguidos",
   "results.trophiesList": "{names}",
+  "results.trophiesMore": "{names} y {count} más",
   "results.personalBest": "tu mejor marca aquí: {wpm} ppm",
   "results.newPersonalBest": "es tu mejor vuelo aquí.",
   "results.replay": "volar otra vez",

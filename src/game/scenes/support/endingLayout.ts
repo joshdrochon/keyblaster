@@ -105,10 +105,14 @@ export interface EndingLayout {
 
 // The single column of margins the whole card is built from.
 const MARGIN = 120;
-const HEADLINE_TOP = 72;
+/** The band's top edge. The headline used to float above this on bare sky. */
+const HEADLINE_TOP = 96;
 const HEADLINE_PAD_Y = 14;
-const BAND_GAP = 78;
 const BAND_INSET = SPACE.gutter;
+/** Inside the band: the title's own inset, and the air under it. */
+const BAND_PAD_X = 48;
+const BAND_PAD_Y = 36;
+const TITLE_GAP = 30;
 const RAIL_INSET = 150;
 const RAIL_TOP_PAD = 84;
 const LABEL_GAP = 44;
@@ -281,25 +285,25 @@ export function endingLayout(input: EndingLayoutInput): EndingLayout {
   const width = input.width ?? ENDING_STAGE.width;
   const height = input.height ?? ENDING_STAGE.height;
 
-  const headlineH =
-    Math.round(input.headlineSize * input.lineHeightEm) + HEADLINE_PAD_Y * 2;
-  const headline: Rect = {
-    x: MARGIN,
-    y: HEADLINE_TOP,
-    w: width - MARGIN * 2,
-    h: headlineH,
-  };
+  const titleH = Math.round(input.headlineSize * input.lineHeightEm);
+  const titleRowH = BAND_PAD_Y + titleH + TITLE_GAP;
 
   const labelH = Math.round(input.labelSize * input.lineHeightEm);
-  const bandH = RAIL_TOP_PAD + LABEL_GAP + labelH + BAND_BOTTOM_PAD;
+  const bandH = titleRowH + RAIL_TOP_PAD + LABEL_GAP + labelH + BAND_BOTTOM_PAD;
   const routeBand: Rect = {
     x: BAND_INSET,
-    y: headline.y + headline.h + BAND_GAP,
+    y: HEADLINE_TOP,
     w: width - BAND_INSET * 2,
     h: bandH,
   };
+  const headline: Rect = {
+    x: routeBand.x + BAND_PAD_X,
+    y: routeBand.y + BAND_PAD_Y,
+    w: routeBand.w - BAND_PAD_X * 2,
+    h: titleH,
+  };
 
-  const railY = routeBand.y + RAIL_TOP_PAD;
+  const railY = routeBand.y + titleRowH + RAIL_TOP_PAD;
   const from = routeBand.x + RAIL_INSET;
   const to = routeBand.x + routeBand.w - RAIL_INSET;
   const stops = Math.max(1, Math.trunc(input.stopCount));
@@ -350,7 +354,7 @@ export function endingLayout(input: EndingLayoutInput): EndingLayout {
 
   return {
     headline,
-    headlineAnchor: { x: Math.round(width / 2), y: headline.y + HEADLINE_PAD_Y },
+    headlineAnchor: { x: headline.x, y: headline.y },
     routeBand,
     rail: { y: railY, from: lampX[0] ?? from, to: lampX[lampX.length - 1] ?? to },
     lampX,
@@ -473,7 +477,7 @@ export function endingTextSamples(): TextSample[] {
 
 /** The type sizes the card uses, so the scene and the tests agree on them. */
 export const ENDING_TYPE = {
-  heading: TYPE.display,
+  heading: TYPE.heading,
   stopName: TYPE.caption,
   /** `speechCardRows`' first row is a caption; this has to agree with it. */
   speaker: TYPE.caption,

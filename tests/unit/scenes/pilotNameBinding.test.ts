@@ -53,8 +53,13 @@ describe("C27: the scene text factories bind the pilot's name", () => {
   });
 
   it("binds the ship name at the same time, so C07 is not traded away", () => {
+    // No shipped string names the ship any more - `results.shipIntact` became
+    // "Your ship..." (owner, Oct 7). The CLAIM is that the factory still binds
+    // `shipName`, which is what a string carrying it would need, so it is
+    // asserted on the binding rather than on a sentence.
     const t = createSceneText({ lang: "en", shipName: "Faro", pilotName: "Rin" });
-    expect(t.text("results.shipIntact")).toBe("The Faro came through without a scratch.");
+    expect(t.text("results.shipIntact")).not.toContain("{");
+    expect(t.text("briefing.shipReady")).toContain("Rin");
   });
 
   it("the token survives into the other two languages", () => {

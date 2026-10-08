@@ -6,8 +6,10 @@ import { FLIGHT_EVENTS, type Palette, paletteFor } from "@game/flight/stage.js";
 import { type FlightCopy, createFlightCopy } from "@game/flight/copy.js";
 import type { Lang, StopId } from "@engine/types.js";
 import { HIT_ZONE_PREFIX } from "@game/ui/focus.js";
+import { COLUMN_GAP } from "@game/ui/grid.js";
 import { INK } from "@game/ui/theme.js";
 import { chrome, label } from "./lib/kit.js";
+import { audioFrom } from "@game/audio/wiring.js";
 import { paintFocusRing, paintPlate } from "@game/ui/plate.js";
 import { focusArrive, focusPulse } from "@game/ui/focusPop.js";
 
@@ -92,6 +94,15 @@ export class StallScene extends Phaser.Scene {
 
     this.scene.bringToTop();
 
+    // The belt has stopped and Shadow is talking to the child, so the world
+    // drops behind him - the same duck the pause menu takes, released when this
+    // screen goes. Null is a supported answer: `?scene=Stall` and the capture
+    // harness have no audio service.
+    audioFrom(this.registry)?.setPauseDuck(true);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      audioFrom(this.registry)?.setPauseDuck(false);
+    });
+
     // A calm dim over the stalled frame, not a curtain: the belt stays visible.
     const veil = this.add.graphics();
     veil.fillStyle(hexToInt(this.palette.plate), 0.62);
@@ -168,7 +179,8 @@ export class StallScene extends Phaser.Scene {
     // fly the belt again had nowhere to go but the browser's back button.
     const buttonW = 300;
     const buttonH = 64;
-    const buttonGap = 20;
+    // 88 tall would leave 16 px under the pair inside a 396-tall card.
+    const buttonGap = COLUMN_GAP;
     const pairW = buttonW * 2 + buttonGap;
     const buttonX = cardX + cardW / 2 - pairW / 2;
     const buttonY = cardY + cardH - 104;

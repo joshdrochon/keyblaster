@@ -36,6 +36,8 @@ export type FlightStringKey =
    * gated on the rock's fall.
    */
   | "flight.nestedHint"
+  /** D110. Once per run, the first time a hot rock is on screen. Spoken, so D98 applies. */
+  | "flight.hotHint"
   | "hud.wpm"
   | "hud.combo"
   | "hud.score"
@@ -47,6 +49,7 @@ export type FlightStringKey =
 /** Clip ids == table keys, so a scene cannot spell one differently (D98). */
 export const CANISTER_HINT_KEY = "flight.canisterHint";
 export const NESTED_HINT_KEY = "flight.nestedHint";
+export const HOT_HINT_KEY = "flight.hotHint";
 
 /**
  * The clause that NAMES the rock - the first sentence of a hint. The rest is
@@ -64,6 +67,7 @@ type LocalTable = Readonly<Partial<Record<FlightStringKey, string>>>;
 const LOCAL_EN: LocalTable = {
   "flight.canisterHint": "Blast the gold ring! It fixes our shield.", // i18n-ignore: string table
   "flight.nestedHint": "That rock has two layers! Blast it, then type the word inside.", // i18n-ignore: string table
+  "flight.hotHint": "The red rocks are hot! Blast them while they glow and they score more.", // i18n-ignore: string table
   "hud.wpm": "wpm", // i18n-ignore: string table
   "hud.combo": "combo", // i18n-ignore: string table
   "hud.score": "score", // i18n-ignore: string table

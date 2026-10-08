@@ -136,10 +136,30 @@ function coordsRowH(coordsLines: number): number {
   return lineBox(TYPE.heading, coordsLines);
 }
 
+/**
+ * THE TITLE, INSIDE THE CARD.
+ *
+ * It used to be a `skyText` plate in the top-left corner with a second plate
+ * under it carrying "Beacon placed at <stop>." - two dark slabs free of
+ * anything else on the screen, and then the card at the foot. On the card the
+ * title needs no plate of its own, the way the Stage Report's does not.
+ *
+ * AND THE STATUS LINE IS GONE. Stacked in the card it was plainly the same fact
+ * three times in a row - "Mars Beacon", "Beacon placed at Mars.", and Shadow
+ * saying "Mars beacon lit" directly under it. The middle one said least and
+ * said it twice. `state` is still computed and still reaches the DOM mirror, so
+ * the e2e and a screen reader keep the machine-readable status (UR-83).
+ */
+function titleRowH(): number {
+  return lineBox(TYPE.heading);
+}
+
 /** The card's height, DERIVED from what is in it. */
 export function cardHeight(flavourLines = 1, coordsLines = 1): number {
   const r = PLATE_RHYTHM.card;
-  return r.padY * 2 + coordsRowH(coordsLines) + r.gap + coachBandH(flavourLines);
+  return (
+    r.padY * 2 + titleRowH() + r.gap + coordsRowH(coordsLines) + r.gap + coachBandH(flavourLines)
+  );
 }
 
 /**
@@ -169,7 +189,7 @@ export function coachBand(flavourLines = 1, coordsLines = 1): Rect {
   const h = coachBandH(flavourLines);
   return {
     x: c.x,
-    y: c.y + r.padY + coordsRowH(coordsLines) + r.gap,
+    y: c.y + r.padY + titleRowH() + r.gap + coordsRowH(coordsLines) + r.gap,
     w: c.w,
     h,
   };
@@ -206,7 +226,7 @@ export function shadowBox(flavourLines = 1, coordsLines = 1): Rect {
 
 /** A named section of the card, in reading order. */
 export interface BeaconRow {
-  readonly id: "coords" | "speaker" | "flavour";
+  readonly id: "title" | "coords" | "speaker" | "flavour";
   readonly rect: Rect;
 }
 
@@ -222,9 +242,15 @@ export function rows(flavourLines = 1, coordsLines = 1): readonly BeaconRow[] {
   const band = coachBand(flavourLines, coordsLines);
   const r = PLATE_RHYTHM.card;
 
-  const coords: Rect = {
+  const title: Rect = {
     x: c.x + r.padX,
     y: c.y + r.padY,
+    w: c.w - r.padX * 2,
+    h: lineBox(TYPE.heading),
+  };
+  const coords: Rect = {
+    x: c.x + r.padX,
+    y: c.y + r.padY + titleRowH() + r.gap,
     w: c.w - r.padX * 2,
     h: coordsRowH(coordsLines),
   };
@@ -237,6 +263,7 @@ export function rows(flavourLines = 1, coordsLines = 1): readonly BeaconRow[] {
   const top = band.y + (band.h - stack) / 2;
 
   return [
+    { id: "title", rect: title },
     { id: "coords", rect: coords },
     { id: "speaker", rect: { x: textX, y: top, w: textW, h: speakerH } },
     {
@@ -271,7 +298,56 @@ export function coordsWrapWidth(): number {
 export const MAST_GROUND_Y = 500;
 
 /** Where the mast is drawn, horizontally. */
-export const MAST_X = 1420;
+/**
+ * How long the halo takes to come up before it starts breathing - and so how
+ * long after the glow the bell lands, since the tone fires on the pulse's first
+ * frame.
+ *
+ * IT WAS 900, matched to the `beacon` cue's own glide, and that is what the
+ * owner heard as about half a second too late: measured, the bell came 933 ms
+ * behind the light appearing. The rise does not need to cover the whole glide -
+ * the tone is still climbing while the lamp is already breathing, which is the
+ * right order - it only needs to be short enough that the two read as one
+ * event.
+ */
+export const BEACON_RISE_MS = 400;
+/** Stillness after the screen arrives, before the beacon comes up at all. */
+export const BEACON_HOLD_MS = 1000;
+/**
+ * HOW LONG THE BELL IS ACTUALLY AUDIBLE - not how long its envelope is declared
+ * for. `sfx.ts` declares the three `beacon` variants at 900, 1000 and 820 ms,
+ * but a declared duration is the envelope, and the tail is inaudible long
+ * before it ends. Rendered offline at 48 kHz and measured to -34 dB from peak:
+ * 457, 506 and 414 ms. Shadow waits for the longest, so he never speaks over
+ * any variant AC-21.3's rotation picks.
+ */
+export const BEACON_TONE_MS = 506;
+/** The quiet between the tone finishing and Shadow starting. */
+export const BEACON_SPEECH_GAP_MS = 250;
+/** When Shadow speaks, measured from the frame the bell fires. */
+export const BEACON_SPEECH_DELAY_MS = BEACON_TONE_MS + BEACON_SPEECH_GAP_MS;
+/** The foot of the icon's base, in its own container space. */
+export const BEACON_BASE_Y = 80;
+/** The halo's radius, which is what decides the icon's margin. */
+export const BEACON_HALO_R = 70;
+/**
+ * The icon's centre, in from the card's right edge.
+ *
+ * ITS OWN RADIUS PLUS THE CARD'S PADDING, not a number picked to look right:
+ * the halo is the widest thing drawn, so clearing the edge by `card.padX` means
+ * measuring from the halo and not from the mast. It was 120, which left the
+ * glow 50 px off the edge - inside the padding every other row on this card
+ * respects.
+ */
+export const BEACON_ICON_INSET = PLATE_RHYTHM.card.padX + BEACON_HALO_R;
+/** How far in from the card's right edge the mast stands. */
+export const MAST_INSET = 180;
+/**
+ * PINNED TO THE CARD'S RIGHT, not to a number of its own. It was 1420, which
+ * sat inside the card's span but short of its edge, so the mast floated in the
+ * middle-right of the frame with no relationship to anything drawn.
+ */
+export const MAST_X = GUTTER + CARD_W - MAST_INSET;
 
 /**
  * The lamp, its halo and the tower as one rectangle - the object nothing may

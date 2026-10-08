@@ -56,8 +56,11 @@ const layout = (closingLine = LINE, stopCount = 7) =>
 
 describe("the ending card's blocks never collide", () => {
   it("keeps every pair of blocks apart", () => {
-    const blocks = endingBlocks(layout());
-    expect(blocks.length).toBeGreaterThanOrEqual(4);
+    // THE HEADLINE IS NOW INSIDE THE CARD (owner, Oct 7), the way the stage
+    // report's title sits in its panel, so it is checked for CONTAINMENT below
+    // rather than for separation here.
+    const blocks = endingBlocks(layout()).filter((b) => b.id !== "headline");
+    expect(blocks.length).toBeGreaterThanOrEqual(3);
     for (let i = 0; i < blocks.length; i += 1) {
       for (let j = i + 1; j < blocks.length; j += 1) {
         const a = blocks[i]!;
@@ -70,11 +73,18 @@ describe("the ending card's blocks never collide", () => {
     }
   });
 
-  it("moves the route band off the headline and off the closing panel", () => {
+  it("puts the headline inside the card, and the card off the closing panel", () => {
     const l = layout();
-    expect(l.routeBand.y).toBeGreaterThan(l.headline.y + l.headline.h);
+    const h = l.headline;
+    const band = l.routeBand;
+    expect(h.x).toBeGreaterThanOrEqual(band.x);
+    expect(h.y).toBeGreaterThanOrEqual(band.y);
+    expect(h.x + h.w).toBeLessThanOrEqual(band.x + band.w);
+    expect(h.y + h.h).toBeLessThanOrEqual(band.y + band.h);
+    // The title row has to leave the rail room under it, not just fit.
+    expect(l.rail.y).toBeGreaterThan(h.y + h.h);
     expect(l.panel).not.toBeNull();
-    expect(l.routeBand.y + l.routeBand.h).toBeLessThan(l.panel!.y);
+    expect(band.y + band.h).toBeLessThan(l.panel!.y);
   });
 
   it("keeps every block inside the 1920x1080 design space", () => {

@@ -736,6 +736,25 @@ export function wordRockFill(type: DebrisType, fillOverride?: string | null): st
 }
 
 /**
+ * D110. Hot stone. It was "#E8C9A0", a warm cream, which honoured AC-27.3's
+ * "lit regolith rather than red-hot" and which the owner could not see. Red at
+ * the owner's call - still a surface colour and not emissive, so no rock is
+ * painted as a light source, but the AC's wording is amended rather than met.
+ */
+export const HEAT_TINT = "#E8773A";
+
+/**
+ * Applied AFTER `wordRockFill`, never as its override: that re-targets whatever
+ * it is handed to a luma clearing the sky (UR-47), so a hot colour passed in
+ * would be flattened straight back. Lifting the derived body keeps the
+ * separation underneath and only moves away from the sky.
+ */
+export function heatedFill(bodyFill: string, heat: number): string {
+  if (!Number.isFinite(heat) || heat <= 0) return bodyFill;
+  return mixHex(bodyFill, HEAT_TINT, Math.min(1, heat));
+}
+
+/**
  * The facet tone for a body drawn at `bodyFill`: art-direction's darker half.
  *
  * The facet takes the GENTLER of two drops - a flat `FACET_VALUE_STEP` and a
@@ -766,6 +785,8 @@ export interface DebrisDrawOptions {
   readonly lightAngle: number;
   /** D41 colourblind palette: the fill is overridden, the 2-tone rule is not. */
   readonly fillOverride?: string | null;
+  /** D110: 1 at spawn, 0 by the time it reaches the ship. Mercury only. */
+  readonly heat?: number;
 }
 
 /** Variant index wrapped into range, so a caller can pass any integer. */
@@ -856,7 +877,7 @@ export function drawDebris(
 
   // UR-47: the body is the material moved to a value that clears the sky this
   // rock falls through, not the material itself. See `wordRockFill`.
-  const body = wordRockFill(type, options.fillOverride);
+  const body = heatedFill(wordRockFill(type, options.fillOverride), options.heat ?? 0);
   g.fillStyle(hexToInt(body), 1);
   g.fillPoints(points as Phaser.Types.Math.Vector2Like[], true, true);
 

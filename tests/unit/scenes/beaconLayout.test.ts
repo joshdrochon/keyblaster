@@ -9,7 +9,8 @@ import {
   CARD_W,
   button,
   card,
-  mastBounds,
+  BEACON_HALO_R,
+  BEACON_ICON_INSET,
   rows,
   shadowBox,
   shadowOrigin,
@@ -62,14 +63,17 @@ describe("Beacon placement - the card", () => {
     }
   });
 
-  it("never covers the beacon mast above it", () => {
+  it("holds the beacon icon inside it, clear of the card's own edges", () => {
+    // IT USED TO ASSERT THE OPPOSITE. The beacon was a 560 px mast standing on
+    // the planet's limb out in the world, and the card's job was to stay off
+    // it. The owner asked for an icon in the card instead, beside Shadow, so
+    // the claim inverts: the icon is INSIDE, and what must not happen is it
+    // reaching an edge.
     for (const lines of LINE_COUNTS) {
       const c = card(lines);
-      const mast = mastBounds();
-      expect(
-        rectsOverlap(c, mast),
-        `lines=${lines}\n  card ${show(c)}\n  mast ${show(mast)}`,
-      ).toBe(false);
+      const cx = c.x + c.w - BEACON_ICON_INSET;
+      expect(cx - BEACON_HALO_R, `lines=${lines}: halo crosses the left`).toBeGreaterThan(c.x);
+      expect(cx + BEACON_HALO_R, `lines=${lines}: halo crosses the right`).toBeLessThan(c.x + c.w);
     }
   });
 
@@ -89,7 +93,9 @@ describe("Beacon placement - the card", () => {
 describe("Beacon placement - the sections inside it", () => {
   it("holds exactly the coordinate row, the speaker and the line - no pulsar fix", () => {
     const ids = rows().map((r) => r.id);
-    expect(ids, `rows: ${ids.join(", ")}`).toEqual(["coords", "speaker", "flavour"]);
+    // `title` leads the card now: the screen's heading and its stop used to be
+    // two skyText plates stacked on the sky above it.
+    expect(ids, `rows: ${ids.join(", ")}`).toEqual(["title", "coords", "speaker", "flavour"]);
   });
 
   it("never overlaps one section with another", () => {

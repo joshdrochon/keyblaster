@@ -7,7 +7,13 @@ import { headerText } from "@game/ui/grid";
 import {
   SHADOW_SCALE,
   button as actionRect,
+  BEACON_BASE_Y,
+  BEACON_ICON_INSET,
+  BEACON_HOLD_MS,
+  BEACON_RISE_MS,
+  BEACON_SPEECH_DELAY_MS,
   card,
+  coachBand,
   coordsWrapWidth,
   flavourWrapWidth,
   MAST_GROUND_Y,
@@ -18,6 +24,7 @@ import {
 import { layer } from "@game/render/layers";
 import { buildParallax, EASE, type Parallax } from "@game/render/parallax";
 import { hexToNum } from "@game/render/palette";
+import { contrastRatio, mixToward } from "@game/render/wordPlateGeometry";
 import { drawShadow, type ShadowFigure } from "@game/render/shadow";
 import { DUR, INK, TYPE } from "@game/ui/theme";
 import { hasStageBundle, stageBundle } from "./lib/content";
@@ -89,6 +96,17 @@ export interface BeaconInit extends StoryInit {
   readonly payload?: Record<string, unknown>;
 }
 
+
+const SHAFT_MIN_CONTRAST = 1.35;
+
+function shaftInk(deep: string, accent: string): string {
+  let ink = deep;
+  for (let step = 0; step <= 20 && contrastRatio(INK.panel, ink) < SHAFT_MIN_CONTRAST; step += 1) {
+    ink = mixToward(deep, accent, step * 0.05);
+  }
+  return ink;
+}
+
 export class BeaconScene extends Phaser.Scene {
   private lane!: LaneInit;
   private initData: BeaconInit | undefined;
@@ -149,7 +167,9 @@ export class BeaconScene extends Phaser.Scene {
     this.readout = beaconReadout(this.stopId, this.playDate());
 
     const hud = this.parallax.layerOf("hud").container;
-    this.drawPlanetLimb();
+    // PROTOTYPE: the planet's limb is off. The mast now stands against sky
+    // rather than on a surface - see `drawPlanetLimb`, still here and unused.
+    // this.drawPlanetLimb();
     hud.add(this.buildHeader());
     hud.add(this.buildReadout());
     this.buildBeacon();
@@ -309,50 +329,10 @@ export class BeaconScene extends Phaser.Scene {
    * to 60% is a plate doing 60% of its job. Hierarchy is size, not opacity.
    */
   private buildHeader(): Phaser.GameObjects.GameObject[] {
-    const { headline, state } = this.headline();
-    const made: Phaser.GameObjects.GameObject[] = [];
-    // `objects` is plate-then-text: these go into a Container, which renders in
-    // list order and ignores depth.
-    const push = (p: PlatedText) => made.push(...p.objects);
-
-    push(
-      skyText(this, headerText(0, undefined, 14).x, headerText(0, undefined, 14).y, headline, {
-        screen: "beacon",
-        id: "beacon.headline",
-        size: TYPE.heading,
-        color: INK.text,
-        lang: this.lane.lang,
-        depth: 10,
-        padY: 14,
-      }),
-    );
-    // ONE STATUS LINE, NOT TWO (UR-83). The header used to carry a bare state
-    // word - "placed" - on its own plate, and then a full sentence under it
-    // that said the same thing with the stop's name in it. Two plates for one
-    // fact, and the shorter one is the one that says less.
-    //
-    // The sentence takes the state's GOLD, because the gold was never about
-    // that word: it is what this screen is announcing. `state` is still
-    // computed above and still reaches the DOM mirror, so a screen reader and
-    // the e2e both keep the machine-readable status they had.
-    push(
-      skyText(
-        this,
-        headerText(1, undefined, 10).x,
-        headerText(1, undefined, 10).y,
-        this.lane.copy.text("beacon.placed", { stop: this.lane.copy.stopName(this.stopId) }),
-        {
-          screen: "beacon",
-          id: "beacon.placed",
-          size: TYPE.body,
-          color: INK.accent,
-          lang: this.lane.lang,
-          depth: 10,
-          padY: 10,
-        },
-      ),
-    );
-    return made;
+    // The title and its status line live in the card now - see `titleRowH` in
+    // support/beaconLayout. `state` is still computed for the DOM mirror.
+    this.headline();
+    return [];
   }
 
   /**
@@ -423,7 +403,7 @@ export class BeaconScene extends Phaser.Scene {
     this.flavourLines = Math.max(1, this.flavourLabel.getWrappedText().length);
 
     const box = card(this.flavourLines, this.coordsLines);
-    const [coordsRow, speakerRow, flavourRow] = cardRows(
+    const [titleRow, coordsRow, speakerRow, flavourRow] = cardRows(
       this.flavourLines,
       this.coordsLines,
     ).map((r) => r.rect);
@@ -438,6 +418,18 @@ export class BeaconScene extends Phaser.Scene {
       }),
     );
 
+    const { headline } = this.headline();
+    made.push(
+      // THE STOP'S OWN ACCENT, like the Stage Report's title. It is per-stop,
+      // so this is Mars' orange here and Venus' gold at Venus - one line, every
+      // planet. On the card it is reading against INK.panel, not against the
+      // sky, which is what the two plates used to buy.
+      label(this, (titleRow ?? box).x, (titleRow ?? box).y, headline, {
+        size: TYPE.heading,
+        color: pal.accent,
+        lang: this.lane.lang,
+      }),
+    );
     this.coordsLabel.setPosition(
       (coordsRow ?? box).x,
       (coordsRow ?? box).y,
@@ -463,45 +455,85 @@ export class BeaconScene extends Phaser.Scene {
   }
 
   /** The beacon: a mast, a lamp, and a halo that comes up when it lights. */
+  /**
+   * THE BEACON AS A SIGNAL, INSIDE THE CARD.
+   *
+   * It used to be a 560 px tower standing on the planet's limb out in the
+   * world, arriving with a drop and a scale pop. The owner asked for an icon
+   * instead, placed in the card's empty right-hand region beside Shadow -
+   * which is also the only part of this screen that was carrying nothing.
+   *
+   * THE PULSE STARTS WITH THE SOUND. `light()` plays AC-21.3's bell and starts
+   * the halo in the same call, so the lamp begins breathing on the frame the
+   * tone lands rather than on a timer of its own.
+   */
   private buildBeacon(): void {
     const pal = this.lane.palette;
     const accent = hexToNum(pal.accent);
-    const deep = hexToNum(pal.colors[pal.colors.length - 1] ?? "#0E1116");
-    const groundY = MAST_GROUND_Y;
-    const c = this.add.container(MAST_X, groundY - 560);
+    // The shaft is the palette's deepest colour, which was chosen to stand
+    // against the stop's SKY. On the card it stands against INK.panel instead,
+    // and measured, seven of ten stops fell under 1.1:1 - Venus 1.01, Earth
+    // 1.00, invisible rather than dim. So it is walked toward its own accent
+    // until it clears the bar Mars already read at, which keeps each stop's hue
+    // and fixes the ones that were lost.
+    const deep = hexToNum(shaftInk(pal.colors[pal.colors.length - 1] ?? "#0E1116", pal.accent));
 
+    // ON SHADOW'S LINE. The icon sits at the height of what he is saying, so
+    // the two things in the band - the one speaking and the thing he is
+    // speaking about - share a baseline rather than one floating above the
+    // other. It overhangs that row top and bottom, which is why it is not
+    // CONSTRAINED to it: the card's right column is empty full-height, the
+    // coords row and his text both stopping well short of it.
+    const box = card(this.flavourLines, this.coordsLines);
+    const cx = box.x + box.w - BEACON_ICON_INSET;
+    // THE FOOT OF THE BASE SITS ON THE BOTTOM OF HIS LINE, MEASURED OFF THE
+    // TEXT AND NOT OFF ITS ROW. The flavour row's rect is 13 px taller than the
+    // glyphs rendered inside it - a line box carries descent the letters do not
+    // reach - so aligning to the rect put the base 13 px below the text it was
+    // supposed to stand on. `flavourLabel` is already built and positioned by
+    // `buildReadout`, which runs first, so this asks the object itself.
+    const cy = this.flavourLabel.getBounds().bottom - BEACON_BASE_Y;
+
+    const c = this.add.container(cx, cy);
     const g = this.add.graphics();
+    // A short mast and a lamp, at icon scale - the same silhouette the map's
+    // charted stops use, so the thing that means "beacon" looks the same in
+    // both places.
     g.fillStyle(deep, 1);
-    g.fillRoundedRect(-14, -58, 28, 152, 10);
-    g.fillTriangle(-48, 98, 48, 98, 0, 56);
+    g.fillRoundedRect(-9, -10, 18, 84, 6);
+    g.fillTriangle(-30, 80, 30, 80, 0, 54);
     g.fillStyle(accent, 1);
-    g.fillCircle(0, -80, 22);
+    g.fillCircle(0, -26, 13);
     g.fillStyle(accent, 0.22);
-    g.fillCircle(0, -80, 48);
+    g.fillCircle(0, -26, 27);
     c.add(g);
 
     const halo = this.add.graphics();
     halo.fillStyle(accent, 0.15);
-    halo.fillCircle(0, -80, 140);
+    halo.fillCircle(0, -26, 70);
     halo.setAlpha(0);
     c.add(halo);
 
     this.mast = c;
-    this.parallax.layerOf("shipFx").container.add(c);
+    this.parallax.layerOf("hud").container.add(c);
 
-    const light = (): void => {
-      this.lit = true;
-      // AC-21.3 `beacon`: a clear bell, the reward tone of the whole game, on
-      // the frame the lamp comes up rather than when the scene opens.
-      audioFrom(this.registry)?.play("beacon", "beacon-scene:lit");
-      this.narrateBeacon();
-      if (this.lane.reducedMotion) {
-        halo.setAlpha(1);
-        return;
-      }
+    /**
+     * THE LIGHT COMES UP WITH THE TONE, THEN BREATHES.
+     *
+     * It used to snap: `setAlpha(0)` and then a tween starting `from: 0.4`, so
+     * the halo jumped to 0.4 in one frame and yo-yoed from there. There was no
+     * rise for the sound to land against - the lamp was simply on, and the bell
+     * fired at the same instant by coincidence rather than by arrangement.
+     *
+     * `beacon` is a 900 ms glide from 660 to 990 Hz (sfx.ts) - the charge the
+     * owner is hearing - so the halo now rises over exactly that, from nothing,
+     * and only starts its pulse once the tone has finished climbing. One event,
+     * one envelope, in both senses.
+     */
+    const pulse = (): void => {
       this.tweens.add({
         targets: halo,
-        alpha: { from: 0.4, to: 1 },
+        alpha: { from: 1, to: 0.45 },
         duration: 1600,
         yoyo: true,
         repeat: -1,
@@ -509,26 +541,46 @@ export class BeaconScene extends Phaser.Scene {
       });
     };
 
-    if (this.lane.reducedMotion) {
-      c.y = groundY;
-      light();
-      return;
-    }
-    this.tweens.add({
-      targets: c,
-      y: groundY,
-      duration: 900,
-      ease: EASE.arrive,
-      onComplete: () => {
-        this.tweens.add({
-          targets: c,
-          scale: { from: 0.94, to: 1 },
-          duration: 320,
-          ease: EASE.pop,
-          onComplete: light,
-        });
-      },
-    });
+    const light = (): void => {
+      this.lit = true;
+      // THE TONE STARTS WITH THE BLOOM, ON THE SAME FRAME. This call and the
+      // rise tween below are two synchronous statements in one callback, so
+      // nothing can land between them.
+      //
+      // IT USED TO FIRE ON THE PULSE, which begins when the bloom COMPLETES.
+      // Measured with an AnalyserNode on the sfx bus, sampled against the
+      // halo's alpha on the same frames: the bell came 318 ms after the glow
+      // started and 0 ms after it reached full. That quarter second is what
+      // was heard.
+      audioFrom(this.registry)?.play("beacon", "beacon-scene:lit");
+      // SHADOW WAITS FOR THE TONE TO FINISH, ON THE WALL CLOCK.
+      //
+      // NOT `this.time.delayedCall`, which runs on the SCENE clock. The bell is
+      // scheduled on the AudioContext's clock, and the two only agree while
+      // frames are healthy - measured headless, 1250 ms of scene time became
+      // about 7 s of real time and Shadow spoke seven seconds after the bell
+      // instead of a quarter of one. "A beat after the sound ends" is a claim
+      // about audio, so it is timed against the clock the audio is on.
+      const speak = window.setTimeout(() => this.narrateBeacon(), BEACON_SPEECH_DELAY_MS);
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => window.clearTimeout(speak));
+      if (this.lane.reducedMotion) {
+        halo.setAlpha(1);
+        return;
+      }
+      this.tweens.add({
+        targets: halo,
+        alpha: { from: 0, to: 1 },
+        duration: BEACON_RISE_MS,
+        ease: EASE.drift,
+        onComplete: pulse,
+      });
+    };
+
+    // A BEAT OF STILLNESS FIRST. The screen arrives, the card settles, and only
+    // then does the beacon come up - the owner asked for about a second before
+    // anything happens, so the lamp is not already lighting while the player is
+    // still reading the title.
+    this.time.delayedCall(BEACON_HOLD_MS, light);
   }
 
   /**

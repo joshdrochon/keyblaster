@@ -95,8 +95,9 @@ const COMPONENT = path.join(ROOT, "src", "game", "ui", "plate.ts");
  */
 const NOT_A_PLATE: Record<string, string> = {
   // -- world art. Drawn objects that exist in the fiction. ------------------
-  "BeaconScene.ts::fillRoundedRect(-14, -58, 28, 152, 10)":
-    "the beacon's MAST. A pole with rounded ends, not a surface.",
+  "BeaconScene.ts::fillRoundedRect(-9, -10, 18, 84, 6)":
+    "the beacon's MAST. A pole with rounded ends, not a surface. Redrawn at " +
+    "icon scale when the beacon moved off the world and into the card.",
   // THE BEACON LAMP'S HOUSING IS GONE (UR-98). Two entries lived here - the
   // housing's fill and its edge - and the owner asked for the housing itself
   // removed from Earth's launch screen as clutter. The drawing went; these
@@ -475,7 +476,7 @@ describe("negative control: the detector can be made to fail", () => {
     // Per call site AND per file. The beacon's mast is exempt in
     // `BeaconScene.ts`; the same eight numbers in the stage report are not,
     // because a file-level allowlist is what let the ninth copy in.
-    const mast = "g.fillRoundedRect(-14, -58, 28, 152, 10);";
+    const mast = "g.fillRoundedRect(-9, -10, 18, 84, 6);";
     expect(judge(mast, "BeaconScene.ts")).toEqual([]);
     expect(judge(mast, "ResultsScene.ts").length).toBe(1);
   });

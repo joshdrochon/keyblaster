@@ -206,15 +206,20 @@ export function intensityIndexFrom(
   combo: number,
   currentIndex: number,
 ): number {
-  const pressure = intensityPressure(liveAsteroids, combo);
-  const current = clamp(Math.floor(currentIndex), 0, MAX_INTENSITY_INDEX);
-  let index = 0;
-  for (const [i, threshold] of INTENSITY_THRESHOLDS.entries()) {
-    const step = i + 1;
-    const bar = step <= current ? threshold - INTENSITY_HYSTERESIS : threshold;
-    if (pressure >= bar) index = step;
-  }
-  return clamp(index, 0, MAX_INTENSITY_INDEX);
+  // THE LAYERING IS OFF (owner, Oct 6). Index 0 is a 700 Hz lowpass - the
+  // "other room" - and reaching the top layer needed a combo of 8 to 10 while
+  // the board was full, which the belt rarely gives: it sustains three or four
+  // live rocks, capped by `hasCleanColumn` rather than by the player. So the
+  // muffled layer was the normal state and the crisp one the exception, and the
+  // owner heard that as the music sounding broken. Every belt now plays the
+  // full stack.
+  //
+  // The machinery below is intact and this is one line to undo. The pressure
+  // model and its thresholds are still exported and still tested.
+  void liveAsteroids;
+  void combo;
+  void currentIndex;
+  return MAX_INTENSITY_INDEX;
 }
 
 export function intensityIndex(liveAsteroids: number, combo: number): number {

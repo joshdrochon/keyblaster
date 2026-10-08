@@ -125,7 +125,7 @@ export const EN = {
   "beacon.placed": "Beacon placed at {stop}.",
 
   "results.accuracy": "Accuracy {accuracy}%",
-  "results.shipIntact": "The {shipName} came through without a scratch.",
+  "results.shipIntact": "Your ship came through without a scratch.",
   "results.continue": "Continue",
 
   "settings.uiLang": "Menu Language",
@@ -192,7 +192,7 @@ export const ES: Record<StringKey, string> = {
   "beacon.placed": "Baliza colocada en {stop}.",
 
   "results.accuracy": "Precisión {accuracy}%",
-  "results.shipIntact": "La {shipName} llegó sin un solo rasguño.",
+  "results.shipIntact": "Tu nave llegó sin un solo rasguño.",
   "results.continue": "continuar",
 
   "settings.uiLang": "idioma del menú",
@@ -253,7 +253,7 @@ export const HI: Record<StringKey, string> = {
   "beacon.placed": "{stop} पर बीकन लगा।",
 
   "results.accuracy": "शुद्धता {accuracy}%",
-  "results.shipIntact": "{shipName} पर एक खरोंच भी नहीं आई।",
+  "results.shipIntact": "तुम्हारे यान पर एक खरोंच भी नहीं आई।",
   "results.continue": "आगे बढ़ो",
 
   "settings.uiLang": "मेन्यू की भाषा",
