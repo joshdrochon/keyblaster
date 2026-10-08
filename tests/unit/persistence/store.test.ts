@@ -137,8 +137,8 @@ describe("storage failure degrades, never crashes", () => {
       clock.advance(DEBOUNCE_MS);
     }
     expect(store.notices.filter((n) => n.code === "write-failed")).toHaveLength(1);
-    // The five new pilots plus the fresh one the empty-storage load handed back.
-    expect(store.profiles).toHaveLength(6);
+    // The five new pilots. Empty storage hands back none of its own.
+    expect(store.profiles).toHaveLength(5);
   });
 
   it("recovers when storage starts working again", () => {
@@ -209,7 +209,9 @@ describe("D43: multiple profiles", () => {
     const { store, clock } = setup();
     const ada = store.createProfile({ name: "Ada", avatar: "avatar-2" });
     const rey = store.createProfile({ name: "Rey" });
-    expect(store.profiles.map((p) => p.name)).toEqual([DEFAULT_PROFILE_NAME, "Ada", "Rey"]);
+    // An empty store starts with NO pilots (owner, Oct 7): a browser that has
+    // never played shows "New Pilot" and nothing else.
+    expect(store.profiles.map((p) => p.name)).toEqual(["Ada", "Rey"]);
     // A new profile is selected: the flow is pick-then-fly (D40).
     expect(store.activeProfile()?.id).toBe(rey.id);
     expect(store.selectProfile(ada.id)).toBe(true);
@@ -286,7 +288,7 @@ describe("D43: multiple profiles", () => {
       clock: new FakeClock(),
       newId: () => `id-${++n}`,
     });
-    expect(store.createProfile().id).toBe("id-2"); // id-1 was the fresh-load profile
+    expect(store.createProfile().id).toBe("id-1"); // nothing is minted before it
   });
 
   it("updateProfile on an unknown id returns null and schedules nothing", () => {
@@ -345,9 +347,10 @@ describe("AC-7.2 / D44: round-trip fidelity", () => {
   it("AC-7.2: a populated word book survives save -> load byte-identically", () => {
     const profile = populatedProfile();
     const { store, storage, clock } = setup();
-    const created = store.profiles[0];
-    expect(created).toBeDefined();
-    const id = created?.id ?? "";
+    // An empty store mints nothing, so the pilot this test round-trips is one
+    // it creates (owner, Oct 7).
+    const created = store.createProfile({ name: "Round Trip" });
+    const id = created.id;
     store.updateProfile(id, () => ({ ...profile, id }));
     clock.advance(DEBOUNCE_MS);
 
@@ -399,6 +402,9 @@ describe("AC-7.2 / D44: round-trip fidelity", () => {
     for (let session = 0; session < 3; session += 1) {
       const clock = new FakeClock(1_000 + session);
       const store = createProfileStore({ storage, clock, newId: () => "fixed" });
+      // Session one starts empty now, so it mints the pilot the later sessions
+      // reload (owner, Oct 7).
+      if (store.profiles.length === 0) store.createProfile({ name: "Fixed" });
       store.updateProfile("fixed", (p) => ({
         ...p,
         words: {

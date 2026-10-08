@@ -1,5 +1,5 @@
 {
-  "renderedAt": "2026-10-08T03:05:45.955Z",
+  "renderedAt": "2026-10-08T06:49:39.266Z",
   "model": "eleven_flash_v2_5",
   "voiceId": "J1UkN5Wmr20DZIiLKXHI",
   "lang": "en",
@@ -427,6 +427,14 @@
       "bytes": 64409,
       "voiceId": "J1UkN5Wmr20DZIiLKXHI",
       "textSha": "f0abcc4b3251956a"
+    },
+    {
+      "id": "flight.veilHint",
+      "file": "flight.veilHint.mp3",
+      "chars": 72,
+      "bytes": 58976,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "a74ae554bed12063"
     },
     {
       "id": "ending.shadowLine",

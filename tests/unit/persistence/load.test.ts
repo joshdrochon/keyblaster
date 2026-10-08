@@ -54,14 +54,28 @@ describe("loadState: the happy paths", () => {
     expect(result.state.profiles[0]).toEqual(profile);
   });
 
-  it("AC-18.4: first run (nothing stored) is a fresh profile, not an error", () => {
+  it("first run (nothing stored) has NO pilots, so the picker offers only New Pilot", () => {
+    // AC-18.4 says CORRUPTED storage gives a fresh profile. It says nothing
+    // about empty storage, and seeding one there put a pilot named "Pilot" on
+    // the picker of a browser that had never played (owner, Oct 7).
     const { result } = load(null);
+    expectUsable(result);
+    expect(result.fresh).toBe(true);
+    expect(result.state.profiles).toHaveLength(0);
+    expect(result.state.activeProfileId).toBeNull();
+    expect(result.notices.map((x) => x.code)).toEqual(["empty"]);
+    expect(result.loadedVersion).toBeNull();
+  });
+
+  it("AC-18.4: CORRUPTED storage still lands on a usable pilot, never an error", () => {
+    // The distinction the change rests on: a damaged save is rescued, an
+    // absent one is not invented.
+    const { result } = load("{ not json");
     expectUsable(result);
     expect(result.fresh).toBe(true);
     expect(result.state.profiles).toHaveLength(1);
     expect(result.state.profiles[0]?.name).toBe(DEFAULT_PROFILE_NAME);
-    expect(result.notices.map((x) => x.code)).toEqual(["empty"]);
-    expect(result.loadedVersion).toBeNull();
+    expect(result.state.activeProfileId).toBe(result.state.profiles[0]?.id);
   });
 
   it("an empty profiles array is a real saved state, not damage", () => {

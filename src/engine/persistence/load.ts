@@ -117,12 +117,17 @@ function quarantine(storage: StoragePort, raw: string): boolean {
  * existed. `fresh: true` is how the game knows to route them to the profile
  * screen to name themselves rather than straight to the map.
  */
-function freshState(freshProfile: () => Profile): PersistedState {
-  const profile = freshProfile();
+/**
+ * `seed: false` is a browser that has never played: no pilots, so the picker
+ * offers New Pilot and nothing else. `seed: true` is a save that existed and
+ * could not be read, where the rescue profile above is the right answer.
+ */
+function freshState(freshProfile: () => Profile, seed: boolean): PersistedState {
+  const profiles = seed ? [freshProfile()] : [];
   return {
     version: SCHEMA_VERSION,
-    profiles: [profile],
-    activeProfileId: profile.id,
+    profiles,
+    activeProfileId: profiles[0]?.id ?? null,
     device: { ...DEFAULT_DEVICE_SETTINGS },
   };
 }
@@ -131,9 +136,10 @@ function freshResult(
   freshProfile: () => Profile,
   loadedVersion: number | null,
   notices: Notice[],
+  seed = true,
 ): LoadResult {
   return {
-    state: freshState(freshProfile),
+    state: freshState(freshProfile, seed),
     notices,
     fresh: true,
     loadedVersion,
@@ -156,12 +162,16 @@ export function loadState(storage: StoragePort, options: LoadOptions): LoadResul
     notices.push(notice("unreadable", `${STORAGE_KEY}: getItem threw`));
     return freshResult(freshProfile, null, notices);
   }
-  if (raw === null || raw.trim().length === 0) {
-    notices.push(
-      raw === null
-        ? notice("empty", `${STORAGE_KEY}: no stored payload`)
-        : notice("wrong-shape", `${STORAGE_KEY}: stored payload is blank`),
-    );
+  // NO KEY AT ALL is a browser that has never played, and it gets no pilots:
+  // seeding one here put a pilot named "Pilot" on a fresh picker (owner,
+  // Oct 7). A key holding a BLANK string is different - something wrote that -
+  // so it is damage, and damage is rescued (AC-18.4).
+  if (raw === null) {
+    notices.push(notice("empty", `${STORAGE_KEY}: no stored payload`));
+    return freshResult(freshProfile, null, notices, false);
+  }
+  if (raw.trim().length === 0) {
+    notices.push(notice("wrong-shape", `${STORAGE_KEY}: stored payload is blank`));
     return freshResult(freshProfile, null, notices);
   }
 

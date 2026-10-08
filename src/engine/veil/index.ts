@@ -1,3 +1,4 @@
+import { rockHintFits, type RockHintView } from "../hint/index.js";
 import type { StopId } from "../types.js";
 
 /**
@@ -39,6 +40,21 @@ export const VEIL_BY_STOP: Readonly<Partial<Record<StopId, number>>> = Object.fr
 /** How far ahead stays clear at this stop, or null where there is no cloud. */
 export function veilWindowFor(stop: StopId): number | null {
   return VEIL_BY_STOP[stop] ?? null;
+}
+
+export interface VeilWarningInput {
+  readonly stopId: StopId;
+  readonly saidThisRun: boolean;
+  readonly leadMs: number;
+  readonly veiled: RockHintView | null;
+}
+
+/** The line lands while the word it points at is still there. */
+export function shouldWarnVeil(input: VeilWarningInput): boolean {
+  if (input.saidThisRun) return false;
+  if (veilWindowFor(input.stopId) === null) return false;
+  if (input.veiled === null) return false;
+  return rockHintFits(input.veiled, input.leadMs);
 }
 
 /**

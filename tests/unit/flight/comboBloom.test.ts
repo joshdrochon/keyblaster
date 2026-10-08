@@ -15,7 +15,12 @@ import {
   plateOffsetY,
   type WordPlateStyle,
 } from "../../../src/game/render/wordPlateGeometry.js";
-import { BASE_SIZE_PX, MAX_SIZE_PX } from "../../../src/game/render/asteroid.js";
+import { BASE_SIZE_PX, HEAT_TINT, MAX_SIZE_PX } from "../../../src/game/render/asteroid.js";
+import { paletteAt } from "@game/render/palette";
+import { INK } from "@game/ui/theme";
+import { contrastRatio } from "@engine/contrast/index.js";
+import { hasHeat } from "@engine/heat/index.js";
+import { STOP_IDS } from "@engine/types.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -270,15 +275,36 @@ describe("UR-129: the multiplier is the same colour everywhere", () => {
     expect(body).not.toContain("this.palette.accent");
   });
 
-  it("the +points floater took the same ink, and on the same argument", () => {
-    // This was a negative control asserting the floater STILL used the accent,
-    // which proved the bloom's fix was specific rather than a blanket replace.
-    // The floater has since been measured against the sky it rises through -
-    // 1.03:1 at Pluto, under the bar at six of seven stops - and given the same
-    // token. The control is spent; what replaces it is the rule both obey.
+  it("the +points floater never wears the stop's accent, and defaults to INK.text", () => {
+    // The floater was measured against the sky it rises through - 1.03:1 at
+    // Pluto - and given `INK.text`. It goes through `pointsInk` now, which
+    // returns that token for every stop and every cold hit; the ONE exception
+    // is a hot Mercury rock (D110), asserted below with its measured ratios.
     const SRC = readFileSync("src/game/scenes/FlightScene.ts", "utf8");
     expect(SRC).not.toMatch(/`\+\$\{points\}`[\s\S]{0,200}color: this\.palette\.accent/);
-    expect(SRC).toMatch(/`\+\$\{points\}`[\s\S]{0,200}color: INK\.text/);
+    expect(SRC).toMatch(/`\+\$\{points\}`[\s\S]{0,200}color: this\.pointsInk\(rock\)/);
+    expect(SRC).toContain("if (!rock.hot) return INK.text;");
+  });
+
+  it("D110's orange is DIMMER than the white it replaces, and only Mercury has it", () => {
+    // Recorded rather than waved past. Against Mercury's six sky bands the heat
+    // tint measures 1.68, 2.12, 2.85, 4.35, 5.20, 6.80; white measures 1.68,
+    // 5.95, 8.03, 12.25, 14.65, 19.13. The number is harder to read for the
+    // one third of Mercury's rocks that are hot, which is the cost of the
+    // colour saying "you earned the bonus".
+    const pal = paletteAt("mercury", false);
+    const tint = pal.colors.map((c) => contrastRatio(c, HEAT_TINT));
+    const white = pal.colors.map((c) => contrastRatio(c, INK.text));
+    // Dimmer on five of the six bands. The sixth is the near-white one, where
+    // BOTH sit at 1.68 and neither is legible - that band is the sky's problem,
+    // not this colour's.
+    const dimmer = tint.filter((t, i) => t < (white[i] as number)).length;
+    expect(dimmer, `tint ${tint.map((t) => t.toFixed(2)).join(" ")}`).toBe(5);
+    expect(Math.min(...white)).toBeLessThan(2);
+    // It still clears the floor the OLD floater failed at Pluto (1.03:1).
+    expect(Math.max(...tint)).toBeGreaterThan(1.03);
+    // And no other stop can reach it.
+    expect(STOP_IDS.filter((s) => hasHeat(s))).toEqual(["mercury"]);
   });
 
   it("the floater's size is on the type scale", () => {

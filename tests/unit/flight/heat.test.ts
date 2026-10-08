@@ -5,6 +5,7 @@ import {
   HEAT_BONUS_MAX,
   HEAT_EVERY,
   HEAT_EXP,
+  HEAT_WINDOW,
   hasHeat,
   heatMultiplier,
   heatOf,
@@ -15,6 +16,7 @@ import {
 import { STOP_IDS, type StopId } from "@engine/types.js";
 import { type RockHintView } from "@engine/hint/index.js";
 import { HOT_HINT_KEY, createFlightCopy, hintLead } from "@game/flight/copy.js";
+import { HEAT_TINT, heatedFill } from "@game/render/asteroid.js";
 import { estimateSpeechMs } from "@game/audio/voice.js";
 
 /**
@@ -83,10 +85,20 @@ describe("D110: a hot rock cools as it falls", () => {
     expect(heatOf(1)).toBe(0);
   });
 
+  it("is spent by mid-screen: no bonus for a rock caught near the ship", () => {
+    // A hit at 95% of the fall used to pay a sliver of bonus and colour its
+    // number orange, which is a reward for timing that was not timing.
+    expect(heatOf(HEAT_WINDOW)).toBe(0);
+    expect(heatOf(0.75)).toBe(0);
+    expect(heatOf(0.95)).toBe(0);
+    expect(heatOf(HEAT_WINDOW - 0.01)).toBeGreaterThan(0);
+  });
+
   it("sheds most of its heat early, which is where the decision is", () => {
-    // At HEAT_EXP 1.8 a rock is down to a third by 40% of the drop.
-    expect(heatOf(0.4)).toBeLessThan(0.42);
-    expect(heatOf(0.4)).toBeGreaterThan(0.3);
+    // At HEAT_EXP 1.8 a rock is down to a third by 40% of its WINDOW.
+    const p = HEAT_WINDOW * 0.4;
+    expect(heatOf(p)).toBeLessThan(0.42);
+    expect(heatOf(p)).toBeGreaterThan(0.3);
     expect(HEAT_EXP).toBeGreaterThan(1);
   });
 
@@ -175,14 +187,14 @@ describe("D110: Shadow names the hot rock once per run", () => {
   it("the clause that NAMES the rock fits the fall it is pointed at", () => {
     // The same budget the canister and nested hints are held to: only the lead
     // clause is gated, because a hint teaches rather than saves one rock.
-    const copy = createFlightCopy("en", "Lantern");
+    const copy = createFlightCopy("en", { shipName: "Lantern" });
     const lead = hintLead(copy.t(HOT_HINT_KEY));
     expect(lead).toBe("The red rocks are hot!");
     expect(estimateSpeechMs(lead)).toBeLessThan(3000);
   });
 
   it("the line names the colour, which is the thing on screen", () => {
-    expect(createFlightCopy("en", "Lantern").t(HOT_HINT_KEY)).toContain("red");
+    expect(createFlightCopy("en", { shipName: "Lantern" }).t(HOT_HINT_KEY)).toContain("red");
   });
 
   it("is claimed on the registry, so a stall and a retry do not re-teach it", () => {
@@ -194,5 +206,31 @@ describe("D110: Shadow names the hot rock once per run", () => {
     const speak = src.indexOf("id: HOT_HINT_KEY", claim);
     expect(claim).toBeGreaterThan(0);
     expect(speak).toBeGreaterThan(claim);
+  });
+});
+
+describe("D110: the `+points` says whether the bonus was earned", () => {
+  it("is orange only on a hot hit, white otherwise", () => {
+    const src = readFileSync(SCENE, "utf8");
+    expect(src).toContain("if (!rock.hot) return INK.text;");
+    expect(src).toContain("return heatOf(this.fallProgressOf(rock)) > 0 ? HEAT_TINT : INK.text;");
+  });
+
+  it("both floaters read the same rule", () => {
+    const src = readFileSync(SCENE, "utf8");
+    const uses = src.split("color: this.pointsInk(rock),").length - 1;
+    expect(uses).toBe(2);
+  });
+
+  it("the orange is the rock's own colour at full heat", () => {
+    // `heatedFill` mixes the body all the way to HEAT_TINT at heat 1, so the
+    // number wears exactly what the hottest rock wears.
+    expect(heatedFill("#6B5A4E", 1)).toBe(HEAT_TINT.toUpperCase());
+    expect(heatedFill("#6B5A4E", 0)).toBe("#6B5A4E");
+  });
+
+  it("a rock caught past the window is white, because it earned nothing", () => {
+    expect(heatOf(HEAT_WINDOW + 0.01)).toBe(0);
+    expect(heatMultiplier(heatOf(0.9))).toBe(1);
   });
 });

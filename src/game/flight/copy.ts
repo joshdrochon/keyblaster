@@ -38,6 +38,8 @@ export type FlightStringKey =
   | "flight.nestedHint"
   /** D110. Once per run, the first time a hot rock is on screen. Spoken, so D98 applies. */
   | "flight.hotHint"
+  /** D109. Once per run, the first time a veiled word is on screen. Spoken (D98). */
+  | "flight.veilHint"
   | "hud.wpm"
   | "hud.combo"
   | "hud.score"
@@ -50,6 +52,7 @@ export type FlightStringKey =
 export const CANISTER_HINT_KEY = "flight.canisterHint";
 export const NESTED_HINT_KEY = "flight.nestedHint";
 export const HOT_HINT_KEY = "flight.hotHint";
+export const VEIL_HINT_KEY = "flight.veilHint";
 
 /**
  * The clause that NAMES the rock - the first sentence of a hint. The rest is
@@ -68,6 +71,7 @@ const LOCAL_EN: LocalTable = {
   "flight.canisterHint": "Blast the gold ring! It fixes our shield.", // i18n-ignore: string table
   "flight.nestedHint": "That rock has two layers! Blast it, then type the word inside.", // i18n-ignore: string table
   "flight.hotHint": "The red rocks are hot! Blast them while they glow and they score more.", // i18n-ignore: string table
+  "flight.veilHint": "The clouds are thick here! Type the first letters and the word opens up.", // i18n-ignore: string table
   "hud.wpm": "wpm", // i18n-ignore: string table
   "hud.combo": "combo", // i18n-ignore: string table
   "hud.score": "score", // i18n-ignore: string table

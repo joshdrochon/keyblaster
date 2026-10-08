@@ -48,11 +48,15 @@ export const HEAT_EXP = 1.8;
 
 
 
-/** 1 at spawn, 0 at the ship. Fails COLD on junk - never hands out the bonus. */
+/** The bonus is the top half of the fall. */
+export const HEAT_WINDOW = 0.5;
+
+/** 1 at spawn, 0 by `HEAT_WINDOW`. Fails COLD on junk. */
 export function heatOf(fallProgress: number): number {
   if (!Number.isFinite(fallProgress)) return 0;
   const p = Math.min(1, Math.max(0, fallProgress));
-  return Math.pow(1 - p, HEAT_EXP);
+  if (p >= HEAT_WINDOW) return 0;
+  return Math.pow(1 - p / HEAT_WINDOW, HEAT_EXP);
 }
 
 /**

@@ -24,7 +24,7 @@ import {
 } from "@game/flight/celebration";
 import { buildParallax, type Parallax } from "@game/render/parallax.js";
 import { TEX } from "@game/render/textures.js";
-import { veilWindowFor } from "@engine/veil/index.js";
+import { shouldWarnVeil, veilFrom, veilWindowFor } from "@engine/veil/index.js";
 import { INK, TYPE } from "@game/ui/theme.js";
 import { paletteAt as stopPaletteAt } from "@game/render/palette.js";
 import { PauseScene } from "./PauseScene.js";
@@ -32,6 +32,7 @@ import {
   type DebrisType,
   asteroidSizePx,
   drawDebris,
+  HEAT_TINT,
   drawNestedShell,
   drawShieldCanister,
   ensureMoteTexture,
@@ -138,6 +139,7 @@ import {
 import {
   CANISTER_HINT_KEY,
   HOT_HINT_KEY,
+  VEIL_HINT_KEY,
   NESTED_HINT_KEY,
   hintLead,
   type FlightCopy,
@@ -176,6 +178,9 @@ const NESTED_HINT_REGISTRY_KEY = "kb.flight.nestedHintSaid";
 
 /** D110's once-per-run flag. Same reasoning as the nested one above. */
 const HOT_HINT_REGISTRY_KEY = "kb.flight.hotHintSaid";
+
+/** D109's once-per-run flag. */
+const VEIL_HINT_REGISTRY_KEY = "kb.flight.veilHintSaid";
 import { estimateSpeechMs } from "@game/audio/voice.js";
 import {
   SCORCH_CORE_H,
@@ -543,6 +548,8 @@ export interface FlightDebugState {
   readonly nestedHintSaid: boolean;
   /** D110: has Shadow named the hot rock on this RUN yet? */
   readonly hotHintSaid: boolean;
+  /** D109: has Shadow named Venus's cloud on this RUN yet? */
+  readonly veilHintSaid: boolean;
   /** D110: hot rocks on the board, and how many are still unresolved. */
   readonly hotRocks: number;
   readonly liveHotRocks: number;
@@ -1457,6 +1464,7 @@ export class FlightScene extends Phaser.Scene {
       this.maybeHintCanister(time);
       this.maybeWarnNested(time);
       this.maybeWarnHot(time);
+      this.maybeWarnVeil(time);
       this.checkStageEnd();
     }
 
@@ -1650,6 +1658,46 @@ export class FlightScene extends Phaser.Scene {
       text,
       kind: "scripted",
     });
+  }
+
+  /** D109. Once per run, when a veiled word is actually on the board. */
+  private maybeWarnVeil(now: number): void {
+    const saidThisRun = this.registry.get(VEIL_HINT_REGISTRY_KEY) === true;
+    if (saidThisRun) return;
+    if (veilWindowFor(this.cfg.stopId) === null) return;
+
+    // Long enough to HAVE a veiled letter.
+    const minLength = veilFrom(0, veilWindowFor(this.cfg.stopId)) + 1;
+    const rock = this.rocks.find((r) => !r.resolved && r.word.length >= minLength);
+    if (rock === undefined) return;
+
+    const text = this.copy.t(VEIL_HINT_KEY);
+    const say = shouldWarnVeil({
+      stopId: this.cfg.stopId,
+      saidThisRun,
+      leadMs: estimateSpeechMs(hintLead(text)),
+      veiled: {
+        centreY: rock.container.y,
+        sizePx: rock.sizePx,
+        viewportHeight: this.scale.height,
+        msToBreach: rock.spawnedAtMs + rock.fallMs - now,
+      },
+    });
+    if (!say) return;
+
+    // Claimed before the bus call: a throw between the two would say it twice.
+    this.registry.set(VEIL_HINT_REGISTRY_KEY, true);
+    audioFrom(this.registry)?.speak({
+      id: VEIL_HINT_KEY,
+      text,
+      kind: "scripted",
+    });
+  }
+
+  /** D110: orange only on a hot hit. `HEAT_TINT` is the rock's colour at full heat. */
+  private pointsInk(rock: LiveRock): string {
+    if (!rock.hot) return INK.text;
+    return heatOf(this.fallProgressOf(rock)) > 0 ? HEAT_TINT : INK.text;
   }
 
   /** D110. Once per run, when a hot rock is actually on the board. */
@@ -2657,9 +2705,7 @@ export class FlightScene extends Phaser.Scene {
         this.combo.multiplier,
       );
     }
-    // D110: a hot rock pays more. The heat is read from how far it had fallen
-    // at the instant it was blasted, so the bonus is what the player's timing
-    // earned rather than anything about the word.
+    // D110: the heat at the instant it was blasted, so the bonus is the timing.
     if (rock !== undefined && rock.hot) {
       points = Math.round(points * heatMultiplier(heatOf(this.fallProgressOf(rock))));
     }
@@ -2966,7 +3012,7 @@ export class FlightScene extends Phaser.Scene {
       .text(x, y, `+${points}`, {
         fontFamily: this.plateStyle.fontFamily,
         fontSize: `${POINTS_FLOAT.sizePx}px`,
-        color: INK.text,
+        color: this.pointsInk(rock),
       })
       .setOrigin(0.5)
       .setDepth(PLATE_DEPTH);
@@ -3076,7 +3122,7 @@ export class FlightScene extends Phaser.Scene {
       .text(x, y, `+${points}`, {
         fontFamily: this.plateStyle.fontFamily,
         fontSize: `${POINTS_FLOAT.sizePx}px`,
-        color: INK.text,
+        color: this.pointsInk(rock),
       })
       .setOrigin(0.5)
       .setDepth(PLATE_DEPTH);
@@ -4054,6 +4100,7 @@ export class FlightScene extends Phaser.Scene {
           canisterHintSaid: this.canisterHintSaid,
           nestedHintSaid: this.registry.get(NESTED_HINT_REGISTRY_KEY) === true,
           hotHintSaid: this.registry.get(HOT_HINT_REGISTRY_KEY) === true,
+          veilHintSaid: this.registry.get(VEIL_HINT_REGISTRY_KEY) === true,
           hotRocks: this.rocks.filter((r) => r.hot).length,
           liveHotRocks: this.rocks.filter((r) => r.hot && !r.resolved).length,
           spawnGapMs: this.lastSpawnGapMs,

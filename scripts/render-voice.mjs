@@ -96,7 +96,7 @@ const SPOKEN_MENU_KEYS = ["ui.pick.greeting"];
  * to land in the same change. Regex for the same reason `SPOKEN_MENU_KEYS` is;
  * `LOCAL_EN` is declared first, so the first match is the English row.
  */
-const SPOKEN_FLIGHT_KEYS = ["flight.canisterHint", "flight.nestedHint", "flight.hotHint"];
+const SPOKEN_FLIGHT_KEYS = ["flight.canisterHint", "flight.nestedHint", "flight.hotHint", "flight.veilHint"];
 
 /**
  * Lines Shadow speaks from the STORY LANE table
