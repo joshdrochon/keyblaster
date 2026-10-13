@@ -4,7 +4,12 @@ import { GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "@game/sceneKeys";
 import { MenuScene } from "@game/ui/MenuScene";
 import { type Control, MenuButton } from "@game/ui/controls";
 import { plate, strokePlate } from "@game/ui/chrome";
-import { SHADOW_HEIGHT, drawShadow } from "@game/render/shadow";
+import { SHADOW_HEIGHT, SHADOW_RADIUS, drawShadow } from "@game/render/shadow";
+import {
+  SHADOW_ABOVE_R,
+  SHADOW_BELOW_R,
+  SHADOW_LEFT_R,
+} from "@game/scenes/support/warpLayout";
 import { hexToNum } from "@game/render/palette";
 import { INK, SPACE, TYPE } from "@game/ui/theme";
 import { needsOwnBackdrop } from "@game/ui/layout";
@@ -163,14 +168,28 @@ export class PauseScene extends MenuScene {
     });
     title.setDepth(this.depth);
 
+    // DERIVED, NOT PLACED BY EYE. He was at `panelW - 110, +96`, which put his
+    // right edge 35 px past the gutter every other element on this panel stops
+    // on, and his head 28 px above the title's line. His drawn box is not
+    // symmetric about his origin (`render/shadow`), so both edges are computed
+    // from the same reaches the figure is actually drawn with.
+    const shadowScale = (120 * 0.9) / SHADOW_HEIGHT;
+    const shadowR = SHADOW_RADIUS * shadowScale;
+    const titleMiddle = title.getBounds().centerY;
     this.shadows.push(
-      // Inside the panel, so he sits ON the plate rather than under it.
-      drawShadow(this, px + panelW - 110, py + 96, "idle", {
-        scale: (120 * 0.9) / SHADOW_HEIGHT,
-        reducedMotion: this.reducedMotion,
-        facing: -1,
-        depth: this.depth,
-      }),
+      drawShadow(
+        this,
+        // Facing -1 mirrors him, so his RIGHT reach is the left ratio.
+        px + panelW - SPACE.gutter - SHADOW_LEFT_R * shadowR,
+        titleMiddle + ((SHADOW_ABOVE_R - SHADOW_BELOW_R) * shadowR) / 2,
+        "idle",
+        {
+          scale: shadowScale,
+          reducedMotion: this.reducedMotion,
+          facing: -1,
+          depth: this.depth,
+        },
+      ),
     );
 
     const rowW = panelW - SPACE.gutter * 2;
