@@ -1,5 +1,5 @@
 {
-  "renderedAt": "2026-10-08T06:49:39.266Z",
+  "renderedAt": "2026-10-15T02:10:50.383Z",
   "model": "eleven_flash_v2_5",
   "voiceId": "J1UkN5Wmr20DZIiLKXHI",
   "lang": "en",
@@ -451,6 +451,14 @@
       "bytes": 34316,
       "voiceId": "J1UkN5Wmr20DZIiLKXHI",
       "textSha": "4dcde2cea9808f2a"
+    },
+    {
+      "id": "map.innerOpenSpoken",
+      "file": "map.innerOpenSpoken.mp3",
+      "chars": 116,
+      "bytes": 99099,
+      "voiceId": "J1UkN5Wmr20DZIiLKXHI",
+      "textSha": "f63c23d7d3b0999a"
     },
     {
       "id": "preflight.line.opening",

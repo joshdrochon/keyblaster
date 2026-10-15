@@ -998,6 +998,31 @@ export const DOORWAY_BECKON_MS = 1640;
  * crosses back over the planet. D41 takes framing motion off under reduced
  * motion, and a caret leaning at the edge of the board is framing.
  */
+export const DOORWAY_REVEAL_MS = 900;
+
+/**
+ * How long Shadow's line runs before the caret blooms.
+ *
+ * Measured off the rendered clip: src/content/audio/voice/map.innerOpenSpoken.mp3
+ * is 6130 ms. The public voice bus hands back no completion callback and adding
+ * one would touch every scene's audio interface, so the wait is this number and
+ * a test holds it to the file.
+ */
+export const INNER_LINE_MS = 6130;
+
+/**
+ * The doorway's scale while it first appears, 0 -> 1.
+ *
+ * Pluto lighting is the only moment the player is told three stops opened, and
+ * a caret that is simply present at full size says nothing happened. Reduced
+ * motion gets the end state immediately (D41).
+ */
+export function doorwayRevealScale(elapsedMs: number, reducedMotion: boolean): number {
+  if (reducedMotion || !Number.isFinite(elapsedMs)) return 1;
+  const t = Math.min(1, Math.max(0, elapsedMs / DOORWAY_REVEAL_MS));
+  return t * t * (3 - 2 * t);
+}
+
 export function doorwayBeckonPx(elapsedMs: number, reducedMotion: boolean): number {
   if (reducedMotion || !Number.isFinite(elapsedMs)) return 0;
   const phase = (elapsedMs % DOORWAY_BECKON_MS) / DOORWAY_BECKON_MS;

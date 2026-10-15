@@ -194,6 +194,8 @@ describe("UR-101.5: the check rows are a rising figure, composed not sampled", (
       // UR-117, added to AC-21.3: a multiplier milestone (x3, x5, x10). Not on
       // every multiplier step - `scoring/combo.MULTIPLIER_MILESTONES` has why.
       "comboUp",
+      // D111: the inner run opening. Not a cue the player earns.
+      "reveal",
     ]);
   });
 

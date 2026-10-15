@@ -18,6 +18,8 @@
     "map.charted": "Beacon Lit",
     "map.travel": "Fly Here",
     "map.hint": "Arrow Keys to Pick a Stop · Enter to Fly",
+    "map.hintInner": "A Way In Opened at Earth · Arrow Keys to Find It",
+    "map.innerOpenSpoken": "The route's finished, pilot, but it looks like there's more to do. Venus is open now. Let's go light another beacon.",
     "map.progress": "{lit}/{total}",
     "briefing.heading": "Mission Briefing",
     "briefing.back": "Back to the Map",

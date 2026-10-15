@@ -144,8 +144,9 @@ describe("the board's shape holds", () => {
     // board grew because the PRD grew, which is the direction this guard is
     // happy about - it exists to catch the parser going quiet, not to freeze
     // the PRD. +4 again for D103/D104/D107's AC-27.1..27.4 (the inner run),
-    // +2 for D109's AC-27.5/.6 (Venus's cloud).
-    expect(tickets.filter((t: { kind: string }) => t.kind === "ac")).toHaveLength(126);
+    // +2 for D109's AC-27.5/.6 (Venus's cloud). +1 for D111's AC-27.7 (the
+    // inner run announcing itself).
+    expect(tickets.filter((t: { kind: string }) => t.kind === "ac")).toHaveLength(127);
     expect(tickets.filter((t: { kind: string }) => t.kind === "rubric")).toHaveLength(33);
   });
 

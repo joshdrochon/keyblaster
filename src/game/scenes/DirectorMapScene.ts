@@ -77,6 +77,8 @@ import {
   starsCentreForRight,
   type PanelBox,
   doorwayBeckonPx,
+  doorwayRevealScale,
+  INNER_LINE_MS,
   routeLegIndex,
   routePulseX,
   SATELLITE_R,
@@ -326,6 +328,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
   private layer: RunLayer | null = null;
   private mapView: MapView = "route";
   private slide: Phaser.Tweens.Tween | null = null;
+  private revealFrom: number | null = null;
+  private revealRang = false;
   private doorway: {
     readonly caret: Phaser.GameObjects.Container;
     readonly restX: number;
@@ -395,6 +399,8 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
       isBonusStop(this.story.stopId) && bonusUnlocked(this.story.progress) ? "inner" : "route";
     this.slide = null;
     this.chipTargets = [];
+    this.revealFrom = null;
+    this.revealRang = false;
   }
 
   create(): void {
@@ -522,12 +528,19 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     // the menus used, because it called `skyText` with the map header's `padY`
     // while the menus called `uiText` with none. `drawHint` takes neither, so
     // the map's plate and the picker's plate are now the same two numbers.
-    drawHint(this, text.text("map.hint"), {
+    drawHint(this, text.text(this.revealsInner() ? "map.hintInner" : "map.hint"), {
       screen: "map",
       id: "map.hint",
       depth: 10,
       style: { lang: this.story.lang, ...typographyOf(this) },
     });
+    if (this.revealsInner()) {
+      audioFrom(this.registry)?.speak({
+        id: "map.innerOpenSpoken",
+        text: text.text("map.innerOpenSpoken"),
+        kind: "scripted",
+      });
+    }
 
     const shadowAnchor = shadowAt();
     this.shadow = drawShadow(this, shadowAnchor.x, shadowAnchor.y, "idle", {
@@ -1222,6 +1235,9 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     zone.on("pointerdown", () => this.pressDoorway());
     caret.add([g, zone]);
 
+    // Built at zero when it is about to bloom, or the first frame shows it at
+    // full size and the bloom reads as a flicker.
+    if (this.revealsInner() && !this.story.ctx.reducedMotion) caret.setScale(0);
     this.doorway = { caret, restX: caret.x, dir };
     return caret;
   }
@@ -1638,11 +1654,30 @@ export class DirectorMapScene extends Phaser.Scene implements Snapshotable {
     for (const node of this.nodes) this.drawBeacon(node, time);
   }
 
+  /**
+   * Pluto is lit, three stops opened, and nothing has been flown yet. Lighting
+   * either bonus beacon ends it, so this needs no stored flag.
+   */
+  private revealsInner(): boolean {
+    return (
+      bonusUnlocked(this.story.progress) && bonusLitCount(this.story.progress) === 0
+    );
+  }
+
   /** UR-162: the caret leans the way the arrow key travels, then comes back. */
   private leanDoorway(time: number): void {
     if (this.doorway === null) return;
     const { caret, restX, dir } = this.doorway;
     caret.x = restX + dir * doorwayBeckonPx(time, this.story.ctx.reducedMotion);
+    if (!this.revealsInner()) return;
+    this.revealFrom ??= time + INNER_LINE_MS;
+    if (!this.revealRang && time >= this.revealFrom) {
+      this.revealRang = true;
+      audioFrom(this.registry)?.play("reveal", "map:inner-open");
+    }
+    caret.setScale(
+      doorwayRevealScale(time - this.revealFrom, this.story.ctx.reducedMotion),
+    );
   }
 
   /**

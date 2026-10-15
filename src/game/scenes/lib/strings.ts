@@ -52,6 +52,8 @@ export const SCENE_STRING_KEYS = [
   "map.charted",
   "map.travel",
   "map.hint",
+  "map.hintInner",
+  "map.innerOpenSpoken",
   "map.progress",
   "briefing.heading",
   "briefing.back",

@@ -108,6 +108,7 @@ const SPOKEN_LANE_KEYS = ["ending.shadowLine"];
 
 const SPOKEN_UI_KEYS = [
   "briefing.shipReadySpoken",
+  "map.innerOpenSpoken",
   "preflight.line.opening",
   "preflight.line.hull",
   "preflight.line.systems",

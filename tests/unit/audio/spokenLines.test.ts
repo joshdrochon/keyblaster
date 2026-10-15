@@ -217,9 +217,12 @@ describe("AC-21.8 / D98: the speak sites are the ones this guard knows about", (
     // string table (`content/<lang>/ui.json`), which is the same table the
     // pre-flight ritual's lines come from and the script already collects via
     // `SPOKEN_UI_KEYS`.
+    // D111 added the ninth - the map's inner-run announcement, from that same
+    // scene table.
     expect(speakSiteFiles()).toEqual([
       "src/game/scenes/BeaconScene.ts",
       "src/game/scenes/BriefingScene.ts",
+      "src/game/scenes/DirectorMapScene.ts",
       "src/game/scenes/EarthActivationScene.ts",
       "src/game/scenes/EndingScene.ts",
       "src/game/scenes/FlightScene.ts",

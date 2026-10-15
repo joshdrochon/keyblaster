@@ -61,6 +61,7 @@ export const SFX_EVENTS = [
   "beacon",
   "uiNav",
   "comboUp",
+  "reveal",
 ] as const;
 
 export type SfxEventId = (typeof SFX_EVENTS)[number];
@@ -439,6 +440,15 @@ export const SFX_VARIANTS: Readonly<Record<SfxEventId, readonly SfxVariant[]>> =
   // plays it four times on the way up the meter. A triangle's harmonics are odd
   // only and fall at 1/n^2, which is ~18 dB down on the third partial against
   // the sawtooth's ~10 dB - the same rising drive without the electrical edge.
+  // The inner run opening. Noise through a rising bandpass - air moving past,
+  // not a note - so it reads as a thing arriving and never as a thing scoring.
+  // Sits just under `warp`, the game's loudest cue: this is the second biggest
+  // thing that happens to a pilot and it has to carry over Shadow's line.
+  reveal: table("reveal", [
+    { wave: "triangle", startHz: 220.0, endHz: 1174.66, durationMs: 760, attackMs: 48, peakGain: 0.32, filterKind: "bandpass", filterHz: 760, noise: 0.62, harshness: 0.08, pan: -0.12 },
+    { wave: "sine", startHz: 196.0, endHz: 1046.5, durationMs: 820, attackMs: 56, peakGain: 0.3, filterKind: "bandpass", filterHz: 680, noise: 0.68, harshness: 0.06, pan: 0.0 },
+    { wave: "triangle", startHz: 246.94, endHz: 1318.51, durationMs: 700, attackMs: 40, peakGain: 0.34, filterKind: "bandpass", filterHz: 860, noise: 0.58, harshness: 0.1, pan: 0.14 },
+  ]),
   warpCharge: table("warpCharge", [
     { wave: "triangle", startHz: 73.42, endHz: 293.66, durationMs: 1800, attackMs: 220, peakGain: 0.22, filterKind: "lowpass", filterHz: 1400, noise: 0.25, harshness: 0.12, pan: 0.0 },
     { wave: "sine", startHz: 87.31, endHz: 349.23, durationMs: 2000, attackMs: 260, peakGain: 0.2, filterKind: "lowpass", filterHz: 1800, noise: 0.18, harshness: 0.06, pan: -0.14 },

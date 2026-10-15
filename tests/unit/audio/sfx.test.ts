@@ -44,6 +44,8 @@ describe("AC-21.3: every event has >= 3 SFX variants", () => {
       // the point of listing them here rather than counting: an event cannot
       // appear in the game without somebody writing it into the AC first.
       "comboUp",
+      // D111: the inner run opening. Not a cue the player earns.
+      "reveal",
     ]);
   });
 
