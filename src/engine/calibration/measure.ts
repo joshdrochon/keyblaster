@@ -213,6 +213,31 @@ export const RITUAL_MIN_FK_SAMPLES = 2;
  * and `usedDefault*` says which measures fell back, so a caller can tell a
  * measured baseline from an assumed one.
  */
+/**
+ * WHAT TO BELIEVE WHEN A CHILD TYPED NOTHING.
+ *
+ * This used to be FR-8's 350 ms default, which is the FAST end - so a child who
+ * produced no samples flew her first belt at a pace built for a typist several
+ * times quicker, and nothing in the belt corrects a bad baseline (the live
+ * timing residual is measured but only reported). The only thing that would fix
+ * her is a later pre-flight she may never reach, because she loses the belt.
+ *
+ * THE GUESS IS ASYMMETRIC, SO IT SHOULD LEAN SLOW. A quick typist produces
+ * intervals in the first two seconds and is measured almost immediately; the
+ * child who gives twenty seconds of silence is overwhelmingly the slow one. So
+ * silence is read as slow rather than as average.
+ *
+ * THE COST OF BEING WRONG, BOTH WAYS. Guess fast and a slow child loses a belt
+ * she cannot win and never gets re-measured. Guess slow and a capable child who
+ * daydreamed through the ritual gets ONE gentle belt, types normally in it, and
+ * is measured properly at the next pre-flight. D31 picks the second every time.
+ *
+ * Not `MAX_IKI_MS`: that is the cap for a single stray sample, and pinning the
+ * whole baseline to it would read as "walked away" rather than "slow".
+ */
+export const UNMEASURED_IKI_MS = 1_300;
+export const UNMEASURED_FK_LATENCY_MS = 1_500;
+
 export function computeCalibration(
   steps: readonly RitualStepInput[],
 ): CalibrationResult {
@@ -245,11 +270,11 @@ export function computeCalibration(
     calibration: {
       ikiMs:
         ikiMedian === null
-          ? DEFAULT_CALIBRATION.ikiMs
+          ? UNMEASURED_IKI_MS
           : settleMs(ikiMedian, MIN_IKI_MS, MAX_IKI_MS),
       fkLatencyMs:
         fkMedian === null
-          ? DEFAULT_CALIBRATION.fkLatencyMs
+          ? UNMEASURED_FK_LATENCY_MS
           : settleMs(fkMedian, MIN_FK_LATENCY_MS, MAX_FK_LATENCY_MS),
     },
     steps: outcomes,

@@ -30,6 +30,8 @@ import {
   type CalibratableProfile,
   type Keystroke,
   type RitualStepInput,
+  UNMEASURED_IKI_MS,
+  UNMEASURED_FK_LATENCY_MS,
 } from "@engine/calibration/index.js";
 import {
   DEFAULT_CALIBRATION,
@@ -520,9 +522,18 @@ describe("computeCalibration (AC-11.1)", () => {
     expect(computeCalibration(steps).calibration.fkLatencyMs).toBe(MAX_FK_LATENCY_MS);
   });
 
-  it("falls back to DEFAULT_CALIBRATION when the ritual produced nothing (FR-8)", () => {
+  it("falls back to the SLOW baseline when the ritual produced nothing", () => {
+    // Silence used to be read as FR-8's 350 ms - the fast end - and nothing
+    // corrects a bad baseline inside a belt, so a child who typed nothing flew
+    // her first belt at a pace built for a typist several times quicker. The
+    // guess is asymmetric: a quick typist is measured within two seconds, so
+    // silence is overwhelmingly the slow child.
     const result = computeCalibration([]);
-    expect(result.calibration).toEqual(DEFAULT_CALIBRATION);
+    expect(result.calibration).toEqual({
+      ikiMs: UNMEASURED_IKI_MS,
+      fkLatencyMs: UNMEASURED_FK_LATENCY_MS,
+    });
+    expect(UNMEASURED_IKI_MS).toBeGreaterThan(DEFAULT_CALIBRATION.ikiMs);
     expect(result.usedDefaultIki).toBe(true);
     expect(result.usedDefaultFkLatency).toBe(true);
     expect(result.steps.map((s) => s.id)).toEqual(["hull", "systems", "engines"]);
@@ -541,7 +552,7 @@ describe("computeCalibration (AC-11.1)", () => {
     ];
     const result = computeCalibration(steps);
     expect(result.calibration.ikiMs).toBe(300);
-    expect(result.calibration.fkLatencyMs).toBe(DEFAULT_CALIBRATION.fkLatencyMs);
+    expect(result.calibration.fkLatencyMs).toBe(UNMEASURED_FK_LATENCY_MS);
     expect(result.usedDefaultIki).toBe(false);
     expect(result.usedDefaultFkLatency).toBe(true);
   });
@@ -561,8 +572,8 @@ describe("computeCalibration (AC-11.1)", () => {
     // sample is not a median, and after the assist landed this is the ordinary
     // way a sequence reaches its end having learned nothing.
     expect(result.usedDefaultFkLatency).toBe(true);
-    expect(result.calibration.fkLatencyMs).toBe(DEFAULT_CALIBRATION.fkLatencyMs);
-    expect(result.calibration.ikiMs).toBe(DEFAULT_CALIBRATION.ikiMs);
+    expect(result.calibration.fkLatencyMs).toBe(UNMEASURED_FK_LATENCY_MS);
+    expect(result.calibration.ikiMs).toBe(UNMEASURED_IKI_MS);
   });
 
   it("handles an abandoned step: no keystrokes at all", () => {

@@ -1,3 +1,5 @@
+import { RITUAL_MIN_FK_SAMPLES, RITUAL_MIN_IKI_SAMPLES } from "./measure.js";
+import { isDefaultCalibration } from "./history.js";
 import type { Calibration } from "../types.js";
 
 /**
@@ -349,6 +351,16 @@ export const PREFLIGHT_ASSIST_FLOOR_MS = 5_000;
 export const PREFLIGHT_ASSIST_CEILING_MS = 7_000;
 
 /**
+ * The FLAT window for a profile that has never been measured.
+ *
+ * Wide enough for the slowest child the ritual is meant to serve: at 1300 ms a
+ * key, the longest word the ritual shows needs 9.3 s. The ceremony's own clock
+ * (`shouldKeepAsking`) is what stops the screen, so this can afford to be
+ * generous - and a quick typist never meets it, because they have finished.
+ */
+export const PREFLIGHT_ASSIST_UNMEASURED_MS = 12_000;
+
+/**
  * How many words in a row the assist may carry a child past before the screen
  * stops asking altogether (D100).
  *
@@ -366,6 +378,37 @@ export const PREFLIGHT_ASSIST_CEILING_MS = 7_000;
 export const PREFLIGHT_ASSIST_GIVE_UP = 2;
 
 /**
+ * THE MEASUREMENT IS A FIXED SLICE OF TIME, NOT A COUNT OF WORDS.
+ *
+ * `PREFLIGHT_ASSIST_GIVE_UP` ends the ceremony after two carried words whatever
+ * has been collected, so the slowest child - the one most likely to be carried -
+ * is the one most likely to leave unmeasured and fly the belt on FR-8's
+ * default. Measured: an eight-year-old at 1300 ms a key is carried past every
+ * ritual word of four letters or more.
+ *
+ * Asking for a fixed TIME inverts that. The clock is known, the speed is what
+ * falls out of it, and there is no longer a circular dependency where the
+ * window is sized from the number it exists to measure.
+ *
+ * `shouldKeepAsking` is the rule: keep asking while the budget has room AND the
+ * measure is still short of what it needs. A child who has given enough is let
+ * through early; a child who has given nothing is still bounded by the clock.
+ */
+export function shouldKeepAsking(input: {
+  readonly elapsedMs: number;
+  readonly ikiSamples: number;
+  readonly fkSamples: number;
+  readonly budgetMs?: number;
+}): boolean {
+  const budget = input.budgetMs ?? RITUAL_BUDGET_MS;
+  const elapsed = Number.isFinite(input.elapsedMs) ? Math.max(0, input.elapsedMs) : 0;
+  if (elapsed >= budget) return false;
+  const iki = Number.isFinite(input.ikiSamples) ? input.ikiSamples : 0;
+  const fk = Number.isFinite(input.fkSamples) ? input.fkSamples : 0;
+  return iki < RITUAL_MIN_IKI_SAMPLES || fk < RITUAL_MIN_FK_SAMPLES;
+}
+
+/**
  * How long the screen should wait on one prompt before carrying the child past
  * it, ms.
  *
@@ -378,6 +421,21 @@ export function promptAssistMs(word: string, calibration: Calibration): number {
   const estimate =
     calibration.fkLatencyMs + Math.max(0, word.length - 1) * calibration.ikiMs;
   const scaled = Math.round(PREFLIGHT_ASSIST_FACTOR * estimate);
+  // UNMEASURED IS NOT THE SAME AS FAST. The window is sized from what the game
+  // believes, and on a new profile that belief is FR-8's 350 ms default - so
+  // the child the window exists to carry is exactly the child it is sized
+  // wrongly for. Measured: a 1300 ms/key eight-year-old needs 5.4 s on a
+  // four-letter word and is given 5.0, so she is carried past every word of
+  // four letters or more and the ritual learns nothing about her.
+  //
+  // The window is a DEADLINE, NOT A DELAY: a quick typist finishes long before
+  // it expires and never meets it, so a longer one costs them nothing. The
+  // whole ceremony is bounded by `RITUAL_BUDGET_MS` instead.
+  // Unmeasured: do not derive from the belief AT ALL. Scaling the default by 3
+  // still yields a window built for a 350 ms typist (5.0-7.8 s), which is short
+  // of the 9.3 s the slowest child needs on the longest ritual word. A flat,
+  // generous window is the only one that is not a guess about her.
+  if (isDefaultCalibration(calibration)) return PREFLIGHT_ASSIST_UNMEASURED_MS;
   if (scaled < PREFLIGHT_ASSIST_FLOOR_MS) return PREFLIGHT_ASSIST_FLOOR_MS;
   if (scaled > PREFLIGHT_ASSIST_CEILING_MS) return PREFLIGHT_ASSIST_CEILING_MS;
   return scaled;

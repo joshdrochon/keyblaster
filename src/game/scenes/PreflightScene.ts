@@ -17,6 +17,7 @@ import {
   type RitualStepInput,
   type RitualWordInput,
   computeCalibration,
+  shouldKeepAsking,
   foldLaunchCeremony,
   measureStep,
   planLaunchCeremony,
@@ -310,6 +311,8 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
   private assistAtMs: number | null = null;
   /** D100: words carried past back to back. Reset by any completed word. */
   private assistedInARow = 0;
+  /** The moment the first prompt went up; the measuring clock runs from here. */
+  private measuringFromMs: number | null = null;
   /** D100: set once `PREFLIGHT_ASSIST_GIVE_UP` is hit; no further prompts. */
   private stoppedAsking = false;
   private launchFold: LaunchFoldResult | null = null;
@@ -348,6 +351,7 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     this.prompt = null;
     this.assistAtMs = null;
     this.assistedInARow = 0;
+    this.measuringFromMs = null;
     this.stoppedAsking = false;
     this.launchFold = null;
     this.mode = "none";
@@ -934,6 +938,7 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
     // which left the full first-run ritual a hard gate (`UR-31`) - the one
     // screen where being stranded costs a child the whole game, because they
     // have not reached a single belt yet.
+    this.measuringFromMs ??= time;
     this.assistAtMs = time + promptAssistMs(word, this.calibration);
     // UR-101.2 fills the bar's clock half from this window, and it is DERIVED
     // from the deadline that was just armed rather than taken from a second
@@ -955,6 +960,34 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
    * intervals between the keys that did land and ignores the rest. There is no
    * third path in which anything is scored, marked or counted.
    */
+  /**
+   * Intervals banked so far, across the steps already closed AND the one in
+   * hand - a child carried past two words has still typed letters, and those
+   * are what the budget is being spent to collect.
+   */
+  private bankedSamples(): { iki: number; fk: number } {
+    const steps: RitualStepInput[] = [
+      ...this.played,
+      { id: RITUAL_STEPS[this.stepIndex]?.id ?? "systems", words: [...this.currentWords] },
+    ];
+    let iki = 0;
+    let fk = 0;
+    for (const step of steps) {
+      const outcome = measureStep(step);
+      iki += outcome.ikiSamplesMs.length;
+      fk += outcome.fkLatencySamplesMs.length;
+    }
+    return { iki, fk };
+  }
+
+  private bankedIkiSamples(): number {
+    return this.bankedSamples().iki;
+  }
+
+  private bankedFkSamples(): number {
+    return this.bankedSamples().fk;
+  }
+
   private retireWord(word: string): void {
     const shown = this.prompt?.shownAtMs ?? this.time.now;
     this.currentWords.push({ word, shownAtMs: shown, keystrokes: [...this.currentKeys] });
@@ -1160,7 +1193,23 @@ export class PreflightScene extends Phaser.Scene implements Snapshotable {
           // thrown away for not being finished.
           if (word !== null) this.retireWord(word);
           this.assistedInARow += 1;
-          if (this.assistedInARow >= PREFLIGHT_ASSIST_GIVE_UP) this.stoppedAsking = true;
+          // THE CLOCK DECIDES, NOT THE COUNT. Two carried words used to end the
+          // ceremony whatever had been collected, so the slowest child - the
+          // one most likely to be carried - was the one most likely to fly the
+          // belt on FR-8's default. `shouldKeepAsking` asks the two questions
+          // that actually matter: is there budget left, and is the measure
+          // still short. The old count is the floor, not the rule: a child who
+          // has already given enough is let through on it.
+          if (
+            this.assistedInARow >= PREFLIGHT_ASSIST_GIVE_UP &&
+            !shouldKeepAsking({
+              elapsedMs: time - (this.measuringFromMs ?? time),
+              ikiSamples: this.bankedIkiSamples(),
+              fkSamples: this.bankedFkSamples(),
+            })
+          ) {
+            this.stoppedAsking = true;
+          }
           this.nextWord(time);
         }
         break;

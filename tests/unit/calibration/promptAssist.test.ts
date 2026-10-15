@@ -15,6 +15,10 @@ import {
   type RitualStepInput,
 } from "@engine/calibration/index.js";
 import { DEFAULT_CALIBRATION, type Calibration } from "@engine/types.js";
+import {
+  UNMEASURED_FK_LATENCY_MS,
+  UNMEASURED_IKI_MS,
+} from "@engine/calibration/index.js";
 
 /**
  * D99 / D100 - THE PRE-FLIGHT SCREEN NEVER TRAPS A CHILD.
@@ -160,7 +164,18 @@ describe("computeCalibration's sample gate (AC-11.8, D100)", () => {
     const result = computeCalibration(untouched);
     expect(result.usedDefaultIki).toBe(true);
     expect(result.usedDefaultFkLatency).toBe(true);
-    expect(result.calibration).toEqual(DEFAULT_CALIBRATION);
+    // SILENCE IS READ AS SLOW, NOT AS AVERAGE. It used to fall back to the
+    // shipped 350 ms, which is the FAST end - and nothing corrects a bad
+    // baseline inside a belt, so a child who typed nothing flew her first belt
+    // at a pace built for a typist several times quicker. The guess is
+    // asymmetric: a quick typist produces intervals in the first two seconds
+    // and is measured almost at once, so twenty seconds of silence is
+    // overwhelmingly the slow child.
+    expect(result.calibration).toEqual({
+      ikiMs: UNMEASURED_IKI_MS,
+      fkLatencyMs: UNMEASURED_FK_LATENCY_MS,
+    });
+    expect(UNMEASURED_IKI_MS).toBeGreaterThan(DEFAULT_CALIBRATION.ikiMs);
     // And it says so. A caller cannot tell a measured baseline from an assumed
     // one by looking at the numbers, so the flags are the only honest signal.
     expect(result.steps.every((s) => !s.attempted)).toBe(true);
@@ -181,7 +196,7 @@ describe("computeCalibration's sample gate (AC-11.8, D100)", () => {
     expect(result.steps[1]!.ikiSamplesMs).toEqual([410]);
     // Measured, and reported, and NOT believed.
     expect(result.usedDefaultIki).toBe(true);
-    expect(result.calibration.ikiMs).toBe(DEFAULT_CALIBRATION.ikiMs);
+    expect(result.calibration.ikiMs).toBe(UNMEASURED_IKI_MS);
   });
 
   it("AC-11.8: one word-start latency is not a baseline either", () => {
@@ -194,7 +209,7 @@ describe("computeCalibration's sample gate (AC-11.8, D100)", () => {
     const result = computeCalibration(oneLatency);
     expect(result.steps[0]!.fkLatencySamplesMs).toEqual([640]);
     expect(result.usedDefaultFkLatency).toBe(true);
-    expect(result.calibration.fkLatencyMs).toBe(DEFAULT_CALIBRATION.fkLatencyMs);
+    expect(result.calibration.fkLatencyMs).toBe(UNMEASURED_FK_LATENCY_MS);
   });
 
   it("AC-11.8: the gate opens exactly at the documented sample counts", () => {
@@ -214,7 +229,7 @@ describe("computeCalibration's sample gate (AC-11.8, D100)", () => {
     ];
     const held = computeCalibration(withIntervals(RITUAL_MIN_IKI_SAMPLES - 1));
     expect(held.usedDefaultIki).toBe(true);
-    expect(held.calibration.ikiMs).toBe(DEFAULT_CALIBRATION.ikiMs);
+    expect(held.calibration.ikiMs).toBe(UNMEASURED_IKI_MS);
 
     const believed = computeCalibration(withIntervals(RITUAL_MIN_IKI_SAMPLES));
     expect(believed.usedDefaultIki).toBe(false);
