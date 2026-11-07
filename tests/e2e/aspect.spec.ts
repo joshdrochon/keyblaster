@@ -347,6 +347,32 @@ test.describe("D99: the game fills the window at every aspect ratio", () => {
   }
 });
 
+// D112: below 16:9 the bottom bar was near-black and the top one blue, which read as the game shoved down.
+test("AC-22.11 the top and bottom bars are the same colour on a 4:3 screen", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await bootTitle(page);
+  const rows = await page.evaluate(() => {
+    const kb = (window as unknown as { __kb: Record<string, unknown> }).__kb;
+    const { barY } = (kb["backdrop"] as { debug(): { barY: number } }).debug();
+    const c = document.querySelector<HTMLCanvasElement>("[data-testid=viewport-backdrop]")!;
+    const ctx = c.getContext("2d")!;
+    const scale = c.height / innerHeight;
+    // The most common colour along a row ignores the scattered stars.
+    const modeOf = (cssY: number): string => {
+      const { data } = ctx.getImageData(0, Math.round(cssY * scale), c.width, 1);
+      const counts = new Map<string, number>();
+      for (let i = 0; i < data.length; i += 4) {
+        const key = `${data[i]},${data[i + 1]},${data[i + 2]}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]![0];
+    };
+    return { barY, top: modeOf(barY / 2), bottom: modeOf(innerHeight - barY / 2) };
+  });
+  expect(rows.barY, "a 4:3 screen has a bar above and below").toBeGreaterThan(20);
+  expect(rows.bottom, "the bottom bar matches the top bar").toBe(rows.top);
+});
+
 /**
  * DRAGGING THE WINDOW. The design width follows the window, so it has to keep
  * following it after boot - otherwise the first drag puts the bars straight

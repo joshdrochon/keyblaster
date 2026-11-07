@@ -145,8 +145,8 @@ describe("the board's shape holds", () => {
     // happy about - it exists to catch the parser going quiet, not to freeze
     // the PRD. +4 again for D103/D104/D107's AC-27.1..27.4 (the inner run),
     // +2 for D109's AC-27.5/.6 (Venus's cloud). +1 for D111's AC-27.7 (the
-    // inner run announcing itself).
-    expect(tickets.filter((t: { kind: string }) => t.kind === "ac")).toHaveLength(127);
+    // inner run announcing itself). +1 for D112's AC-22.11 (matching letterbox bars).
+    expect(tickets.filter((t: { kind: string }) => t.kind === "ac")).toHaveLength(128);
     expect(tickets.filter((t: { kind: string }) => t.kind === "rubric")).toHaveLength(33);
   });
 

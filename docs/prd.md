@@ -217,6 +217,7 @@ KeyBlaster is a 2D high-fidelity vertical scroller for grades 2–5 in which the
 - AC-22.8 Word label contrast ratio ≥ 4.5:1 against its plate. → U.
 - AC-22.9 60 fps: p95 frame time ≤ 16.7 ms over a 60 s scripted flight in headless Chromium. → P.
 - AC-22.10 The world is space, not terrain (D97). No parallax layer renders a landform silhouette that terminates in a flat base with sky visible beneath it; depth is carried by ring planes seen edge-on, a planet limb, nebula bands, dust fields and distant debris, none of which require a ground plane. → U (no terrain tile in the layer build) + V (no flat-based mass suspended in sky, measured on a captured frame).
+- AC-22.11 On a screen taller than 16:9 (an iPad, a 4:3 laptop) the game is centred with a bar above and below, and the two bars are the same colour (D112). → E.
 
 ### 3.11 Craft and safety invariants (D31, D83, D89, D90, D91)
 

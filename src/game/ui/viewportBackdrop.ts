@@ -53,18 +53,9 @@ import type { StopId } from "@engine/types";
  *   why only the WIDTH flexes.
  *
  * ================== WHAT IT DRAWS ==================
- * A canvas behind the game canvas, filling the window, carrying the CURRENT
- * STOP'S sky: the same three gradient stops `render/parallax.ts` uses for the
- * `sky` layer, laid out against the SAME design rect, so the bar and the game
- * are the same colour where they meet. Over it, a seeded starfield tinted the
+ * A canvas behind the game canvas, filling the window in the current stop's
+ * top sky colour, so the bars above and below a centred game match (D112). Over it, a seeded starfield tinted the
  * way the `celestial` layer tints its own.
- *
- * There is deliberately no vignette and no lightening of the dark end. The
- * first version had both, and the result was a clean seam down the side of the
- * play-field: the bars had stopped being black and started being a frame,
- * which is a different defect with the same cause. At 16:10 the bottom bar is
- * therefore nearly black - correctly, because the game's own sky ends in the
- * palette's void colour exactly there, and the bar is that void continuing.
  *
  * All of it is drawn in code (D83). No raster is referenced, here or anywhere.
  *
@@ -200,31 +191,10 @@ export function installViewportBackdrop(
     ctx.clearRect(0, 0, w, h);
 
     const palette = paletteAt(stopId, colorblind());
-    const [top, mid, deep] = skyStops(palette);
+    const [top] = skyStops(palette);
 
-    /**
-     * THE SKY, AND IT IS THE SAME SKY.
-     *
-     * The gradient is laid out against the DESIGN RECT, not the window, with
-     * the three stops at 0 / 0.5 / 1 - which is exactly what
-     * `render/parallax.ts`'s `gradient()` does for the `sky` layer inside the
-     * game. So at the canvas edge the two are the same colour and the bar is a
-     * continuation rather than a second, darker sky sitting next to the first.
-     *
-     * Getting this wrong is visible immediately: the first version used the
-     * window height and added a vignette, and the result was a clean seam down
-     * the side of the play-field - the bars had stopped being black and started
-     * being a frame, which is a different defect with the same cause.
-     *
-     * A canvas gradient clamps outside its endpoints, so the bar beyond the
-     * design rect holds the end colour and the join stays seamless.
-     */
-    const rect = designRect(w, h);
-    const sky = ctx.createLinearGradient(0, rect.y, 0, rect.y + rect.h);
-    sky.addColorStop(0, top);
-    sky.addColorStop(0.5, mid);
-    sky.addColorStop(1, deep);
-    ctx.fillStyle = sky;
+    // Both bars take the top sky colour so they match, like a letterboxed film (D112).
+    ctx.fillStyle = top;
     ctx.fillRect(0, 0, w, h);
 
     /**
